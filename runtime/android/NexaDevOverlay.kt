@@ -21,6 +21,10 @@ import org.json.JSONObject
 
 internal fun nexaDevColor(value: JSONObject?, isDark: Boolean): Color? {
     value ?: return null
+    val wrapped = value.optJSONObject("Static")
+    if (wrapped != null && (wrapped.has("Static") || wrapped.has("Adaptive"))) {
+        return nexaDevColor(wrapped, isDark)
+    }
     val payload = value.optJSONObject("Static")
         ?: value.optJSONObject("Adaptive")?.optJSONObject(if (isDark) "dark" else "light")
         ?: return null
@@ -29,6 +33,23 @@ internal fun nexaDevColor(value: JSONObject?, isDark: Boolean): Color? {
         green = payload.optInt("green", 0) / 255f,
         blue = payload.optInt("blue", 0) / 255f,
         alpha = payload.optInt("alpha", 255) / 255f,
+    )
+}
+
+internal fun nexaDevHexColor(value: String): Color? {
+    val digits = value.removePrefix("#")
+    val packed = digits.toLongOrNull(16) ?: return null
+    val channels = when (digits.length) {
+        6 -> Triple((packed shr 16) and 0xFF, (packed shr 8) and 0xFF, packed and 0xFF)
+        8 -> Triple((packed shr 24) and 0xFF, (packed shr 16) and 0xFF, (packed shr 8) and 0xFF)
+        else -> return null
+    }
+    val alpha = if (digits.length == 8) (packed and 0xFF).toFloat() / 255f else 1f
+    return Color(
+        red = channels.first.toFloat() / 255f,
+        green = channels.second.toFloat() / 255f,
+        blue = channels.third.toFloat() / 255f,
+        alpha = alpha,
     )
 }
 

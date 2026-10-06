@@ -25,6 +25,58 @@ In Nexa source, use `Float32` and `Float64`; `Float` and `Double` are native out
 
 `Void` is not a general app value type. It is used as the return type of void methods in native plugin contracts.
 
+Core API calls accept positional arguments in the parameter order shown in this
+guide. You can keep a parameter name when it makes a call clearer, including
+after positional arguments:
+
+```nexa
+let theme = Storage.getString("theme")
+Storage.setString("theme", value: "dark")
+let price = Number.formatCurrency(1234.5, "EUR")
+```
+
+Positional and named arguments lower to the same statically typed native call;
+you can use named arguments for optional settings or when the order is unclear.
+
+## Classes
+
+Use a class when a value has stable identity, owns a long-lived resource, or
+groups behavior with immutable state. Constructor `val` parameters become
+stored properties. Body `let` properties are initialized once when the native
+object is constructed. Instance methods use `this` when needed; a field can
+also be referred to by its name inside a method.
+
+```nexa
+class SettingsStorage(val storageID: String) {
+    static let defaultStorageID: String = "settings"
+    static fn forDefaultStorage() -> SettingsStorage {
+        return SettingsStorage(SettingsStorage.defaultStorageID)
+    }
+    let store = MMKV.MMKVStore(storageID, null, false)
+
+    fn loadTheme() -> String? {
+        return store.getString("theme")
+    }
+}
+
+let settingsStorage = SettingsStorage("settings")
+let theme = settingsStorage.loadTheme()
+let defaultID = SettingsStorage.defaultStorageID
+let defaultStorage = SettingsStorage.forDefaultStorage()
+```
+
+Imported `.nx` declarations are available throughout the app after import
+resolution. A module-level instance is emitted once and can be shared by
+components without constructing storage objects during renders or disposing
+the native MMKV handle after each call. Nexa emits a native Swift class on iOS
+and Kotlin class on Android; class values have reference identity. The initial
+class slice supports immutable properties, typed instance methods, immutable
+class-level `static let` properties, and typed `static fn` methods. Static
+values and functions use `ClassName.member` syntax; Swift emits `static` class
+members and Kotlin emits companion members. Static functions may be async with
+`static async fn` and must be called with `await`. Interfaces, inheritance,
+overloads, generics, throwing methods, and implicit disposal are not supported.
+
 ## Optional and collection types
 
 - `T?` is an optional value.
@@ -35,6 +87,19 @@ In Nexa source, use `Float32` and `Float64`; `Float` and `Double` are native out
 - `Result<T, E>` represents a success value or a typed error value.
 
 Set elements and map keys must be supported scalar/hashable types. Nexa collection syntax uses `Array<T>`, not `List<T>`; `List` is the Kotlin target type emitted for `Array<T>`.
+
+Mutable collection state supports direct action methods: arrays use
+`append(value)`, `remove(index)`, `move(from, to)`, and
+`moveSubset(from, to, orderedSubset)`; sets use
+`insert(value)` and `remove(value)`; maps use `set(key, value)` and
+`remove(key)`. `Array.move` takes two `Int32` indexes and moves the source
+element to the destination index when both indexes exist; invalid indexes are
+ignored. It is a collection operation; list drag gestures remain a separate UI
+capability.
+`Array.moveSubset` is for moving rows from a stable-order filtered view. It
+updates only the corresponding entries in the backing array, leaving hidden
+entries in place. The subset must preserve the backing array's order and must
+not be an independently sorted projection.
 
 ## Apps, state, and conditions
 
@@ -67,6 +132,8 @@ Numeric expressions support `+`, `-`, `*`, `/`, and `%`, plus unary negation. Mu
 
 The `+` operator also concatenates two `String` values. It emits the native Swift or Kotlin string operator. The unary `!` operator negates a `Bool`.
 
+Strings expose the typed `trimmed` property to remove leading and trailing whitespace and newlines: `let cleanName = name.trimmed`. It lowers to the native string trimming APIs on iOS and Android.
+
 Arrays, sets, and maps expose `count` as `Int32` and `isEmpty` as `Bool`:
 
 ```nexa
@@ -82,7 +149,7 @@ app CollectionExample {
 }
 ```
 
-Arrays also support `random()`, `first()`, `last()`, `shuffled()`, `reverse()`, and `slice(range)`:
+Arrays also support `random()`, `first()`, `last()`, `shuffled()`, `reverse()`, `slice(range)`, and `take(count)`:
 
 ```nexa
 app ArrayUtilities {
@@ -93,6 +160,7 @@ app ArrayUtilities {
     state randomized: Array<Int32> = values.shuffled()
     state reversed: Array<Int32> = values.reverse()
     state middle: Array<Int32> = values.slice(1..<3)
+    state firstThree: Array<Int32> = values.take(3)
 
     body {
         Text(selected ?? 0)
@@ -101,13 +169,29 @@ app ArrayUtilities {
         Text(randomized.count)
         Text(reversed.count)
         Text(middle.count)
+        Text(firstThree.count)
     }
 }
 ```
 
-`random()`, `first()`, and `last()` return an optional element because an empty array has no value to return. `first()` and `last()` access the existing array without creating a copy. `shuffled()`, `reverse()`, and `slice` return a new array. `slice` takes one unstepped range; `..` includes its upper index and `..<` excludes it. Indices must be valid for the source array.
+Use `sortedBy` with a closure that returns a `String` or numeric key to create a
+sorted copy of an array. The source array keeps its existing order.
 
-Arrays also support typed closure transforms with `map`, `filter`, and `reduce`. Use the infix `in` operator for collection membership: arrays and sets check scalar elements, while maps check scalar keys. There is no `.contains()` alias because it would duplicate `in`.
+```nexa
+app SortExample {
+    state values: Array<Int32> = [3, 1, 2]
+
+    body {
+        FastList(values.sortedBy { value -> value }) { value, index in
+            Text(value)
+        }
+    }
+}
+```
+
+`random()`, `first()`, and `last()` return an optional element because an empty array has no value to return. `first()` and `last()` access the existing array without creating a copy. `shuffled()`, `reverse()`, `slice`, and `take` return a new array. `slice` takes one unstepped range; `..` includes its upper index and `..<` excludes it. Indices must be valid for the source array. `take(count)` returns up to `count` elements from the start, and treats a negative count as zero on both platforms.
+
+Arrays also support typed closure transforms with `map`, `flatMap`, `filter`, `reduce`, and `groupedBy`. `flatMap` maps each source item to an array and concatenates those results in source order. `groupedBy` accepts a `String` or numeric key and keeps groups in the order their keys first appear. Use it after sorting when section order should follow the sorted source. Use the infix `in` operator for membership: arrays and sets check scalar elements, maps check scalar keys, and strings check for a case-insensitive substring. For example, `"meeting" in task.content` matches `"Team Meeting"` on iOS and Android.
 
 Text styles can be chained after a component call. For example, `Text("Hi").fontSize(18).bold().padding(12)` is equivalent to setting `fontSize: 18`, `fontWeight: Bold`, and `padding: 12` in the `Text` arguments. `Text`, `Column`, `Row`, and `Stack` also accept `.opacity(value)`, `.scale(value)`, `.rotation(degrees)`, `.shadow(radius: 8, x: 0, y: 4, color: "#00000040")`, `.blur(radius)`, `.clip(shape: Rounded(radius))`, and `.zIndex(value)`.
 
@@ -227,6 +311,90 @@ app ProfileApp {
 
 App-local functions currently use typed parameters, immutable local `let` bindings, and one return expression. Struct constructors take field values in declaration order.
 
+Imported source modules can also declare immutable file-scope `let` bindings.
+The compiler emits each as one native module-level value (`private let` in
+Swift and `private val` in Kotlin), initialized lazily once per process. This
+is appropriate for long-lived services such as a SQLite connection owned by a
+standalone persistence module; it is not UI state and is never recreated by
+view recomposition. Mutable `state` remains app or screen scoped.
+
+```nexa
+plugin "dev.nexa.sqlite" as SQLite
+
+let todoDatabase = SQLite.Database("todo", true)
+
+struct TaskCount {
+    value: Int64
+}
+
+async fn loadOpenTaskCount() -> Int64 {
+    let rows: Array<TaskCount> = await todoDatabase.query(
+        "SELECT COUNT(*) AS value FROM tasks WHERE isCompleted = ?",
+        [false]
+    )
+    return rows.first()?.value ?? 0
+}
+```
+
+### SQLite plugin calls and reactive queries
+
+SQLite is used through ordinary Nexa classes and functions. A top-level value
+can retain the long-lived native database handle, while migrations and SQL stay
+as ordinary typed values:
+
+```nexa
+plugin "dev.nexa.sqlite" as SQLite
+
+struct TodoItem {
+    id: Int64,
+    title: String,
+    completed: Bool,
+}
+
+let todoDatabase = SQLite.Database("todo", true)
+let todoMigrations = [
+    SQLite.Migration(1, [
+        "CREATE TABLE todos (id INTEGER PRIMARY KEY, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0)"
+    ])
+]
+
+app TodoApp {
+    state todos: Array<TodoItem> = []
+
+    body {
+        OnAppear async {
+            try {
+                let version = await todoDatabase.migrate(todoMigrations)
+                todos = await todoDatabase.query<TodoItem>(
+                    "SELECT id, title, completed FROM todos WHERE completed = ? ORDER BY id DESC",
+                    [false]
+                )
+            } catch {
+                else { Log.error(message: "Could not open the todo database") }
+            }
+        }
+
+        Text("Todo list")
+    }
+}
+```
+
+When the handle and migration history are statically resolvable, the compiler
+replays the migrations and checks literal typed-query SQL against the resulting
+schema. Query results map by field name, use native typed column reads, and
+require optional fields for columns that may be `NULL`. SQL bind slots must
+match the parameter array. The compiler uses a bundled SQLite engine; generated
+apps use the operating system's SQLite library. Project checks warn when known
+SQL features may exceed the configured platform minimum.
+
+Use `queryRaw` and `executeRaw` for dynamic SQL. Typed `query` and `execute`
+remain ordinary plugin calls and receive compile-time checks when their SQL is
+static. For reactive queries, `observeQuery<T>(sql, params)` returns a typed
+`Signal<Array<T>>` that invalidates automatically when underlying tables are
+mutated via `executeTracked` or cross-process notifications. `observeTables` and
+`attachTables` provide explicit table-targeted invalidation. Widget refresh
+timing remains controlled by iOS WidgetKit or Android's widget host.
+
 ### In-language tests
 
 Declare named tests at the top level of any imported `.nx` file. A test may
@@ -331,7 +499,7 @@ app ResultExample {
 
 ## JSON
 
-`Json.parse<T>(raw:)` decodes a concrete Nexa value type and returns `Result<T, JsonError>`. `Json.stringify(value:)` encodes a value to a JSON string. The type is resolved at compile time, so model decoding uses generated typed codecs rather than reflection or an untyped object map.
+`Json.parse<T>(text)` decodes a concrete Nexa value type and returns `Result<T, JsonError>`. `Json.stringify(value)` encodes a value to a JSON string. Named forms (`raw: text` and `value: profile`) are also accepted. The type is resolved at compile time, so model decoding uses generated typed codecs rather than reflection or an untyped object map.
 
 Supported values include strings, booleans, numbers, bytes, optionals, arrays, sets, string-keyed maps, pairs, triples, results, declared enums, and declared structs composed from those types. Bytes use Base64 strings; enums use their case names; pairs and triples use JSON arrays; results use a one-key `success` or `failure` object. Maps require `String` keys. Unknown struct fields are ignored while decoding, and missing required fields return `JsonError.missingField`.
 
@@ -343,11 +511,11 @@ struct UserProfile {
 
 app JsonExample {
     fn parseAndEncode(raw: String) -> String {
-        let profile: Result<UserProfile, JsonError> = Json.parse<UserProfile>(raw: raw)
-        return Json.stringify(value: profile)
+        let profile: Result<UserProfile, JsonError> = Json.parse<UserProfile>(raw)
+        return Json.stringify(profile)
     }
 
-    state raw: String = Json.stringify(value: UserProfile("Ada", 37))
+    state raw: String = Json.stringify(UserProfile("Ada", 37))
     state status: String = "Not parsed yet"
 
     body {
@@ -418,6 +586,35 @@ app ReceiptUploader {
 | `Time.sleep(milliseconds: Int64)` | `Void` | Suspends the caller |
 | `Time.iso8601(timestamp: Int64)` | `String` | The instant as `yyyy-MM-ddTHH:mm:ss.SSSZ` in UTC |
 | `Time.iso8601ToMillis(text: String)` | `Int64?` | The inverse, or `null` when the text is not that layout |
+| `Time.startOfDay(timestamp: Int64)` | `Int64` | Local calendar start of the timestamp's day |
+| `Time.addCalendarDays(timestamp: Int64, days: Int32)` | `Int64` | Advances by local calendar days while preserving wall-clock time across daylight-saving changes |
+| `Time.localizedDate(timestamp: Int64)` | `String` | Native-locale date, using the device's current locale and time zone |
+| `Time.localizedTime(timestamp: Int64)` | `String` | Native-locale time, using the device's current locale and time zone |
+| `Time.localizedDateTime(timestamp: Int64)` | `String` | Native-locale date and time, using the device's current locale and time zone |
+| `Time.format(timestamp: Int64, pattern: String)` | `String` | Formats with the device locale and time zone using a cached native formatter |
+
+Use calendar arithmetic for relative dates rather than adding a fixed number of milliseconds:
+
+```nexa
+let tomorrow = Time.addCalendarDays(timestamp: Time.now(), days: 1)
+```
+
+Use the localized formatters for labels intended for people. Timestamps are milliseconds since the Unix epoch, just like `Time.now()`; each platform chooses its native short date and short time styles:
+
+```nexa
+let dueAt: Int64 = Time.now()
+let dueDate = Time.localizedDate(dueAt)
+let dueTime = Time.localizedTime(dueAt)
+let dueLabel = Time.localizedDateTime(dueAt)
+let taskDate = Time.format(dueAt, "d MMM, HH:mm")
+```
+
+Use `Time.format` when the app needs the same date layout as its design on both platforms. It uses the current device locale and time zone, and caches the native formatter by locale, time zone, and pattern so repeated list rows reuse it:
+
+```nexa
+let date = Time.format(dueAt, "d MMM")
+let dateAndTime = Time.format(dueAt, "d MMM, HH:mm")
+```
 
 The two clocks are separate on purpose. `Time.now()` is a wall clock: it can jump when the system time is corrected, so it answers *when* something happened. `Time.monotonic()` never moves backwards, so it is the only one that can answer *how long* something took:
 
@@ -455,7 +652,47 @@ let startedAt = Time.monotonic()
 let elapsedNanoseconds = Time.elapsed(since: startedAt)
 ```
 
-`Time.iso8601` and `Time.iso8601ToMillis` are hand-implemented on both platforms with the same leap-year rules rather than a formatter, so a timestamp written on one target reads on the other. The layout is UTC and locale-independent, and the fractional part is optional when parsing. This is deliberately not a display format: there is no localized or timezone-aware date formatting, because its output would differ between devices and between platforms.
+`Time.iso8601` and `Time.iso8601ToMillis` are hand-implemented on both platforms with the same leap-year rules rather than a formatter, so a timestamp written on one target reads on the other. The layout is UTC and locale-independent, and the fractional part is optional when parsing. `Time.startOfDay` uses the device's current calendar and returns a timestamp suitable for app-defined grouping keys. `Time.addCalendarDays` also uses the current calendar, so advancing over a daylight-saving boundary preserves the local wall-clock time instead of adding a fixed 24 hours. The `localized*` methods intentionally follow the operating system's locale, time zone, and native formatting conventions, so their exact strings may differ between iOS and Android.
+
+## Alternate app icons
+
+Declare alternate icon assets in `nexa.config.nx`. iOS entries point to Xcode `.icon` assets. Android alternate icons must be icon-set directories so every selectable icon has adaptive foreground and background layers. A default Android icon must also be configured through `android.icon` or the shared `assets.icon`. Matching directory names share the same name in app code:
+
+```nexa
+ios {
+    icon: "assets/Icon.icon",
+    alternateIcons: ["assets/IconBlue.icon", "assets/IconGreen.icon"]
+}
+android {
+    icon: "assets/icons/Default",
+    alternateIcons: ["assets/icons/Blue", "assets/icons/Green"]
+}
+```
+
+An Android icon-set directory contains the legacy `icon.png` fallback and separate `foreground` and `background` layers. Each layer may be a square PNG or an Android drawable XML file; `monochrome.png` or `monochrome.xml` is optional. Nexa emits density-sized legacy assets, adaptive icon XML for Android 8.0+, and the monochrome element for Android 13+ when present. Sibling icon sets can reuse `shared/foreground.*` and `shared/monochrome.*` files from their common parent. Keep foreground artwork inside the centered 66-by-66 dp safe zone of the 108-by-108 dp layer. The primary icon may still be a flat PNG when adaptive layers are not needed.
+
+```text
+assets/icons/
+├── Default/
+│   ├── icon.png
+│   └── background.xml
+├── Blue/
+│   ├── icon.png
+│   └── background.xml
+└── shared/
+    ├── foreground.xml
+    └── monochrome.xml
+```
+
+Set a configured icon with `AppIcon.set(name)`. Passing `null` restores the default icon. The result is `false` when the platform cannot apply that icon or the name is not configured:
+
+```nexa
+Task.launch {
+    let applied = await AppIcon.set("IconBlue")
+}
+```
+
+The compiler registers iOS alternate icons in the generated Xcode target and Android icons as launcher aliases. The API is native on both platforms and does not require a plugin.
 
 ## Currency formatting
 
@@ -472,6 +709,69 @@ app PriceExample {
 ```
 
 The formatter uses the platform locale at the time of the call. Updating device locale or currency data can therefore change its output. The call is supported by the native AOT backends and DevRuntime.
+
+## Language and locale
+
+Nexa localizes UI copy from the text already written in `.nx`; translation keys are never authored by hand. Add translator context where it helps explain intent:
+
+```nexa
+Text("Save", comment: "Button to persist the user's profile")
+Text("Welcome, \(userName)!", comment: "Greeting shown at the top of the screen")
+Button("Continue", comment: "Moves to the next onboarding step") { page = page + 1 }
+TextInput(value: userName, placeholder: "Your name", comment: "Prompt for the person's name")
+```
+
+The first project compilation creates `locales/translations.json`; later project compilations synchronize it with the UI text in the AST, and write the file only when its contents change. The file keeps source text as the key and stores translator values by BCP 47 language tag. Nexa preserves translations for unchanged source text, so you only need to translate new or changed strings. Since the literal is the key, editing a string creates a new entry and drops the old entry; removing a string also removes its entry. Existing translations for all other strings remain intact.
+
+```json
+{
+  "format": 1,
+  "sourceLanguage": "en",
+  "strings": {
+    "Save": {
+      "source": "Save",
+      "comment": "Button to persist the user's profile",
+      "arguments": [],
+      "translations": { "fr": "Enregistrer" }
+    },
+    "{count} task in Inbox": {
+      "source": "{count} task in Inbox",
+      "comment": "Task count in the Inbox",
+      "arguments": ["count"],
+      "argument_types": ["Int32"],
+      "translations": {
+        "en": {
+          "one": "{count} task in Inbox",
+          "other": "{count} tasks in Inbox"
+        },
+        "fr": {
+          "one": "{count} tâche dans la boîte de réception",
+          "other": "{count} tâches dans la boîte de réception"
+        }
+      }
+    }
+  }
+}
+```
+
+For interpolated copy, Nexa records each argument name and type. Translators can move placeholders, and integer `count` text produces native plural resources. Add forms for the source language too when its singular and plural wording differs; Nexa cannot infer plural wording from the source literal alone. iOS emits SwiftUI `Text` literals with their comments and a generated `Localizable.xcstrings` catalog. Android receives stable resource names, `strings.xml` or plural resources, and Compose `stringResource` calls. Missing translations fall back to the source text.
+
+In `nexa dev`, edits to `locales/translations.json` travel over the existing WebSocket connection and update visible text in memory. Native resource files are regenerated for normal builds.
+
+Language information remains available through the built-in APIs:
+
+```nexa
+let language: String = Locale.currentLanguageCode()
+let preferred: Array<String> = Locale.preferredLanguageCodes()
+let frenchName: String? = Locale.displayName("fr")
+let frenchNameWithLabel: String? = Locale.displayName(languageCode: "fr")
+let notificationTitle: String = Locale.localized("Reminder")
+let welcomeMessage: String = Locale.localized("Welcome, \(name)!")
+```
+
+`currentLanguageCode()` returns the current language subtag (for example, `fr`). `preferredLanguageCodes()` returns the device's ordered BCP 47 preferences (for example, `fr-CA`, then `en-US`). `displayName` accepts either the simple positional form or its explicit parameter label.
+
+Write user-visible text directly in UI components whenever possible; Nexa extracts those literals automatically. Use `Locale.localized("source text")` when a localized string must be passed to a native API, such as a notification title or email body. The source text itself is the translation key, and interpolated source text keeps its typed arguments. This API takes exactly one positional source-text argument and does not require a separate key or argument arrays. Extraction includes calls inside top-level functions, state initializers, lifecycle actions, screens, components, and widget providers.
 
 ## Cryptography
 
@@ -508,6 +808,8 @@ app Preferences {
 
 The iOS implementation uses the app's `UserDefaults` domain and the Android implementation uses a dedicated private `SharedPreferences` file. Calls are synchronous and available through DevRuntime hot reload. Use `SecureStorage` for credentials and other secrets; ordinary `Storage` is not encrypted.
 
+Generated Android hosts follow the system day/night setting: their Material 3 color scheme and native window theme switch together. Generated iOS hosts follow the system appearance by default. Wrap content in `Appearance(mode: "system" | "light" | "dark")` to override the scheme, and pass a `String` state to switch it at runtime. Store the selected value with `Storage` or another persistence package when the app needs to remember the user's choice.
+
 ## Background tasks
 
 Declare periodic work at app scope. The task body is compiled into the native host and cannot read or mutate screen state, because the operating system may launch it after the app process has stopped:
@@ -536,7 +838,17 @@ Task handlers are AOT code. In a `nexa dev` session, editing a background task d
 
 ### Foreground tasks
 
-Use a `TaskHandle?` state to retain and cancel one native task. Launching into the same handle cancels its previous task first:
+Use `Task.launch(executor: ...)` for lifecycle-scoped fire-and-forget work. Each launch runs independently, so a later launch does not cancel an earlier one:
+
+```nexa
+Button("Refresh") {
+    Task.launch(executor: TaskExecutor.Main) {
+        refreshData()
+    }
+}
+```
+
+Use a `TaskHandle?` state when you need to retain and cancel one native task. Launching into the same handle cancels its previous task first:
 
 ```nexa
 app TaskExample {

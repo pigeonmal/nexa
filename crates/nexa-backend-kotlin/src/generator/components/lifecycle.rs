@@ -119,13 +119,21 @@ pub(crate) fn render_on_disappear(
 }
 
 pub(crate) fn render_app(module: &Module, depth: usize, out: &mut SourceWriter) {
-    if module.on_active.is_none() && module.on_inactive.is_none() && module.on_background.is_none()
+    if module.on_active.is_none()
+        && module.on_inactive.is_none()
+        && module.on_background.is_none()
+        && module.widgets.is_empty()
     {
         return;
     }
     let indent = "    ".repeat(depth);
     let nested = "    ".repeat(depth + 1);
     let deep = "    ".repeat(depth + 2);
+    if !module.widgets.is_empty() {
+        out.push_str(&format!(
+            "{indent}val nexaWidgetContext = LocalContext.current.applicationContext\n"
+        ));
+    }
     out.push_str(&format!(
         "{indent}val nexaLifecycleOwner = LocalLifecycleOwner.current\n"
     ));
@@ -136,9 +144,27 @@ pub(crate) fn render_app(module: &Module, depth: usize, out: &mut SourceWriter) 
         "{nested}val nexaLifecycleObserver = LifecycleEventObserver {{ _, event ->\n"
     ));
     out.push_str(&format!("{deep}when (event) {{\n"));
-    render_lifecycle_case("ON_RESUME", module.on_active.as_deref(), depth + 3, out);
-    render_lifecycle_case("ON_PAUSE", module.on_inactive.as_deref(), depth + 3, out);
-    render_lifecycle_case("ON_STOP", module.on_background.as_deref(), depth + 3, out);
+    render_lifecycle_case(
+        "ON_RESUME",
+        module.on_active.as_deref(),
+        &[],
+        depth + 3,
+        out,
+    );
+    render_lifecycle_case(
+        "ON_PAUSE",
+        module.on_inactive.as_deref(),
+        &[],
+        depth + 3,
+        out,
+    );
+    render_lifecycle_case(
+        "ON_STOP",
+        module.on_background.as_deref(),
+        &module.widgets,
+        depth + 3,
+        out,
+    );
     out.push_str(&format!("{}else -> Unit\n", "    ".repeat(depth + 3)));
     out.push_str(&format!("{deep}}}\n"));
     out.push_str(&format!("{nested}}}\n"));
@@ -154,6 +180,7 @@ pub(crate) fn render_app(module: &Module, depth: usize, out: &mut SourceWriter) 
 fn render_lifecycle_case(
     event: &str,
     actions: Option<&[Action]>,
+    widgets: &[nexa_ir::Widget],
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -165,8 +192,15 @@ fn render_lifecycle_case(
         } else {
             controls::render_actions(actions, depth + 1, out);
         }
-    } else {
+    } else if widgets.is_empty() {
         out.push_str(&format!("{}Unit\n", "    ".repeat(depth + 1)));
+    }
+    for widget in widgets {
+        let widget_type = nexa_codegen::names::widget_name(&widget.name);
+        out.push_str(&format!(
+            "{}CoroutineScope(Dispatchers.IO).launch {{ {widget_type}().updateAll(nexaWidgetContext) }}\n",
+            "    ".repeat(depth + 1)
+        ));
     }
     out.push_str(&format!("{indent}}}\n"));
 }

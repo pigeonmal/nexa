@@ -267,11 +267,12 @@ pub(super) fn project_object(
     configuration_list: &str,
     main_group: &str,
     products_group: &str,
-    target: &str,
+    targets: &[String],
     package_references: &[String],
 ) -> String {
     let mut body = format!(
-        "isa = PBXProject; buildConfigurationList = {configuration_list}; compatibilityVersion = \"Xcode 27.0\"; mainGroup = {main_group}; productRefGroup = {products_group}; targets = ( {target} );"
+        "isa = PBXProject; buildConfigurationList = {configuration_list}; compatibilityVersion = \"Xcode 27.0\"; mainGroup = {main_group}; productRefGroup = {products_group}; targets = {};",
+        list(targets)
     );
     if !package_references.is_empty() {
         body.push_str(&format!(
@@ -331,6 +332,12 @@ pub(super) fn product_reference_object(path: &str) -> String {
     )
 }
 
+pub(super) fn app_extension_product_reference_object(path: &str) -> String {
+    format!(
+        "isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = {path}; sourceTree = BUILT_PRODUCTS_DIR;"
+    )
+}
+
 /// A build file that compiles or copies `file_ref`.
 pub(super) fn build_file_object(file_ref: &str) -> String {
     format!("isa = PBXBuildFile; fileRef = {file_ref};")
@@ -376,15 +383,38 @@ pub(super) fn embed_frameworks_phase_object(files: &[String]) -> String {
     )
 }
 
+pub(super) fn embed_app_extensions_phase_object(files: &[String]) -> String {
+    format!(
+        "isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = \"\"; dstSubfolderSpec = 13; files = {}; name = \"Embed App Extensions\"; runOnlyForDeploymentPostprocessing = 0;",
+        list(files)
+    )
+}
+
+pub(super) fn target_dependency_proxy_object(
+    project: &str,
+    target: &str,
+    target_name: &str,
+) -> String {
+    format!(
+        "isa = PBXContainerItemProxy; containerPortal = {project}; proxyType = 1; remoteGlobalIDString = {target}; remoteInfo = {target_name};"
+    )
+}
+
+pub(super) fn target_dependency_object(target: &str, proxy: &str) -> String {
+    format!("isa = PBXTargetDependency; target = {target}; targetProxy = {proxy};")
+}
+
 pub(super) fn native_target_object(
     name: &str,
     configuration_list: &str,
     phases: &[String],
     product_reference: &str,
     package_products: &[String],
+    product_type: &str,
+    dependencies: &[String],
 ) -> String {
     let mut body = format!(
-        "isa = PBXNativeTarget; buildConfigurationList = {configuration_list}; buildPhases = {}; name = {name}; productName = {name}; productReference = {product_reference}; productType = \"com.apple.product-type.application\";",
+        "isa = PBXNativeTarget; buildConfigurationList = {configuration_list}; buildPhases = {}; name = {name}; productName = {name}; productReference = {product_reference}; productType = \"{product_type}\";",
         list(phases)
     );
     if !package_products.is_empty() {
@@ -392,6 +422,9 @@ pub(super) fn native_target_object(
             " packageProductDependencies = ( {} );",
             package_products.join(", ")
         ));
+    }
+    if !dependencies.is_empty() {
+        body.push_str(&format!(" dependencies = {};", list(dependencies)));
     }
     body
 }

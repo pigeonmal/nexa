@@ -64,7 +64,7 @@ pub(super) fn resolve(
         }
         for (parameter, argument) in signature.type_parameters.iter().zip(type_arguments) {
             let declared = resolve_struct_type(&parse_type(argument)?, structs);
-            bindings.push((parameter.clone(), declared));
+            bindings.push((parameter_name(parameter).to_owned(), declared));
         }
     }
     for ((_, declared), actual) in signature.parameters.iter().zip(argument_types) {
@@ -79,20 +79,53 @@ pub(super) fn resolve(
             .map_err(|message| CompileError::new(span, format!("`{qualified_name}`: {message}")))?;
     }
     for parameter in &signature.type_parameters {
-        if !bindings.iter().any(|(name, _)| name == parameter) {
+        let name = parameter_name(parameter);
+        if !bindings.iter().any(|(bound_name, _)| bound_name == name) {
             return Err(CompileError::new(
                 span,
                 format!(
-                    "cannot infer value type `{parameter}` for `{qualified_name}`; \
+                    "cannot infer value type `{name}` for `{qualified_name}`; \
                      bind it explicitly, as in `{qualified_name}<{parameter}>(...)`"
                 ),
             ));
         }
     }
+    for parameter in &signature.type_parameters {
+        if parameter.ends_with(":Struct") {
+            let name = parameter_name(parameter);
+            let bound = bindings
+                .iter()
+                .find(|(bound_name, _)| bound_name == name)
+                .map(|(_, ty)| ty);
+            if !matches!(bound, Some(Type::Struct { .. })) {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "`{qualified_name}` requires `{name}` to be an app struct; use the typed scalar or collection method for primitive and collection values"
+                    ),
+                ));
+            }
+        }
+        if parameter.ends_with(":Row") {
+            let name = parameter_name(parameter);
+            let bound = bindings
+                .iter()
+                .find(|(bound_name, _)| bound_name == name)
+                .map(|(_, ty)| ty);
+            if !matches!(bound, Some(Type::Struct { .. })) {
+                return Err(CompileError::new(
+                    span,
+                    format!("`{qualified_name}` requires `{name}` to be an app struct"),
+                ));
+            }
+        }
+    }
     let mut parameters = Vec::with_capacity(signature.parameters.len());
     for (name, declared) in &signature.parameters {
         let bound = substitute(declared, &bindings);
-        require_encodable(&bound, name, registries, span)?;
+        if mentions_type_parameter(declared) {
+            require_encodable(&bound, name, registries, span)?;
+        }
         parameters.push((name.clone(), bound));
     }
     let return_type = substitute(&signature.return_type, &bindings);
@@ -102,6 +135,7 @@ pub(super) fn resolve(
             codecs.push(PluginCodec {
                 ty: bound.clone(),
                 decodes: false,
+                row_mapper: false,
             });
         }
     }
@@ -114,11 +148,42 @@ pub(super) fn resolve(
             (Type::Optional(_), Type::Optional(inner)) => inner.as_ref(),
             _ => &return_type,
         };
-        require_storable(value_type, "return value", registries, span)?;
-        codecs.push(PluginCodec {
-            ty: value_type.clone(),
-            decodes: true,
-        });
+        if let Some(parameter) = signature
+            .type_parameters
+            .iter()
+            .find(|parameter| parameter.ends_with(":Row"))
+            .map(|parameter| parameter_name(parameter))
+            .filter(|parameter| contains_parameter(&signature.return_type, parameter))
+        {
+            let row_type = bindings
+                .iter()
+                .find(|(bound_name, _)| bound_name == parameter)
+                .map(|(_, ty)| ty)
+                .ok_or_else(|| {
+                    CompileError::new(
+                        span,
+                        format!("cannot infer row type `{parameter}` for `{qualified_name}`"),
+                    )
+                })?;
+            if !matches!(row_type, Type::Struct { .. }) {
+                return Err(CompileError::new(
+                    span,
+                    format!("`{qualified_name}` requires an app struct for row type `{parameter}`"),
+                ));
+            }
+            codecs.push(PluginCodec {
+                ty: row_type.clone(),
+                decodes: true,
+                row_mapper: true,
+            });
+        } else {
+            require_storable(value_type, "return value", registries, span)?;
+            codecs.push(PluginCodec {
+                ty: value_type.clone(),
+                decodes: true,
+                row_mapper: false,
+            });
+        }
     }
     Ok(Some(ResolvedCall {
         parameters,
@@ -127,11 +192,48 @@ pub(super) fn resolve(
     }))
 }
 
+fn contains_parameter(ty: &Type, parameter: &str) -> bool {
+    match ty {
+        Type::TypeParam(name) => name == parameter,
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
+            contains_parameter(inner, parameter)
+        }
+        Type::Map(key, value) | Type::Pair(key, value) => {
+            contains_parameter(key, parameter) || contains_parameter(value, parameter)
+        }
+        Type::Triple(first, second, third) => {
+            contains_parameter(first, parameter)
+                || contains_parameter(second, parameter)
+                || contains_parameter(third, parameter)
+        }
+        Type::Result(value, error) => {
+            contains_parameter(value, parameter) || contains_parameter(error, parameter)
+        }
+        Type::Void
+        | Type::String
+        | Type::Bytes
+        | Type::Bool
+        | Type::Numeric(_)
+        | Type::Enum(_)
+        | Type::Plugin { .. }
+        | Type::TaskHandle
+        | Type::NetworkResponse
+        | Type::Struct { .. }
+        | Type::Class { .. } => false,
+    }
+}
+
+fn parameter_name(parameter: &str) -> &str {
+    parameter
+        .split_once(':')
+        .map_or(parameter, |(name, _)| name)
+}
+
 /// Whether a type mentions a type parameter at any depth.
 pub(super) fn mentions_type_parameter(ty: &Type) -> bool {
     match ty {
         Type::TypeParam(_) => true,
-        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
             mentions_type_parameter(inner)
         }
         Type::Map(key, value) => mentions_type_parameter(key) || mentions_type_parameter(value),
@@ -155,7 +257,8 @@ pub(super) fn mentions_type_parameter(ty: &Type) -> bool {
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
-        | Type::Struct { .. } => false,
+        | Type::Struct { .. }
+        | Type::Class { .. } => false,
     }
 }
 
@@ -188,7 +291,8 @@ fn unify(declared: &Type, actual: &Type, bindings: &mut Vec<(String, Type)>) -> 
         }
         (Type::Optional(declared), Type::Optional(actual))
         | (Type::Array(declared), Type::Array(actual))
-        | (Type::Set(declared), Type::Set(actual)) => unify(declared, actual, bindings),
+        | (Type::Set(declared), Type::Set(actual))
+        | (Type::Signal(declared), Type::Signal(actual)) => unify(declared, actual, bindings),
         (Type::Map(declared_key, declared_value), Type::Map(actual_key, actual_value)) => {
             unify(declared_key, actual_key, bindings)?;
             unify(declared_value, actual_value, bindings)
@@ -222,6 +326,7 @@ fn substitute(ty: &Type, bindings: &[(String, Type)]) -> Type {
         Type::Optional(inner) => Type::Optional(Box::new(substitute(inner, bindings))),
         Type::Array(element) => Type::Array(Box::new(substitute(element, bindings))),
         Type::Set(element) => Type::Set(Box::new(substitute(element, bindings))),
+        Type::Signal(inner) => Type::Signal(Box::new(substitute(inner, bindings))),
         Type::Map(key, value) => Type::Map(
             Box::new(substitute(key, bindings)),
             Box::new(substitute(value, bindings)),
@@ -304,6 +409,10 @@ fn require_storable_shape(
             }
             Ok(())
         }
+        Type::Class { .. } => Err(CompileError::new(
+            span,
+            format!("user class values cannot be serialized as plugin value type for {context}"),
+        )),
         Type::Array(element) | Type::Set(element) => {
             if matches!(ty, Type::Set(_)) {
                 require_hashable_key(element, span, "Set elements")?;
@@ -353,7 +462,8 @@ fn require_storable_shape(
         | Type::TypeParam(_)
         | Type::Plugin { .. }
         | Type::TaskHandle
-        | Type::NetworkResponse => Err(CompileError::new(
+        | Type::NetworkResponse
+        | Type::Signal(_) => Err(CompileError::new(
             span,
             format!(
                 "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a `Result` with an enum error, a pair, a triple, or a collection of those; found {}",
@@ -431,8 +541,10 @@ fn require_encodable(
         Type::Void
         | Type::TypeParam(_)
         | Type::Plugin { .. }
+        | Type::Class { .. }
         | Type::TaskHandle
-        | Type::NetworkResponse => Err(CompileError::new(
+        | Type::NetworkResponse
+        | Type::Signal(_) => Err(CompileError::new(
             span,
             format!(
                 "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a `Result` with an enum error, a pair, a triple, or a collection of those; found {}",

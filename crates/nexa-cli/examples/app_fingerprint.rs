@@ -107,8 +107,8 @@ app KitchenSink {
             Column(spacing: 16, padding: 20, background: "#F4F5F7", cornerRadius: 16) {
                 Text("Kitchen Sink", color: "#111111", fontSize: 22, fontWeight: Bold, selectable: true)
                 Text(result?)
-                TextInput(value: label, placeholder: "Name", keyboard: Email, autocorrect: false, capitalization: Sentences, multiline: true, maxLength: 120)
-                TextInput(value: label, placeholder: "Password", secure: true)
+                TextInput(value: label, placeholder: "Name", keyboardType: Email, autocorrect: false, capitalization: Sentences, multiline: true, maxLength: 120)
+                TextInput(value: label, placeholder: "Password", isSecure: true)
                 Switch(value: isPresented, label: "Sheet")
                 Text("Accessible", accessibilityLabel: "status", accessibilityHint: "current value", accessibilityRole: Button)
                 Link(url: "https://nexa.dev") {
@@ -116,7 +116,7 @@ app KitchenSink {
                 }
                 Pressable(disabled: false, haptic: Medium) {
                     Card(title: "Pressable child", done: true)
-                }.onPress {
+                }.onTap {
                     cursor = cursor + 1
                 }.onLongPress {
                     cursor = cursor + 10

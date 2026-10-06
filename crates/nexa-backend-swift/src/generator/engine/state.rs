@@ -11,9 +11,14 @@ use super::{expressions::expression, types::swift_type, utils};
 /// and is not a native class instance; anything else lives in `@State`,
 /// `@StateObject`, or a `@Binding` on the screen that owns it.
 pub(crate) fn render_immutable_state(states: &[State], depth: usize, out: &mut SourceWriter) {
+    let is_body_immutable = |state: &State| {
+        !state.mutable
+            && !state.is_native_class_instance_binding()
+            && !matches!(state.ty, nexa_ir::Type::Signal(_))
+    };
     let immutable = states
         .iter()
-        .filter(|state| !state.mutable && !state.is_native_class_instance_binding())
+        .filter(|state| is_body_immutable(state))
         .collect::<Vec<_>>();
     for state in immutable {
         out.line_at(
@@ -26,10 +31,7 @@ pub(crate) fn render_immutable_state(states: &[State], depth: usize, out: &mut S
             ),
         );
     }
-    if states
-        .iter()
-        .any(|state| !state.mutable && !state.is_native_class_instance_binding())
-    {
+    if states.iter().any(is_body_immutable) {
         out.push('\n');
     }
 }
@@ -69,3 +71,67 @@ pub(crate) fn render_native_object_state(state: &State, depth: usize, out: &mut 
     utils::indent(out, depth);
     out.push_str("}\n");
 }
+
+pub(crate) fn render_native_object_state_uninitialized(state: &State, depth: usize, out: &mut SourceWriter) {
+    if !state.is_native_class_constructor_binding() {
+        return;
+    }
+    let name = nexa_codegen::names::state_name(&state.name);
+    let storage = format!("__nexaNativeObjectStorage_{name}");
+    out.line_at(
+        depth,
+        format_args!(
+            "@StateObject private var {storage}: NexaNativeObjectStorage<{}>",
+            swift_type(&state.ty)
+        ),
+    );
+    out.line_at(
+        depth,
+        format_args!("private var {name}: {} {{", swift_type(&state.ty)),
+    );
+    out.line_at(depth + 1, format_args!("get {{ {storage}.value }}"));
+    if state.mutable {
+        out.line_at(
+            depth + 1,
+            format_args!("nonmutating set {{ {storage}.value = newValue }}"),
+        );
+    }
+    utils::indent(out, depth);
+    out.push_str("}\n");
+}
+
+pub(crate) fn render_state_initializers_in_init(states: &[State], depth: usize, out: &mut SourceWriter) {
+    for state in states {
+        if state.is_native_class_constructor_binding() {
+            let name = nexa_codegen::names::state_name(&state.name);
+            let storage = format!("__nexaNativeObjectStorage_{name}");
+            out.line_at(
+                depth,
+                format_args!(
+                    "let __storage_{name} = NexaNativeObjectStorage {{ {} }}",
+                    expression(&state.initial)
+                ),
+            );
+            out.line_at(
+                depth,
+                format_args!(
+                    "_{storage} = StateObject(wrappedValue: __storage_{name})"
+                ),
+            );
+            out.line_at(
+                depth,
+                format_args!("let {name} = __storage_{name}.value"),
+            );
+        } else if matches!(state.ty, nexa_ir::Type::Signal(_)) {
+            let name = nexa_codegen::names::state_name(&state.name);
+            out.line_at(
+                depth,
+                format_args!(
+                    "_{name} = StateObject(wrappedValue: {})",
+                    expression(&state.initial)
+                ),
+            );
+        }
+    }
+}
+

@@ -132,9 +132,35 @@ fn lowers_foreground_tasks_and_cancellation_to_typed_ir() {
                 actions: body,
             },
             nexa_ir::Action::TaskCancel { handle: canceled },
-        ] if handle == "refreshTask"
+        ] if handle.as_deref() == Some("refreshTask")
             && canceled == "refreshTask"
             && matches!(body.as_slice(), [nexa_ir::Action::Assign { name, value: nexa_ir::Expr::Bool(true) }] if name == "finished")
+    ));
+}
+
+#[test]
+fn lowers_handleless_foreground_tasks_without_replacing_prior_work() {
+    let module = compile(
+        "nexa-fire-and-forget-task",
+        r#"app FireAndForget {
+            body {
+                Button("Start") {
+                    Task.launch(executor: TaskExecutor.Main) { Storage.setString(key: "done", value: "yes") }
+                }
+            }
+        }"#,
+    )
+    .expect("handle-less task launch should lower");
+    let nexa_ir::Node::Button { actions, .. } = &module.body[0] else {
+        panic!("task action should remain in button callback");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [nexa_ir::Action::TaskLaunch {
+            handle: None,
+            executor: nexa_ir::TaskExecutor::Main,
+            ..
+        }]
     ));
 }
 

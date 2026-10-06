@@ -20,6 +20,7 @@ fn client_hello_round_trips_with_the_session_token() {
 #[test]
 fn server_full_module_round_trips_json_payloads() {
     let typed_module = nexa_ir::Module {
+        widgets: Vec::new(),
         app_name: "Demo".to_owned(),
         plugins: Vec::new(),
         plugin_assets: Vec::new(),
@@ -27,6 +28,7 @@ fn server_full_module_round_trips_json_payloads() {
         structs: Vec::new(),
         functions: Vec::new(),
         background_tasks: Vec::new(),
+        globals: Vec::new(),
         states: Vec::new(),
         screens: Vec::new(),
         components: Vec::new(),
@@ -57,6 +59,7 @@ fn server_full_module_round_trips_json_payloads() {
 #[test]
 fn server_patch_round_trips_path_level_operations() {
     let module = nexa_ir::Module {
+        widgets: Vec::new(),
         app_name: "Demo".to_owned(),
         plugins: Vec::new(),
         plugin_assets: Vec::new(),
@@ -64,6 +67,7 @@ fn server_patch_round_trips_path_level_operations() {
         structs: Vec::new(),
         functions: Vec::new(),
         background_tasks: Vec::new(),
+        globals: Vec::new(),
         states: Vec::new(),
         screens: Vec::new(),
         components: Vec::new(),

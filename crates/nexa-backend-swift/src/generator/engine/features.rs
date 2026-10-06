@@ -35,6 +35,7 @@ pub(crate) struct Features {
     pub(crate) uses_pinch: bool,
     pub(crate) app_uses_adaptive_color: bool,
     pub(crate) app_uses_size_class: bool,
+    pub(crate) uses_widgets: bool,
     components_using_adaptive_color: HashSet<String>,
     components_using_size_class: HashSet<String>,
 }
@@ -60,7 +61,7 @@ impl Features {
             || features.uses_file_api;
 
         let lists = &facts.ui.lists;
-        features.uses_fast_list = lists.any;
+        features.uses_fast_list = lists.virtualized;
         features.uses_sectioned_list = lists.sectioned;
         features.uses_vertical_list = lists.vertical;
         features.uses_horizontal_list = lists.horizontal;
@@ -77,6 +78,7 @@ impl Features {
         features.app_uses_adaptive_color =
             ui.app.adaptive_background || ui.app.adaptive_border || ui.app.adaptive_text;
         features.app_uses_size_class = ui.app.size_class;
+        features.uses_widgets = !module.widgets.is_empty();
         features.components_using_adaptive_color = ui
             .components
             .iter()

@@ -86,6 +86,10 @@ struct NexaDevStatusBarVisibility: ViewModifier {
 
 func devStatusBarColor(_ value: Any?, isDark: Bool) -> Color? {
     guard let tagged = value as? [String: Any] else { return nil }
+    if let wrapped = tagged["Static"] as? [String: Any],
+       wrapped["Static"] != nil || wrapped["Adaptive"] != nil {
+        return devStatusBarColor(wrapped, isDark: isDark)
+    }
     let payload: [String: Any]
     if let fixed = tagged["Static"] as? [String: Any] {
         payload = fixed
@@ -101,6 +105,19 @@ func devStatusBarColor(_ value: Any?, isDark: Bool) -> Color? {
           let alpha = payload["alpha"] as? Double
     else { return nil }
     return Color(.sRGB, red: red / 255, green: green / 255, blue: blue / 255, opacity: alpha / 255)
+}
+
+func devHexColor(_ value: String) -> Color? {
+    let digits = value.hasPrefix("#") ? String(value.dropFirst()) : value
+    guard let packed = UInt64(digits, radix: 16) else { return nil }
+    switch digits.count {
+    case 6:
+        return Color(.sRGB, red: Double((packed >> 16) & 0xFF) / 255, green: Double((packed >> 8) & 0xFF) / 255, blue: Double(packed & 0xFF) / 255, opacity: 1)
+    case 8:
+        return Color(.sRGB, red: Double((packed >> 24) & 0xFF) / 255, green: Double((packed >> 16) & 0xFF) / 255, blue: Double((packed >> 8) & 0xFF) / 255, opacity: Double(packed & 0xFF) / 255)
+    default:
+        return nil
+    }
 }
 
 func devColor(_ value: Any?, isDark: Bool) -> Color? {

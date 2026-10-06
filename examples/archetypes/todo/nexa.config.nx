@@ -1,6 +1,40 @@
 config {
-    app { displayName: "TodoArchetype", version: "1.0.0", buildNumber: 1 }
-    ios { minVersion: "16.0", bundleIdentifier: "dev.nexa.archetypes.todo" }
-    android { minSdk: 23, targetSdk: 36, applicationId: "dev.nexa.archetypes.todo" }
-    permissions {}
+    app { displayName: "ToDoList", version: "1.0.0", buildNumber: 1 }
+    dependencies {
+        SQLite { id: "dev.nexa.sqlite", path: "../../../plugins/sqlite" }
+        MediaPicker { id: "dev.nexa.media-picker", path: "../../../plugins/media-picker" }
+        Notifications { id: "dev.nexa.notifications", path: "../../../plugins/notifications" }
+        Browser { id: "dev.nexa.browser", path: "../../../plugins/browser" }
+        Mail { id: "dev.nexa.mail-composer", path: "../../../plugins/mail-composer" }
+        DataExtractor { id: "dev.nexa.data-extractor", path: "../../../plugins/data-extractor" }
+    }
+    ios {
+        minVersion: "16.0",
+        bundleIdentifier: "dev.nexa.archetypes.todo",
+        appGroupIdentifier: "group.dev.nexa.archetypes.todo",
+        icon: "assets/ios-icons/Icon.icon",
+        alternateIcons: [
+            "assets/ios-icons/IconBlack.icon",
+            "assets/ios-icons/IconBlue.icon",
+            "assets/ios-icons/IconGreen.icon",
+            "assets/ios-icons/IconOrange.icon",
+            "assets/ios-icons/IconPinkAlt.icon",
+            "assets/ios-icons/IconYellow.icon"
+        ]
+    }
+    android {
+        minSdk: 28,
+        targetSdk: 36,
+        applicationId: "dev.nexa.archetypes.todo",
+        icon: "assets/android-icons/Icon",
+        alternateIcons: [
+            "assets/android-icons/IconBlack",
+            "assets/android-icons/IconBlue",
+            "assets/android-icons/IconGreen",
+            "assets/android-icons/IconOrange",
+            "assets/android-icons/IconPinkAlt",
+            "assets/android-icons/IconYellow"
+        ]
+    }
+    permissions { notifications: "Get reminders about your tasks and upcoming deadlines." }
 }

@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
+use nexa_ir::{Action, Expr, FastListMove, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
     components::render_children, controls::render_actions, engine::types::kotlin_type,
@@ -20,6 +20,7 @@ struct SectionedPieces<'a> {
     item: &'a str,
     key: Option<&'a Expr>,
     children: &'a [Node],
+    swipe_actions: Option<&'a [Node]>,
     section_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
 }
@@ -57,7 +58,8 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_linear_list_end_reached
             || features.uses_linear_list_scroll_position
             || features.uses_linear_list_scroll_events
-            || features.uses_reverse_layout,
+            || features.uses_reverse_layout
+            || features.facts.ui.lists.reorderable,
         "androidx.compose.foundation.lazy.rememberLazyListState",
     );
     imports.add(
@@ -123,9 +125,52 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.runtime.LaunchedEffect",
     );
     imports.add(
-        features.uses_list_end_reached || features.uses_reverse_layout,
+        features.uses_list_end_reached
+            || features.uses_reverse_layout
+            || features.facts.ui.lists.reorderable,
         "androidx.compose.runtime.remember",
     );
+    let swipe_actions = features.facts.ui.lists.swipe_actions;
+    imports.add(swipe_actions, "androidx.compose.foundation.layout.Box");
+    imports.add(swipe_actions, "androidx.compose.foundation.layout.Row");
+    imports.add(
+        swipe_actions,
+        "androidx.compose.foundation.layout.fillMaxSize",
+    );
+    imports.add(
+        swipe_actions,
+        "androidx.compose.foundation.layout.Arrangement",
+    );
+    imports.add(swipe_actions, "androidx.compose.ui.Alignment");
+    imports.add(swipe_actions, "androidx.compose.ui.Modifier");
+    imports.add(
+        swipe_actions,
+        "androidx.compose.material3.SwipeToDismissBox",
+    );
+    imports.add(
+        swipe_actions,
+        "androidx.compose.material3.SwipeToDismissBoxValue",
+    );
+    imports.add(
+        swipe_actions,
+        "androidx.compose.material3.rememberSwipeToDismissBoxState",
+    );
+    imports.add(swipe_actions, "androidx.compose.runtime.LaunchedEffect");
+    let reorderable = features.facts.ui.lists.reorderable;
+    imports.add(
+        reorderable,
+        "androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress",
+    );
+    imports.add(reorderable, "androidx.compose.foundation.layout.Box");
+    imports.add(reorderable, "androidx.compose.runtime.mutableFloatStateOf");
+    imports.add(reorderable, "androidx.compose.runtime.remember");
+    imports.add(reorderable, "androidx.compose.ui.Modifier");
+    imports.add(reorderable, "androidx.compose.ui.graphics.graphicsLayer");
+    imports.add(
+        reorderable,
+        "androidx.compose.ui.input.pointer.pointerInput",
+    );
+    imports.add(reorderable, "kotlin.math.abs");
 }
 
 /// Flat (count- or collection-backed) list data borrowed from a [`ListPlan`].
@@ -139,13 +184,26 @@ struct FlatPieces<'a> {
     item_extent: Option<f32>,
     key: Option<&'a Expr>,
     children: &'a [Node],
+    swipe_actions: Option<&'a [Node]>,
     on_end_reached: Option<&'a [Action]>,
     on_scroll: Option<&'a [Action]>,
+    on_move: Option<&'a FastListMove>,
     scroll_position: Option<&'a str>,
     reverse_layout: bool,
     page_snap: bool,
     sticky_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
+}
+
+#[derive(Clone, Copy)]
+struct FlatRowContent<'a> {
+    sizing: ListRowSizing,
+    axis: ListAxis,
+    children: &'a [Node],
+    swipe_actions: Option<&'a [Node]>,
+    on_move: Option<&'a FastListMove>,
+    index: Option<&'a str>,
+    list_state: Option<&'a str>,
 }
 
 /// The row-count source of a flat list with exactly the bindings present.
@@ -186,6 +244,7 @@ pub(crate) fn render_virtualized_list(
                     item,
                     key: common.key.as_ref(),
                     children: &common.children,
+                    swipe_actions: common.swipe_actions.as_deref(),
                     section_header: common.section_header.as_deref(),
                     refresh: common.refresh.as_ref(),
                 },
@@ -203,8 +262,10 @@ pub(crate) fn render_virtualized_list(
             item_extent: common.item_extent,
             key: common.key.as_ref(),
             children: &common.children,
+            swipe_actions: common.swipe_actions.as_deref(),
             on_end_reached: common.on_end_reached.as_deref(),
             on_scroll: common.on_scroll.as_deref(),
+            on_move: common.on_move.as_ref(),
             scroll_position: common.scroll_position.as_deref(),
             reverse_layout: common.reverse_layout,
             page_snap: common.page_snap,
@@ -228,8 +289,10 @@ pub(crate) fn render_virtualized_list(
             item_extent: common.item_extent,
             key: common.key.as_ref(),
             children: &common.children,
+            swipe_actions: common.swipe_actions.as_deref(),
             on_end_reached: common.on_end_reached.as_deref(),
             on_scroll: common.on_scroll.as_deref(),
+            on_move: common.on_move.as_ref(),
             scroll_position: common.scroll_position.as_deref(),
             reverse_layout: common.reverse_layout,
             page_snap: common.page_snap,
@@ -247,6 +310,7 @@ pub(crate) fn render_virtualized_list(
         || pieces.page_snap
         || pieces.on_end_reached.is_some()
         || pieces.on_scroll.is_some()
+        || pieces.on_move.is_some()
         || pieces.scroll_position.is_some())
     .then(|| format!("nexaListState{list_id}"));
     let list_count = (pieces.on_end_reached.is_some() || pieces.reverse_layout || pieces.page_snap)
@@ -390,10 +454,16 @@ pub(crate) fn render_virtualized_list(
             .map(ListRowSizing::Fixed)
             .unwrap_or(ListRowSizing::Content)
     };
-    render_row_content(
-        row_sizing,
-        pieces.axis,
-        pieces.children,
+    render_row_content_with_actions(
+        FlatRowContent {
+            sizing: row_sizing,
+            axis: pieces.axis,
+            children: pieces.children,
+            swipe_actions: pieces.swipe_actions,
+            on_move: pieces.on_move,
+            index: pieces.on_move.map(|_| pieces.index),
+            list_state: list_state.as_deref(),
+        },
         module,
         features,
         list_depth + 2,
@@ -514,6 +584,7 @@ fn render_sectioned_list(
         item,
         key,
         children,
+        swipe_actions,
         section_header,
         refresh,
     } = pieces;
@@ -531,6 +602,10 @@ fn render_sectioned_list(
         out.line_at(
             list_depth + 3,
             format_args!("val {}: Int = sectionPosition", state_name(section)),
+        );
+        out.line_at(
+            list_depth + 3,
+            format_args!("val {} = sectionItems", state_name("sectionItems")),
         );
         render_children(header, scope.module, scope.features, list_depth + 3, out);
         out.push('\n');
@@ -574,12 +649,18 @@ fn render_sectioned_list(
             kotlin_type(element_type)
         ),
     );
-    render_row_content(
-        item_extent
-            .map(ListRowSizing::Fixed)
-            .unwrap_or(ListRowSizing::Content),
-        ListAxis::Vertical,
-        children,
+    render_row_content_with_actions(
+        FlatRowContent {
+            sizing: item_extent
+                .map(ListRowSizing::Fixed)
+                .unwrap_or(ListRowSizing::Content),
+            axis: ListAxis::Vertical,
+            children,
+            swipe_actions,
+            on_move: None,
+            index: None,
+            list_state: None,
+        },
         scope.module,
         scope.features,
         list_depth + 3,
@@ -1022,6 +1103,194 @@ fn render_row_content(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+fn render_reorderable_row(
+    row: FlatRowContent<'_>,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    if let Some(callback) = row.on_move
+        && !matches!(callback.enabled, Expr::Bool(true))
+    {
+        out.line_at(
+            depth,
+            format_args!("if ({}) {{", expression(&callback.enabled)),
+        );
+        render_reorderable_row_enabled(row, module, features, depth + 1, out);
+        out.line_at(depth, format_args!("}} else {{"));
+        render_row_content(
+            row.sizing,
+            row.axis,
+            row.children,
+            module,
+            features,
+            depth + 1,
+            out,
+        );
+        out.line_at(depth, format_args!("}}"));
+        return;
+    }
+    render_reorderable_row_enabled(row, module, features, depth, out);
+}
+
+fn render_reorderable_row_enabled(
+    row: FlatRowContent<'_>,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let (Some(callback), Some(index), Some(list_state)) = (row.on_move, row.index, row.list_state)
+    else {
+        render_row_content(
+            row.sizing,
+            row.axis,
+            row.children,
+            module,
+            features,
+            depth,
+            out,
+        );
+        return;
+    };
+    let drag_offset = format!("nexaDragOffset{}", out.next_id());
+    out.line_at(
+        depth,
+        format_args!(
+            "val {drag_offset} = remember({}) {{ mutableFloatStateOf(0f) }}",
+            state_name(index)
+        ),
+    );
+    out.line_at(depth, format_args!("Box(modifier = Modifier"));
+    out.line_at(
+        depth + 1,
+        format_args!(".graphicsLayer {{ translationY = {drag_offset}.floatValue }}"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(".pointerInput({}) {{", state_name(index)),
+    );
+    out.line_at(depth + 2, format_args!("detectDragGesturesAfterLongPress("));
+    out.line_at(
+        depth + 3,
+        format_args!("onDragStart = {{ {drag_offset}.floatValue = 0f }},"),
+    );
+    out.line_at(depth + 3, format_args!("onDragEnd = {{"));
+    out.line_at(
+        depth + 4,
+        format_args!("val draggedItem = {list_state}.layoutInfo.visibleItemsInfo.firstOrNull {{ it.index == {} }}", state_name(index)),
+    );
+    out.line_at(depth + 4, format_args!("if (draggedItem != null) {{"));
+    out.line_at(
+        depth + 5,
+        format_args!("val draggedCenter = draggedItem.offset + draggedItem.size / 2 + {drag_offset}.floatValue.toInt()"),
+    );
+    out.line_at(
+        depth + 5,
+        format_args!("val targetIndex = {list_state}.layoutInfo.visibleItemsInfo.minByOrNull {{ abs(it.offset + it.size / 2 - draggedCenter) }}?.index"),
+    );
+    out.line_at(
+        depth + 5,
+        format_args!(
+            "if (targetIndex != null && targetIndex != {}) {{",
+            state_name(index)
+        ),
+    );
+    out.line_at(
+        depth + 6,
+        format_args!(
+            "val {}: Int = {}",
+            state_name(&callback.from),
+            state_name(index)
+        ),
+    );
+    out.line_at(
+        depth + 6,
+        format_args!("val {}: Int = targetIndex", state_name(&callback.to)),
+    );
+    render_actions(&callback.actions, depth + 6, out);
+    out.line_at(depth + 5, format_args!("}}"));
+    out.line_at(depth + 4, format_args!("}}"));
+    out.line_at(depth + 4, format_args!("{drag_offset}.floatValue = 0f"));
+    out.line_at(depth + 3, format_args!("}},"));
+    out.line_at(
+        depth + 3,
+        format_args!("onDragCancel = {{ {drag_offset}.floatValue = 0f }},"),
+    );
+    out.line_at(depth + 3, format_args!("onDrag = {{ change, dragAmount ->"));
+    out.line_at(depth + 4, format_args!("change.consume()"));
+    out.line_at(
+        depth + 4,
+        format_args!("{drag_offset}.floatValue += dragAmount.y"),
+    );
+    out.line_at(depth + 3, format_args!("}}"));
+    out.line_at(depth + 2, format_args!(")"));
+    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(depth + 1, format_args!(") {{"));
+    render_row_content(
+        row.sizing,
+        row.axis,
+        row.children,
+        module,
+        features,
+        depth + 2,
+        out,
+    );
+    out.push('\n');
+    indent(out, depth + 1);
+    out.push_str("}\n");
+}
+
+fn render_row_content_with_actions(
+    row: FlatRowContent<'_>,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let Some(actions) = row.swipe_actions else {
+        render_reorderable_row(row, module, features, depth, out);
+        return;
+    };
+    let swipe_id = out.next_id();
+    let state = format!("nexaSwipeState{swipe_id}");
+    out.line_at(
+        depth,
+        format_args!("val {state} = rememberSwipeToDismissBoxState()"),
+    );
+    out.line_at(
+        depth,
+        format_args!("LaunchedEffect({state}.currentValue) {{"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("if ({state}.currentValue == SwipeToDismissBoxValue.EndToStart) {{"),
+    );
+    if let Some(Node::Button { actions, .. }) = actions.first() {
+        render_actions(actions, depth + 2, out);
+    }
+    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(depth, format_args!("}}"));
+    out.line_at(depth, format_args!("SwipeToDismissBox("));
+    out.line_at(depth + 1, format_args!("state = {state},"));
+    out.line_at(depth + 1, format_args!("backgroundContent = {{"));
+    out.line_at(
+        depth + 2,
+        format_args!("Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {{"),
+    );
+    render_children(actions, module, features, depth + 3, out);
+    out.push('\n');
+    out.line_at(depth + 2, format_args!("}}"));
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth + 1, format_args!("content = {{"));
+    render_reorderable_row(row, module, features, depth + 2, out);
+    out.push('\n');
+    out.line_at(depth + 1, format_args!("}}"));
+    indent(out, depth);
+    out.push(')');
 }
 
 fn format_float(value: f32) -> String {

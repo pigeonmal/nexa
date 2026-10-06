@@ -314,7 +314,7 @@ screen VideoFeed {
                         }
                         Spacer()
                         Pressable() {
-                            Icon(system: "magnifyingglass", description: "Search", size: 22, tint: "#FFFFFF")
+                            Icon(system: "search", description: "Search", size: 22, tint: "#FFFFFF")
                         }.onTap {
                             selectedFeedTab = "Search"
                         }
@@ -337,7 +337,7 @@ screen VideoFeed {
                             Text(clips[currentPage].location, color: "#E7E7E7", fontSize: 11, lineLimit: 1)
                             Text(clips[currentPage].caption, color: "#FFFFFF", fontSize: 14, lineLimit: 2)
                             Row(spacing: 6) {
-                                Icon(system: "music.note", description: "Audio track", size: 13, tint: "#FFFFFF")
+                                Icon(system: "music", description: "Audio track", size: 13, tint: "#FFFFFF")
                                 Text(clips[currentPage].audio, color: "#F4F4F4", fontSize: 12, lineLimit: 1)
                             }
                             Text(feedStatus, color: "#EEEEEE", fontSize: 10, lineLimit: 1)
@@ -353,9 +353,9 @@ screen VideoFeed {
                                     Pressable() {
                                         Stack(alignment: Center, width: 21, height: 21, background: "#FE2C55", cornerRadius: 11) {
                                             if isFollowingCreator {
-                                                Icon(system: "checkmark", description: "Following", size: 12, tint: "#FFFFFF")
+                                                Icon(system: "check", description: "Following", size: 12, tint: "#FFFFFF")
                                             } else {
-                                                Icon(system: "plus", description: "Follow", size: 13, tint: "#FFFFFF")
+                                                Icon(system: "add", description: "Follow", size: 13, tint: "#FFFFFF")
                                             }
                                         }
                                     }.onTap {
@@ -366,9 +366,9 @@ screen VideoFeed {
                             Pressable(haptic: Light) {
                                 Column(spacing: 1) {
                                     if clips[currentPage].id in likedClipIds {
-                                        Icon(system: "heart.fill", description: "Liked", size: 34, tint: "#FE2C55")
+                                        Icon(system: "favorite_filled", description: "Liked", size: 34, tint: "#FE2C55")
                                     } else {
-                                        Icon(system: "heart", description: "Like", size: 34, tint: "#FFFFFF")
+                                        Icon(system: "favorite", description: "Like", size: 34, tint: "#FFFFFF")
                                     }
                                     Text(if (likeCounts[clips[currentPage].id] ?? 0) >= 1000 { "\((likeCounts[clips[currentPage].id] ?? 0) / 1000).\((likeCounts[clips[currentPage].id] ?? 0) % 1000 / 100)K" } else { "\(likeCounts[clips[currentPage].id] ?? 0)" }, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold)
                                 }
@@ -384,7 +384,7 @@ screen VideoFeed {
                             }
                             Pressable() {
                                 Column(spacing: 1) {
-                                    Icon(system: "bubble.right.fill", description: "Comments", size: 27, tint: "#FFFFFF")
+                                    Icon(system: "comment_filled", description: "Comments", size: 27, tint: "#FFFFFF")
                                     Text(if commentCount >= 1000 { "\(commentCount / 1000).\(commentCount % 1000 / 100)K" } else { "\(commentCount)" }, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold)
                                 }
                             }.onTap {
@@ -393,7 +393,7 @@ screen VideoFeed {
                             Pressable() {
                                 Column(spacing: 1) {
                                     if clips[currentPage].id in bookmarkedClipIds {
-                                        Icon(system: "bookmark.fill", description: "Saved", size: 27, tint: "#F6D34A")
+                                        Icon(system: "bookmark_filled", description: "Saved", size: 27, tint: "#F6D34A")
                                     } else {
                                         Icon(system: "bookmark", description: "Save", size: 27, tint: "#FFFFFF")
                                     }
@@ -410,7 +410,7 @@ screen VideoFeed {
                             }
                             Pressable() {
                                 Column(spacing: 1) {
-                                    Icon(system: "arrowshape.turn.up.right", description: "Share", size: 28, tint: "#FFFFFF")
+                                    Icon(system: "share", description: "Share", size: 28, tint: "#FFFFFF")
                                     Text(clips[currentPage].shareMetric, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold)
                                 }
                             }.onTap {
@@ -429,9 +429,9 @@ screen VideoFeed {
                             }
                             Pressable() {
                                 if player.volume > 0.0 {
-                                    Icon(system: "speaker.wave.2.fill", description: "Sound on", size: 16, tint: "#FFFFFF")
+                                    Icon(system: "volume_up", description: "Sound on", size: 16, tint: "#FFFFFF")
                                 } else {
-                                    Icon(system: "speaker.slash.fill", description: "Muted", size: 16, tint: "#FFFFFF")
+                                    Icon(system: "volume_off", description: "Muted", size: 16, tint: "#FFFFFF")
                                 }
                             }.onTap {
                                 if player.volume > 0.0 {
@@ -464,10 +464,10 @@ screen VideoFeed {
                             Pressable() {
                                 Column(spacing: 3) {
                                     if selectedBottomTab == "Home" {
-                                        Icon(system: "house.fill", description: "Home", size: 21, tint: "#FFFFFF")
+                                        Icon(system: "home", description: "Home", size: 21, tint: "#FFFFFF")
                                         Text("Home", color: "#FFFFFF", fontSize: 10)
                                     } else {
-                                        Icon(system: "house.fill", description: "Home", size: 21, tint: "#AAAAAA")
+                                        Icon(system: "home", description: "Home", size: 21, tint: "#AAAAAA")
                                         Text("Home", color: "#AAAAAA", fontSize: 10)
                                     }
                                 }
@@ -493,7 +493,7 @@ screen VideoFeed {
                                 Row(spacing: 0) {
                                     Stack(width: 4, height: 25, background: "#25F4EE", cornerRadius: 3) {}
                                     Stack(alignment: Center, width: 42, height: 29, background: "#FFFFFF", cornerRadius: 7) {
-                                        Icon(system: "plus", description: "Create", size: 22, tint: "#000000")
+                                        Icon(system: "add", description: "Create", size: 22, tint: "#000000")
                                     }
                                     Stack(width: 4, height: 25, background: "#FE2C55", cornerRadius: 3) {}
                                 }
@@ -508,9 +508,9 @@ screen VideoFeed {
                                 Column(spacing: 3) {
                                     Stack(alignment: Center, width: 23, height: 22) {
                                         if selectedBottomTab == "Inbox" {
-                                            Icon(system: "tray", description: "Inbox", size: 21, tint: "#FFFFFF")
+                                            Icon(system: "inbox", description: "Inbox", size: 21, tint: "#FFFFFF")
                                         } else {
-                                            Icon(system: "tray", description: "Inbox", size: 21, tint: "#AAAAAA")
+                                            Icon(system: "inbox", description: "Inbox", size: 21, tint: "#AAAAAA")
                                         }
                                         Stack(alignment: Center, width: 18, height: 12, background: "#FE2C55", cornerRadius: 7) {
                                             Text("9+", color: "#FFFFFF", fontSize: 8, fontWeight: Bold)
@@ -564,7 +564,7 @@ screen VideoFeed {
                     Text("Comments · \(commentCount)", color: "#FFFFFF", fontSize: 16, fontWeight: Bold)
                     Spacer()
                     Pressable() {
-                        Icon(system: "xmark", description: "Close comments", size: 18, tint: "#FFFFFF")
+                        Icon(system: "close", description: "Close comments", size: 18, tint: "#FFFFFF")
                     }.onTap {
                         commentsPresented = false
                     }

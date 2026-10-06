@@ -10,18 +10,19 @@ pub(crate) struct ImportContext<'a> {
     pub(crate) has_on_appear: bool,
     pub(crate) has_on_disappear: bool,
     pub(crate) has_lifecycle_events: bool,
+    pub(crate) has_widgets: bool,
 }
 
 /// Deduplicates and orders imports after feature modules contribute them.
 #[derive(Default)]
 pub(crate) struct ImportSet {
-    values: std::collections::BTreeSet<&'static str>,
+    values: std::collections::BTreeSet<String>,
 }
 
 impl ImportSet {
-    pub(crate) fn add(&mut self, enabled: bool, value: &'static str) {
+    pub(crate) fn add(&mut self, enabled: bool, value: impl Into<String>) {
         if enabled {
-            self.values.insert(value);
+            self.values.insert(value.into());
         }
     }
 
@@ -29,7 +30,7 @@ impl ImportSet {
         let mut output = String::new();
         for value in self.values {
             output.push_str("import ");
-            output.push_str(value);
+            output.push_str(&value);
             output.push('\n');
         }
         output.push('\n');
@@ -42,10 +43,16 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
     imports.add(true, "androidx.compose.material3.LocalRippleConfiguration");
+    imports.add(context.has_widgets, "androidx.glance.appwidget.updateAll");
+    imports.add(context.has_widgets, "kotlinx.coroutines.CoroutineScope");
+    imports.add(context.has_widgets, "kotlinx.coroutines.Dispatchers");
+    imports.add(context.has_widgets, "kotlinx.coroutines.launch");
     imports.add(
         context.uses_plugins
+            || context.has_widgets
             || context.features.facts.capabilities.uses_clipboard_api
             || context.features.facts.capabilities.uses_storage_api
+            || context.features.facts.capabilities.uses_localized_strings
             || context.features.facts.capabilities.uses_haptics_api
             || context
                 .features
@@ -56,12 +63,14 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     );
 
     crate::generator::components::direction::imports(&context, &mut imports);
+    crate::generator::components::appearance::imports(context.features, &mut imports);
     crate::generator::components::lifecycle::imports(&context, &mut imports);
     crate::generator::components::status_bar::imports(context.features, &mut imports);
     crate::generator::components::text::imports(context.features, &mut imports);
     crate::generator::components::accessibility::imports(context.features, &mut imports);
     crate::generator::components::assets::imports(context.features, &mut imports);
     crate::generator::components::bottom_bar::imports(context.features, &mut imports);
+    crate::generator::components::content_unavailable::imports(context.features, &mut imports);
     crate::generator::components::conditional::imports(context.features, &mut imports);
     crate::generator::components::controls::imports(context.features, &mut imports);
     crate::generator::components::dialogs::imports(context.features, &mut imports);
@@ -73,6 +82,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::links::imports(context.features, &mut imports);
     crate::generator::components::lists::imports(context.features, &mut imports);
     crate::generator::components::navigation::imports(&context, &mut imports);
+    crate::generator::components::split_view::imports(&context, &mut imports);
     crate::generator::components::refresh::imports(context.features, &mut imports);
     crate::generator::components::sheets::imports(context.features, &mut imports);
     crate::generator::components::shared_elements::imports(context.features, &mut imports);
@@ -101,6 +111,7 @@ mod tests {
             has_on_appear: false,
             has_on_disappear: false,
             has_lifecycle_events: false,
+            has_widgets: false,
         })
     }
 

@@ -144,9 +144,15 @@ pub struct UiFacts {
     pub components: BTreeMap<String, ScopeUi>,
     /// A status bar is configured on the app or any screen (structural).
     pub status_bar: bool,
+    /// An appearance wrapper selects the system, light, or dark color scheme.
+    pub appearance: bool,
     pub bottom_bar: BottomBarFacts,
+    pub page_pager: bool,
+    pub navigation_split_view: bool,
     pub bottom_sheet: BottomSheetFacts,
     pub dialog_present: bool,
+    /// A native empty-state presentation is used.
+    pub content_unavailable: bool,
     pub refresh: RefreshFacts,
     pub image: ImageFacts,
     /// Native system icons used anywhere in generated UI.
@@ -163,6 +169,7 @@ pub struct UiFacts {
     pub progress_ring_present: bool,
     pub segmented_control_present: bool,
     pub picker_present: bool,
+    pub date_picker_present: bool,
     /// A conditional view requests a native insertion/removal transition.
     pub conditional_transition: bool,
     pub pressable: PressableFacts,
@@ -176,15 +183,18 @@ pub struct UiFacts {
 #[derive(Clone, Debug, Default)]
 pub struct BottomBarFacts {
     pub present: bool,
-    pub tab_icon: bool,
+    pub adaptive_tabs: bool,
+    pub search_role: bool,
+    pub searchable: bool,
+    pub navigation_title: bool,
     pub tab_badge: bool,
-    pub tab_badge_placeholder: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BottomSheetFacts {
     pub present: bool,
     pub partial: bool,
+    pub full_screen: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -209,6 +219,8 @@ pub struct ImageFacts {
 #[derive(Clone, Debug, Default)]
 pub struct ListFacts {
     pub any: bool,
+    /// At least one list uses Nexa's custom virtualized implementation.
+    pub virtualized: bool,
     pub sectioned: bool,
     pub vertical: bool,
     pub reverse_layout: bool,
@@ -218,6 +230,8 @@ pub struct ListFacts {
     /// A flat sticky header (sectioned headers are reported separately).
     pub sticky_header: bool,
     pub section_header: bool,
+    pub swipe_actions: bool,
+    pub reorderable: bool,
     /// Scroll callbacks on non-grid flat lists; grid plans are reported
     /// separately because Kotlin emits distinct linear/grid runtimes.
     pub scroll_events: bool,
@@ -243,14 +257,16 @@ pub struct TextFacts {
 #[derive(Clone, Debug, Default)]
 pub struct ButtonFacts {
     pub present: bool,
-    pub icon: bool,
     pub loading: bool,
+    pub custom_shape: bool,
+    pub glass: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct TextInputFacts {
     pub present: bool,
     pub submit: bool,
+    pub searchable: bool,
     pub focus: bool,
     pub secure: bool,
     pub capitalization: bool,
@@ -263,6 +279,7 @@ pub struct PressableFacts {
     pub present: bool,
     pub fill_max_size: bool,
     pub long_press: bool,
+    pub context_menu: bool,
     pub double_tap: bool,
     pub drag: bool,
     pub drag_velocity: bool,
@@ -273,6 +290,7 @@ pub struct PressableFacts {
 
 #[derive(Clone, Debug, Default)]
 pub struct LayoutFacts {
+    pub form: bool,
     pub column: bool,
     pub row: bool,
     /// Stack (overlay) layouts.
@@ -311,6 +329,8 @@ pub struct StyleFacts {
     pub dp: bool,
     pub modifier: bool,
     pub color: bool,
+    pub dynamic_color: bool,
+    pub glass: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -410,6 +430,16 @@ impl ModuleFacts {
                     &mut false,
                 );
             });
+            if let Some(actions) = &function.body_actions {
+                walk_actions(actions, &mut |expression| {
+                    observe_expr(
+                        expression,
+                        &mut facts.capabilities,
+                        &mut facts.permissions,
+                        &mut false,
+                    );
+                });
+            }
         }
         for actions in module
             .on_appear
@@ -444,6 +474,24 @@ impl ModuleFacts {
         }
         for screen in &module.screens {
             for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
+                facts.capabilities.uses_network_connectivity |=
+                    actions_contain_network_status_subscription(actions);
+                walk_actions(actions, &mut |expression| {
+                    observe_expr(
+                        expression,
+                        &mut facts.capabilities,
+                        &mut facts.permissions,
+                        &mut false,
+                    );
+                });
+            }
+        }
+        for component in &module.components {
+            for actions in component
+                .on_appear
+                .iter()
+                .chain(component.on_disappear.iter())
+            {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
                 walk_actions(actions, &mut |expression| {
@@ -531,6 +579,14 @@ impl ModuleFacts {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
             });
+            for actions in component
+                .on_appear
+                .iter()
+                .chain(component.on_disappear.iter())
+            {
+                facts.capabilities.uses_network_connectivity |=
+                    actions_contain_network_status_subscription(actions);
+            }
             let calls = facts
                 .component_calls
                 .edges
@@ -570,6 +626,51 @@ impl ModuleFacts {
                     .size_class = true;
             }
             facts.capabilities.uses_remote_image |= remote_hit;
+        }
+
+        // Widget UI is generated into a separate native target. Do not fold
+        // its layout requirements into the app's SwiftUI/Compose feature set,
+        // but do collect expression-level facts: localization resources,
+        // plugin capabilities, and permissions are module-wide build inputs.
+        // Providers and configuration defaults are expressions too, and may
+        // contain localized expressions or native capability calls.
+        for widget in &module.widgets {
+            walk_expression(&widget.entry_provider, &mut |expression| {
+                observe_expr(
+                    expression,
+                    &mut facts.capabilities,
+                    &mut facts.permissions,
+                    &mut false,
+                );
+            });
+            if let Some(placeholder) = &widget.placeholder_provider {
+                walk_expression(placeholder, &mut |expression| {
+                    observe_expr(
+                        expression,
+                        &mut facts.capabilities,
+                        &mut facts.permissions,
+                        &mut false,
+                    );
+                });
+            }
+            if let Some(configuration) = &widget.configuration {
+                walk_expression(&configuration.default, &mut |expression| {
+                    observe_expr(
+                        expression,
+                        &mut facts.capabilities,
+                        &mut facts.permissions,
+                        &mut false,
+                    );
+                });
+            }
+            walk_ir(&widget.body, &mut |_| {}, &mut |expression| {
+                observe_expr(
+                    expression,
+                    &mut facts.capabilities,
+                    &mut facts.permissions,
+                    &mut false,
+                );
+            });
         }
 
         facts.ui.status_bar = module.status_bar.is_some()
@@ -645,6 +746,7 @@ fn observe_node(
         }
     }
     match node {
+        Node::Appearance { .. } => ui.appearance = true,
         Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::OnAppear { .. }
@@ -701,24 +803,51 @@ fn observe_node(
                     .shadow
                     .is_some_and(|shadow| matches!(shadow.color, ColorValue::Adaptive { .. }));
         }
+        Node::ContentUnavailable { icon, .. } => {
+            ui.content_unavailable = true;
+            ui.system_icons.insert(icon.clone());
+        }
         Node::Spacer => ui.layout.spacer = true,
         Node::Divider { .. } => ui.layout.divider = true,
-        Node::Button { icon, loading, .. } => {
+        Node::Button {
+            icon,
+            loading,
+            shape,
+            tint,
+            glass,
+            ..
+        } => {
             ui.button.present = true;
-            ui.button.icon |= icon.is_some();
             ui.button.loading |= loading.is_some();
+            ui.button.custom_shape |= shape.is_some();
+            ui.button.glass |= *glass;
+            ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
+            if let Some(icon) = icon {
+                ui.system_icons.insert(icon.clone());
+            }
         }
+        Node::Form { children } => {
+            ui.layout.form = true;
+            record_child_layout(children, ui);
+        }
+        Node::FormSection { children, .. } => record_child_layout(children, ui),
         Node::TextInput {
             secure,
             capitalization,
             autofill,
             return_key,
             focused,
+            searchable,
             actions,
             ..
         } => {
             ui.text_input.present = true;
             ui.text_input.submit |= !actions.is_empty();
+            ui.text_input.searchable |= *searchable;
+            if *searchable {
+                ui.system_icons
+                    .insert(SystemIcon::Shared("search".to_owned()));
+            }
             ui.text_input.focus |= focused.is_some();
             ui.text_input.secure |= *secure;
             ui.text_input.capitalization |= capitalization.is_some();
@@ -727,6 +856,12 @@ fn observe_node(
             if let Some(name) = focused {
                 focus.insert(name.clone());
             }
+        }
+        Node::Toolbar { children, .. } => {
+            ui.layout.row = true;
+            ui.layout.spacing = true;
+            ui.style.alignment = true;
+            record_child_layout(children, ui);
         }
         Node::Switch { .. } => {
             ui.switch_present = true;
@@ -743,8 +878,14 @@ fn observe_node(
         Node::SegmentedControl { .. } => {
             ui.segmented_control_present = true;
         }
-        Node::Picker { .. } => {
+        Node::Picker { icon, .. } => {
             ui.picker_present = true;
+            if let Some(icon) = icon {
+                ui.system_icons.insert(icon.clone());
+            }
+        }
+        Node::DatePicker { .. } => {
+            ui.date_picker_present = true;
         }
         Node::Image {
             source,
@@ -754,11 +895,15 @@ fn observe_node(
         } => {
             ui.image.asset |= matches!(source, ImageSource::Asset(_));
             ui.image.shared_element |= shared_element.is_some();
-            *remote_hit |= matches!(source, ImageSource::RemoteUrl(_));
+            *remote_hit |= matches!(
+                source,
+                ImageSource::RemoteUrl(_) | ImageSource::LocalFile(_)
+            );
             ui.image.placeholder |= placeholder.is_some();
         }
-        Node::SystemIcon { icon, .. } => {
-            ui.system_icons.insert(*icon);
+        Node::SystemIcon { icon, tint, .. } => {
+            ui.system_icons.insert(icon.clone());
+            ui.style.dynamic_color |= matches!(tint, crate::ColorExpression::Dynamic(_));
         }
         Node::LinearGradient { .. } => ui.linear_gradient = true,
         Node::Pressable {
@@ -767,6 +912,7 @@ fn observe_node(
             fill_max_size,
             double_tap_actions,
             long_press_actions,
+            context_menu,
             drag_parameters,
             drag_actions,
             pinch_parameter,
@@ -777,6 +923,7 @@ fn observe_node(
             scope_of(ui, scope).haptic |= haptic.is_some();
             let long_press = !long_press_actions.is_empty();
             let double_tap = !double_tap_actions.is_empty();
+            ui.pressable.context_menu |= !context_menu.is_empty();
             ui.pressable.long_press |= long_press;
             ui.pressable.double_tap |= double_tap;
             ui.pressable.drag |= drag_parameters.len() == 4;
@@ -787,13 +934,21 @@ fn observe_node(
                 );
             }
             ui.pressable.pinch |= pinch_parameter.is_some();
-            ui.pressable.clickable |= !long_press && !double_tap;
+            ui.pressable.clickable |= !long_press && !double_tap && context_menu.is_empty();
             record_child_layout(children, ui);
         }
         Node::NavigationLink { children, .. } => {
             ui.navigation_link = true;
             scope_of(ui, scope).navigation = true;
             record_child_layout(children, ui);
+        }
+        Node::NavigationSplitView {
+            sidebar, detail, ..
+        } => {
+            ui.navigation_split_view = true;
+            scope_of(ui, scope).navigation = true;
+            record_child_layout(sidebar, ui);
+            record_child_layout(detail, ui);
         }
         Node::NavigationBack { .. } => {
             scope_of(ui, scope).navigation_back = true;
@@ -821,23 +976,50 @@ fn observe_node(
                 matches!(dismiss, KeyboardDismissMode::Interactive);
         }
         Node::BottomSheet {
-            partial, children, ..
+            partial,
+            title,
+            children,
+            ..
         } => {
             ui.bottom_sheet.present = true;
             ui.bottom_sheet.partial |= *partial;
+            ui.bottom_sheet.full_screen |= !*partial;
+            ui.text.present |= title.is_some();
             record_child_layout(children, ui);
         }
         Node::Dialog { children, .. } => {
             ui.dialog_present = true;
             record_child_layout(children, ui);
         }
-        Node::AppBottomBar { tabs, .. } => {
+        Node::ConfirmationDialog { children, .. } => {
+            ui.dialog_present = true;
+            record_child_layout(children, ui);
+        }
+        Node::AppBottomBar { tint, tabs, .. } => {
             ui.bottom_bar.present = true;
+            ui.bottom_bar.adaptive_tabs = true;
+            ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
             for tab in tabs {
-                ui.bottom_bar.tab_icon |= tab.icon.is_some();
+                ui.bottom_bar.search_role |= tab.role.as_deref() == Some("search");
+                ui.bottom_bar.searchable |= tab.search_state.is_some();
+                ui.bottom_bar.navigation_title |= tab.navigation_title.is_some();
+                if tab.search_state.is_some() {
+                    ui.text_input.present = true;
+                    ui.text_input.searchable = true;
+                    ui.system_icons
+                        .insert(SystemIcon::Shared("search".to_owned()));
+                }
+                if let Some(icon) = &tab.icon {
+                    ui.system_icons.insert(icon.clone());
+                }
                 ui.bottom_bar.tab_badge |= tab.badge.is_some();
-                ui.bottom_bar.tab_badge_placeholder |= tab.badge.is_some() && tab.icon.is_none();
                 record_child_layout(&tab.children, ui);
+            }
+        }
+        Node::PagePager { pages, .. } => {
+            ui.page_pager = true;
+            for page in pages {
+                record_child_layout(page, ui);
             }
         }
         Node::RefreshControl { children, .. } => {
@@ -851,6 +1033,7 @@ fn observe_node(
             let axis = plan.axis();
             let grid = matches!(axis, ListAxis::Grid { .. });
             ui.lists.any = true;
+            ui.lists.virtualized |= !plan.native();
             ui.lists.reverse_layout |= plan.reverse_layout();
             ui.lists.page_snap |= plan.page_snap();
             ui.lists.sectioned |= matches!(plan, ListPlan::Sections { .. });
@@ -865,6 +1048,8 @@ fn observe_node(
             }
             ui.lists.sticky_header |= plan.sticky_header().is_some();
             ui.lists.section_header |= plan.section_header().is_some();
+            ui.lists.swipe_actions |= plan.swipe_actions().is_some();
+            ui.lists.reorderable |= plan.on_move().is_some();
             ui.lists.refresh_fused |= plan.refresh().is_some();
             if plan.scroll_position().is_some() {
                 ui.lists.scroll_position |= !grid;
@@ -938,6 +1123,7 @@ fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
     }
     facts.modifier |= style.has_modifiers();
     facts.color |= style.background.is_some() || style.border_color.is_some();
+    facts.glass |= style.effects.glass.is_some();
     facts.dp |= style.padding.is_some()
         || style.width.is_some()
         || style.height.is_some()
@@ -961,6 +1147,7 @@ fn observe_effects(effects: &crate::ViewEffects, facts: &mut StyleFacts) {
     facts.z_index |= effects.z_index.is_some();
     facts.corner_radius |= effects.clip_rounded.is_some();
     facts.color |= effects.shadow.is_some();
+    facts.glass |= effects.glass.is_some();
     facts.dp |=
         effects.shadow.is_some() || effects.blur.is_some() || effects.clip_rounded.is_some();
 }
@@ -1009,6 +1196,9 @@ fn observe_expr(
     permissions: &mut PermissionFacts,
     size_hit: &mut bool,
 ) {
+    if matches!(expression, Expr::LocalizedText { .. }) {
+        capabilities.uses_localized_strings = true;
+    }
     if matches!(expression, Expr::ResultOk { .. } | Expr::ResultErr { .. }) {
         capabilities.uses_result = true;
     }
@@ -1063,6 +1253,10 @@ fn observe_expr(
             }
             "Keyboard" => capabilities.uses_keyboard_api |= name == "dismiss",
             "Number" => capabilities.uses_number_formatting |= name == "formatCurrency",
+            "Locale" => {
+                capabilities.uses_locale_api = true;
+            }
+            "AppIcon" => capabilities.uses_app_icon_api |= name == "set",
             "Json" => capabilities.uses_json_api = true,
             "Crypto" => capabilities.uses_crypto_api = true,
             "SecureStorage" => capabilities.uses_secure_storage_api = true,
@@ -1101,23 +1295,8 @@ fn observe_expr(
 }
 
 fn record_permission_usage(expression: &Expr, permissions: &mut PermissionFacts) {
-    // Validated permission queries carry the permission directly; legacy
-    // `NativeCall` spellings (e.g. hand-built test IR) resolve it by name.
     let permission = match expression {
         Expr::PermissionOp { permission, .. } => permission.as_ref(),
-        Expr::NativeCall {
-            namespace,
-            name,
-            arguments,
-            ..
-        } if namespace == "Permissions" && matches!(name.as_str(), "status" | "request") => {
-            let Some((_, permission)) = arguments.iter().find(|(name, _)| name == "permission")
-            else {
-                permissions.dynamic = true;
-                return;
-            };
-            permission
-        }
         _ => return,
     };
     match permission {
@@ -1164,7 +1343,7 @@ fn record_permission_usage(expression: &Expr, permissions: &mut PermissionFacts)
 fn type_uses_result(ty: &Type) -> bool {
     match ty {
         Type::Result(_, _) => true,
-        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => type_uses_result(inner),
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => type_uses_result(inner),
         Type::Map(key, value) | Type::Pair(key, value) => {
             type_uses_result(key) || type_uses_result(value)
         }
@@ -1225,10 +1404,14 @@ fn visit_result_types(module: &Module, capabilities: &mut Capabilities) {
 #[cfg(test)]
 mod tests {
     use super::ModuleFacts;
-    use crate::{Action, Expr, ImageScale, ImageSource, LayoutKind, Module, Node, Type, ViewStyle};
+    use crate::{
+        Action, BottomBarTab, Expr, ImageScale, ImageSource, LayoutKind, Module, Node, SystemIcon,
+        Type, ViewStyle,
+    };
 
     fn empty_module(body: Vec<Node>) -> Module {
         Module {
+            widgets: Vec::new(),
             app_name: "FactsTest".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1236,6 +1419,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -1272,6 +1456,11 @@ mod tests {
                 icon: None,
                 loading: None,
                 disabled: None,
+                style: None,
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
                 actions: vec![
                     Action::Expression(call("Network", "fetch")),
                     Action::Expression(call("Path", "documents")),
@@ -1294,6 +1483,36 @@ mod tests {
     }
 
     #[test]
+    fn bottom_bar_system_symbols_enter_the_shared_icon_fact_set() {
+        let module = empty_module(vec![Node::AppBottomBar {
+            state: "selectedTab".to_owned(),
+            tint: None,
+            tabs: vec![BottomBarTab {
+                index: 0,
+                label: "Primary".to_owned(),
+                comment: None,
+                icon: Some(SystemIcon::Shared("inbox".to_owned())),
+                badge: None,
+                role: None,
+                navigation_title: None,
+                large_title: false,
+                search_state: None,
+                search_prompt: None,
+                children: Vec::new(),
+            }],
+        }]);
+
+        let facts = ModuleFacts::analyze(&module);
+
+        assert!(
+            facts
+                .ui
+                .system_icons
+                .contains(&SystemIcon::Shared("inbox".to_owned()))
+        );
+    }
+
+    #[test]
     fn scope_atoms_split_app_from_components() {
         let module = empty_module(vec![Node::Pressable {
             disabled: Expr::Bool(false),
@@ -1307,6 +1526,7 @@ mod tests {
                 ty: crate::NumericType::Int32,
             },
             long_press_actions: Vec::new(),
+            context_menu: Vec::new(),
             drag_parameters: Vec::new(),
             drag_actions: Vec::new(),
             pinch_parameter: None,
@@ -1328,11 +1548,13 @@ mod tests {
             section: "section".to_owned(),
             item: "item".to_owned(),
             common: SectionedListCommon {
+                native: false,
                 item_extent: None,
                 index: "index".to_owned(),
                 key: None,
                 children: Vec::new(),
                 section_header: None,
+                swipe_actions: None,
                 refresh: None,
             },
         };
@@ -1354,6 +1576,7 @@ mod tests {
             description: "Example image".to_owned(),
             scale: ImageScale::Fit,
             placeholder: None,
+            max_height: None,
             shared_element: None,
         }]);
         let facts = ModuleFacts::analyze(&module);
@@ -1399,6 +1622,11 @@ mod tests {
             icon: None,
             loading: None,
             disabled: None,
+            style: None,
+            size: None,
+            shape: None,
+            tint: None,
+            glass: false,
             actions: vec![
                 Action::Expression(Expr::PermissionOp {
                     op: crate::PermissionOpKind::Request,
@@ -1435,6 +1663,7 @@ mod tests {
             body: vec![Node::TextInput {
                 state: "query".to_owned(),
                 placeholder: String::new(),
+                comment: None,
                 keyboard: crate::KeyboardType::Text,
                 secure: false,
                 multiline: false,
@@ -1444,8 +1673,16 @@ mod tests {
                 capitalization: None,
                 focused: Some("query".to_owned()),
                 max_length: None,
+                font: None,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
                 actions: Vec::new(),
+                on_change: None,
             }],
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
         };
         let caller = Component {
             name: "Caller".to_owned(),
@@ -1457,6 +1694,9 @@ mod tests {
                 arguments: Vec::new(),
                 children: None,
             }],
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
         };
         let mut module = empty_module(Vec::new());
         module.components.push(callee);

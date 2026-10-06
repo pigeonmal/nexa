@@ -4,74 +4,82 @@ use nexa_lsp::protocol::JsonRpcRequest;
 use nexa_lsp::server::LspServer;
 use serde_json::json;
 
+const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+
 fn main() -> io::Result<()> {
     let stdin = io::stdin();
-    let mut stdin_lock = stdin.lock();
+    let mut input = stdin.lock();
     let stdout = io::stdout();
-    let mut stdout_lock = stdout.lock();
-
+    let mut output = stdout.lock();
     let mut server = LspServer::new();
 
-    loop {
-        let mut line = String::new();
-        if stdin_lock.read_line(&mut line)? == 0 {
+    while let Some(length) = read_content_length(&mut input)? {
+        if length > MAX_MESSAGE_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "LSP message exceeds 64 MiB",
+            ));
+        }
+        let mut payload = vec![0; length];
+        input.read_exact(&mut payload)?;
+        let request: JsonRpcRequest = match serde_json::from_slice(&payload) {
+            Ok(request) => request,
+            Err(_) => continue,
+        };
+        if request.method == "exit" {
             break;
         }
 
-        let trimmed = line.trim();
-        if trimmed.starts_with("Content-Length:") {
-            let len_str = trimmed.trim_start_matches("Content-Length:").trim();
-            let content_len: usize = match len_str.parse() {
-                Ok(n) => n,
-                Err(_) => continue,
-            };
-
-            // Read the empty separator line "\r\n"
-            let mut separator = String::new();
-            stdin_lock.read_line(&mut separator)?;
-
-            // Read exact payload bytes
-            let mut buffer = vec![0u8; content_len];
-            stdin_lock.read_exact(&mut buffer)?;
-
-            let payload_str = match String::from_utf8(buffer) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-
-            let request: JsonRpcRequest = match serde_json::from_str(&payload_str) {
-                Ok(req) => req,
-                Err(_) => continue,
-            };
-
-            let (response, notifications) = server.handle_request(request);
-
-            // Send any diagnostics notifications first
-            for notification in notifications {
-                let notif_json = json!({
+        let (response, notifications) = server.handle_request(request);
+        for notification in notifications {
+            send_json_rpc(
+                &mut output,
+                &json!({
                     "jsonrpc": "2.0",
                     "method": "textDocument/publishDiagnostics",
                     "params": notification
-                });
-                send_json_rpc(&mut stdout_lock, &notif_json)?;
-            }
-
-            // Send response if applicable
-            if let Some(resp) = response {
-                let resp_json = serde_json::to_value(&resp).unwrap_or(serde_json::Value::Null);
-                send_json_rpc(&mut stdout_lock, &resp_json)?;
-            }
+                }),
+            )?;
+        }
+        if let Some(response) = response {
+            let value = serde_json::to_value(response)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+            send_json_rpc(&mut output, &value)?;
         }
     }
-
     Ok(())
 }
 
+fn read_content_length(reader: &mut impl BufRead) -> io::Result<Option<usize>> {
+    let mut content_length = None;
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            return Ok(None);
+        }
+        if line == b"\r\n" || line == b"\n" {
+            break;
+        }
+        let header = String::from_utf8_lossy(&line);
+        if let Some((name, value)) = header.trim().split_once(':')
+            && name.trim().eq_ignore_ascii_case("content-length")
+        {
+            content_length = value.trim().parse::<usize>().ok();
+        }
+    }
+    content_length.map(Some).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "missing or invalid Content-Length header",
+        )
+    })
+}
+
 fn send_json_rpc(writer: &mut impl Write, value: &serde_json::Value) -> io::Result<()> {
-    let encoded = serde_json::to_string(value).unwrap_or_default();
-    let header = format!("Content-Length: {}\r\n\r\n", encoded.len());
-    writer.write_all(header.as_bytes())?;
-    writer.write_all(encoded.as_bytes())?;
-    writer.flush()?;
-    Ok(())
+    let encoded = serde_json::to_vec(value)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    write!(writer, "Content-Length: {}\r\n\r\n", encoded.len())?;
+    writer.write_all(&encoded)?;
+    writer.flush()
 }

@@ -15,8 +15,16 @@ enum NexaStorage {
     private static let keyPrefix = "dev.nexa.storage."
     // UserDefaults is thread-safe, but its reference type is not Sendable on
     // every supported Foundation version. The static binding is immutable;
-    // this declaration avoids adding actor hops to the synchronous API.
-    private nonisolated(unsafe) static let defaults = UserDefaults.standard
+    // this declaration avoids adding actor hops to the synchronous API. When
+    // an App Group is configured, use that suite so extensions can read the
+    // same small app settings; otherwise retain the standard app-private suite.
+    private nonisolated(unsafe) static let defaults = {
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "NexaAppGroupIdentifier") as? String,
+              let shared = UserDefaults(suiteName: group) else {
+            return UserDefaults.standard
+        }
+        return shared
+    }()
 
     static func getString(_ key: String) -> String? {
         defaults.string(forKey: keyPrefix + key)

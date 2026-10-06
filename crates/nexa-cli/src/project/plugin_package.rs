@@ -30,6 +30,8 @@ pub struct PluginPackage {
 pub struct PluginArtifacts {
     /// Absolute conventional iOS source roots/globs.
     pub ios_sources: Vec<String>,
+    /// Absolute Swift sources declared safe for app-extension targets.
+    pub ios_extension_sources: Vec<String>,
     /// Absolute conventional Android source roots/globs.
     pub android_sources: Vec<String>,
     /// Absolute optional C++ implementation source globs.
@@ -73,6 +75,7 @@ impl PluginPackage {
     pub fn from_decl(decl: &nexa_syntax::ast::PluginDecl) -> Self {
         let artifacts = PluginArtifacts {
             ios_sources: decl.ios_sources.clone(),
+            ios_extension_sources: decl.ios_extension_sources.clone(),
             android_sources: decl.android_sources.clone(),
             cpp_sources: decl.cpp_sources.clone(),
             cpp_headers: decl.cpp_headers.clone(),
@@ -147,6 +150,7 @@ impl PluginPackage {
         };
         let artifacts = PluginArtifacts {
             ios_sources: absolute_paths(&manifest.ios.sources),
+            ios_extension_sources: absolute_paths(&manifest.ios.extension_sources),
             android_sources: absolute_paths(&manifest.android.sources),
             cpp_sources: absolute_paths(&manifest.cpp.sources),
             cpp_headers: absolute_paths(&manifest.cpp.headers),
@@ -265,12 +269,16 @@ mod tests {
     fn declaration(namespace: &str, pure: bool) -> nexa_syntax::ast::PluginDecl {
         nexa_syntax::ast::PluginDecl {
             path: format!("/{namespace}/native.nxid"),
+            package_id: None,
+            package_root: None,
+            compiler_analyzer: Vec::new(),
             namespace: namespace.to_owned(),
             span: Span::default(),
             idl: None,
             pure,
             assets_path: None,
             ios_sources: vec![format!("/{namespace}/ios")],
+            ios_extension_sources: vec![format!("/{namespace}/ios/WidgetSafe.swift")],
             android_sources: Vec::new(),
             cpp_sources: vec![format!("/{namespace}/cpp/**")],
             cpp_headers: Vec::new(),
@@ -302,6 +310,7 @@ mod tests {
 
     fn module_with(namespaces: &[&str]) -> nexa_ir::Module {
         nexa_ir::Module {
+            widgets: Vec::new(),
             app_name: "PackagesTest".to_owned(),
             plugins: namespaces
                 .iter()
@@ -315,6 +324,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -339,6 +349,10 @@ mod tests {
         assert_eq!(package.idl_path, "/Video/native.nxid");
         assert!(package.artifacts.android_picture_in_picture);
         assert_eq!(package.artifacts.ios_sources, vec!["/Video/ios"]);
+        assert_eq!(
+            package.artifacts.ios_extension_sources,
+            vec!["/Video/ios/WidgetSafe.swift"]
+        );
         assert_eq!(package.artifacts.cpp_sources, vec!["/Video/cpp/**"]);
         assert_eq!(package.artifacts.cpp_standard, Some(20));
     }

@@ -8,10 +8,16 @@ pub struct App {
     pub plugins: Vec<PluginDecl>,
     pub enums: Vec<EnumDecl>,
     pub structs: Vec<StructDecl>,
+    /// User-defined reference classes with immutable state and instance methods.
+    pub classes: Vec<ClassDecl>,
     pub states: Vec<StateDecl>,
+    /// Immutable module-level values, emitted once outside UI identity/lifecycle.
+    pub globals: Vec<StateDecl>,
     pub functions: Vec<FunctionDecl>,
     pub background_tasks: Vec<BackgroundTaskDecl>,
     pub screens: Vec<ScreenDecl>,
+    /// Platform-neutral widget declarations collected from imported source modules.
+    pub widgets: Vec<WidgetDecl>,
     pub theme: Option<ThemeDecl>,
     pub components: Vec<ComponentDecl>,
     /// Host-evaluated unit tests. These declarations never enter generated app code.
@@ -23,6 +29,12 @@ pub struct App {
 #[derive(Clone, Debug)]
 pub struct PluginDecl {
     pub path: String,
+    /// Plugin identity from `plugin.config.nx`, when loaded from a package.
+    pub package_id: Option<String>,
+    /// Canonical package root for generic compiler analyzer invocation.
+    pub package_root: Option<String>,
+    /// Canonical executable path for a plugin-owned compiler analyzer.
+    pub compiler_analyzer: Vec<String>,
     pub namespace: String,
     pub span: Span,
     pub idl: Option<nexa_plugin_idl::PluginIdl>,
@@ -32,6 +44,8 @@ pub struct PluginDecl {
     /// on the resolved declaration lets project generation honor a plugin's
     /// package layout without rediscovering or guessing conventional folders.
     pub ios_sources: Vec<String>,
+    /// Absolute Swift sources explicitly declared safe for app-extension targets.
+    pub ios_extension_sources: Vec<String>,
     pub android_sources: Vec<String>,
     /// Absolute C++ source and header globs declared by `plugin.config.nx`.
     pub cpp_sources: Vec<String>,
@@ -87,6 +101,33 @@ pub struct StructFieldDecl {
 }
 
 #[derive(Clone, Debug)]
+pub struct ClassDecl {
+    pub name: String,
+    pub constructor_parameters: Vec<ClassParameterDecl>,
+    pub fields: Vec<ClassFieldDecl>,
+    pub static_fields: Vec<ClassFieldDecl>,
+    pub methods: Vec<FunctionDecl>,
+    pub static_methods: Vec<FunctionDecl>,
+    pub span: Span,
+    pub source_file: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ClassParameterDecl {
+    pub name: String,
+    pub ty: TypeSyntax,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct ClassFieldDecl {
+    pub name: String,
+    pub ty: Option<TypeSyntax>,
+    pub initial: Expr,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
 pub struct EnumDecl {
     pub name: String,
     pub cases: Vec<EnumCaseDecl>,
@@ -103,11 +144,17 @@ pub struct EnumCaseDecl {
 pub struct Program {
     pub imports: Vec<ImportDecl>,
     pub plugins: Vec<PluginDecl>,
+    pub enums: Vec<EnumDecl>,
     pub components: Vec<ComponentDecl>,
     pub structs: Vec<StructDecl>,
+    pub classes: Vec<ClassDecl>,
     pub functions: Vec<FunctionDecl>,
+    /// Immutable file-scope values. These are suitable for long-lived native handles.
+    pub globals: Vec<StateDecl>,
     /// Named screens declared in a standalone source module.
     pub screens: Vec<ScreenDecl>,
+    /// Standalone native widget declarations.
+    pub widgets: Vec<WidgetDecl>,
     pub tests: Vec<TestDecl>,
     pub app: Option<App>,
 }
@@ -203,6 +250,7 @@ pub struct AppConfig {
     pub build_number: u32,
     pub staging_suffix: Option<String>,
     pub deep_links: Vec<String>,
+    pub orientation: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -215,7 +263,9 @@ pub struct FlavorConfig {
 pub struct IosConfig {
     pub min_version: Option<String>,
     pub bundle_identifier: Option<String>,
+    pub app_group_identifier: Option<String>,
     pub icon: Option<String>,
+    pub alternate_icons: Vec<String>,
     pub arch: Option<Vec<String>>,
 }
 
@@ -225,6 +275,7 @@ pub struct AndroidConfig {
     pub target_sdk: Option<u32>,
     pub application_id: Option<String>,
     pub icon: Option<String>,
+    pub alternate_icons: Vec<String>,
     pub arch: Option<Vec<String>>,
     pub cronet: Option<AndroidCronetConfig>,
 }
@@ -307,6 +358,7 @@ pub struct FunctionDecl {
     pub return_type: TypeSyntax,
     pub body: Vec<Stmt>,
     pub span: Span,
+    pub source_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -324,6 +376,7 @@ pub struct BackgroundTaskDecl {
     pub interval_minutes: u32,
     pub body: Vec<Stmt>,
     pub span: Span,
+    pub source_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -364,6 +417,29 @@ pub struct ScreenDecl {
     pub source_file: Option<String>,
 }
 
+/// A cross-platform widget declaration with an immutable, typed timeline entry.
+/// The optional configuration expression supplies the default value for the
+/// widget's user-configurable settings.
+#[derive(Clone, Debug)]
+pub struct WidgetDecl {
+    pub name: String,
+    /// Source text for the native widget's optional localized metadata.
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    pub configuration_title: Option<String>,
+    pub configuration_description: Option<String>,
+    pub configuration: Option<Expr>,
+    pub entry_provider: Expr,
+    /// Synchronous value used by native widget hosts while async entry data
+    /// loads and when a provider fails.
+    pub placeholder_provider: Option<Expr>,
+    pub families: Vec<String>,
+    pub refresh_seconds: Expr,
+    pub body: Vec<Node>,
+    pub span: Span,
+    pub source_file: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct StateDecl {
     pub name: String,
@@ -371,6 +447,7 @@ pub struct StateDecl {
     pub initial: Expr,
     pub mutable: bool,
     pub span: Span,
+    pub source_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -459,6 +536,11 @@ pub enum ChildBody {
     Actions(Vec<Stmt>),
     /// `AppBottomBar` tab declarations.
     Tabs(Vec<TabDecl>),
+    /// `NavigationSplitView` sidebar and detail columns.
+    SplitPanes {
+        sidebar: Vec<Node>,
+        detail: Vec<Node>,
+    },
     /// FastList row bindings plus row body.
     Rows(ListRows),
 }
@@ -537,8 +619,18 @@ pub enum ListSource {
 pub struct TabDecl {
     pub index: Expr,
     pub label: Expr,
+    pub comment: Option<String>,
     pub icon: Option<Expr>,
     pub badge: Option<Expr>,
+    pub role: Option<Expr>,
+    /// Native title for the destination's navigation stack.
+    pub navigation_title: Option<Expr>,
+    /// Requests the platform's large navigation title presentation.
+    pub large_title: Option<Expr>,
+    /// Optional text state that a native navigation search field edits.
+    pub searchable: Option<Expr>,
+    /// Native search field prompt. Used together with `searchable`.
+    pub search_prompt: Option<Expr>,
     pub children: Vec<Node>,
     pub span: Span,
 }
@@ -567,6 +659,7 @@ pub struct LayoutStyle {
     pub blur: Option<Expr>,
     pub clip: Option<Expr>,
     pub z_index: Option<Expr>,
+    pub glass: Option<Expr>,
     pub animation: Option<Expr>,
 }
 
@@ -577,11 +670,12 @@ pub enum PlatformTarget {
 }
 
 /// An image source assembled by semantic lowering from an invocation's
-/// `asset:`/`url:` options (exactly one is enforced by the catalog schema).
+/// `asset:`/`url:`/`file:` options (exactly one is enforced by the catalog schema).
 #[derive(Clone, Debug)]
 pub enum ImageSource {
     Asset(Expr),
     Url(Expr),
+    File(Expr),
 }
 
 /// Split a navigation target into its screen expression and call arguments.
@@ -797,7 +891,7 @@ pub enum Stmt {
     /// Starts a view-scoped native task and stores its cancellation handle in
     /// a mutable app, screen, or component state binding.
     TaskLaunch {
-        handle: String,
+        handle: Option<String>,
         executor: TaskExecutor,
         body: Vec<Stmt>,
         span: Span,

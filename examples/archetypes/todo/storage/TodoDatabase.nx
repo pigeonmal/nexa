@@ -1,0 +1,4 @@
+plugin "dev.nexa.sqlite" as SQLite
+
+// One shared SQLite handle backs app data and the configured shared container.
+let todoDatabase = SQLite.Database("todo", true)

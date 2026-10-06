@@ -612,9 +612,9 @@ fn generated_typed_error_contracts_typecheck_with_swift_when_available() {
 
 #[test]
 fn generated_kotlin_contracts_typecheck_with_kotlinc_when_available() {
-    if !command_available("kotlinc", &["-version"]) {
+    let Some(kotlinc) = kotlin_compiler() else {
         return;
-    }
+    };
 
     let temp = TempProject::new("kotlin-contract");
     fs::create_dir_all(&temp.0).expect("temporary plugin directory should be created");
@@ -667,7 +667,7 @@ native class VideoPlayer {
     )
     .expect("Kotlin implementation should be written");
 
-    let checked = Command::new("kotlinc")
+    let checked = Command::new(&kotlinc)
         .arg(&bindings)
         .arg(&implementation)
         .arg("-d")
@@ -685,7 +685,7 @@ native class VideoPlayer {
         "package dev.example.video\n\nclass VideoPlayerImpl : VideoPlayerSpec {\n    override suspend fun prepare(url: String, playbackRate: Float) {}\n}\n",
     )
     .expect("invalid Kotlin implementation should be written");
-    let rejected = Command::new("kotlinc")
+    let rejected = Command::new(&kotlinc)
         .arg(&bindings)
         .arg(&implementation)
         .arg("-d")

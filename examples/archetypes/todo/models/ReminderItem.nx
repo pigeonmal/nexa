@@ -1,0 +1,8 @@
+struct ReminderItem {
+    id: Int32,
+    taskID: Int32,
+    identifier: String,
+    title: String,
+    timestamp: Int64,
+    isDeleted: Bool
+}

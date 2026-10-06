@@ -54,12 +54,50 @@ pub mod names {
         format!("Nexa{}", pascal_name(name, "Struct"))
     }
 
+    /// Gives generated widget declarations a stable framework-owned name.
+    pub fn widget_name(name: &str) -> String {
+        format!("Nexa{}Widget", pascal_name(name, "Widget"))
+    }
+
     pub fn navigation_case_name(screen: nexa_ir::ScreenId) -> String {
         format!("screen{}", screen.0)
     }
 
     pub fn navigation_route_name(screen: nexa_ir::ScreenId) -> String {
         format!("nexa_screen_{}", screen.0)
+    }
+
+    /// Creates a deterministic, collision-resistant Android `R.string` name
+    /// for source text without runtime resource lookup.
+    pub fn localization_resource_name(source_text: &str) -> String {
+        let mut slug = String::new();
+        let mut separator = false;
+        for character in source_text.chars() {
+            if character.is_ascii_alphanumeric() {
+                if separator && !slug.is_empty() {
+                    slug.push('_');
+                }
+                slug.push(character.to_ascii_lowercase());
+                separator = false;
+            } else {
+                separator = true;
+            }
+            if slug.len() >= 40 {
+                break;
+            }
+        }
+        while slug.ends_with('_') {
+            slug.pop();
+        }
+        if slug.is_empty() {
+            slug.push_str("key");
+        }
+        let hash = source_text
+            .bytes()
+            .fold(0xcbf29ce484222325_u64, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+            });
+        format!("nexa_{slug}_{hash:016x}")
     }
 }
 
@@ -145,5 +183,14 @@ mod tests {
         assert_eq!(names::enum_name(""), "NexaEnum");
         assert_eq!(names::struct_name("___"), "NexaStruct");
         assert_eq!(names::screen_name("___"), "NexaAppScreen");
+    }
+
+    #[test]
+    fn localization_resource_ids_are_stable_and_keep_distinct_keys_separate() {
+        let label = names::localization_resource_name("settings.save");
+        assert!(label.starts_with("nexa_settings_save_"));
+        assert_eq!(label, names::localization_resource_name("settings.save"));
+        assert_ne!(label, names::localization_resource_name("settings-save"));
+        assert!(names::localization_resource_name("保存").starts_with("nexa_key_"));
     }
 }

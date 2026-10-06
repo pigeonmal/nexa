@@ -4,6 +4,7 @@ use nexa_ir::{LayoutKind, Module, ViewStyle};
 mod api;
 mod components;
 mod engine;
+mod widget;
 
 use crate::generator::engine::types::kotlin_type;
 pub(super) use api::{network, number, permissions};
@@ -15,6 +16,20 @@ pub(super) use components::{
 pub(super) use engine::{
     colors, expressions, features, functions, runtime, state, structs, utils, value,
 };
+
+const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"internal fun nexaColorFromHex(hex: String): androidx.compose.ui.graphics.Color {
+    val digits = hex.removePrefix("#")
+    val hasAlpha = digits.length == 8
+    val parsed = if (digits.length == 6 || hasAlpha) digits.toLongOrNull(16) else null
+    val color = parsed ?: 0xD63031L
+    val red = if (hasAlpha && parsed != null) (color shr 24) and 0xFF else (color shr 16) and 0xFF
+    val green = if (hasAlpha && parsed != null) (color shr 16) and 0xFF else (color shr 8) and 0xFF
+    val blue = if (hasAlpha && parsed != null) (color shr 8) and 0xFF else color and 0xFF
+    val alpha = if (hasAlpha && parsed != null) (color and 0xFF).toFloat() / 255f else 1f
+    return androidx.compose.ui.graphics.Color(red.toFloat() / 255f, green.toFloat() / 255f, blue.toFloat() / 255f, alpha)
+}
+
+"##;
 
 fn project_features_from_analysis(
     module: &Module,
@@ -30,20 +45,21 @@ fn project_features_from_analysis(
             || features.uses_permission_request
             || features.uses_tasks
             || features.facts.capabilities.uses_secure_storage_api
+            || !module.widgets.is_empty()
             || !module.background_tasks.is_empty(),
         uses_permission_request: features.uses_permission_request,
         uses_navigation: !module.screens.is_empty(),
+        uses_bottom_bar: features.uses_adaptive_tabs,
         uses_compose_animation: features.uses_conditional_transition
             || features.uses_shared_elements
             || state::module_uses_scoped_animation(module),
         uses_compose_graphics: features.uses_color
             || features.uses_asset
-            || features.uses_tab_icon
-            || features.uses_button_icon
             || features.uses_placeholder,
         uses_lifecycle_events: module.on_active.is_some()
             || module.on_inactive.is_some()
-            || module.on_background.is_some(),
+            || module.on_background.is_some()
+            || !module.widgets.is_empty(),
         uses_background_tasks: !module.background_tasks.is_empty(),
     }
 }
@@ -60,6 +76,12 @@ pub(super) fn generate(module: &Module) -> String {
 /// `package` declaration and plugin imports ahead of the import block.
 pub(super) fn generate_units(module: &Module, features: &features::Features) -> GeneratedSources {
     generate_with_analysis(module, features)
+}
+
+pub(super) fn generate_widget_units(
+    module: &Module,
+) -> Result<crate::WidgetGeneratedSources, crate::WidgetGenerationError> {
+    widget::generate(module)
 }
 
 pub(super) fn generate_units_with_project_features(
@@ -214,21 +236,34 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             || module
                 .screens
                 .iter()
-                .any(|screen| screen.on_appear.is_some()),
+                .any(|screen| screen.on_appear.is_some())
+            || module
+                .components
+                .iter()
+                .any(|component| component.on_appear.is_some()),
         has_on_disappear: module.on_disappear.is_some()
             || module
                 .screens
                 .iter()
-                .any(|screen| screen.on_disappear.is_some()),
+                .any(|screen| screen.on_disappear.is_some())
+            || module
+                .components
+                .iter()
+                .any(|component| component.on_disappear.is_some()),
         has_lifecycle_events: module.on_active.is_some()
             || module.on_inactive.is_some()
-            || module.on_background.is_some(),
+            || module.on_background.is_some()
+            || !module.widgets.is_empty(),
+        has_widgets: !module.widgets.is_empty(),
     });
     let value_codecs = nexa_codegen::value::collect(module);
     let json_types = nexa_codegen::value::collect_json_types(module);
     let mut units = SourceUnits::new("kt");
     units.set_imports(&imports);
     units.write("types", |out| {
+        if features.facts.ui.style.dynamic_color {
+            out.push_str(NEXA_DYNAMIC_COLOR_HELPER);
+        }
         if features.uses_result || features.facts.capabilities.uses_json_api {
             out.push_str(
                 r#"public sealed class NexaResult<out T, out E> {
@@ -325,10 +360,13 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 || features.facts.capabilities.uses_keyboard_api
                 || features.facts.capabilities.uses_clipboard_api
                 || features.facts.capabilities.uses_haptics_api
-            || features.facts.capabilities.uses_screen_orientation_api
-            || features.facts.capabilities.uses_storage_api
-            || !module.plugins.is_empty()
-            || !module.background_tasks.is_empty()
+                || features.facts.capabilities.uses_secure_storage_api
+                || features.facts.capabilities.uses_screen_orientation_api
+                || features.facts.capabilities.uses_storage_api
+                || features.facts.capabilities.uses_localized_strings
+                || !module.plugins.is_empty()
+                || !module.background_tasks.is_empty()
+                || !module.widgets.is_empty()
             {
                 out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
             }
@@ -349,7 +387,9 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                             state::kotlin_state_initializer(state)
                         ));
                     }
-                } else if state.is_native_class_instance_binding() {
+                } else if state.is_native_class_instance_binding()
+                    || matches!(state.ty, nexa_ir::Type::Signal(_))
+                {
                     out.push_str(&format!(
                         "    val {name}: {} = remember {{ {} }}\n",
                         kotlin_type(&state.ty),
@@ -447,13 +487,19 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         || features.facts.capabilities.uses_haptics_api
         || features.facts.capabilities.uses_secure_storage_api
         || features.facts.capabilities.uses_storage_api
+        || features.facts.capabilities.uses_localized_strings
         || features.facts.capabilities.uses_clipboard_api
         || features.facts.capabilities.uses_screen_orientation_api
+        || features.facts.capabilities.uses_app_icon_api
         || !module.plugins.is_empty()
         || !module.background_tasks.is_empty()
     {
         units.write("runtime", |out| {
-            runtime::render(out, features.uses_permission_request);
+            runtime::render(
+                out,
+                features.uses_permission_request,
+                features.facts.capabilities.uses_app_icon_api,
+            );
         });
     }
     if features.uses_native_library {
@@ -480,11 +526,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     if features.facts.capabilities.uses_clipboard_api {
         units.write("clipboard", api::clipboard::render);
     }
-    if features.uses_asset
-        || features.uses_tab_icon
-        || features.uses_button_icon
-        || features.uses_placeholder
-    {
+    if features.uses_asset || features.uses_placeholder {
         units.write("assets", |out| {
             assets::render(out);
         });
@@ -527,12 +569,155 @@ mod tests {
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
         ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
-        TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn pressable_context_menu_emits_material_dropdown_actions() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "ContextMenuApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                fill_max_size: false,
+                children: vec![Node::Text {
+                    value: Expr::String("Row".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                actions: Vec::new(),
+                double_tap_actions: Vec::new(),
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                long_press_actions: Vec::new(),
+                context_menu: vec![Node::Button {
+                    label: Expr::String("Edit".to_owned()),
+                    icon: Some(SystemIcon::Shared("edit".to_owned())),
+                    loading: None,
+                    disabled: None,
+                    style: None,
+                    size: None,
+                    shape: None,
+                    tint: None,
+                    glass: false,
+                    actions: Vec::new(),
+                }],
+                drag_parameters: Vec::new(),
+                drag_actions: Vec::new(),
+                pinch_parameter: None,
+                pinch_actions: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("import androidx.compose.material3.DropdownMenu"));
+        assert!(kotlin.contains("nexaContextMenuExpanded.value = true"));
+        assert!(kotlin.contains("DropdownMenuItem("));
+        assert!(kotlin.contains("Icons.Filled.Edit"));
+    }
+
+    #[test]
+    fn appearance_wraps_content_in_native_material_color_scheme() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "AppearanceApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Appearance {
+                mode: Expr::String("dark".to_owned()),
+                children: vec![Node::Text {
+                    value: Expr::String("Hello".to_owned()),
+                    style: TextStyle::default(),
+                }],
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("import androidx.compose.material3.darkColorScheme"));
+        assert!(
+            kotlin.contains("MaterialTheme(colorScheme = remember(\"dark\", nexaSystemDarkTheme")
+        );
+        assert!(kotlin.contains("Text(\"Hello\")"));
+        assert!(!kotlin.contains("nexaColorFromHex("));
+    }
+
+    #[test]
+    fn content_unavailable_emits_compose_material_empty_state() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "EmptyStateApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::ContentUnavailable {
+                title: Expr::String("Inbox is empty".to_owned()),
+                icon: SystemIcon::shared("inbox").expect("shared inbox icon"),
+                description: Expr::String("Tasks you add will appear here.".to_owned()),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("import androidx.compose.material3.Icon"));
+        assert!(kotlin.contains("Column(modifier = Modifier.fillMaxSize().padding(32.dp)"));
+        assert!(kotlin.contains("Icons.Filled.Inbox"));
+        assert!(kotlin.contains("Text(\"Inbox is empty\""));
+        assert!(kotlin.contains("Text(\"Tasks you add will appear here.\""));
+    }
 
     #[test]
     fn page_snap_and_bottom_sheet_share_compose_opt_in_annotation() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PageSnap".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -540,6 +725,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![
                 State {
                     name: "currentPage".to_owned(),
@@ -568,6 +754,7 @@ mod tests {
                         },
                         common: ListCommon {
                             axis: ListAxis::Vertical,
+                            native: false,
                             reverse_layout: false,
                             page_snap: true,
                             item_extent: None,
@@ -580,6 +767,8 @@ mod tests {
                             }],
                             on_end_reached: None,
                             on_scroll: None,
+                            on_move: None,
+                            swipe_actions: None,
                             sticky_header: None,
                             refresh: None,
                         },
@@ -588,6 +777,8 @@ mod tests {
                 Node::BottomSheet {
                     state: "commentsPresented".to_owned(),
                     partial: true,
+                    large_only: false,
+                    title: None,
                     children: vec![Node::Text {
                         value: Expr::String("Comments".to_owned()),
                         style: TextStyle::default(),
@@ -610,12 +801,12 @@ mod tests {
             "PagerDefaults.flingBehavior(state = nexaListState0, pagerSnapDistance = PagerSnapDistance.atMost(1))"
         ));
         assert!(kotlin.contains("Modifier.fillMaxSize()"));
-        assert!(kotlin.contains(
-            "if (nexaListState0.isScrollInProgress) -1 else nexaListState0.settledPage"
-        ));
-        assert!(kotlin.contains(
-            "if (firstVisiblePosition >= 0)"
-        ));
+        assert!(
+            kotlin.contains(
+                "if (nexaListState0.isScrollInProgress) -1 else nexaListState0.settledPage"
+            )
+        );
+        assert!(kotlin.contains("if (firstVisiblePosition >= 0)"));
         assert_eq!(kotlin.matches("@OptIn(").count(), 1);
         assert!(kotlin.contains(
             "@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)"
@@ -629,9 +820,11 @@ mod tests {
             description: "Hero".to_owned(),
             scale: ImageScale::Fit,
             placeholder: None,
+            max_height: None,
             shared_element: Some(Expr::String("hero-image".to_owned())),
         };
         let module = Module {
+            widgets: Vec::new(),
             app_name: "SharedHero".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -639,6 +832,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: vec![Screen {
                 id: ScreenId(0),
@@ -679,6 +873,7 @@ mod tests {
     #[test]
     fn configured_spring_maps_response_and_damping_to_compose_physics() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "SpringAnimation".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -686,6 +881,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -740,6 +936,7 @@ mod tests {
             is_throwing: false,
         };
         let module = Module {
+            widgets: Vec::new(),
             app_name: "CurrencyFormatting".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -747,6 +944,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![State {
                 name: "price".to_owned(),
                 ty: Type::String,
@@ -778,6 +976,7 @@ mod tests {
     #[test]
     fn conditional_view_transitions_use_native_compose_animated_content() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "ConditionalTransitions".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -785,6 +984,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -834,6 +1034,7 @@ mod tests {
     #[test]
     fn double_tap_pressable_emits_handler_and_compose_opt_in() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "DoubleTapApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -841,6 +1042,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -865,6 +1067,7 @@ mod tests {
                     ty: NumericType::Int32,
                 },
                 long_press_actions: Vec::new(),
+                context_menu: Vec::new(),
                 drag_parameters: Vec::new(),
                 drag_actions: Vec::new(),
                 pinch_parameter: None,
@@ -894,6 +1097,7 @@ mod tests {
     #[test]
     fn drag_pressable_emits_pointer_input_and_typed_callback() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "DragApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -901,6 +1105,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![State {
                 name: "distance".to_owned(),
                 ty: Type::Numeric(NumericType::Float64),
@@ -927,6 +1132,7 @@ mod tests {
                     ty: NumericType::Int32,
                 },
                 long_press_actions: Vec::new(),
+                context_menu: Vec::new(),
                 drag_parameters: vec![
                     "translationX".to_owned(),
                     "translationY".to_owned(),
@@ -992,6 +1198,7 @@ mod tests {
             mutable: true,
         };
         let mut module = Module {
+            widgets: Vec::new(),
             app_name: "PinchApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -999,6 +1206,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![state("zoom"), state("distance")],
             screens: Vec::new(),
             components: Vec::new(),
@@ -1017,6 +1225,7 @@ mod tests {
                     ty: NumericType::Int32,
                 },
                 long_press_actions: Vec::new(),
+                context_menu: Vec::new(),
                 drag_parameters: Vec::new(),
                 drag_actions: Vec::new(),
                 pinch_parameter: Some("scaleFactor".to_owned()),
@@ -1090,11 +1299,13 @@ mod tests {
                 arguments: Vec::new(),
                 return_type: player_type.clone(),
                 is_async: false,
+                is_throwing: false,
                 is_constructor: true,
             },
             mutable: false,
         };
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PlayerApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1102,6 +1313,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![
                 native_instance_state("appPlayer"),
                 State {
@@ -1155,6 +1367,11 @@ mod tests {
                         icon: None,
                         loading: None,
                         disabled: None,
+                        style: None,
+                        size: None,
+                        shape: None,
+                        tint: None,
+                        glass: false,
                         actions: vec![Action::Expression(Expr::NativeCall {
                             receiver: Some(Box::new(Expr::State(
                                 "appPlayer".to_owned(),
@@ -1226,6 +1443,7 @@ mod tests {
             name: "VideoPlayer".to_owned(),
         };
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PlayerApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1233,6 +1451,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: vec![Component {
@@ -1247,11 +1466,15 @@ mod tests {
                         arguments: Vec::new(),
                         return_type: player_type,
                         is_async: false,
+                        is_throwing: false,
                         is_constructor: true,
                     },
                     mutable: false,
                 }],
                 body: Vec::new(),
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
             }],
             body: vec![Node::ComponentCall {
                 name: "PlayerPanel".to_owned(),
@@ -1279,6 +1502,7 @@ mod tests {
     fn generates_result_and_try_in_kotlin() {
         let err_type = Type::Enum("AppError".to_owned());
         let module = Module {
+            widgets: Vec::new(),
             app_name: "ResultApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1291,9 +1515,13 @@ mod tests {
             functions: vec![
                 Function {
                     name: "fetchCode".to_owned(),
+                    receiver: None,
+                    class_initializers: Vec::new(),
                     is_async: false,
+                    is_throwing: false,
                     parameters: Vec::new(),
                     locals: Vec::new(),
+                    body_actions: None,
                     return_type: Type::Result(
                         Box::new(Type::Numeric(NumericType::Int32)),
                         Box::new(err_type.clone()),
@@ -1309,9 +1537,13 @@ mod tests {
                 },
                 Function {
                     name: "compute".to_owned(),
+                    receiver: None,
+                    class_initializers: Vec::new(),
                     is_async: false,
+                    is_throwing: false,
                     parameters: Vec::new(),
                     locals: Vec::new(),
+                    body_actions: None,
                     return_type: Type::Result(
                         Box::new(Type::Numeric(NumericType::Int32)),
                         Box::new(err_type.clone()),
@@ -1325,6 +1557,7 @@ mod tests {
                                 Box::new(err_type.clone()),
                             ),
                             is_async: false,
+                            is_throwing: false,
                             is_constructor: false,
                         }),
                         value_type: Type::Numeric(NumericType::Int32),
@@ -1332,6 +1565,7 @@ mod tests {
                     },
                 },
             ],
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -1364,6 +1598,7 @@ mod tests {
             Box::new(err_type.clone()),
         );
         let module = Module {
+            widgets: Vec::new(),
             app_name: "ScreenResultApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1374,6 +1609,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: vec![Screen {
                 id: ScreenId(0),

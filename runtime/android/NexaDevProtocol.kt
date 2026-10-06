@@ -94,7 +94,11 @@ internal class NexaDevSocketClient(
                 val module = devModule.optJSONObject(NexaDevKeys.MODULE) ?: return
                 currentRevision = devModule.optString(NexaDevKeys.REVISION).takeIf(String::isNotEmpty)
                 val revision = currentRevision ?: return
-                onMainAndWait { store.install(module) }
+                val translations = devModule.optJSONObject("translations")
+                onMainAndWait {
+                    store.installTranslations(translations)
+                    store.install(module)
+                }
                 acknowledge(output, revision)
                 android.util.Log.i("NexaDevRuntime", "Applied module $revision")
             }
@@ -107,7 +111,12 @@ internal class NexaDevSocketClient(
                 }
                 val revision = patch.optString(NexaDevKeys.REVISION).takeIf(String::isNotEmpty) ?: return
                 currentRevision = revision
-                onMainAndWait { store.applyPatch(patch) }
+                onMainAndWait {
+                    if (patch.has("translations")) {
+                        store.installTranslations(patch.optJSONObject("translations"))
+                    }
+                    store.applyPatch(patch)
+                }
                 acknowledge(output, revision)
                 android.util.Log.i("NexaDevRuntime", "Applied patch $revision")
             }

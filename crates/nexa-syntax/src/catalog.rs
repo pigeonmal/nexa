@@ -62,6 +62,12 @@ pub struct DotModifierEntry {
 
 pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
+        name: "Appearance",
+        summary: "Selects system, light, or dark appearance for its native content",
+        snippet: "Appearance(mode: \"${1:system}\") {\n    $0\n}",
+        probe: "app P { state mode: String = \"system\"\n body { Appearance(mode: mode) { Text(\"Hello\") } } }",
+    },
+    ComponentEntry {
         name: "Column",
         summary: "Vertical layout container with optional spacing",
         snippet: "Column(spacing: ${1:8}) {\n    $0\n}",
@@ -80,6 +86,18 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         probe: "app P { body { Stack { Text(\"a\") } } }",
     },
     ComponentEntry {
+        name: "Form",
+        summary: "Native grouped settings form",
+        snippet: "Form {\n    Section(title: \"${1:General}\") {\n        $0\n    }\n}",
+        probe: "app P { body { Form { Section(title: \"General\") { Text(\"Setting\") } } } }",
+    },
+    ComponentEntry {
+        name: "Section",
+        summary: "A titled or footnoted group inside a Form",
+        snippet: "Section(title: \"${1:General}\") {\n    $0\n}",
+        probe: "app P { body { Form { Section(title: \"General\", footer: \"Details\") { Text(\"Setting\") } } } }",
+    },
+    ComponentEntry {
         name: "Spacer",
         summary: "Expands along the parent layout axis",
         snippet: "Spacer()",
@@ -95,7 +113,13 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "Text",
         summary: "Displays formatted text",
         snippet: "Text(\"${1:Label}\")",
-        probe: "app P { body { Text(\"a\", fontSize: 18, accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityRole: Image) } }",
+        probe: "app P { body { Text(\"a\", fontSize: 18, accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityValue: \"Ready\", accessibilityRole: Image) } }",
+    },
+    ComponentEntry {
+        name: "ContentUnavailable",
+        summary: "Shows a native empty or unavailable content state",
+        snippet: "ContentUnavailable(title: \"${1:Nothing here}\", icon: \"${2:inbox}\", description: \"${3:Add some content to get started.}\")",
+        probe: "app P { body { ContentUnavailable(title: \"Nothing here\", icon: \"inbox\", description: \"Add some content to get started.\") } }",
     },
     ComponentEntry {
         name: "Button",
@@ -107,7 +131,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "TextInput",
         summary: "Text input control bound to mutable state",
         snippet: "TextInput(value: ${1:binding}, placeholder: \"${2:Enter text}\")",
-        probe: "app P { state name: String = \"\"\n body { TextInput(value: name, placeholder: \"Name\") } }",
+        probe: "app P { state name: String = \"\"\n body { TextInput(value: name, placeholder: \"Name\", searchable: true) } }",
     },
     ComponentEntry {
         name: "Switch",
@@ -142,20 +166,26 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "Picker",
         summary: "Selects one string option from a native menu",
-        snippet: "Picker(items: ${1:options}, selected: ${2:selectedOption})",
+        snippet: "Picker(items: ${1:options}, selected: ${2:selectedOption}, icon: \"${3:sort}\")",
         probe: "app P { state options: Array<String> = [\"Small\", \"Medium\", \"Large\"]\n state selected: String = \"Medium\"\n body { Picker(items: options, selected: selected) } }",
     },
     ComponentEntry {
+        name: "DatePicker",
+        summary: "Presents the native date and optional time picker",
+        snippet: "DatePicker(timestamp: ${1:dateMillis}, hasTime: ${2:hasTime})",
+        probe: "app P { state dateMillis: Int64 = 0\n state hasTime: Bool = false\n body { DatePicker(timestamp: dateMillis, hasTime: hasTime) } }",
+    },
+    ComponentEntry {
         name: "Image",
-        summary: "Displays an asset or network image",
-        snippet: "Image(asset: \"${1:icon}\", description: \"${2:}\", accessibilityLabel: \"${3:}\")",
-        probe: "app P { body { Image(asset: \"logo\", description: \"Logo\", accessibilityLabel: \"Brand mark\", accessibilityRole: Image) } }",
+        summary: "Displays a native image from an asset, URL, or local file",
+        snippet: "Image(asset: \"${1:icon}\", description: \"${2:}\", maxHeight: ${3:200})",
+        probe: "app P { body { Image(asset: \"logo\", description: \"Logo\", maxHeight: 200) } }",
     },
     ComponentEntry {
         name: "Icon",
-        summary: "Displays a native system icon",
-        snippet: "Icon(system: \"${1:heart.fill}\", description: \"${2:Like}\", size: ${3:28}, tint: \"#FFFFFF\")",
-        probe: "app P { body { Icon(system: \"heart.fill\", description: \"Like\", size: 28, tint: \"#FFFFFF\") } }",
+        summary: "Displays one portable or platform-specific native system icon",
+        snippet: "Icon(system: \"${1:favorite}\", description: \"${2:Like}\", size: ${3:28}, tint: \"#FFFFFF\")",
+        probe: "app P { body { Icon(system: \"favorite\", description: \"Like\", size: 28, tint: \"#FFFFFF\") } }",
     },
     ComponentEntry {
         name: "LinearGradient",
@@ -165,15 +195,21 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Pressable",
-        summary: "Pressable region with tap, drag, pinch, double-tap, and long-press actions",
-        snippet: "Pressable {\n    $0\n}.onPress {\n}",
-        probe: "app P { state n: Int32 = 0\n body { Pressable() { Text(\"x\") }.onTap { n = 1 }.onLongPress(durationMs: 650) { n = 0 }.onDoubleTap { n = 2 }.onDrag { x, y, vx, vy -> n = n + 1 }.onPinch { scaleFactor -> n = n + 1 } } }",
+        summary: "Pressable region with tap, context-menu, drag, pinch, double-tap, and long-press actions",
+        snippet: "Pressable {\n    $0\n}.onTap {\n}",
+        probe: "app P { state n: Int32 = 0\n body { Pressable() { Text(\"x\") }.onTap { n = 1 }.onLongPress(durationMs: 650) { n = 0 }.contextMenu { Button(\"Edit\") { n = 2 } }.onDoubleTap { n = 2 }.onDrag { x, y, vx, vy -> n = n + 1 }.onPinch { scaleFactor -> n = n + 1 } } }",
     },
     ComponentEntry {
         name: "NavigationStack",
         summary: "Navigation host rooted at a declared screen",
         snippet: "NavigationStack(root: ${1:Home})",
         probe: "app P { screen Home { body { Text(\"x\") } }\n body { NavigationStack(root: Home) } }",
+    },
+    ComponentEntry {
+        name: "NavigationSplitView",
+        summary: "Adaptive sidebar and detail navigation",
+        snippet: "NavigationSplitView(detailVisible: ${1:showDetail}) {\n    Sidebar {\n        $0\n    }\n    Detail {\n        Text(\"Select an item\")\n    }\n}",
+        probe: "app P { state showDetail: Bool = false\n body { NavigationSplitView(detailVisible: showDetail) { Sidebar { Text(\"Items\") } Detail { Text(\"Detail\") } } } }",
     },
     ComponentEntry {
         name: "NavigationLink",
@@ -202,14 +238,20 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "BottomSheet",
         summary: "Modal bottom sheet bound to a boolean binding",
-        snippet: "BottomSheet(isPresented: ${1:show}) {\n    $0\n}",
-        probe: "app P { state show: Bool = false\n body { BottomSheet(isPresented: show) { Text(\"x\") } } }",
+        snippet: "BottomSheet(isPresented: ${1:show}, title: \"Details\") {\n    $0\n}",
+        probe: "app P { state show: Bool = false\n body { BottomSheet(isPresented: show, title: \"Details\") { Text(\"x\") } } }",
     },
     ComponentEntry {
         name: "Dialog",
-        summary: "Native modal alert with a boolean binding and action content",
-        snippet: "Dialog(isPresented: ${1:show}, title: \"${2:Title}\", message: \"${3:Message}\") {\n    Button(\"${4:OK}\") { show = false }\n}",
-        probe: "app P { state show: Bool = false\n body { Dialog(isPresented: show, title: \"Title\", message: \"Message\") { Button(\"OK\") { show = false } } } }",
+        summary: "Native alert with button actions and optional single-line text input",
+        snippet: "Dialog(isPresented: ${1:show}, title: \"${2:Title}\", message: \"${3:Message}\") {\n    TextInput(value: ${4:text}, placeholder: \"${5:Enter text}\")\n    Button(\"${6:Save}\") { show = false }\n    Button(\"${7:Cancel}\") { show = false }\n}",
+        probe: "app P { state show: Bool = false\n state value: String = \"\"\n body { Dialog(isPresented: show, title: \"Title\", message: \"Message\") { TextInput(value: value, placeholder: \"Value\") Button(\"OK\") { show = false } } } }",
+    },
+    ComponentEntry {
+        name: "ConfirmationDialog",
+        summary: "Native confirmation dialog bound to a boolean binding",
+        snippet: "ConfirmationDialog(isPresented: ${1:show}, title: \"${2:Choose an option}\") {\n    Button(\"${3:Continue}\") { show = false }\n    Button(\"${4:Cancel}\") { show = false }\n}",
+        probe: "app P { state show: Bool = false\n body { ConfirmationDialog(isPresented: show, title: \"Choose\") { Button(\"OK\") { show = false } } } }",
     },
     ComponentEntry {
         name: "RefreshControl",
@@ -220,14 +262,26 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "AppBottomBar",
         summary: "Bottom tab bar bound to a selected-tab binding",
-        snippet: "AppBottomBar(selected: ${1:tab}) {\n    Tab(index: 0, label: \"${2:Home}\") {\n        $0\n    }\n}",
+        snippet: "AppBottomBar(selected: ${1:tab}) {\n    Tab(index: 0, label: \"${2:Home}\", comment: \"Primary navigation destination\") {\n        $0\n    }\n}",
         probe: "app P { state tab: Int32 = 0\n body { AppBottomBar(selected: tab) { Tab(index: 0, label: \"Home\") { Text(\"x\") } } } }",
+    },
+    ComponentEntry {
+        name: "PagePager",
+        summary: "Swipeable pages with a native page indicator, bound to a selected-page value",
+        snippet: "PagePager(selected: ${1:page}) {\n    Tab(index: 0) {\n        $0\n    }\n}",
+        probe: "app P { state page: Int32 = 0\n body { PagePager(selected: page) { Tab(index: 0) { Text(\"x\") } } } }",
+    },
+    ComponentEntry {
+        name: "Toolbar",
+        summary: "Places native actions in a navigation toolbar",
+        snippet: "Toolbar(placement: Trailing) {\n    $0\n}",
+        probe: "app P { body { Toolbar(placement: Trailing) { Button(\"Add\") { } } } }",
     },
     ComponentEntry {
         name: "FastList",
         summary: "High-performance virtualized list view",
         snippet: "FastList(${1:items}) { ${2:item}, ${3:index} in\n    $0\n}",
-        probe: "app P { body { FastList(count: 3) { index in Text(\"x\") } } }",
+        probe: "app P { body { FastList(count: 3, native: true) { index in Text(\"x\") } } }",
     },
     ComponentEntry {
         name: "StatusBar",
@@ -620,19 +674,24 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         snippet: "zIndex(${1:1})",
     },
     DotModifierEntry {
-        name: "onPress",
-        summary: "Pressable tap action (alias: onTap)",
-        snippet: "onPress {\n    $0\n}",
-    },
-    DotModifierEntry {
         name: "onTap",
         summary: "Pressable tap action",
         snippet: "onTap {\n    $0\n}",
     },
     DotModifierEntry {
+        name: "onChange",
+        summary: "Text input change action",
+        snippet: "onChange { text ->\n    $0\n}",
+    },
+    DotModifierEntry {
         name: "onLongPress",
         summary: "Pressable long-press action with an optional duration",
         snippet: "onLongPress(durationMs: ${1:500}) {\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "contextMenu",
+        summary: "Native context menu actions for a pressable view",
+        snippet: "contextMenu {\n    Button(\"Edit\") {\n        $0\n    }\n}",
     },
     DotModifierEntry {
         name: "onDoubleTap",
@@ -660,6 +719,11 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         snippet: "onEndReached {\n    $0\n}",
     },
     DotModifierEntry {
+        name: "onMove",
+        summary: "FastList array-item reorder callback with optional enabled state and source/destination indexes",
+        snippet: "onMove(enabled: true) { from, to ->\n    $0\n}",
+    },
+    DotModifierEntry {
         name: "onScroll",
         summary: "FastList scroll-position callback",
         snippet: "onScroll {\n    $0\n}",
@@ -673,6 +737,11 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         name: "sectionHeader",
         summary: "FastList section header content",
         snippet: "sectionHeader {\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "swipeActions",
+        summary: "Native trailing actions for list rows",
+        snippet: "swipeActions {\n    Button(\"Delete\", icon: \"trash\") {\n        $0\n    }\n}",
     },
 ];
 
@@ -768,6 +837,8 @@ pub enum ChildModel {
     RequiredActions,
     /// `AppBottomBar` tab declarations.
     Tabs,
+    /// `NavigationSplitView` sidebar and detail blocks.
+    SplitPanes,
     /// FastList row bindings plus row body.
     ListRows,
 }
@@ -777,7 +848,7 @@ pub enum ChildModel {
 pub enum ModifierBody {
     /// A value-only modifier with no trailing block.
     None,
-    /// `.onPress { ... }` action statements.
+    /// `.onTap { ... }` action statements.
     Actions,
     /// Event parameter bindings followed by action statements.
     EventActions,
@@ -821,10 +892,6 @@ pub enum FeatureTag {
 pub struct ComponentSchema {
     /// Component name exactly as written in `.nx` source.
     pub name: &'static str,
-    /// Accepted spelling aliases. Empty today: the grammar is closed and
-    /// platform-familiar spellings are rejected, but the model reserves
-    /// the slot so an alias never needs a second representation.
-    pub aliases: &'static [&'static str],
     /// Manual documentation anchor, e.g. `"components.md#column"`.
     pub doc: &'static str,
     /// Semantic feature families this component belongs to.
@@ -912,6 +979,7 @@ pub const FASTLIST_KEY_OPTION: &str = "key";
 pub const ACCESSIBILITY_ARGUMENTS: &[&str] = &[
     "accessibilityLabel",
     "accessibilityHint",
+    "accessibilityValue",
     "accessibilityRole",
 ];
 
@@ -921,7 +989,6 @@ pub const ACCESSIBILITY_ARGUMENTS: &[&str] = &[
 pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     ComponentSchema {
         name: "Column",
-        aliases: &[],
         doc: "components.md#column",
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
@@ -935,7 +1002,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Row",
-        aliases: &[],
         doc: "components.md#row",
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
@@ -949,7 +1015,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Stack",
-        aliases: &[],
         doc: "components.md#stack",
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
@@ -962,8 +1027,33 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
+        name: "Form",
+        doc: "components.md#form",
+        features: &[FeatureTag::Layout],
+        parens: ParensModel::Optional,
+        positional: PositionalModel::None,
+        arguments: &[],
+        exclusive: &[],
+        children: ChildModel::Nodes,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
+        name: "Section",
+        doc: "components.md#section",
+        features: &[FeatureTag::Layout],
+        parens: ParensModel::Optional,
+        positional: PositionalModel::None,
+        arguments: &[opt("title"), opt("footer"), opt("comment")],
+        exclusive: &[],
+        children: ChildModel::Nodes,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
         name: "Spacer",
-        aliases: &[],
         doc: "components.md#spacer",
         features: &[FeatureTag::Layout],
         parens: ParensModel::Empty,
@@ -977,7 +1067,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Divider",
-        aliases: &[],
         doc: "components.md#divider",
         features: &[FeatureTag::Layout],
         parens: ParensModel::Required,
@@ -991,13 +1080,14 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Text",
-        aliases: &[],
         doc: "components.md#text",
         features: &[FeatureTag::Typography],
         parens: ParensModel::Required,
         positional: PositionalModel::Single,
         arguments: &[
+            opt("comment"),
             opt("color"),
+            opt("alignment"),
             opt("fontSize"),
             opt("fontWeight"),
             opt("padding"),
@@ -1011,6 +1101,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("lineLimit"),
             opt("lineHeight"),
             opt("letterSpacing"),
+            opt("strikethrough"),
             opt("selectable"),
         ],
         exclusive: &[],
@@ -1020,40 +1111,43 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
-        name: "Button",
-        aliases: &[],
-        doc: "components.md#button",
-        features: &[FeatureTag::Controls],
+        name: "ContentUnavailable",
+        doc: "components.md#content-unavailable",
+        features: &[
+            FeatureTag::Layout,
+            FeatureTag::Typography,
+            FeatureTag::Media,
+        ],
         parens: ParensModel::Required,
-        positional: PositionalModel::Single,
-        arguments: &[opt("icon"), opt("loading"), opt("disabled")],
+        positional: PositionalModel::None,
+        arguments: &[
+            req("title"),
+            req("icon"),
+            req("description"),
+            opt("comment"),
+        ],
         exclusive: &[],
-        children: ChildModel::OptionalActions,
+        children: ChildModel::None,
         modifiers: &[],
         flags: &[],
         trailing_message: None,
     },
     ComponentSchema {
-        name: "TextInput",
-        aliases: &[],
-        doc: "components.md#textinput",
+        name: "Button",
+        doc: "components.md#button",
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
-        positional: PositionalModel::None,
+        positional: PositionalModel::Single,
         arguments: &[
-            req("value"),
-            req("placeholder"),
-            opt("keyboard"),
-            opt("keyboardType"),
-            opt("secure"),
-            opt("isSecure"),
-            opt("autofill"),
-            opt("returnKeyType"),
-            opt("multiline"),
-            opt("autocorrect"),
-            opt("capitalization"),
-            opt("focused"),
-            opt("maxLength"),
+            opt("comment"),
+            opt("icon"),
+            opt("loading"),
+            opt("disabled"),
+            opt("style"),
+            opt("size"),
+            opt("shape"),
+            opt("tint"),
+            opt("glass"),
         ],
         exclusive: &[],
         children: ChildModel::OptionalActions,
@@ -1062,13 +1156,47 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
+        name: "TextInput",
+        doc: "components.md#textinput",
+        features: &[FeatureTag::Controls],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[
+            req("value"),
+            req("placeholder"),
+            opt("comment"),
+            opt("keyboardType"),
+            opt("isSecure"),
+            opt("autofill"),
+            opt("returnKeyType"),
+            opt("multiline"),
+            opt("autocorrect"),
+            opt("capitalization"),
+            opt("focused"),
+            opt("maxLength"),
+            opt("font"),
+            opt("minLines"),
+            opt("maxLines"),
+            opt("searchable"),
+        ],
+        exclusive: &[],
+        children: ChildModel::OptionalActions,
+        modifiers: &[ModifierSchema {
+            name: "onChange",
+            arguments: &[],
+            body: ModifierBody::EventActions,
+            required: false,
+        }],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
         name: "Switch",
-        aliases: &[],
         doc: "components.md#switch",
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("value"), req("label")],
+        arguments: &[req("value"), req("label"), opt("comment")],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1077,7 +1205,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Slider",
-        aliases: &[],
         doc: "components.md#slider",
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
@@ -1091,7 +1218,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "ProgressBar",
-        aliases: &[],
         doc: "components.md#progressbar",
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
@@ -1105,7 +1231,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "ProgressRing",
-        aliases: &[],
         doc: "components.md#progressring",
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
@@ -1119,12 +1244,11 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "SegmentedControl",
-        aliases: &[],
         doc: "components.md#segmentedcontrol",
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("items"), req("selected")],
+        arguments: &[req("items"), req("selected"), opt("comment")],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1133,12 +1257,30 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Picker",
-        aliases: &[],
         doc: "components.md#picker",
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("items"), req("selected")],
+        arguments: &[
+            req("items"),
+            req("selected"),
+            opt("icon"),
+            opt("label"),
+            opt("comment"),
+        ],
+        exclusive: &[],
+        children: ChildModel::None,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
+        name: "DatePicker",
+        doc: "components.md#datepicker",
+        features: &[FeatureTag::Controls],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[req("timestamp"), req("hasTime")],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1147,7 +1289,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Image",
-        aliases: &[],
         doc: "components.md#image",
         features: &[FeatureTag::Media],
         parens: ParensModel::Required,
@@ -1155,14 +1296,16 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         arguments: &[
             opt("asset"),
             opt("url"),
+            opt("file"),
             req("description"),
             opt("scale"),
             opt("placeholder"),
+            opt("maxHeight"),
         ],
         exclusive: &[ExclusiveGroup {
-            options: &["asset", "url"],
-            missing_message: "Image requires exactly one of `asset` or `url`",
-            both_message: "Image accepts either `asset` or `url`, not both",
+            options: &["asset", "url", "file"],
+            missing_message: "Image requires exactly one of `asset`, `url`, or `file`",
+            both_message: "Image accepts exactly one of `asset`, `url`, or `file`",
         }],
         children: ChildModel::None,
         modifiers: &[ModifierSchema {
@@ -1176,13 +1319,23 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Icon",
-        aliases: &[],
         doc: "components.md#icon",
         features: &[FeatureTag::Media],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("system"), req("description"), req("size"), req("tint")],
-        exclusive: &[],
+        arguments: &[
+            opt("system"),
+            opt("sfsymbol"),
+            opt("materialsymbol"),
+            req("description"),
+            req("size"),
+            req("tint"),
+        ],
+        exclusive: &[ExclusiveGroup {
+            options: &["system", "sfsymbol", "materialsymbol"],
+            missing_message: "Icon requires exactly one of `system`, `sfsymbol`, or `materialsymbol`",
+            both_message: "Icon accepts exactly one of `system`, `sfsymbol`, or `materialsymbol`",
+        }],
         children: ChildModel::None,
         modifiers: &[],
         flags: &[],
@@ -1190,7 +1343,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "LinearGradient",
-        aliases: &[],
         doc: "components.md#lineargradient",
         features: &[FeatureTag::Media],
         parens: ParensModel::Required,
@@ -1209,7 +1361,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Pressable",
-        aliases: &[],
         doc: "components.md#pressable",
         features: &[FeatureTag::Interactivity],
         parens: ParensModel::Required,
@@ -1218,12 +1369,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[
-            ModifierSchema {
-                name: "onPress",
-                arguments: &[],
-                body: ModifierBody::Actions,
-                required: false,
-            },
             ModifierSchema {
                 name: "onTap",
                 arguments: &[],
@@ -1234,6 +1379,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
                 name: "onLongPress",
                 arguments: &[opt("durationMs")],
                 body: ModifierBody::Actions,
+                required: false,
+            },
+            ModifierSchema {
+                name: "contextMenu",
+                arguments: &[],
+                body: ModifierBody::Nodes,
                 required: false,
             },
             ModifierSchema {
@@ -1257,12 +1408,11 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         ],
         flags: &[],
         trailing_message: Some(
-            "Pressable actions must use exactly one of `.onPress { ... }` or `.onTap { ... }`, with optional `.onLongPress(durationMs: 500) { ... }`, `.onDoubleTap { ... }`, `.onDrag { x, y, vx, vy -> ... }`, or `.onPinch { scaleFactor -> ... }`",
+            "Pressable actions must use `.onTap { ... }`, with optional `.onLongPress(durationMs: 500) { ... }`, `.contextMenu { ... }`, `.onDoubleTap { ... }`, `.onDrag { x, y, vx, vy -> ... }`, or `.onPinch { scaleFactor -> ... }`",
         ),
     },
     ComponentSchema {
         name: "NavigationStack",
-        aliases: &[],
         doc: "components.md#navigationstack--navigationlink",
         features: &[FeatureTag::Navigation],
         parens: ParensModel::Required,
@@ -1278,8 +1428,20 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
+        name: "NavigationSplitView",
+        doc: "components.md#navigationsplitview",
+        features: &[FeatureTag::Navigation],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[req("detailVisible")],
+        exclusive: &[],
+        children: ChildModel::SplitPanes,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
         name: "NavigationLink",
-        aliases: &[],
         doc: "components.md#navigationstack--navigationlink",
         features: &[FeatureTag::Navigation],
         parens: ParensModel::Required,
@@ -1299,12 +1461,11 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "NavigationBack",
-        aliases: &[],
         doc: "components.md#navigationstack--navigationlink",
         features: &[FeatureTag::Navigation],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[opt("label")],
+        arguments: &[opt("label"), opt("comment")],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1313,7 +1474,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Link",
-        aliases: &[],
         doc: "components.md#link",
         features: &[FeatureTag::Navigation],
         parens: ParensModel::Required,
@@ -1327,7 +1487,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "KeyboardAware",
-        aliases: &[],
         doc: "components.md#keyboardaware",
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
@@ -1341,12 +1500,16 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "BottomSheet",
-        aliases: &[],
         doc: "components.md#bottomsheet",
         features: &[FeatureTag::Overlays],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("isPresented"), opt("partial")],
+        arguments: &[
+            req("isPresented"),
+            opt("partial"),
+            opt("largeOnly"),
+            opt("title"),
+        ],
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -1355,12 +1518,29 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Dialog",
-        aliases: &[],
         doc: "components.md#dialog",
         features: &[FeatureTag::Overlays],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("isPresented"), req("title"), req("message")],
+        arguments: &[
+            req("isPresented"),
+            req("title"),
+            req("message"),
+            opt("comment"),
+        ],
+        exclusive: &[],
+        children: ChildModel::Nodes,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
+        name: "ConfirmationDialog",
+        doc: "components.md#confirmationdialog",
+        features: &[FeatureTag::Overlays],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[req("isPresented"), req("title"), opt("comment")],
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -1369,7 +1549,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "RefreshControl",
-        aliases: &[],
         doc: "components.md#refreshcontrol",
         features: &[FeatureTag::Refresh],
         parens: ParensModel::Required,
@@ -1388,9 +1567,21 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "AppBottomBar",
-        aliases: &[],
         doc: "components.md#appbottombar",
         features: &[FeatureTag::Tabs],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[req("selected"), opt("tint")],
+        exclusive: &[],
+        children: ChildModel::Tabs,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
+        name: "PagePager",
+        doc: "components.md#pagepager",
+        features: &[FeatureTag::Navigation],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
         arguments: &[req("selected")],
@@ -1401,8 +1592,20 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
+        name: "Toolbar",
+        doc: "components.md#toolbar",
+        features: &[FeatureTag::Tabs],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[opt("placement")],
+        exclusive: &[],
+        children: ChildModel::Nodes,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
         name: "FastList",
-        aliases: &[],
         doc: "components.md#fastlist",
         features: &[FeatureTag::Lists],
         parens: ParensModel::Required,
@@ -1413,6 +1616,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("scrollPosition"),
             opt("reverseLayout"),
             opt("pageSnap"),
+            opt("native"),
         ],
         exclusive: &[],
         children: ChildModel::ListRows,
@@ -1430,6 +1634,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
                 required: false,
             },
             ModifierSchema {
+                name: "onMove",
+                arguments: &[opt("enabled")],
+                body: ModifierBody::EventActions,
+                required: false,
+            },
+            ModifierSchema {
                 name: "stickyHeader",
                 arguments: &[],
                 body: ModifierBody::Nodes,
@@ -1441,15 +1651,33 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
                 body: ModifierBody::Nodes,
                 required: false,
             },
+            ModifierSchema {
+                name: "swipeActions",
+                arguments: &[],
+                body: ModifierBody::Nodes,
+                required: false,
+            },
         ],
         flags: &[],
         trailing_message: Some(
-            "FastList modifiers must use dot syntax, for example `.onEndReached { ... }`",
+            "FastList modifiers must use dot syntax, for example `.onEndReached { ... }` or `.onMove { from, to -> ... }`",
         ),
     },
     ComponentSchema {
+        name: "Appearance",
+        doc: "components.md#appearance",
+        features: &[FeatureTag::Theming],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[req("mode")],
+        exclusive: &[],
+        children: ChildModel::Nodes,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
         name: "StatusBar",
-        aliases: &[],
         doc: "components.md#statusbar",
         features: &[FeatureTag::Theming],
         parens: ParensModel::Required,
@@ -1463,7 +1691,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Direction",
-        aliases: &[],
         doc: "components.md#direction",
         features: &[FeatureTag::Layout],
         parens: ParensModel::Required,
@@ -1480,7 +1707,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "OnAppear",
-        aliases: &[],
         doc: "state-and-navigation.md#4-lifecycle-hooks",
         features: &[FeatureTag::Lifecycle],
         parens: ParensModel::None,
@@ -1494,7 +1720,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "OnDisappear",
-        aliases: &[],
         doc: "state-and-navigation.md#4-lifecycle-hooks",
         features: &[FeatureTag::Lifecycle],
         parens: ParensModel::None,
@@ -1508,7 +1733,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "OnActive",
-        aliases: &[],
         doc: "state-and-navigation.md#4-lifecycle-hooks",
         features: &[FeatureTag::Lifecycle],
         parens: ParensModel::None,
@@ -1522,7 +1746,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "OnInactive",
-        aliases: &[],
         doc: "state-and-navigation.md#4-lifecycle-hooks",
         features: &[FeatureTag::Lifecycle],
         parens: ParensModel::None,
@@ -1536,7 +1759,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "OnBackground",
-        aliases: &[],
         doc: "state-and-navigation.md#4-lifecycle-hooks",
         features: &[FeatureTag::Lifecycle],
         parens: ParensModel::None,
@@ -1550,7 +1772,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
     ComponentSchema {
         name: "Content",
-        aliases: &[],
         doc: "components.md#custom-components--content",
         features: &[FeatureTag::Composition],
         parens: ParensModel::Empty,
@@ -1564,11 +1785,9 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
     },
 ];
 
-/// Look up a component schema by its source spelling (primary name or alias).
+/// Look up a component schema by its source spelling.
 pub fn component_schema(name: &str) -> Option<&'static ComponentSchema> {
-    COMPONENT_SCHEMAS
-        .iter()
-        .find(|schema| schema.name == name || schema.aliases.contains(&name))
+    COMPONENT_SCHEMAS.iter().find(|schema| schema.name == name)
 }
 
 /// The typed component option represented by a chained style modifier.
@@ -1588,7 +1807,7 @@ pub fn chained_style_argument(component: &str, modifier: &str) -> Option<&'stati
     }
 }
 
-/// Whether `name` is a built-in component spelling (primary name or alias).
+/// Whether `name` is a built-in component spelling.
 pub fn is_component(name: &str) -> bool {
     component_schema(name).is_some()
 }
@@ -1598,7 +1817,8 @@ pub fn is_component(name: &str) -> bool {
 pub fn supports_accessibility_options(schema: &ComponentSchema) -> bool {
     !matches!(
         schema.name,
-        "Content"
+        "Appearance"
+            | "Content"
             | "Direction"
             | "OnAppear"
             | "OnDisappear"
@@ -1831,6 +2051,10 @@ fn audit_signature(schema: &ComponentSchema) -> String {
             format!("`{} {flags}{{ ... }}` actions{parens_note}", schema.name)
         }
         ChildModel::Tabs => format!("`{}(selected:) {{ Tab(..) ... }}`", schema.name),
+        ChildModel::SplitPanes => format!(
+            "`{}(detailVisible:) {{ Sidebar {{ ... }} Detail {{ ... }} }}`",
+            schema.name
+        ),
         ChildModel::ListRows => format!(
             "`{}(collection | count: | sections:, axis:, ...)` with `{{ bindings in ... }}` rows",
             schema.name
@@ -1872,8 +2096,8 @@ pub fn render_syntax_audit() -> String {
                 "## Accessibility\n\n\
                 ### Component options\n\n\
                 Pass accessibility options directly to a visual built-in, custom component, or qualified native plugin component.\n\n\
-                Signature: `Component(..., accessibilityLabel: String, accessibilityHint: String, accessibilityRole: None|Button|Link|Header|Image)`\n\n\
-                `accessibilityLabel` is required whenever any accessibility option is present. Labels and hints accept typed `String` expressions; literal values must be non-empty. The options are optional and may be used with the component's normal children and modifiers.\n\n\
+                Signature: `Component(..., accessibilityLabel: String, accessibilityHint: String, accessibilityValue: String, accessibilityRole: None|Button|Link|Header|Image)`\n\n\
+                `accessibilityLabel` is required whenever any accessibility option is present. Labels, hints, and values accept typed `String` expressions; literal labels and hints must be non-empty. The options are optional and may be used with the component's normal children and modifiers.\n\n\
                 Swift emits native accessibility modifiers. Android emits Compose semantics, including hint text and heading semantics for `Header`.\n\n\
                 Reference: components.md#accessibility-options\n\n",
             );
@@ -1896,9 +2120,6 @@ pub fn render_syntax_audit() -> String {
             out.push_str(&format!("### `{}`\n\n", schema.name));
             out.push_str(&format!("{}\n\n", entry.summary));
             out.push_str(&format!("Signature: {}\n\n", audit_signature(schema)));
-            if !schema.aliases.is_empty() {
-                out.push_str(&format!("Aliases: {}\n\n", schema.aliases.join(", ")));
-            }
             let (required, _optional): (Vec<_>, Vec<_>) =
                 schema.arguments.iter().partition(|arg| arg.required);
             if !required.is_empty() {
@@ -1953,6 +2174,7 @@ pub fn render_syntax_audit() -> String {
                     ChildModel::OptionalActions => "optional action block",
                     ChildModel::RequiredActions => "action block",
                     ChildModel::Tabs => "`Tab` declarations",
+                    ChildModel::SplitPanes => "sidebar and detail blocks",
                     ChildModel::ListRows => "row bindings plus row body",
                 }
             ));

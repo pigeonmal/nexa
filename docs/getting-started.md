@@ -86,6 +86,14 @@ config {
 }
 ```
 
+Set a shared orientation policy in `app` metadata. `"all"` keeps system rotation available, `"portrait"` disables landscape on every device, and `"portrait-phones"` keeps phones portrait while tablets and expanded foldable windows remain rotatable. The phone-only policy responds to Android window-size changes as a foldable opens or closes.
+
+```nexa
+config {
+    app { displayName: "Hello World", orientation: "portrait-phones" }
+}
+```
+
 Android Cronet defaults to the Play Services provider, so release builds do
 not package the embedded Cronet native library. Set `provider: "embedded"` to
 package it for devices without Google Play Services. `diskCacheSizeMb` sets
@@ -101,7 +109,9 @@ config {
 }
 ```
 
-The shared icon source generates an iOS AppIcon asset and Android density icons, adaptive and round launcher icons, and a monochrome adaptive layer for themed icons. Platform-specific `ios.icon` or `android.icon` paths override the shared source; iOS accepts an Xcode asset-catalog icon directory or an Icon Composer `.icon` asset, while Android accepts a resource directory. iOS signing remains managed by Xcode; Android signing secrets belong in `.nexa/signing.properties` locally or CI secrets, never in `nexa.config.nx`.
+The shared icon source generates the iOS AppIcon asset and Android legacy density icons. A flattened image does not contain enough information to generate correct Android adaptive foreground/background layers or a themed monochrome mark. For those, point `android.icon` to an icon-set directory containing `icon.png`, `foreground.png` or `foreground.xml`, `background.png` or `background.xml`, and an optional `monochrome.png` or `monochrome.xml`. Android alternate icons must also use icon-set directories and require a default `android.icon` or shared `assets.icon`.
+
+Each adaptive foreground and background layer is scaled to a 108-by-108 dp canvas. Keep foreground artwork inside the centered 66-by-66 dp safe zone so Android launchers can apply different masks without clipping it. Nexa generates adaptive icons for Android 8.0 and later and includes monochrome artwork for themed icons on Android 13 and later when supplied. iOS accepts an Xcode asset-catalog icon directory or an Icon Composer `.icon` asset. iOS signing remains managed by Xcode; Android signing secrets belong in `.nexa/signing.properties` locally or CI secrets, never in `nexa.config.nx`.
 
 ## Example app
 

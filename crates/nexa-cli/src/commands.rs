@@ -903,6 +903,11 @@ fn source_fingerprint(
                 visit(&path, include_all_files || bundle_directory, result)?;
             } else if include_all_files
                 || entry.file_name() == "nexa.lock"
+                || (entry.file_name() == "translations.json"
+                    && path
+                        .parent()
+                        .and_then(Path::file_name)
+                        .is_some_and(|name| name == "locales"))
                 || path.extension().is_some_and(|extension| extension == "nx")
                 || is_native_asset(&path)
             {

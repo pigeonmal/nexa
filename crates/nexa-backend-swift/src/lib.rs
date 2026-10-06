@@ -2,6 +2,27 @@ mod generator;
 
 pub use nexa_codegen::{GeneratedSources, SourceUnit};
 
+/// Target-owned sources produced for one WidgetKit extension.
+pub struct WidgetGeneratedSources {
+    pub sources: GeneratedSources,
+    pub resources: Vec<SourceUnit>,
+}
+
+/// A typed widget IR value that cannot be rendered safely by the Swift backend.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WidgetGenerationError {
+    pub widget: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for WidgetGenerationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "widget `{}`: {}", self.widget, self.message)
+    }
+}
+
+impl std::error::Error for WidgetGenerationError {}
+
 /// Native metadata consumed by iOS host project generation.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SwiftProjectFeatures {
@@ -38,6 +59,16 @@ impl SwiftBackend {
     /// Generate the release host as one source unit per compile file.
     pub fn generate_units(&self, module: &nexa_ir::Module) -> GeneratedSources {
         generator::generate_units(module)
+    }
+
+    /// Generate WidgetKit extension sources from typed Nexa widget declarations.
+    /// These are separate from the application host units and are intended to
+    /// be assigned to a widget extension target by project generation.
+    pub fn generate_widget_units(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> Result<WidgetGeneratedSources, WidgetGenerationError> {
+        generator::generate_widget_units(module)
     }
 
     /// Generate release units together with metadata required by the iOS host.

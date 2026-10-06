@@ -141,6 +141,105 @@ fn elapsed_measures_from_a_monotonic_reading() {
 }
 
 #[test]
+fn local_calendar_day_key_lowers_to_a_typed_time_call() {
+    let module = compile_with(
+        "nexa-local-calendar-date-formatting",
+        "",
+        r#"        Column {
+            Text(Time.startOfDay(timestamp: Time.now()))
+        }
+"#,
+    )
+    .expect("local calendar date helpers should compile");
+
+    let calls = clock_calls(&module);
+    assert!(calls.iter().any(|(method, ty, is_async)| {
+        *method == TimeMethod::StartOfDay && *ty == Type::Numeric(NumericType::Int64) && !is_async
+    }));
+}
+
+#[test]
+fn calendar_day_addition_is_typed_and_preserves_platform_calendar_semantics() {
+    let module = compile_with(
+        "nexa-calendar-day-addition",
+        "    state dueAt: Int64 = Time.now()\n    state shifted: Int64 = 0\n",
+        "        Column {\n\
+         \x20           Button(\"Next day\") { shifted = Time.addCalendarDays(timestamp: dueAt, days: 1) }\n\
+         \x20       }\n",
+    )
+    .expect("calendar-day addition should compile");
+
+    let calls = clock_calls(&module);
+    assert!(calls.iter().any(|(method, ty, is_async)| {
+        *method == TimeMethod::AddCalendarDays
+            && *ty == Type::Numeric(NumericType::Int64)
+            && !is_async
+    }));
+
+    let invalid = compile_with(
+        "nexa-calendar-day-addition-type-error",
+        "    state dueAt: Int64 = 0\n",
+        "        Column { Text(Time.addCalendarDays(timestamp: dueAt, days: 1.5)) }\n",
+    )
+    .expect_err("calendar-day count must be an Int32");
+    assert!(invalid.contains("Int32"));
+}
+
+#[test]
+fn localized_date_and_time_formatters_are_typed_string_calls() {
+    let module = compile_with(
+        "nexa-localized-time-formatters",
+        "    state timestamp: Int64 = Time.now()\n",
+        r#"        Column {
+            Text(Time.localizedDate(timestamp: timestamp))
+            Text(Time.localizedTime(timestamp: timestamp))
+            Text(Time.localizedDateTime(timestamp: timestamp))
+        }
+"#,
+    )
+    .expect("native-locale formatters should compile");
+
+    let calls = clock_calls(&module);
+    for method in [
+        TimeMethod::LocalizedDate,
+        TimeMethod::LocalizedTime,
+        TimeMethod::LocalizedDateTime,
+    ] {
+        assert!(
+            calls.iter().any(|(actual, ty, is_async)| *actual == method
+                && *ty == Type::String
+                && !is_async),
+            "{method:?} should lower to a synchronous String call: {calls:?}"
+        );
+    }
+
+    let invalid = compile_with(
+        "nexa-localized-time-formatters-invalid-type",
+        "    state timestamp: String = \"today\"\n",
+        "        Column { Text(Time.localizedDate(timestamp: timestamp)) }\n",
+    )
+    .expect_err("localized formatters require epoch milliseconds");
+    assert!(invalid.contains("Int64"));
+}
+
+#[test]
+fn explicit_date_patterns_are_typed_calls_with_positional_arguments() {
+    let module = compile_with(
+        "nexa-explicit-date-format",
+        "    state timestamp: Int64 = Time.now()\n",
+        r#"        Column {
+            Text(Time.format(timestamp, "d MMM, HH:mm"))
+        }
+"#,
+    )
+    .expect("explicit date patterns should compile using simple positional arguments");
+
+    assert!(clock_calls(&module).iter().any(|(method, ty, is_async)| {
+        *method == TimeMethod::Format && *ty == Type::String && !is_async
+    }));
+}
+
+#[test]
 fn log_methods_lower_to_typed_native_calls() {
     let module = compile_with(
         "nexa-core-log",

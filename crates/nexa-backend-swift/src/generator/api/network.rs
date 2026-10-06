@@ -572,6 +572,7 @@ private struct NexaRemoteImage: View {
     let url: String
     let scale: NexaImageScale
     let placeholder: String?
+    let allowsFile: Bool
     @State private var image: Image?
     @State private var failed = false
 
@@ -591,13 +592,31 @@ private struct NexaRemoteImage: View {
         }
         .task(id: url) {
             do {
-                guard let parsedURL = URL(string: url), parsedURL.scheme?.lowercased() == "https" else {
+                guard let parsedURL = URL(string: url) else {
                     throw NexaRemoteImageError.invalidURL
                 }
-                let (data, response) = try await NexaURLSessionSupport.sharedSession.data(from: parsedURL)
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200..<300).contains(httpResponse.statusCode),
-                      data.count <= 64 * 1024 * 1024,
+                guard parsedURL.isFileURL ? allowsFile : parsedURL.scheme?.lowercased() == "https" else {
+                    throw NexaRemoteImageError.invalidURL
+                }
+                let data: Data
+                if parsedURL.isFileURL {
+                    if let resourceValues = try? parsedURL.resourceValues(forKeys: [.fileSizeKey]),
+                       let fileSize = resourceValues.fileSize,
+                       fileSize > 64 * 1024 * 1024 {
+                        throw NexaRemoteImageError.invalidResponse
+                    }
+                    data = try await Task.detached(priority: .utility) {
+                        try Data(contentsOf: parsedURL)
+                    }.value
+                } else {
+                    let (remoteData, response) = try await NexaURLSessionSupport.sharedSession.data(from: parsedURL)
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          (200..<300).contains(httpResponse.statusCode) else {
+                        throw NexaRemoteImageError.invalidResponse
+                    }
+                    data = remoteData
+                }
+                guard data.count <= 64 * 1024 * 1024,
                       let decoded = nexaDownsampleImage(data) else {
                     throw NexaRemoteImageError.invalidResponse
                 }

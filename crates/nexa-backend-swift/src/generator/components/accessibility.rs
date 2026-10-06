@@ -9,9 +9,11 @@ use crate::generator::{
 
 use super::RenderScope;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_accessibility(
     label: &Expr,
     hint: Option<&Expr>,
+    value: Option<&Expr>,
     role: AccessibilityRole,
     children: &[Node],
     scope: &RenderScope<'_>,
@@ -44,6 +46,15 @@ pub(crate) fn render_accessibility(
             value => format!("Text({})", expression(value)),
         };
         out.push_str(&format!(".accessibilityHint({hint})"));
+    }
+    if let Some(value) = value {
+        out.push('\n');
+        indent(out, depth + 1);
+        let value = match value {
+            Expr::String(value) => swift_string(value),
+            value => format!("Text({})", expression(value)),
+        };
+        out.push_str(&format!(".accessibilityValue({value})"));
     }
     if let Some(trait_name) = trait_name(role) {
         out.push('\n');

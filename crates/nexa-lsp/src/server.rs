@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use crate::completions::get_completions;
-use crate::diagnostics::check_source;
+use crate::completions::get_document_completions;
+use nexa_compiler::IncrementalProjectCompiler;
+
+use crate::diagnostics::{check_document, check_project_document};
 use crate::hover::get_hover;
 use crate::protocol::{
     Diagnostic, JsonRpcError, JsonRpcRequest, JsonRpcResponse, Position, PublishDiagnosticsParams,
@@ -13,6 +15,7 @@ use crate::symbols::get_document_symbols;
 /// In-memory Language Server instance.
 pub struct LspServer {
     documents: HashMap<String, String>,
+    project_compiler: IncrementalProjectCompiler,
     shutdown: bool,
 }
 
@@ -26,13 +29,15 @@ impl LspServer {
     pub fn new() -> Self {
         Self {
             documents: HashMap::new(),
+            project_compiler: IncrementalProjectCompiler::default(),
             shutdown: false,
         }
     }
 
     /// Stores or updates an open document.
     pub fn open_or_change_document(&mut self, uri: String, text: String) -> Vec<Diagnostic> {
-        let diagnostics = check_source(&text);
+        let diagnostics = check_project_document(&text, &uri, &mut self.project_compiler)
+            .unwrap_or_else(|| check_document(&text, &uri));
         self.documents.insert(uri, text);
         diagnostics
     }
@@ -61,7 +66,7 @@ impl LspServer {
                     "capabilities": {
                         "textDocumentSync": 1, // Full sync
                         "completionProvider": {
-                            "triggerCharacters": [".", "(", "<"],
+                            "triggerCharacters": [".", "(", "<", ":", ",", "\""],
                             "resolveProvider": false
                         },
                         "hoverProvider": true,
@@ -140,6 +145,10 @@ impl LspServer {
 
                 if let Some(uri) = uri {
                     self.close_document(uri);
+                    notifications.push(PublishDiagnosticsParams {
+                        uri: uri.to_string(),
+                        diagnostics: Vec::new(),
+                    });
                 }
                 (None, notifications)
             }
@@ -156,9 +165,9 @@ impl LspServer {
                         .unwrap_or_default();
 
                     if let Some(text) = self.get_document(uri) {
-                        get_completions(text, pos)
+                        get_document_completions(text, pos, uri.ends_with("/nexa.config.nx"))
                     } else {
-                        get_completions("", pos)
+                        get_document_completions("", pos, uri.ends_with("/nexa.config.nx"))
                     }
                 } else {
                     Vec::new()
@@ -232,7 +241,7 @@ impl LspServer {
                     notifications,
                 )
             }
-            _ => (
+            _ if request.id.is_some() => (
                 Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
@@ -245,6 +254,7 @@ impl LspServer {
                 }),
                 notifications,
             ),
+            _ => (None, notifications),
         }
     }
 }

@@ -11,6 +11,7 @@ use tungstenite::{ClientRequestBuilder, Message, WebSocket, client};
 
 fn module(revision: &str, label: &str) -> DevModule {
     let module = Module {
+        widgets: Vec::new(),
         app_name: "Demo".to_owned(),
         plugins: Vec::new(),
         plugin_assets: Vec::new(),
@@ -18,6 +19,7 @@ fn module(revision: &str, label: &str) -> DevModule {
         structs: Vec::new(),
         functions: Vec::new(),
         background_tasks: Vec::new(),
+        globals: Vec::new(),
         states: Vec::new(),
         screens: Vec::new(),
         components: Vec::new(),

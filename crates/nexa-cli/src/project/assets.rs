@@ -106,6 +106,32 @@ pub(super) fn copy_android_project_images(
     write_marker(&marker, &generated)
 }
 
+pub(super) fn copy_android_localizations(
+    source_root: &Path,
+    output_root: &Path,
+    module: &nexa_ir::Module,
+) -> Result<(), String> {
+    let catalog = super::localization::synchronize(source_root, module)?;
+    let resources = output_root.join("android/app/src/main/res");
+    let marker = resources.join(".nexa-localization-resources");
+    let files = catalog.android_string_files()?;
+    let generated = files
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<BTreeSet<_>>();
+    remove_stale_generated(&resources, &marker, &generated, false)?;
+    for (relative, contents) in files {
+        let destination = resources.join(&relative);
+        ensure_owned_destination(&destination, &marker, &relative)?;
+        let parent = destination
+            .parent()
+            .ok_or_else(|| format!("invalid localization output path {}", destination.display()))?;
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        write_if_changed(&destination, &contents)?;
+    }
+    write_marker(&marker, &generated)
+}
+
 fn project_images(root: &Path) -> Result<Vec<ProjectImage>, String> {
     let directory = root.join("assets/images");
     let entries = match fs::read_dir(&directory) {
@@ -357,8 +383,22 @@ fn copy_icon_composer_entry(source: &Path, destination: &Path) -> Result<(), Str
 }
 
 pub(super) fn generate_android_icon(source: &Path, root: &Path) -> Result<(), String> {
+    generate_android_icon_named(source, root, "ic_launcher")
+}
+
+pub(super) fn generate_android_icon_named(
+    source: &Path,
+    root: &Path,
+    resource_name: &str,
+) -> Result<(), String> {
+    validate_android_icon_resource_name(resource_name)?;
+    if source.is_dir() {
+        return generate_android_icon_set_named(source, root, resource_name);
+    }
+
     let image = image::open(source).map_err(|error| format!("{}: {error}", source.display()))?;
     let res = root.join("android/app/src/main/res");
+    remove_previous_android_icon_layers(&res, resource_name)?;
     for (density, size) in [
         ("mdpi", 48),
         ("hdpi", 72),
@@ -369,51 +409,282 @@ pub(super) fn generate_android_icon(source: &Path, root: &Path) -> Result<(), St
         let directory = res.join(format!("mipmap-{density}"));
         fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
         let icon = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);
-        icon.save(directory.join("ic_launcher.png"))
+        icon.save(directory.join(format!("{resource_name}.png")))
             .map_err(|error| error.to_string())?;
-        icon.save(directory.join("ic_launcher_round.png"))
+        icon.save(directory.join(format!("{resource_name}_round.png")))
             .map_err(|error| error.to_string())?;
     }
-    let foreground_dir = res.join("drawable-nodpi");
-    fs::create_dir_all(&foreground_dir).map_err(|error| error.to_string())?;
-    let mut foreground = image::RgbaImage::new(432, 432);
-    let fit = image
-        .resize_to_fill(288, 288, image::imageops::FilterType::Lanczos3)
-        .to_rgba8();
-    image::imageops::overlay(&mut foreground, &fit, 72, 72);
-    foreground
-        .save(foreground_dir.join("ic_launcher_foreground.png"))
-        .map_err(|error| error.to_string())?;
-    let mut monochrome = foreground.clone();
-    for pixel in monochrome.pixels_mut() {
-        pixel.0 = [255, 255, 255, pixel.0[3]];
+    Ok(())
+}
+
+/// Generates density-aware legacy icons and a native adaptive icon from a
+/// developer-supplied set of separate layers. A single flattened bitmap cannot
+/// provide safe-zone-aware motion or a correct monochrome themed icon, so it
+/// intentionally stays a legacy launcher image unless a layer set is given.
+pub(super) fn generate_android_icon_set_named(
+    source: &Path,
+    root: &Path,
+    resource_name: &str,
+) -> Result<(), String> {
+    validate_android_icon_resource_name(resource_name)?;
+    let fallback = source.join("icon.png");
+    let image =
+        image::open(&fallback).map_err(|error| format!("{}: {error}", fallback.display()))?;
+    let foreground = required_icon_layer(source, "foreground")?;
+    let background = required_icon_layer(source, "background")?;
+    let monochrome = optional_icon_layer(source, "monochrome");
+    validate_android_icon_layer(&foreground)?;
+    validate_android_icon_layer(&background)?;
+    if let Some(monochrome) = &monochrome {
+        validate_android_icon_layer(monochrome)?;
     }
-    monochrome
-        .save(foreground_dir.join("ic_launcher_monochrome.png"))
-        .map_err(|error| error.to_string())?;
+
+    let res = root.join("android/app/src/main/res");
+    remove_previous_android_icon_layers(&res, resource_name)?;
+    for (density, size) in [
+        ("mdpi", 48),
+        ("hdpi", 72),
+        ("xhdpi", 96),
+        ("xxhdpi", 144),
+        ("xxxhdpi", 192),
+    ] {
+        let directory = res.join(format!("mipmap-{density}"));
+        fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+        let icon = image.resize_to_fill(size, size, image::imageops::FilterType::Lanczos3);
+        icon.save(directory.join(format!("{resource_name}.png")))
+            .map_err(|error| error.to_string())?;
+        icon.save(directory.join(format!("{resource_name}_round.png")))
+            .map_err(|error| error.to_string())?;
+    }
+
+    install_android_icon_layer(&foreground, &res, resource_name, "foreground")?;
+    install_android_icon_layer(&background, &res, resource_name, "background")?;
+    if let Some(monochrome) = &monochrome {
+        install_android_icon_layer(monochrome, &res, resource_name, "monochrome")?;
+    }
+
     let adaptive_dir = res.join("mipmap-anydpi-v26");
     fs::create_dir_all(&adaptive_dir).map_err(|error| error.to_string())?;
-    write_if_changed(
-        &adaptive_dir.join("ic_launcher.xml"),
-        "<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\"><background android:drawable=\"@color/nexa_icon_background\"/><foreground android:drawable=\"@drawable/ic_launcher_foreground\"/></adaptive-icon>\n",
-    )?;
-    write_if_changed(
-        &adaptive_dir.join("ic_launcher_round.xml"),
-        "<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\"><background android:drawable=\"@color/nexa_icon_background\"/><foreground android:drawable=\"@drawable/ic_launcher_foreground\"/></adaptive-icon>\n",
-    )?;
-    let themed_dir = res.join("mipmap-anydpi-v33");
-    fs::create_dir_all(&themed_dir).map_err(|error| error.to_string())?;
-    for name in ["ic_launcher.xml", "ic_launcher_round.xml"] {
-        write_if_changed(
-            &themed_dir.join(name),
-            "<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\"><background android:drawable=\"@color/nexa_icon_background\"/><foreground android:drawable=\"@drawable/ic_launcher_foreground\"/><monochrome android:drawable=\"@drawable/ic_launcher_monochrome\"/></adaptive-icon>\n",
-        )?;
+    let adaptive_xml = adaptive_icon_xml(resource_name, false);
+    for name in [
+        format!("{resource_name}.xml"),
+        format!("{resource_name}_round.xml"),
+    ] {
+        write_if_changed(&adaptive_dir.join(name), &adaptive_xml)?;
     }
-    let values = res.join("values");
-    fs::create_dir_all(&values).map_err(|error| error.to_string())?;
-    write_if_changed(
-        &values.join("nexa_icon_colors.xml"),
-        "<resources><color name=\"nexa_icon_background\">#FFFFFFFF</color></resources>\n",
+
+    if monochrome.is_some() {
+        let themed_dir = res.join("mipmap-anydpi-v33");
+        fs::create_dir_all(&themed_dir).map_err(|error| error.to_string())?;
+        let themed_xml = adaptive_icon_xml(resource_name, true);
+        for name in [
+            format!("{resource_name}.xml"),
+            format!("{resource_name}_round.xml"),
+        ] {
+            write_if_changed(&themed_dir.join(name), &themed_xml)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_android_icon_resource_name(resource_name: &str) -> Result<(), String> {
+    let valid = resource_name
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_lowercase)
+        && resource_name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_');
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "invalid Android icon resource name `{resource_name}`; expected lowercase ASCII letters, digits, and underscores, starting with a letter"
+        ))
+    }
+}
+
+fn remove_previous_android_icon_layers(res: &Path, resource_name: &str) -> Result<(), String> {
+    let mut stale = vec![
+        res.join("mipmap-anydpi-v26")
+            .join(format!("{resource_name}.xml")),
+        res.join("mipmap-anydpi-v26")
+            .join(format!("{resource_name}_round.xml")),
+        res.join("mipmap-anydpi-v33")
+            .join(format!("{resource_name}.xml")),
+        res.join("mipmap-anydpi-v33")
+            .join(format!("{resource_name}_round.xml")),
+    ];
+    for layer in ["foreground", "background", "monochrome"] {
+        stale.push(
+            res.join("drawable")
+                .join(format!("{resource_name}_{layer}.xml")),
+        );
+        for density in ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"] {
+            stale.push(
+                res.join(format!("drawable-{density}"))
+                    .join(format!("{resource_name}_{layer}.png")),
+            );
+        }
+    }
+    for path in stale {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        }
+    }
+    Ok(())
+}
+
+fn required_icon_layer(source: &Path, name: &str) -> Result<PathBuf, String> {
+    if let Some(layer) = find_icon_layer(source, name) {
+        return Ok(layer);
+    }
+    Err(format!(
+        "Android icon set {} needs `{name}.png` or `{name}.xml`",
+        source.display()
+    ))
+}
+
+fn optional_icon_layer(source: &Path, name: &str) -> Option<PathBuf> {
+    find_icon_layer(source, name)
+}
+
+fn find_icon_layer(source: &Path, name: &str) -> Option<PathBuf> {
+    ["png", "xml"]
+        .into_iter()
+        .flat_map(|extension| {
+            [
+                source.join(format!("{name}.{extension}")),
+                source
+                    .parent()
+                    .unwrap_or(source)
+                    .join("shared")
+                    .join(format!("{name}.{extension}")),
+            ]
+        })
+        .find(|path| path.is_file())
+}
+
+fn install_android_icon_layer(
+    source: &Path,
+    res: &Path,
+    resource_name: &str,
+    layer_name: &str,
+) -> Result<(), String> {
+    match source.extension().and_then(|extension| extension.to_str()) {
+        Some("xml") => {
+            let drawable_dir = res.join("drawable");
+            fs::create_dir_all(&drawable_dir).map_err(|error| error.to_string())?;
+            let contents = fs::read_to_string(source)
+                .map_err(|error| format!("{}: {error}", source.display()))?;
+            write_if_changed(
+                &drawable_dir.join(format!("{resource_name}_{layer_name}.xml")),
+                &contents,
+            )
+        }
+        Some("png") => {
+            let image =
+                image::open(source).map_err(|error| format!("{}: {error}", source.display()))?;
+            for (density, scale) in [
+                ("mdpi", 1.0),
+                ("hdpi", 1.5),
+                ("xhdpi", 2.0),
+                ("xxhdpi", 3.0),
+                ("xxxhdpi", 4.0),
+            ] {
+                let directory = res.join(format!("drawable-{density}"));
+                fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+                let size = (108.0 * scale) as u32;
+                image
+                    .resize_exact(size, size, image::imageops::FilterType::Lanczos3)
+                    .save(directory.join(format!("{resource_name}_{layer_name}.png")))
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(())
+        }
+        _ => Err(format!(
+            "Android adaptive icon layer {} must be PNG or Android drawable XML",
+            source.display()
+        )),
+    }
+}
+
+fn validate_android_icon_layer(source: &Path) -> Result<(), String> {
+    match source.extension().and_then(|extension| extension.to_str()) {
+        Some("png") => {
+            let image =
+                image::open(source).map_err(|error| format!("{}: {error}", source.display()))?;
+            if image.width() != image.height() {
+                return Err(format!(
+                    "Android adaptive icon layer {} must be square",
+                    source.display()
+                ));
+            }
+            Ok(())
+        }
+        Some("xml") => {
+            const MAX_ICON_XML_BYTES: u64 = 1_048_576;
+            let metadata =
+                fs::metadata(source).map_err(|error| format!("{}: {error}", source.display()))?;
+            if metadata.len() > MAX_ICON_XML_BYTES {
+                return Err(format!(
+                    "Android drawable XML {} exceeds the 1 MiB limit",
+                    source.display()
+                ));
+            }
+            let contents = fs::read_to_string(source)
+                .map_err(|error| format!("{}: {error}", source.display()))?;
+            let document = roxmltree::Document::parse(&contents).map_err(|error| {
+                format!(
+                    "Android drawable XML {} is malformed: {error}",
+                    source.display()
+                )
+            })?;
+            let root = document.root_element().tag_name().name();
+            if !matches!(
+                root,
+                "vector"
+                    | "shape"
+                    | "inset"
+                    | "layer-list"
+                    | "selector"
+                    | "bitmap"
+                    | "nine-patch"
+                    | "scale"
+                    | "rotate"
+                    | "clip"
+                    | "level-list"
+                    | "transition"
+                    | "animated-rotate"
+                    | "animated-selector"
+                    | "animated-vector"
+                    | "ripple"
+                    | "color"
+            ) {
+                return Err(format!(
+                    "Android drawable XML {} must have a drawable root element (found `<{root}>`)",
+                    source.display()
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(format!(
+            "Android adaptive icon layer {} must be PNG or Android drawable XML",
+            source.display()
+        )),
+    }
+}
+
+fn adaptive_icon_xml(resource_name: &str, include_monochrome: bool) -> String {
+    let monochrome = if include_monochrome {
+        format!("<monochrome android:drawable=\"@drawable/{resource_name}_monochrome\"/>")
+    } else {
+        String::new()
+    };
+    format!(
+        "<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\"><background android:drawable=\"@drawable/{resource_name}_background\"/><foreground android:drawable=\"@drawable/{resource_name}_foreground\"/>{monochrome}</adaptive-icon>\n"
     )
 }
 
@@ -422,4 +693,63 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
         return Ok(());
     }
     fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{generate_android_icon_named, generate_android_icon_set_named};
+
+    #[test]
+    fn adaptive_icon_set_generates_fallback_and_native_layered_resources() {
+        let temp = nexa_testkit::TempDir::new("nexa-adaptive-icon");
+        let assets = temp.path().join("assets");
+        let shared = temp.path().join("shared");
+        let output = temp.path().join("project");
+        std::fs::create_dir_all(&assets).expect("create icon set");
+        std::fs::create_dir_all(&shared).expect("create icon set");
+        image::RgbaImage::from_pixel(64, 64, image::Rgba([25, 45, 65, 255]))
+            .save(assets.join("icon.png"))
+            .expect("write fallback icon");
+        std::fs::write(assets.join("background.xml"), "<shape />").expect("write background layer");
+        std::fs::write(shared.join("foreground.xml"), "<vector />")
+            .expect("write shared foreground layer");
+        std::fs::write(shared.join("monochrome.xml"), "<vector />")
+            .expect("write shared monochrome layer");
+
+        generate_android_icon_set_named(&assets, &output, "iconblue")
+            .expect("generate adaptive icon set");
+
+        let resources = output.join("android/app/src/main/res");
+        let adaptive = std::fs::read_to_string(resources.join("mipmap-anydpi-v26/iconblue.xml"))
+            .expect("read adaptive definition");
+        let themed = std::fs::read_to_string(resources.join("mipmap-anydpi-v33/iconblue.xml"))
+            .expect("read themed adaptive definition");
+        assert!(adaptive.contains("@drawable/iconblue_background"));
+        assert!(adaptive.contains("@drawable/iconblue_foreground"));
+        assert!(!adaptive.contains("monochrome"));
+        assert!(themed.contains("@drawable/iconblue_monochrome"));
+        assert!(resources.join("drawable/iconblue_foreground.xml").is_file());
+        assert!(resources.join("mipmap-xxxhdpi/iconblue.png").is_file());
+        assert!(
+            resources
+                .join("mipmap-xxxhdpi/iconblue_round.png")
+                .is_file()
+        );
+    }
+
+    #[test]
+    fn one_flat_bitmap_generates_legacy_icons_without_fake_adaptive_layers() {
+        let temp = nexa_testkit::TempDir::new("nexa-flat-icon");
+        let source = temp.path().join("icon.png");
+        let output = temp.path().join("project");
+        image::RgbaImage::from_pixel(64, 64, image::Rgba([25, 45, 65, 255]))
+            .save(&source)
+            .expect("write flat icon");
+
+        generate_android_icon_named(&source, &output, "ic_launcher").expect("generate legacy icon");
+
+        let resources = output.join("android/app/src/main/res");
+        assert!(resources.join("mipmap-xxxhdpi/ic_launcher.png").is_file());
+        assert!(!resources.join("mipmap-anydpi-v26/ic_launcher.xml").exists());
+    }
 }

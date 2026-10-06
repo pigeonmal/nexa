@@ -114,6 +114,40 @@ service FastEngine {
 }
 ```
 
+### Typed row mappings
+
+The plugin system supports typed row results through the generic `Row`
+type constraint. Nexa generates the statically typed struct mapper for any
+plugin method using that contract. Row cell enums use one payload-free case
+for null and scalar payload cases for values; a `rowFailure <case>` clause
+names the plugin error case that accepts a message when row metadata is
+invalid. For example, SQLite declares `rowFailure queryFailed` on its typed
+query method. The plugin supplies native cell readers and its typed error
+construction. SQL parsing, schema inference, and database compatibility
+checks remain inside the SQLite analyzer.
+
+### Plugin-owned compiler analysis
+
+A plugin may declare a host-side analyzer in `plugin.config.nx`:
+
+```nexa
+compiler {
+    analyzer: ["python3", "compiler/analyze.py"]
+}
+```
+
+Nexa launches the argument vector directly, without a shell, with the plugin
+package as its working directory. It exchanges one versioned JSON request and
+response per line on stdin/stdout. Requests include the resolved source graph,
+plugin identity, and target minimums; responses contain source-located errors
+and warnings.
+
+Analyzer stdout is reserved for protocol responses; use stderr for progress or
+debug output. A compiler instance retains the process across incremental
+builds, including language-server use. The analyzer implementation and all
+domain rules belong to the plugin. Nexa owns only the generic process host
+and protocol.
+
 ### Generic value methods
 
 A method may declare value type parameters. Every call site binds them, and the
@@ -121,9 +155,12 @@ bound type selects one generated value codec, so a plugin implements the method
 once instead of once per value type:
 
 Plugin IDL value structs also have positional constructors in `.nx`, qualified
-with the plugin alias (for example, `SQLite.SQLiteValue(...)`). This constructs
-the generated Swift/Kotlin value directly and does not pass through a codec or
-runtime registry. Their fields are immutable and can be read as direct members.
+with the plugin alias (for example, `Engine.ComputeConfig(...)` when imported
+as `Engine`). This constructs the generated Swift/Kotlin value directly and
+does not pass through a codec or runtime registry. Their fields are immutable
+and can be read as direct members. SQLite's ordinary query and execute APIs
+infer SQL values from Nexa literals, so app code does not construct its
+internal `Value` enum.
 
 ```nxid
 native class Store {
@@ -134,8 +171,8 @@ native class Store {
     fn getString(key: String) -> String?
 
     // Everything else goes through the value codec of the bound type.
-    fn setObject<T>(key: String, value: T) -> Bool
-    fn getObject<T>(key: String) -> T?
+    fn setObject<T: Struct>(key: String, value: T) -> Bool
+    fn getObject<T: Struct>(key: String) -> T?
     fn setList<T>(key: String, values: Array<T>) -> Bool
     fn getList<T>(key: String) -> Array<T>?
     fn setSet<T>(key: String, values: Set<T>) -> Bool
@@ -179,6 +216,10 @@ Rules for the bound type:
   information: `store.getObject<PlayerOptions>("key")`.
 - Every type parameter must be bound. An unbound one is an error that names the
   binding syntax.
+- A type parameter may use the `Struct` bound (`<T: Struct>`), which limits
+  call sites to app-declared value structs. This is appropriate for object
+  getters such as MMKV's `getObject`; use typed scalar and collection methods
+  for primitive and collection values.
 - The generated layout is fixed: little-endian scalars, a length-prefixed
   string or buffer, a `UInt32` element count, and struct fields in declaration
   order. Sets and maps are written in a canonical order, so a value written on

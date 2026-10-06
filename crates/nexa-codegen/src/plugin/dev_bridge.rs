@@ -8,8 +8,8 @@
 use nexa_plugin_idl::{InterfaceKind, PluginIdl};
 
 use super::bridge_plan::{
-    BridgeConstructor, BridgeInterface, BridgeMethod, BridgeNamedKind, BridgeParameter, BridgePlan,
-    BridgeScalar, BridgeType, BridgeTypeKind,
+    BridgeConstructor, BridgeInterface, BridgeMethod, BridgeNamedKind, BridgeNamedType,
+    BridgeParameter, BridgePlan, BridgeScalar, BridgeType, BridgeTypeKind, BridgeVariant,
 };
 
 pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
@@ -80,7 +80,7 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
     render_swift_components(&mut out, plugins)?;
     render_swift_plugin_errors(&mut out, plugins)?;
     out.push_str(
-        "    private static func decodeString(_ raw: Any?) -> String? { raw as? String }\n    private static func decodeBool(_ raw: Any?) -> Bool? { (raw as? NSNumber).map { $0.boolValue } }\n    private static func decodeBytes(_ raw: Any?) -> Data? {\n        guard let text = raw as? String else { return nil }\n        return Data(base64Encoded: text)\n    }\n    private static func decodeOptionalString(_ raw: Any?) -> String? { raw is NSNull ? nil : raw as? String }\n    private static func decodeOptionalBool(_ raw: Any?) -> Bool? { raw is NSNull ? nil : (raw as? NSNumber).map { $0.boolValue } }\n    private static func decodeOptionalBytes(_ raw: Any?) -> Data? { raw is NSNull ? nil : decodeBytes(raw) }\n    private static func decodeInt8(_ raw: Any?) -> Int8? { (raw as? NSNumber).map { Int8(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt16(_ raw: Any?) -> Int16? { (raw as? NSNumber).map { Int16(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt32(_ raw: Any?) -> Int32? { (raw as? NSNumber).map { Int32(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt64(_ raw: Any?) -> Int64? { (raw as? NSNumber).map { $0.int64Value } }\n    private static func decodeUInt8(_ raw: Any?) -> UInt8? { (raw as? NSNumber).map { UInt8(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt16(_ raw: Any?) -> UInt16? { (raw as? NSNumber).map { UInt16(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt32(_ raw: Any?) -> UInt32? { (raw as? NSNumber).map { UInt32(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt64(_ raw: Any?) -> UInt64? { (raw as? NSNumber).map { $0.uint64Value } }\n    private static func decodeFloat32(_ raw: Any?) -> Float? { (raw as? NSNumber).map { $0.floatValue } }\n    private static func decodeFloat64(_ raw: Any?) -> Double? { (raw as? NSNumber).map { $0.doubleValue } }\n    private static func decodeOptionalInt8(_ raw: Any?) -> Int8? { raw is NSNull ? nil : decodeInt8(raw) }\n    private static func decodeOptionalInt16(_ raw: Any?) -> Int16? { raw is NSNull ? nil : decodeInt16(raw) }\n    private static func decodeOptionalInt32(_ raw: Any?) -> Int32? { raw is NSNull ? nil : decodeInt32(raw) }\n    private static func decodeOptionalInt64(_ raw: Any?) -> Int64? { raw is NSNull ? nil : decodeInt64(raw) }\n    private static func decodeOptionalUInt8(_ raw: Any?) -> UInt8? { raw is NSNull ? nil : decodeUInt8(raw) }\n    private static func decodeOptionalUInt16(_ raw: Any?) -> UInt16? { raw is NSNull ? nil : decodeUInt16(raw) }\n    private static func decodeOptionalUInt32(_ raw: Any?) -> UInt32? { raw is NSNull ? nil : decodeUInt32(raw) }\n    private static func decodeOptionalUInt64(_ raw: Any?) -> UInt64? { raw is NSNull ? nil : decodeUInt64(raw) }\n    private static func decodeOptionalFloat32(_ raw: Any?) -> Float? { raw is NSNull ? nil : decodeFloat32(raw) }\n    private static func decodeOptionalFloat64(_ raw: Any?) -> Double? { raw is NSNull ? nil : decodeFloat64(raw) }\n}\n",
+        "    private static func decodeString(_ raw: Any?) -> String? { raw as? String }\n    private static func decodeBool(_ raw: Any?) -> Bool? { (raw as? NSNumber).map { $0.boolValue } }\n    private static func decodeBytes(_ raw: Any?) -> Data? {\n        if let bytes = raw as? Data { return bytes }\n        guard let text = raw as? String else { return nil }\n        return Data(base64Encoded: text)\n    }\n    private static func decodeOptionalString(_ raw: Any?) -> String? { raw is NSNull ? nil : raw as? String }\n    private static func decodeOptionalBool(_ raw: Any?) -> Bool? { raw is NSNull ? nil : (raw as? NSNumber).map { $0.boolValue } }\n    private static func decodeOptionalBytes(_ raw: Any?) -> Data? { raw is NSNull ? nil : decodeBytes(raw) }\n    private static func decodeInt8(_ raw: Any?) -> Int8? { (raw as? NSNumber).map { Int8(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt16(_ raw: Any?) -> Int16? { (raw as? NSNumber).map { Int16(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt32(_ raw: Any?) -> Int32? { (raw as? NSNumber).map { Int32(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt64(_ raw: Any?) -> Int64? { (raw as? NSNumber).map { $0.int64Value } }\n    private static func decodeUInt8(_ raw: Any?) -> UInt8? { (raw as? NSNumber).map { UInt8(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt16(_ raw: Any?) -> UInt16? { (raw as? NSNumber).map { UInt16(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt32(_ raw: Any?) -> UInt32? { (raw as? NSNumber).map { UInt32(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt64(_ raw: Any?) -> UInt64? { (raw as? NSNumber).map { $0.uint64Value } }\n    private static func decodeFloat32(_ raw: Any?) -> Float? { (raw as? NSNumber).map { $0.floatValue } }\n    private static func decodeFloat64(_ raw: Any?) -> Double? { (raw as? NSNumber).map { $0.doubleValue } }\n    private static func decodeOptionalInt8(_ raw: Any?) -> Int8? { raw is NSNull ? nil : decodeInt8(raw) }\n    private static func decodeOptionalInt16(_ raw: Any?) -> Int16? { raw is NSNull ? nil : decodeInt16(raw) }\n    private static func decodeOptionalInt32(_ raw: Any?) -> Int32? { raw is NSNull ? nil : decodeInt32(raw) }\n    private static func decodeOptionalInt64(_ raw: Any?) -> Int64? { raw is NSNull ? nil : decodeInt64(raw) }\n    private static func decodeOptionalUInt8(_ raw: Any?) -> UInt8? { raw is NSNull ? nil : decodeUInt8(raw) }\n    private static func decodeOptionalUInt16(_ raw: Any?) -> UInt16? { raw is NSNull ? nil : decodeUInt16(raw) }\n    private static func decodeOptionalUInt32(_ raw: Any?) -> UInt32? { raw is NSNull ? nil : decodeUInt32(raw) }\n    private static func decodeOptionalUInt64(_ raw: Any?) -> UInt64? { raw is NSNull ? nil : decodeUInt64(raw) }\n    private static func decodeOptionalFloat32(_ raw: Any?) -> Float? { raw is NSNull ? nil : decodeFloat32(raw) }\n    private static func decodeOptionalFloat64(_ raw: Any?) -> Double? { raw is NSNull ? nil : decodeFloat64(raw) }\n}\n",
     );
     Ok(out)
 }
@@ -148,7 +148,7 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
     render_kotlin_instance_events(&mut out, plugins)?;
     render_kotlin_components(&mut out, plugins)?;
     render_kotlin_plugin_errors(&mut out, plugins)?;
-    out.push_str("    private fun decodeBytes(raw: Any?): ByteArray? =\n        (raw as? String)?.let { Base64.decode(it, Base64.DEFAULT) }\n    private fun decodeOptionalString(raw: Any?): String? = if (raw == null || raw == JSONObject.NULL) null else raw as? String\n    private fun decodeOptionalBool(raw: Any?): Boolean? = if (raw == null || raw == JSONObject.NULL) null else raw as? Boolean\n    private fun decodeOptionalBytes(raw: Any?): ByteArray? = if (raw == null || raw == JSONObject.NULL) null else decodeBytes(raw)\n    private fun decodeOptionalNumber(raw: Any?, type: String): Any? {\n        if (raw == null || raw == JSONObject.NULL) return null\n        val number = raw as? Number ?: return null\n        return when (type) {\n            \"Int8\" -> number.toByte()\n            \"Int16\" -> number.toShort()\n            \"Int32\" -> number.toInt()\n            \"Int64\" -> number.toLong()\n            \"UInt8\" -> number.toByte().toUByte()\n            \"UInt16\" -> number.toShort().toUShort()\n            \"UInt32\" -> number.toInt().toUInt()\n            \"UInt64\" -> number.toLong().toULong()\n            \"Float32\" -> number.toFloat()\n            else -> number.toDouble()\n        }\n    }\n}\n");
+    out.push_str("    private fun decodeBytes(raw: Any?): ByteArray? = when (raw) {\n        is ByteArray -> raw\n        is String -> Base64.decode(raw, Base64.DEFAULT)\n        else -> null\n    }\n    private fun decodeOptionalString(raw: Any?): String? = if (raw == null || raw == JSONObject.NULL) null else raw as? String\n    private fun decodeOptionalBool(raw: Any?): Boolean? = if (raw == null || raw == JSONObject.NULL) null else raw as? Boolean\n    private fun decodeOptionalBytes(raw: Any?): ByteArray? = if (raw == null || raw == JSONObject.NULL) null else decodeBytes(raw)\n    private fun decodeOptionalNumber(raw: Any?, type: String): Any? {\n        if (raw == null || raw == JSONObject.NULL) return null\n        val number = raw as? Number ?: return null\n        return when (type) {\n            \"Int8\" -> number.toByte()\n            \"Int16\" -> number.toShort()\n            \"Int32\" -> number.toInt()\n            \"Int64\" -> number.toLong()\n            \"UInt8\" -> number.toByte().toUByte()\n            \"UInt16\" -> number.toShort().toUShort()\n            \"UInt32\" -> number.toInt().toUInt()\n            \"UInt64\" -> number.toLong().toULong()\n            \"Float32\" -> number.toFloat()\n            else -> number.toDouble()\n        }\n    }\n}\n");
     Ok(out)
 }
 
@@ -199,7 +199,9 @@ fn supported_dynamic_shape(ty: &BridgeType) -> bool {
             kind: BridgeNamedKind::Enum | BridgeNamedKind::Struct,
             ..
         } => true,
-        BridgeType::Named { .. } | BridgeType::Result { .. } => false,
+        BridgeType::Named { .. }
+        | BridgeType::Result { .. }
+        | BridgeType::Signal(_) => false,
     }
 }
 
@@ -214,7 +216,8 @@ fn method_codec_shapes(method: &BridgeMethod) -> Vec<(&BridgeType, bool)> {
         .map(|ty| (ty, false))
         .collect::<Vec<_>>();
     let success = method.success_type();
-    if super::bridge_plan::contains_type_parameter(success) {
+    if method.row_type_parameters.is_empty() && super::bridge_plan::contains_type_parameter(success)
+    {
         codecs.push((
             match success {
                 BridgeType::Optional(inner) => inner.as_ref(),
@@ -224,6 +227,184 @@ fn method_codec_shapes(method: &BridgeMethod) -> Vec<(&BridgeType, bool)> {
         ));
     }
     codecs
+}
+
+fn method_codec_count(method: &BridgeMethod) -> usize {
+    method_codec_shapes(method).len() + method.row_type_parameters.len()
+}
+
+fn row_mapping_error_case<'a>(
+    plan: &'a BridgePlan,
+    method: &'a BridgeMethod,
+) -> Result<(&'a str, &'a BridgeVariant), String> {
+    let error_name = method.error_type().ok_or_else(|| {
+        format!(
+            "row-mapped method `{}` must declare a typed error",
+            method.name
+        )
+    })?;
+    let error_type = plan
+        .declared_type(error_name)
+        .or_else(|| {
+            plan.referenced_errors
+                .iter()
+                .find(|ty| ty.name == error_name)
+        })
+        .ok_or_else(|| {
+            format!(
+                "row-mapped method `{}` has an unresolved error type",
+                method.name
+            )
+        })?;
+    let case_name = method.row_error_case.as_deref().ok_or_else(|| {
+        format!(
+            "row-mapped method `{}` must declare a row mapping error case",
+            method.name
+        )
+    })?;
+    let case = error_type
+        .cases
+        .iter()
+        .find(|case| case.name == case_name)
+        .ok_or_else(|| {
+            format!("row mapping error case `{case_name}` is not declared by `{error_name}`")
+        })?;
+    Ok((error_name, case))
+}
+
+fn row_cell_enum<'a>(
+    plan: &'a BridgePlan,
+    method: &BridgeMethod,
+) -> Result<&'a BridgeNamedType, String> {
+    let Some(BridgeType::Named {
+        name,
+        kind: BridgeNamedKind::Enum,
+    }) = method.row_value_type.as_ref()
+    else {
+        return Err(format!(
+            "row-mapped method `{}` needs a declared enum cell type",
+            method.name
+        ));
+    };
+    let cell_type = plan
+        .declared_type(name)
+        .ok_or_else(|| format!("row cell enum `{name}` is not declared"))?;
+    let null_cases = cell_type
+        .cases
+        .iter()
+        .filter(|case| case.parameters.is_empty())
+        .count();
+    if null_cases != 1 || cell_type.cases.iter().any(|case| {
+        !case.parameters.is_empty()
+            && !matches!(case.parameters.as_slice(), [parameter] if row_cell_scalar(&parameter.ty))
+    }) {
+        return Err(format!(
+            "row cell enum `{name}` must have one null case and scalar payloads on every other case"
+        ));
+    }
+    Ok(cell_type)
+}
+
+fn row_cell_scalar(ty: &BridgeType) -> bool {
+    matches!(
+        ty,
+        BridgeType::Scalar(
+            BridgeScalar::Bool
+                | BridgeScalar::Int8
+                | BridgeScalar::Int16
+                | BridgeScalar::Int32
+                | BridgeScalar::Int64
+                | BridgeScalar::UInt8
+                | BridgeScalar::UInt16
+                | BridgeScalar::UInt32
+                | BridgeScalar::UInt64
+                | BridgeScalar::Float32
+                | BridgeScalar::Float64
+                | BridgeScalar::String
+                | BridgeScalar::Bytes
+        )
+    )
+}
+
+fn swift_dev_row_cell_cases(cell_type: &BridgeNamedType) -> String {
+    cell_type
+        .cases
+        .iter()
+        .map(|case| match case.parameters.as_slice() {
+            [] => format!("case .{}: return NSNull()", case.name),
+            [parameter] if parameter.ty == BridgeType::Scalar(BridgeScalar::Bytes) => format!(
+                "case .{}(let nexaPayload): return nexaPayload.base64EncodedString()",
+                case.name
+            ),
+            [_] => format!("case .{}(let nexaPayload): return nexaPayload", case.name),
+            _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n                                    ")
+}
+
+fn kotlin_dev_row_cell_cases(cell_type: &BridgeNamedType) -> String {
+    cell_type
+        .cases
+        .iter()
+        .map(|case| match case.parameters.as_slice() {
+            [] => format!("{0}.{1} -> JSONObject.NULL", cell_type.name, case.name),
+            [parameter] if parameter.ty == BridgeType::Scalar(BridgeScalar::Bytes) => format!(
+                "is {0}.{1} -> Base64.encodeToString(nexaCell.{2}, Base64.NO_WRAP)",
+                cell_type.name, case.name, parameter.name
+            ),
+            [parameter] => format!(
+                "is {0}.{1} -> nexaCell.{2}",
+                cell_type.name, case.name, parameter.name
+            ),
+            _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n                            ")
+}
+
+fn swift_dev_row_mapper(
+    row_codec_index: usize,
+    method: &BridgeMethod,
+    plan: &BridgePlan,
+) -> Result<String, String> {
+    let cell_type = row_cell_enum(plan, method)?;
+    let (error_type, error_case) = row_mapping_error_case(plan, method)?;
+    let payload_name = &error_case.parameters[0].name;
+    let error = format!(
+        "throw {error_type}.{}({payload_name}: \"{{message}}\")",
+        error_case.name
+    );
+    let cell_cases = swift_dev_row_cell_cases(cell_type);
+    Ok(format!(
+        "{{ columnNames in\n                guard let nexaRowCodec = nexaCodec{row_codec_index} as? [String: Any], let nexaRowType = nexaRowCodec[\"ty\"] as? [String: Any], let nexaStruct = nexaRowType[\"Struct\"] as? [String: Any], let nexaRawFields = nexaStruct[\"fields\"] as? [[Any]] else {{ {invalid_type} }}\n                let nexaExpectedFields = nexaRawFields.compactMap {{ $0.first as? String }}\n                guard nexaExpectedFields.count == nexaRawFields.count else {{ {invalid_fields} }}\n                var nexaIndexes: [String: Int] = [:]\n                nexaIndexes.reserveCapacity(nexaExpectedFields.count)\n                for nexaField in nexaExpectedFields {{ guard let nexaIndex = columnNames.firstIndex(of: nexaField), columnNames.lastIndex(of: nexaField) == nexaIndex else {{ {missing_column} }}; nexaIndexes[nexaField] = nexaIndex }}\n                return {{ row in var nexaValues: [String: Any] = [:]; nexaValues.reserveCapacity(nexaIndexes.count); for (nexaField, nexaIndex) in nexaIndexes {{ let nexaCell = try row.value(Int32(nexaIndex)); let nexaDynamicValue: Any = {{ switch nexaCell {{\n                                    {cell_cases}\n                                    }} }}(); nexaValues[nexaField] = nexaDynamicValue }}; return NexaDevDynamicRow(fields: nexaValues) }}\n            }}",
+        invalid_type = error.replace("{message}", "Invalid hot-reload row type."),
+        invalid_fields = error.replace("{message}", "Invalid hot-reload row fields."),
+        missing_column = error.replace(
+            "{message}",
+            "Row mapper requires column `\\(nexaField)` exactly once."
+        ),
+    ))
+}
+
+fn kotlin_dev_row_mapper(
+    row_codec_index: usize,
+    method: &BridgeMethod,
+    plan: &BridgePlan,
+) -> Result<String, String> {
+    let cell_type = row_cell_enum(plan, method)?;
+    let (error_type, error_case) = row_mapping_error_case(plan, method)?;
+    let error = format!("throw {error_type}.{}(\"{{message}}\")", error_case.name);
+    let cell_cases = kotlin_dev_row_cell_cases(cell_type);
+    Ok(format!(
+        "{{ columnNames ->\n                val nexaRowCodec = nexaCodec{row_codec_index} as? JSONObject ?: run {{ {invalid_type} }}\n                val nexaRowType = nexaRowCodec.optJSONObject(\"ty\")?.optJSONObject(\"Struct\") ?: run {{ {invalid_type} }}\n                val nexaRawFields = nexaRowType.optJSONArray(\"fields\") ?: run {{ {invalid_fields} }}\n                val nexaExpectedFields = (0 until nexaRawFields.length()).mapNotNull {{ nexaRawFields.optJSONArray(it)?.optString(0)?.takeIf(String::isNotEmpty) }}\n                if (nexaExpectedFields.size != nexaRawFields.length()) {{ {invalid_fields} }}\n                val nexaIndexes = HashMap<String, Int>(nexaExpectedFields.size)\n                nexaExpectedFields.forEach {{ nexaField -> val nexaIndex = columnNames.indexOf(nexaField); if (nexaIndex < 0 || columnNames.lastIndexOf(nexaField) != nexaIndex) {{ {missing_column} }}; nexaIndexes[nexaField] = nexaIndex }}\n                {{ row -> val nexaValues = HashMap<String, Any>(nexaIndexes.size); nexaIndexes.forEach {{ (nexaField, nexaIndex) -> val nexaCell = row.value(nexaIndex); val nexaDynamicValue: Any = when (nexaCell) {{\n                            {cell_cases}\n                        }}; nexaValues[nexaField] = nexaDynamicValue }}; NexaDevDynamicRow(nexaValues) }}\n            }}",
+        invalid_type = error.replace("{message}", "Invalid hot-reload row type."),
+        invalid_fields = error.replace("{message}", "Invalid hot-reload row fields."),
+        missing_column = error.replace(
+            "{message}",
+            "Row mapper requires column `$nexaField` exactly once."
+        ),
+    ))
 }
 
 fn kotlin_dynamic_type(ty: &BridgeType) -> Option<String> {
@@ -264,7 +445,9 @@ fn kotlin_dynamic_type(ty: &BridgeType) -> Option<String> {
                 format!("{inner}?")
             }
         }
-        BridgeType::Named { .. } | BridgeType::Result { .. } => return None,
+        BridgeType::Named { .. }
+        | BridgeType::Result { .. }
+        | BridgeType::Signal(_) => return None,
     })
 }
 
@@ -333,7 +516,7 @@ fn render_swift_instance_properties(
     out.push_str("        return false\n    }\n\n");
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_swift_contract(contract)?;
-        render_swift_enum_codecs(out, namespace, &plan);
+        render_swift_enum_codecs(out, namespace, &plan)?;
         render_swift_struct_codecs(out, namespace, &plan)?;
     }
     Ok(())
@@ -536,7 +719,7 @@ fn render_kotlin_instance_properties(
     out.push_str(
         "    fun readInstanceProperty(receiver: Any, property: String): Pair<Boolean, Any> {\n",
     );
-    for (_namespace, contract) in plugins {
+    for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
         for interface in plan
             .interfaces
@@ -547,8 +730,11 @@ fn render_kotlin_instance_properties(
                 if !supported_runtime_value_type(&plan, &property.ty) {
                     continue;
                 }
-                let encoded = kotlin_encode_dev_value(&plan, &property.ty, "nexaValue", 0)
-                    .ok_or_else(|| format!("unsupported Dev property type {:?}", property.ty))?;
+                let encoded =
+                    kotlin_encode_dev_value(&plan, &property.ty, "nexaValue", namespace, 0)
+                        .ok_or_else(|| {
+                            format!("unsupported Dev property type {:?}", property.ty)
+                        })?;
                 out.push_str(&format!("        if (property == \"{}\" && receiver is {}) {{\n            val nexaValue = receiver.{}\n            return true to {}\n        }}\n", kotlin_escape(&property.name), interface.name, property.name, encoded));
             }
         }
@@ -604,6 +790,7 @@ fn render_kotlin_instance_properties(
     out.push_str("        return false\n    }\n\n");
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
+        render_kotlin_enum_codecs(out, namespace, &plan)?;
         render_kotlin_struct_codecs(out, namespace, &plan)?;
     }
     Ok(())
@@ -614,7 +801,7 @@ fn render_kotlin_instance_events(
     plugins: &[(String, PluginIdl)],
 ) -> Result<(), String> {
     out.push_str("    fun subscribeInstanceEvent(receiver: Any, property: String, handler: (List<Any>) -> Unit): Boolean {\n");
-    for (_namespace, contract) in plugins {
+    for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
         for interface in plan
             .interfaces
@@ -647,6 +834,7 @@ fn render_kotlin_instance_events(
                             &plan,
                             &parameter.ty,
                             &format!("nexaEvent{index}"),
+                            namespace,
                             0,
                         )
                     })
@@ -749,6 +937,7 @@ fn render_kotlin_components(
                                 &plan,
                                 &parameter.ty,
                                 &format!("nexaEvent{index}"),
+                                namespace,
                                 0,
                             )
                         })
@@ -1276,9 +1465,7 @@ fn kotlin_decode_value(
         BridgeType::Named {
             name,
             kind: BridgeNamedKind::Enum,
-        } => format!(
-            "({raw} as? {name}) ?: ({raw} as? String)?.let {{ requested -> {name}.values().firstOrNull {{ it.name == requested }} }}"
-        ),
+        } => format!("{}({raw})", kotlin_enum_decoder(namespace, name)),
         BridgeType::Named {
             name,
             kind: BridgeNamedKind::Struct,
@@ -1651,6 +1838,7 @@ fn kotlin_encode_dev_value(
     plan: &BridgePlan,
     ty: &BridgeType,
     value: &str,
+    namespace: &str,
     depth: usize,
 ) -> Option<String> {
     Some(match ty {
@@ -1659,9 +1847,9 @@ fn kotlin_encode_dev_value(
         }
         BridgeType::Scalar(_) | BridgeType::TypeParameter(_) => value.to_owned(),
         BridgeType::Named {
+            name,
             kind: BridgeNamedKind::Enum,
-            ..
-        } => format!("{value}.name"),
+        } => format!("{}({value})", kotlin_enum_encoder(namespace, name)),
         BridgeType::Named {
             name,
             kind: BridgeNamedKind::Struct,
@@ -1681,6 +1869,7 @@ fn kotlin_encode_dev_value(
                             plan,
                             &field.ty,
                             &format!("{value}.{}", field.name),
+                            namespace,
                             depth + 1,
                         )?
                     ))
@@ -1697,48 +1886,75 @@ fn kotlin_encode_dev_value(
             let local = format!("nexaEncodeOptional{depth}");
             format!(
                 "{value}?.let {{ {local} -> {} }} ?: JSONObject.NULL",
-                kotlin_encode_dev_value(plan, inner, &local, depth + 1)?
+                kotlin_encode_dev_value(plan, inner, &local, namespace, depth + 1)?
             )
         }
         BridgeType::Array(inner) => {
             let local = format!("nexaEncodeArray{depth}");
             format!(
                 "{value}.map {{ {local} -> {} }}",
-                kotlin_encode_dev_value(plan, inner, &local, depth + 1)?
+                kotlin_encode_dev_value(plan, inner, &local, namespace, depth + 1)?
             )
         }
         BridgeType::Set(inner) => {
             let local = format!("nexaEncodeSet{depth}");
             format!(
                 "{value}.map {{ {local} -> {} }}.toSet()",
-                kotlin_encode_dev_value(plan, inner, &local, depth + 1)?
+                kotlin_encode_dev_value(plan, inner, &local, namespace, depth + 1)?
             )
         }
         BridgeType::Map(key_type, inner) => {
             let entry = format!("nexaEncodeMapEntry{depth}");
-            let key = kotlin_encode_dev_value(plan, key_type, &format!("{entry}.key"), depth + 1)?;
-            let encoded =
-                kotlin_encode_dev_value(plan, inner, &format!("{entry}.value"), depth + 1)?;
+            let key = kotlin_encode_dev_value(
+                plan,
+                key_type,
+                &format!("{entry}.key"),
+                namespace,
+                depth + 1,
+            )?;
+            let encoded = kotlin_encode_dev_value(
+                plan,
+                inner,
+                &format!("{entry}.value"),
+                namespace,
+                depth + 1,
+            )?;
             format!(
                 "{value}.entries.associate {{ {entry} -> ({key}).toString() to ({encoded} as Any) }}"
             )
         }
         BridgeType::Pair(first, second) => format!(
             "listOf<Any>({} as Any, {} as Any)",
-            kotlin_encode_dev_value(plan, first, &format!("{value}.first"), depth + 1)?,
-            kotlin_encode_dev_value(plan, second, &format!("{value}.second"), depth + 1)?
+            kotlin_encode_dev_value(plan, first, &format!("{value}.first"), namespace, depth + 1)?,
+            kotlin_encode_dev_value(
+                plan,
+                second,
+                &format!("{value}.second"),
+                namespace,
+                depth + 1
+            )?
         ),
         BridgeType::Triple(first, second, third) => format!(
             "listOf<Any>({} as Any, {} as Any, {} as Any)",
-            kotlin_encode_dev_value(plan, first, &format!("{value}.first"), depth + 1)?,
-            kotlin_encode_dev_value(plan, second, &format!("{value}.second"), depth + 1)?,
-            kotlin_encode_dev_value(plan, third, &format!("{value}.third"), depth + 1)?
+            kotlin_encode_dev_value(plan, first, &format!("{value}.first"), namespace, depth + 1)?,
+            kotlin_encode_dev_value(
+                plan,
+                second,
+                &format!("{value}.second"),
+                namespace,
+                depth + 1
+            )?,
+            kotlin_encode_dev_value(plan, third, &format!("{value}.third"), namespace, depth + 1)?
         ),
         _ => return None,
     })
 }
 
-fn render_swift_enum_codecs(out: &mut String, namespace: &str, plan: &BridgePlan) {
+fn render_swift_enum_codecs(
+    out: &mut String,
+    namespace: &str,
+    plan: &BridgePlan,
+) -> Result<(), String> {
     for ty in plan
         .types
         .iter()
@@ -1746,28 +1962,105 @@ fn render_swift_enum_codecs(out: &mut String, namespace: &str, plan: &BridgePlan
     {
         let helper = swift_enum_encoder(namespace, &ty.name);
         out.push_str(&format!(
-            "    private static func {helper}(_ value: {}) -> String {{\n        switch value {{\n",
+            "    private static func {helper}(_ value: {}) -> Any {{\n        switch value {{\n",
             ty.name
         ));
         for case in &ty.cases {
-            out.push_str(&format!(
-                "        case .{}: return \"{}\"\n",
-                case.name,
-                swift_escape(&case.name)
-            ));
+            if case.parameters.is_empty() {
+                out.push_str(&format!(
+                    "        case .{}: return \"{}\"\n",
+                    case.name,
+                    swift_escape(&case.name)
+                ));
+            } else {
+                let names = (0..case.parameters.len())
+                    .map(|index| format!("nexaPayload{index}"))
+                    .collect::<Vec<_>>();
+                let pattern = case
+                    .parameters
+                    .iter()
+                    .zip(&names)
+                    .map(|(parameter, local)| format!("{}: let {local}", parameter.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let values = case
+                    .parameters
+                    .iter()
+                    .zip(&names)
+                    .map(|(parameter, local)| {
+                        swift_encode_dev_value(plan, &parameter.ty, local, namespace, 0)
+                            .map(|value| format!("{value} as Any"))
+                            .ok_or_else(|| {
+                                format!(
+                                    "unsupported Dev enum payload type {:?} for {}.{}",
+                                    parameter.ty, ty.name, case.name
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                out.push_str(&format!(
+                    "        case .{}({pattern}): return [\"__nexaEnum\": \"{}.{}\", \"case_name\": \"{}\", \"arguments\": [{values}]]\n",
+                    case.name,
+                    swift_escape(namespace),
+                    swift_escape(&ty.name),
+                    swift_escape(&case.name),
+                ));
+            }
         }
         out.push_str("        }\n    }\n");
         let helper = swift_enum_decoder(namespace, &ty.name);
-        out.push_str(&format!("    private static func {helper}(_ raw: Any?) -> {}? {{\n        switch raw as? String {{\n", ty.name));
+        out.push_str(&format!(
+            "    private static func {helper}(_ raw: Any?) -> {}? {{\n        if let name = raw as? String {{\n            switch name {{\n",
+            ty.name
+        ));
         for case in &ty.cases {
+            if case.parameters.is_empty() {
+                out.push_str(&format!(
+                    "            case \"{}\": return .{}\n",
+                    swift_escape(&case.name),
+                    case.name
+                ));
+            }
+        }
+        out.push_str(&format!(
+            "            default: break\n            }}\n        }}\n        guard let nexaValue = raw as? [String: Any], nexaValue[\"__nexaEnum\"] as? String == \"{}.{}\", let nexaCase = nexaValue[\"case_name\"] as? String, let nexaArguments = nexaValue[\"arguments\"] as? [Any] else {{ return nil }}\n        switch nexaCase {{\n",
+            swift_escape(namespace),
+            swift_escape(&ty.name),
+        ));
+        for case in &ty.cases {
+            if case.parameters.is_empty() {
+                continue;
+            }
             out.push_str(&format!(
-                "        case \"{}\": return .{}\n",
+                "        case \"{}\":\n            guard nexaArguments.count == {} else {{ return nil }}\n",
                 swift_escape(&case.name),
-                case.name
+                case.parameters.len()
+            ));
+            let mut arguments = Vec::with_capacity(case.parameters.len());
+            for (index, parameter) in case.parameters.iter().enumerate() {
+                let local = format!("nexaPayload{index}");
+                render_swift_value_binding(
+                    out,
+                    plan,
+                    &parameter.ty,
+                    &format!("nexaArguments[{index}]"),
+                    &local,
+                    "return nil",
+                    namespace,
+                    "            ",
+                )?;
+                arguments.push(format!("{}: {local}", parameter.name));
+            }
+            out.push_str(&format!(
+                "            return .{}({})\n",
+                case.name,
+                arguments.join(", ")
             ));
         }
         out.push_str("        default: return nil\n        }\n    }\n\n");
     }
+    Ok(())
 }
 
 fn render_swift_struct_codecs(
@@ -1808,6 +2101,117 @@ fn render_swift_struct_codecs(
             "        return {}({arguments})\n    }}\n\n",
             structure.name
         ));
+    }
+    Ok(())
+}
+
+fn render_kotlin_enum_codecs(
+    out: &mut String,
+    namespace: &str,
+    plan: &BridgePlan,
+) -> Result<(), String> {
+    for ty in plan
+        .types
+        .iter()
+        .filter(|ty| ty.kind == BridgeTypeKind::Enum)
+    {
+        let encoder = kotlin_enum_encoder(namespace, &ty.name);
+        out.push_str(&format!(
+            "    private fun {encoder}(value: {}): Any = when (value) {{\n",
+            ty.name
+        ));
+        for case in &ty.cases {
+            if case.parameters.is_empty() {
+                let pattern = format!("{}.{}", ty.name, case.name);
+                out.push_str(&format!(
+                    "        {pattern} -> \"{}\"\n",
+                    kotlin_escape(&case.name)
+                ));
+            } else {
+                let values = case
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        kotlin_encode_dev_value(
+                            plan,
+                            &parameter.ty,
+                            &format!("value.{}", parameter.name),
+                            namespace,
+                            0,
+                        )
+                        .ok_or_else(|| {
+                            format!(
+                                "unsupported Dev enum payload type {:?} for {}.{}",
+                                parameter.ty, ty.name, case.name
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                out.push_str(&format!(
+                    "        is {}.{} -> mapOf<String, Any>(\"__nexaEnum\" to \"{}.{}\", \"case_name\" to \"{}\", \"arguments\" to listOf({values}))\n",
+                    ty.name,
+                    case.name,
+                    kotlin_escape(namespace),
+                    kotlin_escape(&ty.name),
+                    kotlin_escape(&case.name),
+                ));
+            }
+        }
+        out.push_str("    }\n");
+
+        let decoder = kotlin_enum_decoder(namespace, &ty.name);
+        out.push_str(&format!(
+            "    private fun {decoder}(raw: Any?): {}? {{\n        if (raw is String) return when (raw) {{\n",
+            ty.name
+        ));
+        for case in &ty.cases {
+            if case.parameters.is_empty() {
+                out.push_str(&format!(
+                    "            \"{}\" -> {}.{}\n",
+                    kotlin_escape(&case.name),
+                    ty.name,
+                    case.name
+                ));
+            }
+        }
+        out.push_str(&format!(
+            "            else -> null\n        }}\n        val nexaValue = raw as? Map<*, *> ?: return null\n        if (nexaValue[\"__nexaEnum\"] != \"{}.{}\") return null\n        val nexaCase = nexaValue[\"case_name\"] as? String ?: return null\n        val nexaArguments = nexaValue[\"arguments\"] as? List<*> ?: return null\n        return when (nexaCase) {{\n",
+            kotlin_escape(namespace),
+            kotlin_escape(&ty.name),
+        ));
+        for case in &ty.cases {
+            if case.parameters.is_empty() {
+                continue;
+            }
+            out.push_str(&format!(
+                "            \"{}\" -> {{\n                if (nexaArguments.size != {}) return null\n",
+                kotlin_escape(&case.name),
+                case.parameters.len()
+            ));
+            let mut arguments = Vec::with_capacity(case.parameters.len());
+            for (index, parameter) in case.parameters.iter().enumerate() {
+                let local = format!("nexaPayload{index}");
+                render_kotlin_value_binding(
+                    out,
+                    plan,
+                    namespace,
+                    &parameter.ty,
+                    &format!("nexaArguments[{index}]"),
+                    &local,
+                    "return null",
+                    "                ",
+                )?;
+                arguments.push(local);
+            }
+            out.push_str(&format!(
+                "                {}.{}({})\n            }}\n",
+                ty.name,
+                case.name,
+                arguments.join(", ")
+            ));
+        }
+        out.push_str("            else -> null\n        }\n    }\n\n");
     }
     Ok(())
 }
@@ -1960,6 +2364,7 @@ fn render_kotlin_plugin_errors(
                                 &plan,
                                 &parameter.ty,
                                 &format!("error.{}", parameter.name),
+                                namespace,
                                 0,
                             )?
                         ))
@@ -2073,6 +2478,9 @@ fn swift_error_payload_value(
             )
         }
         BridgeType::TypeParameter(_) => value.to_owned(),
+        BridgeType::Signal(_) => {
+            return Err("Signal cannot be used as an error payload".to_owned());
+        }
     })
 }
 
@@ -2080,10 +2488,11 @@ fn kotlin_error_payload_value(
     plan: &BridgePlan,
     ty: &BridgeType,
     value: &str,
+    namespace: &str,
     depth: usize,
 ) -> Result<String, String> {
     let nested = |ty: &BridgeType, expression: &str| {
-        kotlin_error_payload_value(plan, ty, expression, depth + 1)
+        kotlin_error_payload_value(plan, ty, expression, namespace, depth + 1)
     };
     Ok(match ty {
         BridgeType::Scalar(BridgeScalar::Bytes) => {
@@ -2092,9 +2501,9 @@ fn kotlin_error_payload_value(
         BridgeType::Scalar(BridgeScalar::Void) => "JSONObject.NULL".to_owned(),
         BridgeType::Scalar(_) => value.to_owned(),
         BridgeType::Named {
+            name,
             kind: BridgeNamedKind::Enum,
-            ..
-        } => format!("{value}.name"),
+        } => format!("{}({value})", kotlin_enum_encoder(namespace, name)),
         BridgeType::Named {
             name,
             kind: BridgeNamedKind::Struct,
@@ -2167,6 +2576,9 @@ fn kotlin_error_payload_value(
             )
         }
         BridgeType::TypeParameter(_) => value.to_owned(),
+        BridgeType::Signal(_) => {
+            return Err("Signal cannot be used as an error payload".to_owned());
+        }
     })
 }
 
@@ -2184,6 +2596,18 @@ fn swift_enum_encoder(namespace: &str, name: &str) -> String {
 }
 fn swift_enum_decoder(namespace: &str, name: &str) -> String {
     format!("{}FromString", swift_enum_base(namespace, name))
+}
+
+fn kotlin_enum_base(namespace: &str, name: &str) -> String {
+    format!("nexaDevEnum{}", dev_struct_suffix(namespace, name))
+}
+
+fn kotlin_enum_encoder(namespace: &str, name: &str) -> String {
+    format!("{}ToValue", kotlin_enum_base(namespace, name))
+}
+
+fn kotlin_enum_decoder(namespace: &str, name: &str) -> String {
+    format!("{}FromValue", kotlin_enum_base(namespace, name))
 }
 
 fn supported_parameters(plan: &BridgePlan, parameters: &[BridgeParameter]) -> bool {
@@ -2344,9 +2768,9 @@ fn render_swift_instance_methods(
                 if generic {
                     out.push_str(&format!(
                         "            guard codecs.count == {} else {{ return (false, NSNull()) }}\n",
-                        codec_shapes.len()
+                        method_codec_count(method)
                     ));
-                    for index in 0..codec_shapes.len() {
+                    for index in 0..method_codec_count(method) {
                         out.push_str(&format!(
                             "            let nexaCodec{index} = codecs[{index}]\n"
                         ));
@@ -2392,6 +2816,13 @@ fn render_swift_instance_methods(
                                 "{{ nexaItem{index}, nexaWriter{index} in _ = NexaDevValueCodec.write(nexaItem{index}, type: nexaCodec{index}, into: nexaWriter{index}, enumCases: enumCases) }}"
                             ));
                         }
+                    }
+                    if !method.row_type_parameters.is_empty() {
+                        call_arguments.push(swift_dev_row_mapper(
+                            codec_shapes.len(),
+                            method,
+                            &plan,
+                        )?);
                     }
                 }
                 let arguments = call_arguments.join(", ");
@@ -2470,9 +2901,9 @@ fn render_kotlin_instance_methods(
                 if generic {
                     out.push_str(&format!(
                         "            if (codecs.size != {}) return false to JSONObject.NULL\n",
-                        codec_shapes.len()
+                        method_codec_count(method)
                     ));
-                    for index in 0..codec_shapes.len() {
+                    for index in 0..method_codec_count(method) {
                         out.push_str(&format!(
                             "            val nexaCodec{index} = codecs[{index}]\n"
                         ));
@@ -2529,6 +2960,13 @@ fn render_kotlin_instance_methods(
                             ));
                         }
                     }
+                    if !method.row_type_parameters.is_empty() {
+                        call_arguments.push(kotlin_dev_row_mapper(
+                            codec_shapes.len(),
+                            method,
+                            &plan,
+                        )?);
+                    }
                 }
                 let arguments = call_arguments.join(", ");
                 if method.error_type().is_some() {
@@ -2549,7 +2987,7 @@ fn render_kotlin_instance_methods(
                         "{indent}val result = nexaReceiver.{}({arguments})\n",
                         method.name
                     ));
-                    render_kotlin_result(out, &plan, method.success_type(), indent)?;
+                    render_kotlin_result(out, &plan, namespace, method.success_type(), indent)?;
                 }
                 if let Some(error_type) = method.error_type() {
                     let helper = dev_error_helper(namespace, error_type);
@@ -2637,10 +3075,11 @@ fn render_swift_result(
 fn render_kotlin_result(
     out: &mut String,
     plan: &BridgePlan,
+    namespace: &str,
     ty: &BridgeType,
     indent: &str,
 ) -> Result<(), String> {
-    let encoded = kotlin_encode_dev_value(plan, ty, "result", 0)
+    let encoded = kotlin_encode_dev_value(plan, ty, "result", namespace, 0)
         .ok_or_else(|| format!("unsupported Dev result type {ty:?}"))?;
     out.push_str(&format!("{indent}return true to ({encoded} as Any)\n"));
     Ok(())
@@ -2753,9 +3192,9 @@ fn render_swift_method(
     if generic {
         out.push_str(&format!(
             "            guard codecs.count == {} else {{ return (false, NSNull()) }}\n",
-            codec_shapes.len()
+            method_codec_count(method)
         ));
-        for index in 0..codec_shapes.len() {
+        for index in 0..method_codec_count(method) {
             out.push_str(&format!(
                 "            let nexaCodec{index} = codecs[{index}]\n"
             ));
@@ -2801,6 +3240,9 @@ fn render_swift_method(
                     "{{ nexaItem{index}, nexaWriter{index} in _ = NexaDevValueCodec.write(nexaItem{index}, type: nexaCodec{index}, into: nexaWriter{index}, enumCases: enumCases) }}"
                 ));
             }
+        }
+        if !method.row_type_parameters.is_empty() {
+            call_arguments.push(swift_dev_row_mapper(codec_shapes.len(), method, plan)?);
         }
     }
     let args = call_arguments.join(", ");
@@ -2865,9 +3307,9 @@ fn render_kotlin_method(
     if generic {
         out.push_str(&format!(
             "                if (codecs.size != {}) return false to JSONObject.NULL\n",
-            codec_shapes.len()
+            method_codec_count(method)
         ));
-        for index in 0..codec_shapes.len() {
+        for index in 0..method_codec_count(method) {
             out.push_str(&format!(
                 "                val nexaCodec{index} = codecs[{index}]\n"
             ));
@@ -2924,6 +3366,9 @@ fn render_kotlin_method(
                 ));
             }
         }
+        if !method.row_type_parameters.is_empty() {
+            call_arguments.push(kotlin_dev_row_mapper(codec_shapes.len(), method, plan)?);
+        }
     }
     let args = call_arguments.join(", ");
     let call = format!("{}Plugin.instance.{}({args})", namespace, method.name);
@@ -2941,7 +3386,7 @@ fn render_kotlin_method(
         ));
     } else {
         out.push_str(&format!("{indent}val result = {call}\n"));
-        render_kotlin_result(out, plan, method.success_type(), indent)?;
+        render_kotlin_result(out, plan, namespace, method.success_type(), indent)?;
     }
     if let Some(error_type) = method.error_type() {
         let helper = dev_error_helper(namespace, error_type);
@@ -3224,6 +3669,57 @@ mod tests {
         )]
     }
 
+    fn enum_payload_store() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Payloads".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                enum StoredValue {
+                    empty
+                    binary(data: Bytes)
+                    optionalText(text: String?)
+                }
+                service StoredValueApi {
+                    fn roundTrip(value: StoredValue) -> StoredValue
+                }
+                "#,
+            )
+            .expect("parse enum payload contract"),
+        )]
+    }
+
+    fn sqlite() -> Vec<(String, PluginIdl)> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/sqlite/native.nxid");
+        vec![(
+            "SQLite".to_owned(),
+            nexa_plugin_idl::parse_file(&path).expect("parse SQLite contract"),
+        )]
+    }
+
+    fn row_reader_plugin() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Records".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                enum Cell {
+                    absent
+                    truth(value: Bool)
+                    amount(value: Int64)
+                    text(value: String)
+                    bytes(value: Bytes)
+                }
+                error ReadFailure {
+                    malformedRow(details: String)
+                }
+                service RecordReader {
+                    async fn read<T: Row>(cells: Array<Cell>) -> Array<T> throws ReadFailure rowFailure malformedRow
+                }
+                "#,
+            )
+            .expect("parse generic row reader plugin contract"),
+        )]
+    }
+
     fn video_player() -> Vec<(String, PluginIdl)> {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/video-player/native.nxid");
@@ -3314,6 +3810,80 @@ mod tests {
         assert!(swift.contains("NexaDevValueCodec.transformPair(nexaRaw0"));
         assert!(kotlin.contains("NexaDevValueCodec.transformPair(nexaRaw0"));
         assert!(kotlin.contains("NexaDevValueCodec.transformTriple(nexaRaw0"));
+    }
+
+    #[test]
+    fn plugin_hot_reload_maps_typed_rows_without_actor_hops_or_repeated_name_lookups() {
+        let generated_swift = swift(&sqlite()).expect("render SQLite Swift bridge");
+        assert!(!generated_swift.contains("sqliteDevValue"));
+        assert!(!generated_swift.contains("devRowCellValue"));
+        assert!(generated_swift.contains("case .nullValue: return NSNull()"));
+        assert!(
+            generated_swift
+                .contains("case .blob(let nexaPayload): return nexaPayload.base64EncodedString()")
+        );
+        assert!(generated_swift.contains("nexaIndexes.reserveCapacity(nexaExpectedFields.count)"));
+        assert!(generated_swift.contains("columnNames.firstIndex(of: nexaField)"));
+        assert!(generated_swift.contains("for (nexaField, nexaIndex) in nexaIndexes"));
+        assert!(generated_swift.contains("try row.value(Int32(nexaIndex))"));
+        assert!(generated_swift.contains("Row mapper requires column"));
+        assert!(!generated_swift.contains("hot-reload SQL row"));
+
+        let generated_kotlin = kotlin(&sqlite()).expect("render SQLite Kotlin bridge");
+        assert!(!generated_kotlin.contains("sqliteDevValue"));
+        assert!(!generated_kotlin.contains("devRowCellValue"));
+        assert!(generated_kotlin.contains("Value.nullValue -> JSONObject.NULL"));
+        assert!(
+            generated_kotlin
+                .contains("is Value.blob -> Base64.encodeToString(nexaCell.value, Base64.NO_WRAP)")
+        );
+        assert!(
+            generated_kotlin
+                .contains("val nexaIndexes = HashMap<String, Int>(nexaExpectedFields.size)")
+        );
+        assert!(generated_kotlin.contains("columnNames.indexOf(nexaField)"));
+        assert!(generated_kotlin.contains("nexaIndexes.forEach"));
+        assert!(generated_kotlin.contains("row.value(nexaIndex)"));
+        assert!(generated_kotlin.contains("Row mapper requires column"));
+        assert!(!generated_kotlin.contains("hot-reload SQL row"));
+    }
+
+    #[test]
+    fn typed_row_dev_bridge_uses_the_plugin_cell_and_error_contract() {
+        let contract = row_reader_plugin();
+        let swift = swift(&contract).expect("render Swift row reader bridge");
+        assert!(swift.contains("case .absent: return NSNull()"));
+        assert!(
+            swift
+                .contains("case .bytes(let nexaPayload): return nexaPayload.base64EncodedString()")
+        );
+        assert!(swift.contains("ReadFailure.malformedRow(details:"));
+        assert!(!swift.contains("SQLite"));
+        assert!(!swift.contains("queryFailed"));
+
+        let kotlin = kotlin(&contract).expect("render Kotlin row reader bridge");
+        assert!(kotlin.contains("Cell.absent -> JSONObject.NULL"));
+        assert!(
+            kotlin
+                .contains("is Cell.bytes -> Base64.encodeToString(nexaCell.value, Base64.NO_WRAP)")
+        );
+        assert!(kotlin.contains("ReadFailure.malformedRow("));
+        assert!(!kotlin.contains("SQLite"));
+        assert!(!kotlin.contains("queryFailed"));
+    }
+
+    #[test]
+    fn hot_reload_enum_payloads_encode_bytes_and_preserve_optional_nulls() {
+        let contracts = enum_payload_store();
+        let generated_swift = swift(&contracts).expect("render Swift enum payload bridge");
+        assert!(generated_swift.contains("nexaPayload0.base64EncodedString() as Any"));
+        assert!(generated_swift.contains("let nexaPayload0: String?"));
+        assert!(generated_swift.contains("if nexaArguments[0] is NSNull"));
+
+        let generated_kotlin = kotlin(&contracts).expect("render Kotlin enum payload bridge");
+        assert!(generated_kotlin.contains("Base64.encodeToString(value.data, Base64.NO_WRAP)"));
+        assert!(generated_kotlin.contains("val nexaPayload0: String?"));
+        assert!(generated_kotlin.contains("nexaArguments[0] == JSONObject.NULL"));
     }
 
     #[test]
@@ -3483,7 +4053,9 @@ mod tests {
         assert!(kotlin.contains("NexaDevValueCodec.transformSet(value"));
         assert!(kotlin.contains("CacheBucket.values().firstOrNull { it.name == requested }"));
         assert!(kotlin.contains("nexaReceiver.replaceIndex(nexaArg0)"));
-        assert!(kotlin.contains("nexaEncodeMapEntry0.key.name).toString()"));
+        assert!(kotlin.contains(
+            "(nexaDevEnumStorageCacheBucketToValue(nexaEncodeMapEntry0.key)).toString()"
+        ));
         assert!(kotlin.contains("buckets = nexaArg_buckets"));
         assert!(kotlin.contains("events[\"onSelected\"]?.invoke"));
     }

@@ -56,6 +56,7 @@ const IOS_DEV_RUNTIME_MODULES: &[&str] = &[
     "NexaDevSchema.swift",
     "NexaDevProtocol.swift",
     "NexaDevState.swift",
+    "NexaDevClasses.swift",
     "NexaDevActions.swift",
     "NexaDevNavigation.swift",
     "NexaDevNativeApis.swift",
@@ -875,7 +876,30 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(
         activity.contains("Play Services Cronet provider is unavailable; network calls may fail")
     );
-    assert!(activity.contains("setContent { MaterialTheme { NexaDevRuntimeRoot"));
+    assert!(activity.contains(
+        "colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),"
+    ));
+    assert!(activity.contains("NexaDevRuntimeRoot(serverURL = "));
+    assert!(
+        output
+            .join("android/app/src/main/res/values/nexa_theme.xml")
+            .is_file()
+    );
+    assert!(
+        output
+            .join("android/app/src/main/res/values-night/nexa_theme.xml")
+            .is_file()
+    );
+    let light_theme =
+        fs::read_to_string(output.join("android/app/src/main/res/values/nexa_theme.xml"))
+            .expect("read generated Android day theme");
+    assert!(light_theme.contains("@android:style/Theme.Material.Light.NoActionBar"));
+    assert!(light_theme.contains("<item name=\"android:windowLightStatusBar\">true</item>"));
+    let night_theme =
+        fs::read_to_string(output.join("android/app/src/main/res/values-night/nexa_theme.xml"))
+            .expect("read generated Android night theme");
+    assert!(night_theme.contains("@android:style/Theme.Material.NoActionBar"));
+    assert!(night_theme.contains("<item name=\"android:windowLightStatusBar\">false</item>"));
     assert!(!activity.contains("Network provider unavailable"));
 
     let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
@@ -1362,6 +1386,9 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
     assert!(swift.contains("focusedFieldKey"));
     assert!(swift.contains("store.hotRestart(module: module)"));
     assert!(swift.contains("func hotRestart(module: [String: Any])"));
+    assert!(swift.contains("case \"Title3\": input = AnyView(input.font(.title3))"));
+    assert!(swift.contains("fields[\"min_lines\"] as? Int"));
+    assert!(swift.contains("input.lineLimit(minimum...maximum)"));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("FocusRequester()"));
@@ -1369,6 +1396,8 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
     assert!(kotlin.contains("store.focusChanged(focusKey)"));
     assert!(kotlin.contains("store.hotRestart()"));
     assert!(kotlin.contains("fun hotRestart()"));
+    assert!(kotlin.contains("val minLines = fields.optInt(\"min_lines\", 1)"));
+    assert!(kotlin.contains("MaterialTheme.typography.titleMedium"));
     assert!(
         fs::read_to_string(output.join("android/app/build.gradle.kts"))
             .expect("read Android dev dependencies")
@@ -1400,12 +1429,17 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms() {
 
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"BottomSheet\":"));
-    assert!(swift.contains(".sheet(isPresented: Binding("));
-    assert!(swift.contains("presentationDetents(sheet.partial ? [.medium, .large] : [.large])"));
+    assert!(swift.contains(".sheet(isPresented: binding)"));
+    assert!(swift.contains(".fullScreenCover(isPresented: binding)"));
+    assert!(swift.contains(".presentationDetents(detents)"));
+    assert!(swift.contains("fields[\"large_only\"] as? Bool == true"));
+    assert!(!swift.contains("devBottomSheet(in: module[\"body\"]"));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"BottomSheet\" ->"));
-    assert!(kotlin.contains("ModalBottomSheet(onDismissRequest"));
+    assert!(kotlin.contains("ModalBottomSheet("));
+    assert!(kotlin.contains("onDismissRequest ="));
+    assert!(kotlin.contains("DialogProperties(usePlatformDefaultWidth = false)"));
 }
 
 #[test]
@@ -1528,5 +1562,5 @@ fn development_runtime_renders_bottom_tabs_on_both_platforms() {
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"AppBottomBar\" ->"));
-    assert!(kotlin.contains("NavigationBarItem("));
+    assert!(kotlin.contains("NavigationSuiteScaffold("));
 }

@@ -14,13 +14,14 @@ use std::{
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_compiler::{CompileWarning, Target};
-use nexa_ir::Module;
+use nexa_ir::{Module, system_icons::SHARED_ICONS};
 
 use crate::{cache, config, config::ProjectConfig};
 
 mod assets;
 pub mod plan;
 use self::plan::ProjectPlan;
+mod localization;
 mod pbxproj;
 pub(crate) mod plugin_package;
 mod plugins;
@@ -212,6 +213,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         .unwrap_or_else(|| Path::new("."))
         .join("nexa.config.nx");
     let app_images_path = project_root.join("assets/images");
+    let translations_path = project_root.join("locales/translations.json");
     let existing_config = config_path.is_file();
     let dependencies = config::load_plugin_dependencies(&config_path)?;
     let resolved_dependencies = crate::dependencies::resolve(project_root, &dependencies)?;
@@ -239,7 +241,11 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
     let mut cache_key = cache::key_with_extra_and_roots(
         &input,
         &project_target,
-        &[config_path.as_path(), app_images_path.as_path()],
+        &[
+            config_path.as_path(),
+            app_images_path.as_path(),
+            translations_path.as_path(),
+        ],
         &sorted_plugin_roots,
     )
     .map_err(|error| format!("project cache: {error}"))?;
@@ -337,7 +343,11 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         cache_key = cache::key_with_extra_and_roots(
             &input,
             &project_target,
-            &[config_path.as_path(), app_images_path.as_path()],
+            &[
+                config_path.as_path(),
+                app_images_path.as_path(),
+                translations_path.as_path(),
+            ],
             &sorted_plugin_roots,
         )
         .map_err(|error| format!("project cache: {error}"))?;
@@ -455,6 +465,7 @@ pub(crate) fn compile_dev_modules_with_compiler(
     let project_root = entry.parent().unwrap_or_else(|| Path::new("."));
     let config_path = project_root.join("nexa.config.nx");
     let app_images_path = project_root.join("assets/images");
+    let translations_path = project_root.join("locales/translations.json");
     let dependencies = config::load_plugin_dependencies(&config_path)?;
     let resolved = crate::dependencies::resolve(project_root, &dependencies)?;
     let compilations = compiler
@@ -464,6 +475,12 @@ pub(crate) fn compile_dev_modules_with_compiler(
             &resolved.plugin_roots,
         )
         .map_err(|error| error.to_string())?;
+    let translation_modules = compilations
+        .iter()
+        .map(|compilation| &compilation.module)
+        .collect::<Vec<_>>();
+    let translations = localization::synchronize_modules(project_root, &translation_modules)?;
+    let dev_translations = translations.dev_translations();
     let sorted_roots = resolved
         .plugin_roots
         .iter()
@@ -490,11 +507,22 @@ pub(crate) fn compile_dev_modules_with_compiler(
             let revision = cache::key_with_extra_and_roots(
                 entry,
                 cache_target,
-                &[config_path.as_path(), app_images_path.as_path()],
+                &[
+                    config_path.as_path(),
+                    app_images_path.as_path(),
+                    translations_path.as_path(),
+                ],
                 &sorted_roots,
             )
             .map_err(|error| format!("dev revision: {error}"))?;
-            Ok((platform, nexa_dev_ir::lower(&compilation.module, revision)))
+            Ok((
+                platform,
+                nexa_dev_ir::lower_with_translations(
+                    &compilation.module,
+                    revision,
+                    dev_translations.clone(),
+                ),
+            ))
         })
         .collect()
 }
@@ -626,6 +654,10 @@ const IOS_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
         include_str!("../../../runtime/ios/NexaDevState.swift"),
     ),
     (
+        "NexaDevClasses.swift",
+        include_str!("../../../runtime/ios/NexaDevClasses.swift"),
+    ),
+    (
         "NexaDevActions.swift",
         include_str!("../../../runtime/ios/NexaDevActions.swift"),
     ),
@@ -694,6 +726,100 @@ const ANDROID_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
     ),
 ];
 
+fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Module) -> String {
+    let mut source = template.replace("__NEXA_PACKAGE__", package);
+    match filename {
+        "NexaDevRenderer.swift" => {
+            let cases = SHARED_ICONS
+                .iter()
+                .map(|icon| format!("    case \"{}\": return \"{}\"", icon.name, icon.sf_symbol))
+                .collect::<Vec<_>>()
+                .join("\n");
+            source = source.replace("__NEXA_SHARED_ICON_SF_CASES__", &cases);
+        }
+        "NexaDevRenderer.kt" => {
+            let material_cases = SHARED_ICONS
+                .iter()
+                .map(|icon| {
+                    format!(
+                        "    \"{}\" -> Icons.{}.{}",
+                        icon.name, icon.material_namespace, icon.material_name
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let sf_alias_cases = SHARED_ICONS
+                .iter()
+                .flat_map(|icon| {
+                    icon.aliases.iter().map(move |alias| {
+                        format!(
+                            "    \"{alias}\" -> Icons.{}.{}",
+                            icon.material_namespace, icon.material_name
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let auto_mirrored_imports = SHARED_ICONS
+                .iter()
+                .filter(|icon| icon.material_namespace.starts_with("AutoMirrored."))
+                .map(|icon| {
+                    format!(
+                        "import androidx.compose.material.icons.{}.{}",
+                        icon.material_namespace.to_lowercase(),
+                        icon.material_name
+                    )
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join("\n");
+            let used_icons = nexa_ir::facts::ModuleFacts::analyze(module).ui.system_icons;
+            let material_symbol_icons = used_icons
+                .iter()
+                .filter_map(|icon| match icon {
+                    nexa_ir::SystemIcon::MaterialSymbol(name) => Some((
+                        name.clone(),
+                        icon.material_reference(),
+                        icon.material_import(),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let material_symbol_cases = material_symbol_icons
+                .iter()
+                .map(|(name, reference, _)| format!("    \"{name}\" -> {reference}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let specific_material_imports = material_symbol_icons
+                .iter()
+                .map(|(_, _, import)| import.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .map(|import| format!("import {import}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            source = source
+                .replace("__NEXA_SHARED_ICON_MATERIAL_CASES__", &material_cases)
+                .replace("__NEXA_SHARED_ICON_SF_ALIAS_CASES__", &sf_alias_cases)
+                .replace(
+                    "__NEXA_SHARED_ICON_AUTO_MIRRORED_IMPORTS__",
+                    &auto_mirrored_imports,
+                )
+                .replace(
+                    "__NEXA_SPECIFIC_MATERIAL_ICON_CASES__",
+                    &material_symbol_cases,
+                )
+                .replace(
+                    "__NEXA_SPECIFIC_MATERIAL_ICON_IMPORTS__",
+                    &specific_material_imports,
+                );
+        }
+        _ => {}
+    }
+    source
+}
+
 /// Every generated file name in an iOS source directory, including the dev
 /// runtime when this build uses it. Used to clear units a previous run left.
 fn generated_unit_names(plan: &ProjectPlan, dev_runtime: bool) -> Vec<String> {
@@ -729,6 +855,20 @@ struct PreparedIos {
     removed_artifacts: Vec<String>,
     /// Plugin resources staged for the app bundle.
     resources: plugins::StagedResources,
+    /// Apple string catalog compiled as a main-bundle localization resource.
+    localization_catalog: Option<String>,
+    /// Backend-generated WidgetKit units and explicitly extension-safe plugin
+    /// sources compiled only by the widget extension target.
+    widget_sources: Vec<NativeWidgetSource>,
+    previous_widget_sources: Vec<String>,
+}
+
+/// A generated native widget source, addressed relative to its target-owned
+/// output directory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NativeWidgetSource {
+    relative_path: String,
+    contents: String,
 }
 
 /// Performs the iOS filesystem copies and gathers the facts they produce.
@@ -744,6 +884,22 @@ fn prepare_ios(
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let (source_units, project_features) = ios_source_units(module, plugins, config, dev_runtime)?;
+    let widget_sources = generated_ios_widget_sources(module, plugins, config)?;
+    let mut previous_widget_sources =
+        read_generated_marker(&directory.join(".nexa-widget-sources"))?;
+    let widget_directory = directory.join("NexaWidgets");
+    if widget_directory.is_dir() {
+        previous_widget_sources.extend(
+            fs::read_dir(&widget_directory)
+                .map_err(|error| format!("{}: {error}", widget_directory.display()))?
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect::<Vec<_>>(),
+        );
+    }
+    previous_widget_sources.sort();
+    previous_widget_sources.dedup();
     let privacy_manifest = templates::ios_privacy_manifest(project_features);
     let supports_screen_orientation = project_features.uses_screen_orientation_api;
     copy_config_icons(root, app_name, config)?;
@@ -763,6 +919,12 @@ fn prepare_ios(
         .map(|artifact| artifact.name.clone())
         .collect::<Vec<_>>();
     let resources = plugins::stage_ios_plugin_resources(root, app_name, plugins)?;
+    let translations = localization::synchronize(source_root, module)?;
+    let localization_catalog = if translations.strings.is_empty() {
+        None
+    } else {
+        Some(translations.apple_string_catalog()?)
+    };
     Ok(PreparedIos {
         source_units,
         privacy_manifest,
@@ -781,6 +943,9 @@ fn prepare_ios(
             .map(|name| format!("ios/{app_name}/{name}"))
             .collect(),
         resources,
+        localization_catalog,
+        widget_sources,
+        previous_widget_sources,
     })
 }
 
@@ -858,6 +1023,14 @@ fn ios_plan(
             plan = plan.with_removal(format!("{resource_directory}/{stale}"));
         }
     }
+    if let Some(catalog) = &prepared.localization_catalog {
+        plan = plan.with_file(
+            format!("{directory}/Localizable.xcstrings"),
+            catalog.clone(),
+        );
+    } else {
+        plan = plan.with_removal(format!("{directory}/Localizable.xcstrings"));
+    }
     if prepared.resources.present {
         plan = plan.with_file(
             format!("{resource_directory}/.nexa-plugin-resources"),
@@ -880,7 +1053,13 @@ fn ios_plan(
     plan = plan
         .with_file(
             format!("{directory}/{app_name}App.swift"),
-            templates::ios_app_source(app_name, &app_root, &module.background_tasks, plugins)?,
+            templates::ios_app_source(
+                app_name,
+                &app_root,
+                &module.background_tasks,
+                plugins,
+                !prepared.widget_sources.is_empty(),
+            )?,
         )
         .with_file(
             format!("ios/{app_name}.xcodeproj/xcshareddata/xcschemes/{app_name}.xcscheme"),
@@ -888,10 +1067,11 @@ fn ios_plan(
         )
         .with_file(
             format!("ios/{app_name}.xcodeproj/project.pbxproj"),
-            templates::ios_project_file_with_config(
+            templates::ios_project_file_with_localization_config_and_widgets(
                 app_name,
                 prepared.has_assets,
                 prepared.resources.present,
+                prepared.localization_catalog.is_some(),
                 prepared.privacy_manifest.is_some(),
                 &generated_names,
                 &prepared.plugin_sources,
@@ -899,6 +1079,11 @@ fn ios_plan(
                 &prepared.xcframeworks,
                 plugins,
                 config,
+                &prepared.widget_sources,
+                module
+                    .widgets
+                    .iter()
+                    .any(|widget| widget.configuration.is_some()),
             )?,
         )
         .with_file(
@@ -916,6 +1101,40 @@ fn ios_plan(
                     .collect::<Vec<_>>(),
             )?,
         );
+    if !prepared.widget_sources.is_empty() {
+        plan = plan.with_file(
+            format!("{directory}/NexaWidgets-Info.plist"),
+            templates::ios_widget_info_plist(app_name, config),
+        );
+        for source in &prepared.widget_sources {
+            plan = plan.with_file(
+                format!("{directory}/NexaWidgets/{}", source.relative_path),
+                source.contents.clone(),
+            );
+        }
+        plan = plan.with_file(
+            format!("{directory}/NexaWidgets.entitlements"),
+            templates::ios_widget_entitlements(config),
+        );
+        let current = prepared
+            .widget_sources
+            .iter()
+            .map(|source| source.relative_path.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        for stale in &prepared.previous_widget_sources {
+            if !current.contains(stale.as_str()) {
+                plan = plan.with_removal(format!("{directory}/NexaWidgets/{stale}"));
+            }
+        }
+        plan = plan.with_removal(format!("{directory}/.nexa-widget-sources"));
+    } else {
+        plan = plan.with_removal(format!("{directory}/NexaWidgets-Info.plist"));
+        plan = plan.with_removal(format!("{directory}/NexaWidgets.entitlements"));
+        plan = plan.with_removal(format!("{directory}/.nexa-widget-sources"));
+        for stale in &prepared.previous_widget_sources {
+            plan = plan.with_removal(format!("{directory}/NexaWidgets/{stale}"));
+        }
+    }
     if config.splash_source.is_some() {
         plan = plan.with_file(
             format!("{directory}/LaunchScreen.storyboard"),
@@ -924,7 +1143,10 @@ fn ios_plan(
     }
     if dev_runtime {
         for (filename, content) in IOS_DEV_RUNTIME_FILES {
-            plan = plan.with_file(format!("{directory}/{filename}"), *content);
+            plan = plan.with_file(
+                format!("{directory}/{filename}"),
+                dev_runtime_source(filename, content, "", module),
+            );
         }
     } else {
         for (filename, _) in IOS_DEV_RUNTIME_FILES {
@@ -976,9 +1198,34 @@ fn generate_android(
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
     validate_android_background_task_minimum(module, config)?;
+    let widget_generated = KotlinBackend
+        .generate_widget_units(module)
+        .map_err(|error| error.to_string())?;
+    let widget_units = widget_generated.sources;
+    let widget_resources = widget_generated.resources;
+    validate_android_widget_resources(&widget_resources, module)?;
     let package = config.android_application_id.clone();
     let package_path = package.replace('.', "/");
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
+    let stale_widget_sources = read_generated_marker(&source_dir.join(".nexa-widget-sources"))?;
+    let stale_widget_resources =
+        read_generated_marker(&root.join("android/app/src/main/res/.nexa-widget-resources"))?;
+    let widget_xml_directory = root.join("android/app/src/main/res/xml");
+    let stale_widget_xml = if widget_xml_directory.is_dir() {
+        fs::read_dir(&widget_xml_directory)
+            .map_err(|error| format!("{}: {error}", widget_xml_directory.display()))?
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| {
+                name.strip_prefix("nexa_widget_info_")
+                    .and_then(|value| value.strip_suffix(".xml"))
+                    .and_then(|index| index.parse::<usize>().ok())
+                    .is_some_and(|index| index >= module.widgets.len())
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let (mut sources, mut project_features) = if dev_session.is_some() {
@@ -986,6 +1233,36 @@ fn generate_android(
     } else {
         KotlinBackend.generate_units_with_project_features(module)
     };
+    if !module.widgets.is_empty() {
+        // The normal app generation already emits application types and
+        // functions. Widget-specific files reference those declarations, so
+        // only merge the per-widget units and their import set here.
+        let imports = sources
+            .imports
+            .lines()
+            .chain(widget_units.imports.lines())
+            .filter(|line| line.starts_with("import "))
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>();
+        sources.imports = if imports.is_empty() {
+            String::new()
+        } else {
+            imports.iter().map(|line| format!("{line}\n")).collect()
+        };
+        let mut merged_unit_names = sources
+            .units
+            .iter()
+            .map(|unit| unit.name.clone())
+            .collect::<std::collections::HashSet<_>>();
+        sources
+            .units
+            .extend(widget_units.units.into_iter().filter(|unit| {
+                (unit.name.starts_with("widget-")
+                    || unit.name == "NexaWidgetFamily.kt"
+                    || unit.contents.contains("WidgetConfigurationActivity"))
+                    && merged_unit_names.insert(unit.name.clone())
+            }));
+    }
     if dev_session.is_some() || project_features.uses_network {
         sources.units.push(nexa_codegen::SourceUnit {
             name: "NexaCronetConfig.kt".to_owned(),
@@ -1014,6 +1291,7 @@ fn generate_android(
     copy_config_icons(root, app_name, config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
     assets::copy_android_project_images(source_root, root)?;
+    assets::copy_android_localizations(source_root, root, module)?;
     // Every generated file needs the package declaration, and plugin bindings
     // add an import between the package line and the generator's own imports.
     // The header is assembled here rather than by rewriting a concatenated
@@ -1061,8 +1339,9 @@ fn generate_android(
         ));
     }
 
-    let plan = android_plan(
+    let mut plan = android_plan(
         app_name,
+        module,
         nexa_codegen::names::screen_name(&module.app_name),
         &package,
         &package_path,
@@ -1074,7 +1353,34 @@ fn generate_android(
         &module.background_tasks,
         &local_aars,
         &resources,
+        &widget_resources,
     )?;
+    for filename in stale_widget_xml {
+        plan = plan.with_removal(format!("android/app/src/main/res/xml/{filename}"));
+    }
+    for filename in stale_widget_sources {
+        plan = plan.with_removal(format!(
+            "android/app/src/main/java/{package_path}/{filename}"
+        ));
+    }
+    let mut current_widget_resources = module
+        .widgets
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("xml/{}.xml", templates::android_widget_resource_name(index)))
+        .chain(
+            widget_resources
+                .iter()
+                .map(|resource| resource.name.clone()),
+        )
+        .collect::<std::collections::HashSet<_>>();
+    current_widget_resources.insert("values/nexa_widget_strings.xml".to_owned());
+    current_widget_resources.insert("xml/nexa_widget_info.xml".to_owned());
+    for relative in stale_widget_resources {
+        if !current_widget_resources.contains(&relative) {
+            plan = plan.with_removal(format!("android/app/src/main/res/{relative}"));
+        }
+    }
     let plan = plan.with_files(
         value_codec_files
             .iter()
@@ -1147,6 +1453,7 @@ pub(crate) fn validate_android_background_task_minimum(
 #[allow(clippy::too_many_arguments)]
 fn android_plan(
     app_name: &str,
+    module: &Module,
     screen: String,
     package: &str,
     package_path: &str,
@@ -1158,6 +1465,7 @@ fn android_plan(
     background_tasks: &[nexa_ir::BackgroundTask],
     local_aars: &[String],
     resources: &plugins::StagedResources,
+    widget_resources: &[nexa_codegen::SourceUnit],
 ) -> Result<ProjectPlan, String> {
     let dev_runtime = dev_session.is_some();
     let source_directory = format!("android/app/src/main/java/{package_path}");
@@ -1184,6 +1492,23 @@ fn android_plan(
     } else {
         ("", "")
     };
+    let (orientation_imports, orientation_apply, orientation_callbacks) = if config.orientation
+        == "portrait-phones"
+    {
+        (
+            "import android.content.res.Configuration\n",
+            "        dev.nexa.core.NexaRuntimeCore.bind(this)\n        dev.nexa.core.NexaRuntimeCore.applyConfiguredOrientation(this)\n",
+            "\n    override fun onConfigurationChanged(newConfig: Configuration) {\n        super.onConfigurationChanged(newConfig)\n        dev.nexa.core.NexaRuntimeCore.applyConfiguredOrientation(this)\n    }\n",
+        )
+    } else if config.orientation == "portrait" {
+        (
+            "",
+            "        dev.nexa.core.NexaRuntimeCore.bind(this)\n        dev.nexa.core.NexaRuntimeCore.applyConfiguredOrientation(this)\n",
+            "",
+        )
+    } else {
+        ("", "", "")
+    };
     let background_schedule = if background_tasks.is_empty() {
         String::new()
     } else {
@@ -1195,27 +1520,75 @@ fn android_plan(
             .android_firebase_messaging_service
             .is_some()
     });
-    let remote_notification_imports = if uses_firebase_messaging {
+    let uses_notifications_plugin = plugins.iter().any(|plugin| {
+        Path::new(&plugin.idl_path)
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "notifications")
+    });
+    let remote_notification_imports = if uses_firebase_messaging || uses_notifications_plugin {
         "import android.content.Intent\nimport dev.nexa.notifications.NotificationsRemoteHub\n"
     } else {
         ""
     };
-    let remote_notification_dispatch = if uses_firebase_messaging {
-        "        NotificationsRemoteHub.dispatchOpened(intent)\n"
+    let remote_notification_dispatch = if uses_firebase_messaging || uses_notifications_plugin {
+        let mut dispatch = String::new();
+        if uses_firebase_messaging {
+            dispatch.push_str("        NotificationsRemoteHub.dispatchOpened(intent)\n");
+        }
+        if uses_notifications_plugin {
+            dispatch.push_str("        NotificationsRemoteHub.dispatchLocalOpened(intent)\n");
+        }
+        dispatch
+    } else {
+        String::new()
+    };
+    let remote_notification_new_intent = if uses_firebase_messaging || uses_notifications_plugin {
+        let mut dispatch = String::from(
+            "\n    override fun onNewIntent(intent: Intent) {\n        super.onNewIntent(intent)\n        setIntent(intent)\n",
+        );
+        if uses_firebase_messaging {
+            dispatch.push_str("        NotificationsRemoteHub.dispatchOpened(intent)\n");
+        }
+        if uses_notifications_plugin {
+            dispatch.push_str("        NotificationsRemoteHub.dispatchLocalOpened(intent)\n");
+        }
+        dispatch.push_str("    }\n");
+        dispatch
+    } else {
+        String::new()
+    };
+    let has_widgets = !module.widgets.is_empty();
+    let widget_refresh_imports = if has_widgets {
+        "import androidx.glance.appwidget.updateAll\nimport androidx.lifecycle.lifecycleScope\nimport kotlinx.coroutines.launch\n"
     } else {
         ""
     };
-    let remote_notification_new_intent = if uses_firebase_messaging {
-        "\n    override fun onNewIntent(intent: Intent) {\n        super.onNewIntent(intent)\n        setIntent(intent)\n        NotificationsRemoteHub.dispatchOpened(intent)\n    }\n"
+    let widget_refresh_lifecycle = if has_widgets {
+        let refreshes = module
+            .widgets
+            .iter()
+            .map(|widget| {
+                format!(
+                    "            {}().updateAll(applicationContext)\n",
+                    nexa_codegen::names::widget_name(&widget.name)
+                )
+            })
+            .collect::<String>();
+        format!(
+            "\n    override fun onStop() {{\n        super.onStop()\n        lifecycleScope.launch {{\n{refreshes}        }}\n    }}\n"
+        )
     } else {
-        ""
+        String::new()
     };
     let activity_content = if install_play_services_cronet {
         format!(
-            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{ MaterialTheme {{ {compose_root} }} }}\n        }}\n"
+            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{\n                MaterialTheme(\n                    colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),\n                ) {{\n                    {compose_root}\n                }}\n            }}\n        }}\n"
         )
     } else {
-        format!("        setContent {{ MaterialTheme {{ {compose_root} }} }}\n")
+        format!(
+            "        setContent {{\n            MaterialTheme(\n                colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),\n            ) {{\n                {compose_root}\n            }}\n        }}\n"
+        )
     };
     let mut plan = ProjectPlan::android(app_name)
         .with_source_directory(source_directory.clone())
@@ -1223,18 +1596,27 @@ fn android_plan(
         .with_file(
             format!("{source_directory}/MainActivity.kt"),
             format!(
-                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{splash_import}{cronet_import}{remote_notification_imports}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{remote_notification_dispatch}{background_schedule}{activity_content}    }}{remote_notification_new_intent}}}\n"
+                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.foundation.isSystemInDarkTheme\nimport androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.darkColorScheme\nimport androidx.compose.material3.lightColorScheme\n{splash_import}{cronet_import}{remote_notification_imports}{widget_refresh_imports}{orientation_imports}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{orientation_apply}{remote_notification_dispatch}{background_schedule}{activity_content}    }}{orientation_callbacks}{remote_notification_new_intent}{widget_refresh_lifecycle}}}\n"
             ),
         )
         .with_file(
+            "android/app/src/main/res/values/nexa_theme.xml",
+            "<resources><style name=\"NexaAppTheme\" parent=\"@android:style/Theme.Material.Light.NoActionBar\"><item name=\"android:windowLightStatusBar\">true</item></style></resources>\n",
+        )
+        .with_file(
+            "android/app/src/main/res/values-night/nexa_theme.xml",
+            "<resources><style name=\"NexaAppTheme\" parent=\"@android:style/Theme.Material.NoActionBar\"><item name=\"android:windowLightStatusBar\">false</item></style></resources>\n",
+        )
+        .with_file(
             "android/app/src/main/AndroidManifest.xml",
-            templates::android_manifest(
+            templates::android_manifest_with_widgets(
                 app_name,
                 package,
                 project_features.uses_network,
                 dev_session.is_some() || project_features.uses_network_connectivity,
                 config,
                 plugins,
+                &module.widgets,
             )?,
         )
         .with_file(
@@ -1256,19 +1638,54 @@ fn android_plan(
         )
         .with_file(
             "android/app/build.gradle.kts",
-            templates::android_app_gradle_with_dev_runtime(
+            templates::android_app_gradle_with_widgets_and_dev_runtime(
                 package,
                 project_features,
                 plugins,
                 local_aars,
                 config,
                 dev_runtime,
+                has_widgets,
             )?,
         )
         .with_file(
             "android/app/proguard-rules.pro",
             plugins::android_plugin_proguard_rules(plugins, package)?,
         );
+    plan = plan
+        .with_removal(format!("{source_directory}/.nexa-widget-sources"))
+        .with_removal("android/app/src/main/res/xml/nexa_widget_info.xml")
+        .with_removal("android/app/src/main/res/values/nexa_widget_strings.xml");
+    for (index, widget) in module.widgets.iter().enumerate() {
+        plan = plan.with_file(
+            format!(
+                "android/app/src/main/res/xml/{}.xml",
+                templates::android_widget_resource_name(index)
+            ),
+            templates::android_widget_provider_info(widget, package),
+        );
+    }
+    for resource in widget_resources {
+        plan = plan.with_file(
+            format!("android/app/src/main/res/{}", resource.name),
+            resource.contents.clone(),
+        );
+    }
+    if widget_resources.is_empty() {
+        plan = plan.with_removal("android/app/src/main/res/.nexa-widget-resources");
+    } else {
+        let mut resource_paths = widget_resources
+            .iter()
+            .map(|resource| resource.name.as_str())
+            .collect::<Vec<_>>();
+        resource_paths.sort_unstable();
+        plan = plan.with_file(
+            "android/app/src/main/res/.nexa-widget-resources",
+            format!("{}\n", resource_paths.join("\n")),
+        );
+    }
+    // Legacy marker and resource names are removed as part of the transition
+    // to declaration-indexed generated metadata.
     let background_worker_path = format!("{source_directory}/NexaBackgroundWorker.kt");
     if background_tasks.is_empty() {
         plan = plan.with_removal(background_worker_path);
@@ -1323,7 +1740,7 @@ fn android_plan(
         for (filename, content) in ANDROID_DEV_RUNTIME_FILES {
             plan = plan.with_file(
                 format!("{source_directory}/{filename}"),
-                content.replace("__NEXA_PACKAGE__", package),
+                dev_runtime_source(filename, content, package, module),
             );
         }
         plan = plan.with_file(
@@ -1375,13 +1792,27 @@ fn copy_config_icons(root: &Path, app_name: &str, config: &ProjectConfig) -> Res
             assets::generate_ios_icon(source, root, app_name)?;
         }
     }
+    for source in &config.ios_alternate_icons {
+        let name = source
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("invalid alternate iOS icon path: {}", source.display()))?;
+        assets::copy_icon_composer(
+            source,
+            &root.join("ios").join(app_name).join(format!("{name}.icon")),
+        )?;
+    }
     let android_source = config.android_icon.as_ref().or(config.icon_source.as_ref());
     if let Some(source) = android_source {
-        if source.is_dir() {
-            copy_directory_contents(source, &root.join("android/app/src/main/res"))?;
-        } else {
-            assets::generate_android_icon(source, root)?;
-        }
+        assets::generate_android_icon(source, root)?;
+    }
+    for source in &config.android_alternate_icons {
+        let name = source
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("invalid alternate Android icon path: {}", source.display()))?
+            .to_ascii_lowercase();
+        assets::generate_android_icon_named(source, root, &name)?;
     }
     if let Some(splash) = &config.splash_source {
         generate_splash(splash, root, app_name)?;
@@ -1410,7 +1841,11 @@ fn generate_splash(source: &Path, root: &Path, app_name: &str) -> Result<(), Str
         .map_err(|error| error.to_string())?;
     write_if_changed(
         &root.join("android/app/src/main/res/values/nexa_splash_theme.xml"),
-        "<resources><style name=\"NexaSplashTheme\" parent=\"Theme.SplashScreen\"><item name=\"windowSplashScreenBackground\">#FFFFFFFF</item><item name=\"windowSplashScreenAnimatedIcon\">@drawable/nexa_splash</item><item name=\"postSplashScreenTheme\">@android:style/Theme.Material.Light.NoActionBar</item></style></resources>\n",
+        "<resources><style name=\"NexaSplashTheme\" parent=\"Theme.SplashScreen\"><item name=\"windowSplashScreenBackground\">#FFFFFFFF</item><item name=\"windowSplashScreenAnimatedIcon\">@drawable/nexa_splash</item><item name=\"postSplashScreenTheme\">@style/NexaAppTheme</item></style></resources>\n",
+    )?;
+    write_if_changed(
+        &root.join("android/app/src/main/res/values-night/nexa_splash_theme.xml"),
+        "<resources><style name=\"NexaSplashTheme\" parent=\"Theme.SplashScreen\"><item name=\"windowSplashScreenBackground\">#FF121212</item><item name=\"windowSplashScreenAnimatedIcon\">@drawable/nexa_splash</item><item name=\"postSplashScreenTheme\">@style/NexaAppTheme</item></style></resources>\n",
     )?;
     Ok(())
 }
@@ -1487,6 +1922,131 @@ fn ios_source_units(
         sources.into_files(&["import Foundation"], &plugin_config),
         project_features,
     ))
+}
+
+/// Produces the complete source set owned by the WidgetKit extension. Widget
+/// declarations and their reachable helpers come from the Swift backend; a
+/// plugin contributes extension code only when its manifest explicitly opts
+/// into the extension target.
+fn generated_ios_widget_sources(
+    module: &Module,
+    plugins: &[plugin_package::PluginPackage],
+    config: &ProjectConfig,
+) -> Result<Vec<NativeWidgetSource>, String> {
+    if module.widgets.is_empty() {
+        return Ok(Vec::new());
+    }
+    let generated = SwiftBackend
+        .generate_widget_units(module)
+        .map_err(|error| error.to_string())?;
+    let mut extension_plugins = Vec::new();
+    let mut selected_extension_sources = Vec::new();
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
+        let extension_sources = plugins::native_plugin_extension_sources(plugin)?;
+        if !extension_sources.is_empty() {
+            extension_plugins.push(plugin.clone());
+            selected_extension_sources.push((plugin_index, plugin, extension_sources));
+        }
+    }
+    let plugin_config = plugins::render_swift_plugin_config(&extension_plugins, config);
+    let files = generated
+        .sources
+        .into_files(&["import Foundation"], &plugin_config)
+        .into_iter()
+        .map(|unit| NativeWidgetSource {
+            relative_path: unit.name,
+            contents: unit.contents,
+        })
+        .collect::<Vec<_>>();
+    let mut output = files;
+    for (plugin_index, plugin, extension_sources) in selected_extension_sources {
+        let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+        output.push(NativeWidgetSource {
+            relative_path: format!("NexaPluginExtension{plugin_index}_Bindings.swift"),
+            contents: crate::plugin::render_swift_bindings(&contract)?,
+        });
+        for (source_index, (source, _)) in extension_sources.into_iter().enumerate() {
+            let stem = source
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("PluginSource")
+                .chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric() || character == '_' {
+                        character
+                    } else {
+                        '_'
+                    }
+                })
+                .collect::<String>();
+            output.push(NativeWidgetSource {
+                relative_path: format!(
+                    "NexaPluginExtension{plugin_index}_{source_index}_{stem}.swift"
+                ),
+                contents: fs::read_to_string(&source)
+                    .map_err(|error| format!("{}: {error}", source.display()))?,
+            });
+        }
+    }
+    output.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(output)
+}
+
+/// Reads a previous generated-file marker only for deleting outputs from the
+/// retired hand-authored widget scaffold. Invalid or escaping entries are
+/// ignored so stale marker contents cannot name paths outside generated roots.
+fn read_generated_marker(marker: &Path) -> Result<Vec<String>, String> {
+    if !marker.is_file() {
+        return Ok(Vec::new());
+    }
+    let contents =
+        fs::read_to_string(marker).map_err(|error| format!("{}: {error}", marker.display()))?;
+    Ok(contents
+        .lines()
+        .filter(|line| {
+            !line.is_empty()
+                && Path::new(line)
+                    .components()
+                    .all(|component| matches!(component, std::path::Component::Normal(_)))
+        })
+        .map(str::to_owned)
+        .collect())
+}
+
+fn validate_android_widget_resources(
+    resources: &[nexa_codegen::SourceUnit],
+    module: &Module,
+) -> Result<(), String> {
+    let mut paths = std::collections::HashSet::new();
+    paths.insert("values/nexa_widget_strings.xml".to_owned());
+    paths.insert("xml/nexa_widget_info.xml".to_owned());
+    for index in 0..module.widgets.len() {
+        paths.insert(format!(
+            "xml/{}.xml",
+            templates::android_widget_resource_name(index)
+        ));
+    }
+    for resource in resources {
+        let path = Path::new(&resource.name);
+        if path.as_os_str().is_empty()
+            || path.is_absolute()
+            || path
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        {
+            return Err(format!(
+                "Android widget resource path `{}` must be relative to `src/main/res`",
+                resource.name
+            ));
+        }
+        if !paths.insert(resource.name.clone()) {
+            return Err(format!(
+                "Android widget resource `{}` conflicts with another generated widget resource",
+                resource.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn dev_plugin_contracts(
@@ -1653,7 +2213,60 @@ mod tests {
     use nexa_codegen::Backend;
     use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
 
-    use super::{KotlinBackend, ProjectPlan, SwiftBackend, plugin_package, plugins, writers};
+    use super::{
+        KotlinBackend, ProjectPlan, SHARED_ICONS, SwiftBackend, dev_runtime_source,
+        generate_splash, plugin_package, plugins, writers,
+    };
+
+    #[test]
+    fn generated_dev_icon_mappings_cover_the_shared_catalog() {
+        let module = nexa_compiler::compile(
+            r##"app IconMap { body { Icon(materialsymbol: "rounded:account_circle", description: "Profile", size: 24, tint: "#FFFFFF") } }"##,
+        )
+        .expect("compile icon mapping fixture");
+        let swift = dev_runtime_source(
+            "NexaDevRenderer.swift",
+            include_str!("../../../runtime/ios/NexaDevRenderer.swift"),
+            "",
+            &module,
+        );
+        let kotlin = dev_runtime_source(
+            "NexaDevRenderer.kt",
+            include_str!("../../../runtime/android/NexaDevRenderer.kt"),
+            "dev.nexa",
+            &module,
+        );
+        for icon in SHARED_ICONS {
+            assert!(
+                swift.contains(&format!(
+                    "case \"{}\": return \"{}\"",
+                    icon.name, icon.sf_symbol
+                )),
+                "iOS DevRuntime is missing shared icon {}",
+                icon.name
+            );
+            assert!(
+                kotlin.contains(&format!(
+                    "\"{}\" -> Icons.{}.{}",
+                    icon.name, icon.material_namespace, icon.material_name
+                )),
+                "Android DevRuntime is missing shared icon {}",
+                icon.name
+            );
+            for alias in icon.aliases {
+                assert!(
+                    kotlin.contains(&format!(
+                        "\"{alias}\" -> Icons.{}.{}",
+                        icon.material_namespace, icon.material_name
+                    )),
+                    "Android DevRuntime is missing SF alias {alias} for {}",
+                    icon.name
+                );
+            }
+        }
+        assert!(kotlin.contains("import androidx.compose.material.icons.rounded.AccountCircle"));
+        assert!(kotlin.contains("\"rounded:account_circle\" -> Icons.Rounded.AccountCircle"));
+    }
 
     /// Builds a plugin package that vendors one XCFramework.
     fn package_with_xcframework(root: &Path, name: &str) -> plugin_package::PluginPackage {
@@ -1673,6 +2286,32 @@ mod tests {
     /// Claims a temporary project root that stays alive for the whole test.
     fn temp_root(tag: &str) -> nexa_testkit::TempDir {
         nexa_testkit::TempDir::new(&format!("nexa-artifact-staging-{tag}"))
+    }
+
+    #[test]
+    fn android_splash_resources_follow_day_and_night_appearance() {
+        let root = temp_root("appearance-splash");
+        let source = root.path().join("splash.png");
+        let output = root.path().join("generated");
+        std::fs::create_dir_all(&output).expect("create generated project root");
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]))
+            .save(&source)
+            .expect("write splash image");
+
+        generate_splash(&source, &output, "Demo").expect("generate platform splash assets");
+
+        let day = std::fs::read_to_string(
+            output.join("android/app/src/main/res/values/nexa_splash_theme.xml"),
+        )
+        .expect("read day splash style");
+        let night = std::fs::read_to_string(
+            output.join("android/app/src/main/res/values-night/nexa_splash_theme.xml"),
+        )
+        .expect("read night splash style");
+        assert!(day.contains("#FFFFFFFF"));
+        assert!(night.contains("#FF121212"));
+        assert!(day.contains("@style/NexaAppTheme"));
+        assert!(night.contains("@style/NexaAppTheme"));
     }
 
     #[test]
@@ -1806,13 +2445,21 @@ mod tests {
             "nexa_player2.onEnded = {",
             "nexa_firstEnded = true",
             "nexa_secondEnded = true",
-            "First player ended",
-            "Second player ended",
-            "Second view tapped",
         ] {
             assert!(
                 kotlin.contains(fragment),
                 "missing Kotlin output: {fragment}"
+            );
+        }
+        for source_text in [
+            "First player ended",
+            "Second player ended",
+            "Second view tapped",
+        ] {
+            let resource = nexa_codegen::names::localization_resource_name(source_text);
+            assert!(
+                kotlin.contains(&format!("stringResource(R.string.{resource})")),
+                "missing localized Kotlin output for {source_text}"
             );
         }
         assert!(!kotlin.contains("onTapped"));

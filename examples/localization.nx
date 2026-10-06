@@ -1,0 +1,14 @@
+app LocalizationExample {
+    state userName: String = "Ada"
+    state count: Int32 = 3
+    state score: Int64 = 42
+    state ratio: Float64 = 0.75
+
+    body {
+        Column(spacing: 12, padding: 20) {
+            Text("Welcome, \(userName)!", comment: "Greeting shown at the top of the screen")
+            Text("You have \(count) tasks, scored \(score) points, and reached \(ratio) completion.", comment: "Summary containing a task count, score, and completion ratio")
+            Text("\(count) task in Inbox", comment: "Task count in the Inbox; translators should use the appropriate plural form")
+        }
+    }
+}

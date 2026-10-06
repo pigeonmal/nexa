@@ -3,12 +3,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::walk::any_node;
 use nexa_ir::{
-    AccessibilityRole, Action, AutofillType, BottomBarTab, Capitalization, CollectionMutation,
-    ColorValue, DirectionConfig, DirectionStyle, Expr, FastListRefresh, FontWeight,
-    GradientDirection, HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType,
-    LayoutKind, ListAxis, ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType,
-    ReturnKeyType, ScreenId, SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
-    TaskExecutor as IrTaskExecutor, TextStyle, Type, ViewTransition as IrViewTransition, WhenCase,
+    AccessibilityRole, Action, AutofillType, BottomBarTab, ButtonShape, ButtonSize, ButtonStyle,
+    Capitalization, CollectionMutation, ColorExpression, ColorValue, DirectionConfig,
+    DirectionStyle, Expr, FastListMove, FastListRefresh, FontWeight, GradientDirection,
+    HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis,
+    ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType, ReturnKeyType, ScreenId,
+    SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
+    TaskExecutor as IrTaskExecutor, TextInputFont, TextStyle, ToolbarPlacement, Type,
+    ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -16,14 +18,17 @@ use super::{
     context::{ScreenSignatures, SemanticContext, TypeRegistries},
     expressions::{
         FunctionSignatures, functions_with_error_handling, infer_expr_type, lower_expr,
-        plugin_error_variant, type_name,
+        lower_for_iterable, lower_map_iterable, plugin_error_variant, resolve_value_type,
+        type_name,
     },
     styles::{
         lower_opacity, lower_style, lower_view_effects, number_value, optional_color,
-        optional_dimension, parse_animation, parse_color_literal,
+        optional_dimension, parse_animation, parse_color, parse_color_literal,
     },
 };
 use crate::Target;
+
+type AccessibilityOptions = (Expr, Option<Expr>, Option<Expr>, AccessibilityRole);
 
 pub(super) fn lower_nodes(
     nodes: Vec<ast::Node>,
@@ -98,6 +103,56 @@ fn take_required_arg(
     }
 }
 
+fn take_translator_comment(
+    args: &mut BTreeMap<String, ast::Expr>,
+    component: &str,
+) -> Result<Option<String>, CompileError> {
+    args.remove("comment")
+        .map(|value| require_string_literal(&value, &format!("{component} comment")))
+        .transpose()
+}
+
+fn localize_ui_text(value: Expr, comment: Option<String>) -> Expr {
+    match value {
+        Expr::String(_) | Expr::Interpolation(_) => {
+            let key = nexa_ir::localization::source_key(&value);
+            match key {
+                Some(key) => Expr::LocalizedText {
+                    key,
+                    value: Box::new(value),
+                    comment,
+                },
+                None => value,
+            }
+        }
+        Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            value_type,
+        } => Expr::Conditional {
+            condition,
+            then_value: Box::new(localize_ui_text(*then_value, comment.clone())),
+            else_value: Box::new(localize_ui_text(*else_value, comment)),
+            value_type,
+        },
+        Expr::Concat(left, right) => Expr::Concat(
+            Box::new(localize_ui_text(*left, comment.clone())),
+            Box::new(localize_ui_text(*right, comment)),
+        ),
+        Expr::Coalesce(left, right) => {
+            Expr::Coalesce(left, Box::new(localize_ui_text(*right, comment)))
+        }
+        Expr::Array(values) => Expr::Array(
+            values
+                .into_iter()
+                .map(|value| localize_ui_text(value, comment.clone()))
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
 /// Take the leading positional expression of a `Single` invocation.
 fn take_positional(
     positional: &mut Vec<ast::Expr>,
@@ -164,6 +219,20 @@ fn child_mismatch(span: Span) -> CompileError {
     )
 }
 
+fn lower_color_expression(
+    value: ast::Expr,
+    role: &str,
+    cx: &SemanticContext<'_>,
+) -> Result<ColorExpression, CompileError> {
+    if matches!(
+        &value,
+        ast::Expr::String(_, _) | ast::Expr::ThemeToken(_, _)
+    ) {
+        return parse_color(value, cx.themes, role).map(ColorExpression::Static);
+    }
+    lower_expr(&value, Some(&Type::String), &cx.exprs(false)).map(ColorExpression::Dynamic)
+}
+
 /// Validated FastList source bindings collected during lowering, before the
 /// row children are lowered. Each variant carries exactly the bindings its
 /// source provides; the final assembly wraps them in a [`ListPlan`].
@@ -199,9 +268,10 @@ pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<No
     };
     let lowered = lower_node_inner(node, cx)?;
     match accessibility {
-        Some((label, hint, role)) => Ok(Node::Accessibility {
+        Some((label, hint, value, role)) => Ok(Node::Accessibility {
             label,
             hint,
+            value,
             role,
             children: vec![lowered],
         }),
@@ -213,16 +283,18 @@ fn take_accessibility_options(
     arguments: &mut BTreeMap<String, ast::Expr>,
     span: Span,
     cx: &SemanticContext,
-) -> Result<Option<(Expr, Option<Expr>, AccessibilityRole)>, CompileError> {
+) -> Result<Option<AccessibilityOptions>, CompileError> {
     let label = arguments.remove("accessibilityLabel");
     let hint = arguments.remove("accessibilityHint");
+    let value = arguments.remove("accessibilityValue");
     let role = arguments.remove("accessibilityRole");
-    if label.is_none() && hint.is_none() && role.is_none() {
+    if label.is_none() && hint.is_none() && value.is_none() && role.is_none() {
         return Ok(None);
     }
     let Some(label) = label else {
         let option_span = hint
             .as_ref()
+            .or(value.as_ref())
             .or(role.as_ref())
             .map(ast::Expr::span)
             .unwrap_or(span);
@@ -231,7 +303,10 @@ fn take_accessibility_options(
             "accessibilityLabel is required when accessibility options are supplied",
         ));
     };
-    let lowered_label = lower_expr(&label, Some(&Type::String), &cx.exprs(false))?;
+    let lowered_label = localize_ui_text(
+        lower_expr(&label, Some(&Type::String), &cx.exprs(false))?,
+        None,
+    );
     if matches!(&label, ast::Expr::String(value, _) if value.is_empty()) {
         return Err(CompileError::new(
             label.span(),
@@ -240,7 +315,10 @@ fn take_accessibility_options(
     }
     let lowered_hint = hint
         .map(|hint| {
-            let lowered = lower_expr(&hint, Some(&Type::String), &cx.exprs(false))?;
+            let lowered = localize_ui_text(
+                lower_expr(&hint, Some(&Type::String), &cx.exprs(false))?,
+                None,
+            );
             if matches!(&hint, ast::Expr::String(value, _) if value.is_empty()) {
                 return Err(CompileError::new(
                     hint.span(),
@@ -248,6 +326,12 @@ fn take_accessibility_options(
                 ));
             }
             Ok(lowered)
+        })
+        .transpose()?;
+    let lowered_value = value
+        .map(|value| {
+            lower_expr(&value, Some(&Type::String), &cx.exprs(false))
+                .map(|value| localize_ui_text(value, None))
         })
         .transpose()?;
     let role = match role {
@@ -272,7 +356,7 @@ fn take_accessibility_options(
             ));
         }
     };
-    Ok(Some((lowered_label, lowered_hint, role)))
+    Ok(Some((lowered_label, lowered_hint, lowered_value, role)))
 }
 
 fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
@@ -290,6 +374,29 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             unreachable!("platform blocks are expanded by lower_nodes")
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Content" => Ok(Node::Content),
+        ast::Node::ComponentInvocation(inv) if inv.name == "Toolbar" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let placement = match args.remove("placement") {
+                Some(ast::Expr::Name(name, _)) if name == "Leading" => ToolbarPlacement::Leading,
+                Some(ast::Expr::Name(name, _)) if name == "Trailing" => ToolbarPlacement::Trailing,
+                Some(value) => {
+                    return Err(CompileError::new(
+                        value.span(),
+                        "Toolbar placement must be `Leading` or `Trailing`",
+                    ));
+                }
+                None => ToolbarPlacement::Trailing,
+            };
+            let children = match inv.children {
+                ast::ChildBody::Nodes(nodes) => lower_nodes(nodes, &child_cx)?,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::Toolbar {
+                placement,
+                children,
+            })
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "StatusBar" => {
             let mut args = inv.arguments;
             let style = args.remove("style");
@@ -298,6 +405,25 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             Ok(Node::StatusBar {
                 config: lower_status_bar(style, hidden, background)?,
             })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Appearance" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let mode = take_required_arg(&mut args, &inv.name, "mode", span)?;
+            let mode = lower_expr(&mode, Some(&Type::String), &cx.exprs(false))?;
+            if let Expr::String(value) = &mode
+                && !matches!(value.as_str(), "system" | "light" | "dark")
+            {
+                return Err(CompileError::new(
+                    span,
+                    "Appearance mode must be `system`, `light`, or `dark`",
+                ));
+            }
+            let children = match inv.children {
+                ast::ChildBody::Nodes(nodes) => lower_nodes(nodes, &child_cx)?,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::Appearance { mode, children })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Direction" => {
             let span = inv.span;
@@ -426,6 +552,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 blur: args.remove("blur"),
                 clip: args.remove("clip"),
                 z_index: args.remove("zIndex"),
+                glass: args.remove("glass"),
                 animation: args.remove("animation"),
             };
             let children = match inv.children {
@@ -454,20 +581,90 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 children: lowered,
             })
         }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Form" => {
+            let span = inv.span;
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::Form {
+                children: lower_nodes(children, &child_cx)?,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Section" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "Section")?;
+            let title = args
+                .remove("title")
+                .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
+                .transpose()?
+                .map(|value| localize_ui_text(value, comment.clone()));
+            let footer = args
+                .remove("footer")
+                .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
+                .transpose()?
+                .map(|value| localize_ui_text(value, comment.clone()));
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::FormSection {
+                title,
+                footer,
+                children: lower_nodes(children, &child_cx)?,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "ContentUnavailable" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "ContentUnavailable")?;
+            let title = lower_expr(
+                &take_required_arg(&mut args, &inv.name, "title", span)?,
+                Some(&Type::String),
+                &cx.exprs(false),
+            )?;
+            let icon_name = require_string_literal(
+                &take_required_arg(&mut args, &inv.name, "icon", span)?,
+                "ContentUnavailable icon",
+            )?;
+            let icon = SystemIcon::shared(&icon_name).ok_or_else(|| {
+                CompileError::new(
+                    span,
+                    format!(
+                        "unknown shared system icon `{icon_name}`; ContentUnavailable uses `icon: \"shared_name\"`"
+                    ),
+                )
+            })?;
+            let description = lower_expr(
+                &take_required_arg(&mut args, &inv.name, "description", span)?,
+                Some(&Type::String),
+                &cx.exprs(false),
+            )?;
+            Ok(Node::ContentUnavailable {
+                title: localize_ui_text(title, comment.clone()),
+                icon,
+                description: localize_ui_text(description, comment),
+            })
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "Text" => {
             let mut positional = inv.positional;
             let value = take_positional(&mut positional, inv.span, "Text")?;
             let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "Text")?;
             let color = args.remove("color");
+            let alignment = lower_text_alignment(args.remove("alignment"))?;
             let font_size = args.remove("fontSize");
             let font_weight = args.remove("fontWeight");
             let padding = args.remove("padding");
             let line_limit = args.remove("lineLimit");
             let line_height = args.remove("lineHeight");
             let letter_spacing = args.remove("letterSpacing");
+            let strikethrough = args.remove("strikethrough");
             let selectable = args.remove("selectable");
             let opacity = args.remove("opacity");
-            let value = lower_expr(&value, None, &cx.exprs(false))?;
+            let value =
+                localize_ui_text(lower_expr(&value, None, &cx.exprs(false))?, comment.clone());
             let color = optional_color(color, "text color", themes)?;
             let font_size = optional_dimension(
                 font_size,
@@ -485,6 +682,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let line_limit = lower_line_limit(line_limit)?;
             let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
             let letter_spacing = optional_dimension(letter_spacing, "letterSpacing", None, themes)?;
+            let strikethrough = optional_bool(strikethrough, false, "strikethrough")?;
             let selectable = optional_bool(selectable, false, "selectable")?;
             let opacity = lower_opacity(opacity)?;
             let effects = lower_view_effects(
@@ -494,11 +692,13 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 args.remove("blur"),
                 args.remove("clip"),
                 args.remove("zIndex"),
+                args.remove("glass"),
                 themes,
             )?;
             Ok(Node::Text {
                 value,
                 style: TextStyle {
+                    alignment,
                     color,
                     font_size,
                     font_weight,
@@ -508,6 +708,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     line_limit,
                     line_height,
                     letter_spacing,
+                    strikethrough,
                     selectable,
                 },
             })
@@ -606,6 +807,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         ast::Node::ComponentInvocation(inv) if inv.name == "SegmentedControl" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "SegmentedControl")?;
             let items = take_required_arg(&mut args, &inv.name, "items", span)?;
             let selected = take_required_arg(&mut args, &inv.name, "selected", span)?;
             let state = require_mutable_binding(
@@ -615,31 +817,85 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 span,
                 "SegmentedControl",
             )?;
-            let items = lower_expr(
-                &items,
-                Some(&Type::Array(Box::new(Type::String))),
-                &cx.exprs(false),
-            )?;
+            let items = localize_ui_text(
+                lower_expr(
+                    &items,
+                    Some(&Type::Array(Box::new(Type::String))),
+                    &cx.exprs(false),
+                )?,
+                comment.clone(),
+            );
             Ok(Node::SegmentedControl { items, state })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Picker" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "Picker")?;
             let items = take_required_arg(&mut args, &inv.name, "items", span)?;
             let selected = take_required_arg(&mut args, &inv.name, "selected", span)?;
+            let icon = args
+                .remove("icon")
+                .map(|value| {
+                    let name = require_string_literal(&value, "Picker icon")?;
+                    SystemIcon::shared(&name).ok_or_else(|| {
+                        CompileError::new(
+                            value.span(),
+                            format!("unknown shared system icon `{name}` in Picker `icon`"),
+                        )
+                    })
+                })
+                .transpose()?;
             let state = require_mutable_binding(&selected, &Type::String, symbols, span, "Picker")?;
-            let items = lower_expr(
-                &items,
-                Some(&Type::Array(Box::new(Type::String))),
-                &cx.exprs(false),
+            let items = localize_ui_text(
+                lower_expr(
+                    &items,
+                    Some(&Type::Array(Box::new(Type::String))),
+                    &cx.exprs(false),
+                )?,
+                comment.clone(),
+            );
+            let label = args
+                .remove("label")
+                .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
+                .transpose()?
+                .map(|value| localize_ui_text(value, comment.clone()));
+            Ok(Node::Picker {
+                items,
+                state,
+                icon,
+                label,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "DatePicker" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let timestamp = take_required_arg(&mut args, &inv.name, "timestamp", span)?;
+            let has_time = take_required_arg(&mut args, &inv.name, "hasTime", span)?;
+            let timestamp_state = require_mutable_binding(
+                &timestamp,
+                &Type::Numeric(NumericType::Int64),
+                symbols,
+                span,
+                "DatePicker timestamp",
             )?;
-            Ok(Node::Picker { items, state })
+            let has_time_state = require_mutable_binding(
+                &has_time,
+                &Type::Bool,
+                symbols,
+                span,
+                "DatePicker hasTime",
+            )?;
+            Ok(Node::DatePicker {
+                timestamp_state,
+                has_time_state,
+            })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Button" => {
             let span = inv.span;
             let mut positional = inv.positional;
             let label = take_positional(&mut positional, span, "Button")?;
-            let options = inv.arguments;
+            let mut options = inv.arguments;
+            let comment = take_translator_comment(&mut options, "Button")?;
             let icon = options.get("icon").cloned();
             let loading = options.get("loading").cloned();
             let disabled = options.get("disabled").cloned();
@@ -647,15 +903,41 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ast::ChildBody::Actions(actions) => actions,
                 _ => return Err(child_mismatch(span)),
             };
-            let label = lower_expr(&label, Some(&Type::String), &cx.exprs(false))?;
+            let label = localize_ui_text(
+                lower_expr(&label, Some(&Type::String), &cx.exprs(false))?,
+                comment.clone(),
+            );
             if !matches!(
                 label,
-                Expr::String(_) | Expr::Interpolation(_) | Expr::State(_, Type::String)
+                Expr::String(_)
+                    | Expr::Interpolation(_)
+                    | Expr::LocalizedText { .. }
+                    | Expr::State(_, Type::String)
+                    | Expr::NativeCall {
+                        return_type: Type::String,
+                        ..
+                    }
+                    | Expr::Call {
+                        return_type: Type::String,
+                        ..
+                    }
+                    | Expr::Conditional {
+                        value_type: Type::String,
+                        ..
+                    }
             ) {
                 return Err(CompileError::new(span, "Button label must be a String"));
             }
             let icon = icon
-                .map(|value| require_string_literal(&value, "Button icon"))
+                .map(|value| {
+                    let name = require_string_literal(&value, "Button icon")?;
+                    SystemIcon::shared(&name).ok_or_else(|| {
+                        CompileError::new(
+                            value.span(),
+                            format!("unknown shared system icon `{name}` in Button `icon`; use the `Icon` component for platform-specific symbols"),
+                        )
+                    })
+                })
                 .transpose()?;
             let loading = loading
                 .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
@@ -663,6 +945,117 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let disabled = disabled
                 .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?;
+            let style = options
+                .get("style")
+                .cloned()
+                .map(|v| match v {
+                    ast::Expr::String(s, span) => match s.as_str() {
+                        "prominent" | "borderedProminent" => Ok(ButtonStyle::BorderedProminent),
+                        "bordered" => Ok(ButtonStyle::Bordered),
+                        "borderless" => Ok(ButtonStyle::Borderless),
+                        "plain" => Ok(ButtonStyle::Plain),
+                        other => Err(CompileError::new(
+                            span,
+                            format!("unknown button style `{other}`"),
+                        )),
+                    },
+                    ast::Expr::Name(s, span) => match s.as_str() {
+                        "BorderedProminent" | "Prominent" => Ok(ButtonStyle::BorderedProminent),
+                        "Bordered" => Ok(ButtonStyle::Bordered),
+                        "Borderless" => Ok(ButtonStyle::Borderless),
+                        "Plain" => Ok(ButtonStyle::Plain),
+                        other => Err(CompileError::new(
+                            span,
+                            format!("unknown button style `{other}`"),
+                        )),
+                    },
+                    _ => Err(CompileError::new(
+                        v.span(),
+                        "button style must be a String or enum",
+                    )),
+                })
+                .transpose()?;
+            let size = options
+                .get("size")
+                .cloned()
+                .map(|v| match v {
+                    ast::Expr::String(s, span) => match s.as_str() {
+                        "small" => Ok(ButtonSize::Small),
+                        "regular" => Ok(ButtonSize::Regular),
+                        "large" => Ok(ButtonSize::Large),
+                        other => Err(CompileError::new(
+                            span,
+                            format!("unknown button size `{other}`"),
+                        )),
+                    },
+                    ast::Expr::Name(s, span) => match s.as_str() {
+                        "Small" => Ok(ButtonSize::Small),
+                        "Regular" => Ok(ButtonSize::Regular),
+                        "Large" => Ok(ButtonSize::Large),
+                        other => Err(CompileError::new(
+                            span,
+                            format!("unknown button size `{other}`"),
+                        )),
+                    },
+                    _ => Err(CompileError::new(
+                        v.span(),
+                        "button size must be a String or enum",
+                    )),
+                })
+                .transpose()?;
+            let shape = options
+                .get("shape")
+                .cloned()
+                .map(|v| match v {
+                    ast::Expr::String(s, span) => match s.to_ascii_lowercase().as_str() {
+                        "capsule" => Ok(ButtonShape::Capsule),
+                        "circle" => Ok(ButtonShape::Circle),
+                        other => {
+                            if let Some(radius) = other
+                                .strip_prefix("rounded(")
+                                .and_then(|r| r.strip_suffix(")"))
+                                .and_then(|n| n.parse::<f32>().ok())
+                            {
+                                return Ok(ButtonShape::Rounded(radius));
+                            }
+                            Err(CompileError::new(
+                                span,
+                                format!("unknown button shape `{other}`"),
+                            ))
+                        }
+                    },
+                    ast::Expr::Name(s, span) => match s.as_str() {
+                        "Capsule" => Ok(ButtonShape::Capsule),
+                        "Circle" => Ok(ButtonShape::Circle),
+                        other => Err(CompileError::new(
+                            span,
+                            format!("unknown button shape `{other}`"),
+                        )),
+                    },
+                    ast::Expr::Call(name, _, args, _span)
+                        if name == "Rounded" && args.len() == 1 =>
+                    {
+                        let r = number_value(&args[0], "shape radius")?;
+                        Ok(ButtonShape::Rounded(r))
+                    }
+                    _ => Err(CompileError::new(
+                        v.span(),
+                        "button shape must be capsule, circle, or rounded",
+                    )),
+                })
+                .transpose()?;
+            let tint = options
+                .get("tint")
+                .cloned()
+                .map(|value| lower_color_expression(value, "button tint", cx))
+                .transpose()?;
+            let glass = options
+                .get("glass")
+                .map(|v| match v {
+                    ast::Expr::Bool(b, _) => *b,
+                    _ => true,
+                })
+                .unwrap_or(false);
             let lowered = lower_actions_with_aliases(
                 actions,
                 symbols,
@@ -676,32 +1069,22 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 icon,
                 loading,
                 disabled,
+                style,
+                size,
+                shape,
+                tint,
+                glass,
                 actions: lowered,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "TextInput" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "TextInput")?;
             let value = take_required_arg(&mut args, &inv.name, "value", span)?;
             let placeholder = take_required_arg(&mut args, &inv.name, "placeholder", span)?;
-            let keyboard = match (args.remove("keyboard"), args.remove("keyboardType")) {
-                (Some(_), Some(_)) => {
-                    return Err(CompileError::new(
-                        span,
-                        "TextInput cannot specify both `keyboard` and `keyboardType`",
-                    ));
-                }
-                (legacy, canonical) => legacy.or(canonical),
-            };
-            let secure = match (args.remove("secure"), args.remove("isSecure")) {
-                (Some(_), Some(_)) => {
-                    return Err(CompileError::new(
-                        span,
-                        "TextInput cannot specify both `secure` and `isSecure`",
-                    ));
-                }
-                (legacy, canonical) => legacy.or(canonical),
-            };
+            let keyboard = args.remove("keyboardType");
+            let secure = args.remove("isSecure");
             let autofill = args.remove("autofill");
             let return_key = args.remove("returnKeyType");
             let multiline = args.remove("multiline");
@@ -709,6 +1092,51 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let capitalization = args.remove("capitalization");
             let focused = args.remove("focused");
             let max_length = args.remove("maxLength");
+            let font = lower_text_input_font(args.remove("font"))?;
+            let min_lines = lower_positive_integer(args.remove("minLines"), "TextInput minLines")?;
+            let max_lines = lower_positive_integer(args.remove("maxLines"), "TextInput maxLines")?;
+            let searchable = optional_bool(args.remove("searchable"), false, "searchable")?;
+            let mut modifiers = inv.modifiers;
+            let on_change = match take_modifier(&mut modifiers, "onChange") {
+                Some(ast::ModifierBody::EventActions {
+                    parameters,
+                    actions,
+                }) => {
+                    if parameters.len() != 1 {
+                        return Err(CompileError::new(
+                            span,
+                            ".onChange requires one String binding",
+                        ));
+                    }
+                    let Some(parameter) = parameters.into_iter().next() else {
+                        return Err(CompileError::new(
+                            span,
+                            ".onChange requires one String binding",
+                        ));
+                    };
+                    if symbols.contains_key(&parameter) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(".onChange binding `{parameter}` shadows an existing value"),
+                        ));
+                    }
+                    let mut callback_symbols = symbols.clone();
+                    callback_symbols.insert(parameter.clone(), (Type::String, false));
+                    Some(nexa_ir::TextInputChange {
+                        parameter,
+                        actions: lower_actions_with_aliases(
+                            actions,
+                            &callback_symbols,
+                            functions,
+                            false,
+                            native_aliases,
+                            cx.type_registries(),
+                        )?,
+                    })
+                }
+                Some(_) => return Err(child_mismatch(span)),
+                None => None,
+            };
             let actions = match inv.children {
                 ast::ChildBody::Actions(actions) => actions,
                 _ => return Err(child_mismatch(span)),
@@ -816,6 +1244,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     "TextInput cannot be both secure and multiline",
                 ));
             }
+            if searchable && (secure || multiline || !actions.is_empty()) {
+                return Err(CompileError::new(
+                    span,
+                    "searchable TextInput must be a single-line, non-secure field without submit actions",
+                ));
+            }
             if multiline && !actions.is_empty() {
                 return Err(CompileError::new(
                     span,
@@ -828,9 +1262,25 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 })
                 .transpose()?;
             let max_length = lower_positive_integer(max_length, "TextInput maxLength")?;
+            if min_lines
+                .zip(max_lines)
+                .is_some_and(|(minimum, maximum)| minimum > maximum)
+            {
+                return Err(CompileError::new(
+                    span,
+                    "TextInput minLines cannot be greater than maxLines",
+                ));
+            }
+            if !multiline && (min_lines.is_some() || max_lines.is_some()) {
+                return Err(CompileError::new(
+                    span,
+                    "TextInput minLines and maxLines require `multiline: true`",
+                ));
+            }
             Ok(Node::TextInput {
                 state,
                 placeholder,
+                comment,
                 keyboard,
                 secure,
                 multiline,
@@ -840,6 +1290,10 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 capitalization,
                 focused,
                 max_length,
+                font,
+                min_lines,
+                max_lines,
+                searchable,
                 actions: lower_actions_with_aliases(
                     actions,
                     symbols,
@@ -848,34 +1302,56 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     native_aliases,
                     cx.type_registries(),
                 )?,
+                on_change,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Switch" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "Switch")?;
             let value = take_required_arg(&mut args, &inv.name, "value", span)?;
             let label = take_required_arg(&mut args, &inv.name, "label", span)?;
             let state = require_mutable_binding(&value, &Type::Bool, symbols, span, "Switch")?;
-            let label = require_string_literal(&label, "Switch label")?;
+            let label = localize_ui_text(
+                lower_expr(&label, Some(&Type::String), &cx.exprs(false))?,
+                comment.clone(),
+            );
             Ok(Node::Switch { state, label })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Image" => {
             let span = inv.span;
             let mut args = inv.arguments;
             let mut modifiers = inv.modifiers;
-            let source = match (args.remove("asset"), args.remove("url")) {
-                (Some(asset), None) => ast::ImageSource::Asset(asset),
-                (None, Some(url)) => ast::ImageSource::Url(url),
+            let asset = args.remove("asset");
+            let url = args.remove("url");
+            let file = args.remove("file");
+            let source = match (asset, url, file) {
+                (Some(asset), None, None) => ast::ImageSource::Asset(asset),
+                (None, Some(url), None) => ast::ImageSource::Url(url),
+                (None, None, Some(file)) => ast::ImageSource::File(file),
                 _ => {
                     return Err(CompileError::new(
                         span,
-                        "Image requires exactly one of `asset` or `url`",
+                        "Image requires exactly one of `asset`, `url`, or `file`",
                     ));
                 }
             };
             let description = take_required_arg(&mut args, &inv.name, "description", span)?;
             let scale = args.remove("scale");
             let placeholder = args.remove("placeholder");
+            let max_height = args
+                .remove("maxHeight")
+                .map(|value| {
+                    let height = number_value(&value, "Image maxHeight")?;
+                    if !height.is_finite() || height <= 0.0 || height > 4096.0 {
+                        return Err(CompileError::new(
+                            value.span(),
+                            "Image maxHeight must be greater than 0 and no greater than 4096",
+                        ));
+                    }
+                    Ok(height)
+                })
+                .transpose()?;
             let shared_element = take_modifier_decl(&mut modifiers, "sharedElement")
                 .map(|modifier| {
                     let id = modifier.arguments.get("id").ok_or_else(|| {
@@ -913,6 +1389,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     }
                     ImageSource::RemoteUrl(lowered_url)
                 }
+                ast::ImageSource::File(file) => ImageSource::LocalFile(lower_expr(
+                    &file,
+                    Some(&Type::String),
+                    &cx.exprs(false),
+                )?),
             };
             let description = require_string_literal(&description, "Image description")?;
             let scale = match scale {
@@ -950,40 +1431,46 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 description,
                 scale,
                 placeholder,
+                max_height,
                 shared_element,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Icon" => {
             let span = inv.span;
             let mut args = inv.arguments;
-            let system_expr = take_required_arg(&mut args, &inv.name, "system", span)?;
-            let system = require_string_literal(&system_expr, "Icon system symbol")?;
-            let icon = match system.as_str() {
-                "house.fill" => SystemIcon::Home,
-                "magnifyingglass" => SystemIcon::Search,
-                "tray" => SystemIcon::Inbox,
-                "person" => SystemIcon::Profile,
-                "heart" => SystemIcon::Heart,
-                "heart.fill" => SystemIcon::HeartFilled,
-                "bubble.right" => SystemIcon::Comment,
-                "bubble.right.fill" => SystemIcon::CommentFilled,
-                "bookmark" => SystemIcon::Bookmark,
-                "bookmark.fill" => SystemIcon::BookmarkFilled,
-                "arrowshape.turn.up.right" => SystemIcon::Share,
-                "music.note" => SystemIcon::Music,
-                "chevron.left" => SystemIcon::Back,
-                "tv" => SystemIcon::Screen,
-                "rectangle.on.rectangle" => SystemIcon::Layers,
-                "plus" => SystemIcon::Plus,
-                "xmark" => SystemIcon::Close,
-                "checkmark" => SystemIcon::Checkmark,
-                "paperplane" => SystemIcon::Send,
-                "speaker.wave.2.fill" => SystemIcon::Volume,
-                "speaker.slash.fill" => SystemIcon::VolumeMuted,
+            let selectors = [("system", 0), ("sfsymbol", 1), ("materialsymbol", 2)];
+            let mut selection = None;
+            for (name, kind) in selectors {
+                if let Some(expression) = args.remove(name) {
+                    if selection.is_some() {
+                        return Err(CompileError::new(
+                            expression.span(),
+                            "Icon accepts exactly one of `system`, `sfsymbol`, or `materialsymbol`",
+                        ));
+                    }
+                    selection = Some((
+                        kind,
+                        require_string_literal(&expression, "Icon symbol name")?,
+                    ));
+                }
+            }
+            let icon = match selection {
+                Some((0, name)) => SystemIcon::shared(&name).ok_or_else(|| {
+                    CompileError::new(
+                        span,
+                        format!("unknown shared system icon `{name}`; use `sfsymbol` or `materialsymbol` for a platform-specific name"),
+                    )
+                })?,
+                Some((1, name)) => SystemIcon::sf_symbol(name).ok_or_else(|| {
+                    CompileError::new(span, "Icon `sfsymbol` must be a non-empty symbol name")
+                })?,
+                Some((2, name)) => SystemIcon::material_symbol(name).ok_or_else(|| {
+                    CompileError::new(span, "Icon `materialsymbol` must be a non-empty Compose icon name")
+                })?,
                 _ => {
                     return Err(CompileError::new(
                         span,
-                        format!("unsupported system icon `{system}`"),
+                        "Icon requires exactly one of `system`, `sfsymbol`, or `materialsymbol`",
                     ));
                 }
             };
@@ -1008,15 +1495,16 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     ));
                 }
             };
-            let tint = parse_color_literal(
+            let tint = lower_color_expression(
                 take_required_arg(&mut args, &inv.name, "tint", span)?,
                 "Icon tint",
+                cx,
             )?;
             Ok(Node::SystemIcon {
                 icon,
                 description,
                 size,
-                tint: ColorValue::Static(tint),
+                tint,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "LinearGradient" => {
@@ -1091,23 +1579,16 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 _ => return Err(child_mismatch(span)),
             };
             let mut modifiers = inv.modifiers;
-            let on_press = take_modifier_decl(&mut modifiers, "onPress");
-            let on_tap = take_modifier_decl(&mut modifiers, "onTap");
-            if on_press.is_some() && on_tap.is_some() {
-                return Err(CompileError::new(
-                    span,
-                    "Pressable accepts only one tap handler; use `.onTap` or `.onPress`, not both",
-                ));
-            }
-            let actions = match on_press.or(on_tap).map(|modifier| modifier.body) {
-                Some(ast::ModifierBody::Actions(actions)) => actions,
-                _ => {
-                    return Err(CompileError::new(
-                        span,
-                        "Pressable requires a tap handler using `.onTap { ... }` or `.onPress { ... }`",
-                    ));
-                }
-            };
+            let actions =
+                match take_modifier_decl(&mut modifiers, "onTap").map(|modifier| modifier.body) {
+                    Some(ast::ModifierBody::Actions(actions)) => actions,
+                    _ => {
+                        return Err(CompileError::new(
+                            span,
+                            "Pressable requires a tap handler using `.onTap { ... }`",
+                        ));
+                    }
+                };
             let (long_press_duration_ms, long_press_actions) =
                 match take_modifier_decl(&mut modifiers, "onLongPress") {
                     Some(modifier) => {
@@ -1139,6 +1620,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         Vec::new(),
                     ),
                 };
+            let context_menu = take_modifier_nodes(&mut modifiers, span, "contextMenu")?;
             let double_tap_actions = match take_modifier(&mut modifiers, "onDoubleTap") {
                 Some(ast::ModifierBody::Actions(actions)) => actions,
                 Some(_) => return Err(child_mismatch(span)),
@@ -1221,6 +1703,32 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 .unwrap_or(Expr::Bool(false));
             let haptic = lower_haptic(haptic)?;
             let lowered_children = lower_nodes(children, &child_cx)?;
+            let context_menu = context_menu
+                .map(|nodes| {
+                    if nodes.is_empty()
+                        || !nodes
+                            .iter()
+                            .any(|node| matches!(node, ast::Node::ComponentInvocation(inv) if inv.name == "Button"))
+                    {
+                        return Err(CompileError::new(
+                            span,
+                            "Pressable `contextMenu` requires at least one Button action",
+                        ));
+                    }
+                    let lowered = lower_nodes(nodes, &child_cx)?;
+                    if lowered
+                        .iter()
+                        .any(|node| !matches!(node, Node::Button { .. }))
+                    {
+                        return Err(CompileError::new(
+                            span,
+                            "Pressable `contextMenu` currently accepts only Button actions",
+                        ));
+                    }
+                    Ok(lowered)
+                })
+                .transpose()?
+                .unwrap_or_default();
             let actions = lower_actions_with_aliases(
                 actions,
                 symbols,
@@ -1270,6 +1778,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 double_tap_actions,
                 long_press_duration_ms,
                 long_press_actions,
+                context_menu,
                 drag_parameters,
                 drag_actions,
                 pinch_parameter,
@@ -1301,9 +1810,30 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 arguments: root.1,
             })
         }
+        ast::Node::ComponentInvocation(inv) if inv.name == "NavigationSplitView" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let detail_visible = take_required_arg(&mut args, &inv.name, "detailVisible", span)?;
+            let detail_visible = require_mutable_binding(
+                &detail_visible,
+                &Type::Bool,
+                symbols,
+                span,
+                "NavigationSplitView detailVisible",
+            )?;
+            let ast::ChildBody::SplitPanes { sidebar, detail } = inv.children else {
+                return Err(child_mismatch(span));
+            };
+            Ok(Node::NavigationSplitView {
+                detail_visible,
+                sidebar: lower_nodes(sidebar, &child_cx)?,
+                detail: lower_nodes(detail, &child_cx)?,
+            })
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "NavigationBack" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "NavigationBack")?;
             let label = args.remove("label");
             if !allow_navigation_back {
                 return Err(CompileError::new(
@@ -1315,7 +1845,9 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 .map(|label| lower_expr(&label, Some(&Type::String), &cx.exprs(false)))
                 .transpose()?
                 .unwrap_or_else(|| Expr::String("Back".to_owned()));
-            Ok(Node::NavigationBack { label })
+            Ok(Node::NavigationBack {
+                label: localize_ui_text(label, comment.clone()),
+            })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "NavigationLink" => {
             let span = inv.span;
@@ -1395,6 +1927,14 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let mut args = inv.arguments;
             let is_presented = take_required_arg(&mut args, &inv.name, "isPresented", span)?;
             let partial = args.remove("partial");
+            let large_only = args.remove("largeOnly");
+            let title = args
+                .remove("title")
+                .map(|title| {
+                    let title = lower_expr(&title, Some(&Type::String), &cx.exprs(false))?;
+                    Ok::<_, CompileError>(localize_ui_text(title, None))
+                })
+                .transpose()?;
             let children = match inv.children {
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
@@ -1405,29 +1945,107 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             Ok(Node::BottomSheet {
                 state,
                 partial: optional_bool(partial, false, "BottomSheet partial")?,
+                large_only: optional_bool(large_only, false, "BottomSheet largeOnly")?,
+                title,
                 children: lowered_children,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Dialog" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "Dialog")?;
             let is_presented = take_required_arg(&mut args, &inv.name, "isPresented", span)?;
             let title = take_required_arg(&mut args, &inv.name, "title", span)?;
             let message = take_required_arg(&mut args, &inv.name, "message", span)?;
             let state =
                 require_mutable_binding(&is_presented, &Type::Bool, symbols, span, "Dialog")?;
-            let title = lower_expr(&title, Some(&Type::String), &cx.exprs(false))?;
-            let message = lower_expr(&message, Some(&Type::String), &cx.exprs(false))?;
+            let title = localize_ui_text(
+                lower_expr(&title, Some(&Type::String), &cx.exprs(false))?,
+                comment.clone(),
+            );
+            let message = localize_ui_text(
+                lower_expr(&message, Some(&Type::String), &cx.exprs(false))?,
+                comment.clone(),
+            );
             let children = match inv.children {
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
             };
             let lowered_children = lower_nodes(children, &child_cx)?;
+            let mut text_input_count = 0;
+            for child in &lowered_children {
+                match child {
+                    Node::TextInput {
+                        secure: false,
+                        multiline: false,
+                        searchable: false,
+                        actions,
+                        ..
+                    } if actions.is_empty() => text_input_count += 1,
+                    Node::Button { .. } => {}
+                    Node::TextInput { .. } => {
+                        return Err(CompileError::new(
+                            span,
+                            "Dialog text input must be a single-line, plain TextInput without submit actions",
+                        ));
+                    }
+                    _ => {
+                        return Err(CompileError::new(
+                            span,
+                            "Dialog children must be Button actions and at most one TextInput",
+                        ));
+                    }
+                }
+            }
+            if text_input_count > 1 {
+                return Err(CompileError::new(
+                    span,
+                    "Dialog supports at most one TextInput",
+                ));
+            }
             Ok(Node::Dialog {
                 state,
                 title,
                 message,
                 children: lowered_children,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "ConfirmationDialog" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let comment = take_translator_comment(&mut args, "ConfirmationDialog")?;
+            let is_presented = take_required_arg(&mut args, &inv.name, "isPresented", span)?;
+            let title = take_required_arg(&mut args, &inv.name, "title", span)?;
+            let state = require_mutable_binding(
+                &is_presented,
+                &Type::Bool,
+                symbols,
+                span,
+                "ConfirmationDialog",
+            )?;
+            let title = localize_ui_text(
+                lower_expr(&title, Some(&Type::String), &cx.exprs(false))?,
+                comment,
+            );
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
+            let children = lower_nodes(children, &child_cx)?;
+            if children.is_empty()
+                || children
+                    .iter()
+                    .any(|child| !matches!(child, Node::Button { .. }))
+            {
+                return Err(CompileError::new(
+                    span,
+                    "ConfirmationDialog children must be Button actions",
+                ));
+            }
+            Ok(Node::ConfirmationDialog {
+                state,
+                title,
+                children,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "RefreshControl" => {
@@ -1485,10 +2103,17 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 actions,
             })
         }
-        ast::Node::ComponentInvocation(inv) if inv.name == "AppBottomBar" => {
+        ast::Node::ComponentInvocation(inv)
+            if inv.name == "AppBottomBar" || inv.name == "PagePager" =>
+        {
             let span = inv.span;
+            let is_pager = inv.name == "PagePager";
             let mut args = inv.arguments;
             let selected = take_required_arg(&mut args, &inv.name, "selected", span)?;
+            let tint = args
+                .remove("tint")
+                .map(|value| lower_color_expression(value, "AppBottomBar tint", cx))
+                .transpose()?;
             let tabs = match inv.children {
                 ast::ChildBody::Tabs(tabs) => tabs,
                 _ => return Err(child_mismatch(span)),
@@ -1498,7 +2123,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 &Type::Numeric(NumericType::Int32),
                 symbols,
                 span,
-                "AppBottomBar",
+                &inv.name,
             )?;
             let mut lowered_tabs = Vec::with_capacity(tabs.len());
             for tab in tabs {
@@ -1525,27 +2150,93 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     ));
                 }
                 let label = require_string_literal(&tab.label, "Tab label")?;
+                let comment = tab.comment;
                 let icon = tab
                     .icon
                     .as_ref()
-                    .map(|icon| require_string_literal(icon, "Tab icon"))
+                    .map(|icon| {
+                        let name = require_string_literal(icon, "Tab icon")?;
+                        SystemIcon::shared(&name).ok_or_else(|| {
+                            CompileError::new(
+                                icon.span(),
+                                format!("unknown shared tab icon `{name}`"),
+                            )
+                        })
+                    })
                     .transpose()?;
                 let badge = tab
                     .badge
                     .as_ref()
                     .map(|badge| require_string_literal(badge, "Tab badge"))
                     .transpose()?;
+                let role = tab
+                    .role
+                    .as_ref()
+                    .map(|role| require_string_literal(role, "Tab role"))
+                    .transpose()?;
+                let navigation_title = tab
+                    .navigation_title
+                    .as_ref()
+                    .map(|title| require_string_literal(title, "Tab title"))
+                    .transpose()?;
+                let large_title = tab
+                    .large_title
+                    .as_ref()
+                    .map(|value| optional_bool(Some(value.clone()), false, "largeTitle"))
+                    .transpose()?
+                    .unwrap_or(false);
+                let search_state = tab
+                    .searchable
+                    .as_ref()
+                    .map(|value| {
+                        require_mutable_binding(
+                            value,
+                            &Type::String,
+                            symbols,
+                            span,
+                            "Tab searchable",
+                        )
+                    })
+                    .transpose()?;
+                let search_prompt = tab
+                    .search_prompt
+                    .as_ref()
+                    .map(|prompt| require_string_literal(prompt, "Tab searchPrompt"))
+                    .transpose()?;
                 let children = lower_nodes(tab.children, &child_cx)?;
                 lowered_tabs.push(BottomBarTab {
                     index,
                     label,
+                    comment,
                     icon,
                     badge,
+                    role,
+                    navigation_title,
+                    large_title,
+                    search_state,
+                    search_prompt,
                     children,
+                });
+            }
+            if is_pager {
+                if lowered_tabs
+                    .iter()
+                    .enumerate()
+                    .any(|(index, tab)| tab.index != index as i32)
+                {
+                    return Err(CompileError::new(
+                        span,
+                        "PagePager indexes must be contiguous, starting at zero",
+                    ));
+                }
+                return Ok(Node::PagePager {
+                    state,
+                    pages: lowered_tabs.into_iter().map(|tab| tab.children).collect(),
                 });
             }
             Ok(Node::AppBottomBar {
                 state,
+                tint,
                 tabs: lowered_tabs,
             })
         }
@@ -1573,12 +2264,88 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 "FastList reverseLayout",
             )?;
             let page_snap = optional_bool(args.remove("pageSnap"), false, "FastList pageSnap")?;
+            let native = optional_bool(args.remove("native"), false, "FastList native")?;
             let mut modifiers = inv.modifiers;
             let on_end_reached = take_modifier_actions(&mut modifiers, span, "onEndReached")?;
             let on_scroll = take_modifier_actions(&mut modifiers, span, "onScroll")?;
+            let on_move = match take_modifier_decl(&mut modifiers, "onMove") {
+                Some(mut modifier) => {
+                    let enabled = match modifier.arguments.remove("enabled") {
+                        Some(expression) => {
+                            lower_expr(&expression, Some(&Type::Bool), &cx.exprs(false))?
+                        }
+                        None => Expr::Bool(true),
+                    };
+                    if let Some(unknown) = modifier.arguments.keys().next() {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            format!("unknown `.onMove` argument `{unknown}`; expected `enabled`"),
+                        ));
+                    }
+                    match modifier.body {
+                        ast::ModifierBody::EventActions {
+                            parameters,
+                            actions,
+                        } => {
+                            if parameters.len() != 2 {
+                                return Err(CompileError::new(
+                                    span,
+                                    ".onMove requires two bindings: from and to",
+                                ));
+                            }
+                            let from = parameters[0].clone();
+                            let to = parameters[1].clone();
+                            if from == to {
+                                return Err(CompileError::new(
+                                    span,
+                                    ".onMove bindings must have different names",
+                                ));
+                            }
+                            let mut move_symbols = symbols.clone();
+                            for parameter in [&from, &to] {
+                                if symbols.contains_key(parameter) {
+                                    return Err(CompileError::new(
+                                        span,
+                                        format!(
+                                            ".onMove binding `{parameter}` shadows an existing value"
+                                        ),
+                                    ));
+                                }
+                                move_symbols.insert(
+                                    parameter.clone(),
+                                    (Type::Numeric(NumericType::Int32), false),
+                                );
+                            }
+                            let actions = lower_actions_with_aliases(
+                                actions,
+                                &move_symbols,
+                                functions,
+                                false,
+                                native_aliases,
+                                cx.type_registries(),
+                            )?;
+                            Some(FastListMove {
+                                from,
+                                to,
+                                enabled,
+                                actions,
+                            })
+                        }
+                        _ => return Err(child_mismatch(span)),
+                    }
+                }
+                None => None,
+            };
             let sticky_header = take_modifier_nodes(&mut modifiers, span, "stickyHeader")?;
             let section_header = take_modifier_nodes(&mut modifiers, span, "sectionHeader")?;
+            let swipe_actions = take_modifier_nodes(&mut modifiers, span, "swipeActions")?;
             let sections_source = matches!(&source, ast::ListSource::Sections(_));
+            if swipe_actions.is_some() && !native {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `.swipeActions` currently requires `native: true`",
+                ));
+            }
             let axis = match axis {
                 None => ListAxis::Vertical,
                 Some(ast::Expr::Name(name, axis_span)) => match name.as_str() {
@@ -1623,6 +2390,28 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     ));
                 }
             };
+            if native
+                && (!matches!(axis, ListAxis::Vertical)
+                    || reverse_layout
+                    || page_snap
+                    || item_extent.is_some()
+                    || scroll_position.is_some()
+                    || on_end_reached.is_some()
+                    || on_scroll.is_some()
+                    || sticky_header.is_some())
+            {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `native` requires a vertical list without custom scroll behavior",
+                ));
+            }
+            let array_source = matches!(&source, ast::ListSource::Items(_));
+            if on_move.is_some() && (!native || !array_source) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `.onMove` requires `native: true` and an array source",
+                ));
+            }
             if sticky_header.is_some() && !matches!(axis, ListAxis::Vertical) {
                 return Err(CompileError::new(
                     span,
@@ -1763,34 +2552,31 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             "FastList `section` is only available with a `sections` source",
                         ));
                     }
-                    let ast::Expr::Name(name, name_span) = collection else {
+                    let collection_type = infer_expr_type(&collection, symbols, functions)
+                        .ok_or_else(|| {
+                            CompileError::new(
+                                collection.span(),
+                                "FastList positional source must have a statically known Array<T> type",
+                            )
+                        })?;
+                    let Type::Array(element_type) = &collection_type else {
                         return Err(CompileError::new(
                             collection.span(),
-                            "FastList positional source must be an Array<T> binding",
-                        ));
-                    };
-                    let Some((ty, _)) = symbols.get(&name) else {
-                        return Err(CompileError::new(
-                            name_span,
-                            format!("unknown state `{name}`"),
-                        ));
-                    };
-                    let Type::Array(element_type) = ty else {
-                        return Err(CompileError::new(
-                            name_span,
-                            format!("FastList collection `{name}` must have type Array<T>"),
+                            "FastList collection must have type Array<T>",
                         ));
                     };
                     let item_name = binding_name(item, "item", "FastList item")?;
                     if item_name == index {
                         return Err(CompileError::new(
-                            name_span,
+                            collection.span(),
                             "FastList item and index bindings must have different names",
                         ));
                     }
+                    let collection =
+                        lower_expr(&collection, Some(&collection_type), &cx.exprs(false))?;
                     (
                         ListSourceParts::Items {
-                            collection: Expr::State(name, ty.clone()),
+                            collection,
                             element_type: (**element_type).clone(),
                             item: item_name.clone(),
                         },
@@ -1800,40 +2586,37 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     )
                 }
                 ast::ListSource::Sections(collection) => {
-                    let ast::Expr::Name(name, name_span) = collection else {
+                    let collection_type = infer_expr_type(&collection, symbols, functions)
+                        .ok_or_else(|| {
+                            CompileError::new(
+                                collection.span(),
+                                "FastList `sections` must have a statically known Array<Array<T>> type",
+                            )
+                        })?;
+                    let Type::Array(section_type) = &collection_type else {
                         return Err(CompileError::new(
                             collection.span(),
-                            "FastList `sections` must be an Array<Array<T>> binding",
-                        ));
-                    };
-                    let Some((ty, _)) = symbols.get(&name) else {
-                        return Err(CompileError::new(
-                            name_span,
-                            format!("unknown state `{name}`"),
-                        ));
-                    };
-                    let Type::Array(section_type) = ty else {
-                        return Err(CompileError::new(
-                            name_span,
-                            format!("FastList sections `{name}` must have type Array<Array<T>>"),
+                            "FastList `sections` must have type Array<Array<T>>",
                         ));
                     };
                     let Type::Array(element_type) = &**section_type else {
                         return Err(CompileError::new(
-                            name_span,
-                            format!("FastList sections `{name}` must have type Array<Array<T>>"),
+                            collection.span(),
+                            "FastList `sections` must have type Array<Array<T>>",
                         ));
                     };
                     let item_name = binding_name(item, "item", "FastList item")?;
                     if item_name == index || item_name == section_name || index == section_name {
                         return Err(CompileError::new(
-                            name_span,
+                            collection.span(),
                             "FastList section, item, and index bindings must have different names",
                         ));
                     }
+                    let collection =
+                        lower_expr(&collection, Some(&collection_type), &cx.exprs(false))?;
                     (
                         ListSourceParts::Sections {
-                            collection: Expr::State(name, ty.clone()),
+                            collection,
                             element_type: (**element_type).clone(),
                             section: section_name.clone(),
                             item: item_name.clone(),
@@ -1916,6 +2699,29 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     "FastList `sectionHeader` requires at least one header component",
                 ));
             }
+            if swipe_actions.as_ref().is_some_and(Vec::is_empty) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `swipeActions` requires at least one action component",
+                ));
+            }
+            if swipe_actions.is_some() && lowered_children.len() != 1 {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `swipeActions` requires exactly one row root component",
+                ));
+            }
+            let swipe_actions = swipe_actions
+                .map(|actions| lower_nodes(actions, &row_cx))
+                .transpose()?;
+            if swipe_actions.as_ref().is_some_and(|actions| {
+                actions.len() != 1 || !matches!(actions.first(), Some(Node::Button { .. }))
+            }) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `swipeActions` currently requires one Button action",
+                ));
+            }
             let on_end_reached = on_end_reached
                 .map(|actions| {
                     lower_actions_with_aliases(
@@ -1952,6 +2758,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             (Type::Numeric(NumericType::Int32), false),
                         );
                     }
+                    if sections_source && let Some(item_type) = &item_type {
+                        header_symbols.insert(
+                            "sectionItems".to_owned(),
+                            (Type::Array(Box::new(item_type.clone())), false),
+                        );
+                    }
                     lower_nodes(header, &child_cx.with_symbols(&header_symbols))
                 })
                 .transpose()?;
@@ -1961,6 +2773,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         count,
                         common: ListCommon {
                             axis,
+                            native,
                             reverse_layout,
                             page_snap,
                             item_extent,
@@ -1970,6 +2783,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             children: lowered_children,
                             on_end_reached,
                             on_scroll,
+                            on_move: None,
+                            swipe_actions,
                             sticky_header,
                             refresh: None,
                         },
@@ -1984,6 +2799,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         item,
                         common: ListCommon {
                             axis,
+                            native,
                             reverse_layout,
                             page_snap,
                             item_extent,
@@ -1993,6 +2809,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             children: lowered_children,
                             on_end_reached,
                             on_scroll,
+                            on_move,
+                            swipe_actions,
                             sticky_header,
                             refresh: None,
                         },
@@ -2018,11 +2836,13 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             section,
                             item,
                             common: SectionedListCommon {
+                                native,
                                 item_extent,
                                 index,
                                 key,
                                 children: lowered_children,
                                 section_header,
+                                swipe_actions,
                                 refresh: None,
                             },
                         }
@@ -2459,6 +3279,32 @@ fn lower_direction(value: ast::Expr) -> Result<DirectionConfig, CompileError> {
     Ok(DirectionConfig { style })
 }
 
+fn lower_text_alignment(
+    value: Option<ast::Expr>,
+) -> Result<Option<nexa_ir::TextAlignment>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "Text alignment must be Leading, Center, or Trailing",
+        ));
+    };
+    let alignment = match name.as_str() {
+        "Leading" => nexa_ir::TextAlignment::Leading,
+        "Center" => nexa_ir::TextAlignment::Center,
+        "Trailing" => nexa_ir::TextAlignment::Trailing,
+        _ => {
+            return Err(CompileError::new(
+                span,
+                "Text alignment must be Leading, Center, or Trailing",
+            ));
+        }
+    };
+    Ok(Some(alignment))
+}
+
 fn lower_font_weight(value: Option<ast::Expr>) -> Result<Option<FontWeight>, CompileError> {
     let Some(value) = value else {
         return Ok(None);
@@ -2529,6 +3375,26 @@ fn lower_positive_integer(
         ));
     }
     Ok(Some(limit))
+}
+
+fn lower_text_input_font(value: Option<ast::Expr>) -> Result<Option<TextInputFont>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "TextInput font must be `Body` or `Title3`",
+        ));
+    };
+    match name.as_str() {
+        "Body" => Ok(Some(TextInputFont::Body)),
+        "Title3" => Ok(Some(TextInputFont::Title3)),
+        _ => Err(CompileError::new(
+            span,
+            "TextInput font must be `Body` or `Title3`",
+        )),
+    }
 }
 
 fn binding_name(
@@ -2674,6 +3540,8 @@ fn lower_actions_with_disposal_state(
     disposed_instances: &mut HashSet<String>,
     registries: TypeRegistries<'_>,
 ) -> Result<Vec<Action>, CompileError> {
+    let mut symbol_scope = (*symbols).clone();
+    let symbols = &mut symbol_scope;
     let mut lowered = Vec::with_capacity(actions.len());
     for action in actions {
         match action {
@@ -2692,11 +3560,37 @@ fn lower_actions_with_disposal_state(
                 )?;
                 lowered.push(Action::Expression(expression));
             }
-            ast::Stmt::Let { span, .. } => {
-                return Err(CompileError::new(
-                    span,
-                    "local `let` declarations are only allowed inside functions",
-                ));
+            ast::Stmt::Let {
+                name,
+                ty,
+                initial,
+                span,
+            } => {
+                if symbols.contains_key(&name) {
+                    return Err(CompileError::new(
+                        span,
+                        format!("local constant `{name}` shadows an existing value"),
+                    ));
+                }
+                let local_type = resolve_value_type(
+                    &name,
+                    ty.as_ref(),
+                    &initial,
+                    symbols,
+                    functions,
+                    registries.structs,
+                )?;
+                let value = lower_expr(
+                    &initial,
+                    Some(&local_type),
+                    &registries.expr_context(symbols, functions, allow_await),
+                )?;
+                symbols.insert(name.clone(), (local_type.clone(), false));
+                lowered.push(Action::Let {
+                    name,
+                    ty: local_type,
+                    value,
+                });
             }
             ast::Stmt::Assign { name, value, span } => {
                 let Some((ty, mutable)) = symbols.get(&name) else {
@@ -2974,7 +3868,7 @@ fn lower_actions_with_disposal_state(
                 let Some((ty, mutable)) = symbols.get(&name) else {
                     return Err(CompileError::new(span, format!("unknown state `{name}`")));
                 };
-                if matches!(ty, Type::Plugin { .. }) {
+                if matches!(ty, Type::Plugin { .. } | Type::Class { .. }) {
                     let expression = ast::Expr::MethodCall {
                         base: Box::new(ast::Expr::Name(name, span)),
                         name: method,
@@ -3017,11 +3911,26 @@ fn lower_actions_with_disposal_state(
                             CollectionMutation::ArrayRemoveAt,
                             vec![&Type::Numeric(NumericType::Int32)],
                         ),
+                        "move" => (
+                            CollectionMutation::ArrayMove,
+                            vec![
+                                &Type::Numeric(NumericType::Int32),
+                                &Type::Numeric(NumericType::Int32),
+                            ],
+                        ),
+                        "moveSubset" => (
+                            CollectionMutation::ArrayMoveSubset,
+                            vec![
+                                &Type::Numeric(NumericType::Int32),
+                                &Type::Numeric(NumericType::Int32),
+                                ty,
+                            ],
+                        ),
                         _ => {
                             return Err(CompileError::new(
                                 span,
                                 format!(
-                                    "Array state `{name}` supports `append(value)` and `remove(index)`"
+                                    "Array state `{name}` supports `append(value)`, `remove(index)`, `move(from, to)`, and `moveSubset(from, to, orderedSubset)`"
                                 ),
                             ));
                         }
@@ -3102,19 +4011,21 @@ fn lower_actions_with_disposal_state(
                 body,
                 span,
             } => {
-                let Some((handle_type, mutable)) = symbols.get(&handle) else {
-                    return Err(CompileError::new(
-                        span,
-                        format!("unknown task handle state `{handle}`"),
-                    ));
-                };
-                if !mutable || handle_type != &Type::Optional(Box::new(Type::TaskHandle)) {
-                    return Err(CompileError::new(
-                        span,
-                        format!(
-                            "Task.launch requires `{handle}` to be a mutable `TaskHandle?` state initialized to `null`"
-                        ),
-                    ));
+                if let Some(handle) = &handle {
+                    let Some((handle_type, mutable)) = symbols.get(handle) else {
+                        return Err(CompileError::new(
+                            span,
+                            format!("unknown task handle state `{handle}`"),
+                        ));
+                    };
+                    if !mutable || handle_type != &Type::Optional(Box::new(Type::TaskHandle)) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(
+                                "Task.launch requires `{handle}` to be a mutable `TaskHandle?` state initialized to `null`"
+                            ),
+                        ));
+                    }
                 }
                 let actions = lower_actions_with_aliases(
                     body,
@@ -3239,64 +4150,14 @@ fn lower_actions_with_disposal_state(
                         format!("loop binding `{name}` shadows an existing binding"),
                     ));
                 }
-                let (iterable, element_type) = if let ast::Expr::Range {
-                    start,
-                    end,
-                    inclusive,
-                    step,
-                    ..
-                } = &iterable
-                {
-                    let int32 = Type::Numeric(NumericType::Int32);
-                    let start = lower_expr(
-                        start,
-                        Some(&int32),
-                        &registries.expr_context(symbols, functions, allow_await),
-                    )?;
-                    let end = lower_expr(
-                        end,
-                        Some(&int32),
-                        &registries.expr_context(symbols, functions, allow_await),
-                    )?;
-                    let step = step
-                        .as_deref()
-                        .map(|step| {
-                            lower_range_step(step, symbols, functions, allow_await, registries)
-                        })
-                        .transpose()?
-                        .map(Box::new);
-                    (
-                        Expr::Range {
-                            start: Box::new(start),
-                            end: Box::new(end),
-                            inclusive: *inclusive,
-                            step,
-                        },
-                        int32,
-                    )
-                } else {
-                    let Some(iterable_type) = infer_expr_type(&iterable, symbols, functions) else {
-                        return Err(CompileError::new(
-                            span,
-                            "for loops require an Array<T>, Set<T>, or an Int32 range",
-                        ));
-                    };
-                    let element_type = match &iterable_type {
-                        Type::Array(element) | Type::Set(element) => element.as_ref().clone(),
-                        _ => {
-                            return Err(CompileError::new(
-                                span,
-                                "for loops require an Array<T>, Set<T>, or an Int32 range",
-                            ));
-                        }
-                    };
-                    let iterable = lower_expr(
-                        &iterable,
-                        Some(&iterable_type),
-                        &registries.expr_context(symbols, functions, allow_await),
-                    )?;
-                    (iterable, element_type)
-                };
+                let (iterable, element_type) = lower_for_iterable(
+                    &iterable,
+                    symbols,
+                    functions,
+                    allow_await,
+                    registries,
+                    span,
+                )?;
                 validate_and_record_native_disposal(
                     &iterable,
                     disposed_instances,
@@ -3343,19 +4204,13 @@ fn lower_actions_with_disposal_state(
                         "map loop bindings cannot shadow an existing binding",
                     ));
                 }
-                let Some(Type::Map(key_type, value_type)) =
-                    infer_expr_type(&iterable, symbols, functions)
-                else {
-                    return Err(CompileError::new(
-                        span,
-                        "map destructuring loops require a Map<K, V> iterable",
-                    ));
-                };
-                let iterable_type = Type::Map(key_type.clone(), value_type.clone());
-                let iterable = lower_expr(
+                let (iterable, key_type, value_type) = lower_map_iterable(
                     &iterable,
-                    Some(&iterable_type),
-                    &registries.expr_context(symbols, functions, allow_await),
+                    symbols,
+                    functions,
+                    allow_await,
+                    registries,
+                    span,
                 )?;
                 validate_and_record_native_disposal(
                     &iterable,
@@ -3365,8 +4220,8 @@ fn lower_actions_with_disposal_state(
                     span,
                 )?;
                 let mut loop_symbols = symbols.clone();
-                loop_symbols.insert(key_name.clone(), ((*key_type).clone(), false));
-                loop_symbols.insert(value_name.clone(), ((*value_type).clone(), false));
+                loop_symbols.insert(key_name.clone(), (key_type, false));
+                loop_symbols.insert(value_name.clone(), (value_type, false));
                 let mut body_disposed = disposed_instances.clone();
                 let body = lower_actions_with_disposal_state(
                     body,
@@ -3657,7 +4512,10 @@ fn collect_animation_targets(
                         "`withAnimation` supports floating-point state assignments, not collection mutations",
                     ));
                 }
-                Action::Expression(_) | Action::NativePropertyAssign { .. } => {
+                Action::Expression(_)
+                | Action::Let { .. }
+                | Action::Return { .. }
+                | Action::NativePropertyAssign { .. } => {
                     return Err(CompileError::new(
                         span,
                         "`withAnimation` only supports floating-point state assignments and control flow around them",
@@ -3695,7 +4553,7 @@ pub(super) fn class_has_dispose_method(ty: &Type, functions: &FunctionSignatures
         })
 }
 
-fn validate_typed_error_recovery(
+pub(super) fn validate_typed_error_recovery(
     actions: &[Action],
     catches: &[nexa_ir::ErrorCatchArm],
     has_catch_all: bool,
@@ -3829,7 +4687,11 @@ fn actions_mutate_or_subscribe(actions: &[Action]) -> bool {
                     .as_deref()
                     .is_some_and(actions_mutate_or_subscribe)
         }
-        Action::Expression(_) | Action::Break | Action::Continue => false,
+        Action::Expression(_)
+        | Action::Let { .. }
+        | Action::Return { .. }
+        | Action::Break
+        | Action::Continue => false,
     })
 }
 
@@ -3839,7 +4701,11 @@ fn visit_action_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
             Action::Expression(expression)
             | Action::Assign {
                 value: expression, ..
-            } => {
+            }
+            | Action::Let {
+                value: expression, ..
+            }
+            | Action::Return { value: expression } => {
                 nexa_ir::walk::walk_expression(expression, visit);
             }
             Action::NativePropertyAssign {
@@ -3960,35 +4826,6 @@ fn native_object_identity(name: &str, aliases: &HashMap<String, String>) -> Stri
         .get(name)
         .cloned()
         .unwrap_or_else(|| name.to_owned())
-}
-
-fn lower_range_step(
-    step: &ast::Expr,
-    symbols: &HashMap<String, (Type, bool)>,
-    functions: &FunctionSignatures,
-    allow_await: bool,
-    registries: TypeRegistries<'_>,
-) -> Result<Expr, CompileError> {
-    let ast::Expr::Number(raw, span) = step else {
-        return Err(CompileError::new(
-            step.span(),
-            "range step must be a positive Int32 literal",
-        ));
-    };
-    let value = raw
-        .parse::<i32>()
-        .map_err(|_| CompileError::new(*span, "range step must be a positive Int32 literal"))?;
-    if value <= 0 {
-        return Err(CompileError::new(
-            *span,
-            "range step must be a positive Int32 literal",
-        ));
-    }
-    lower_expr(
-        step,
-        Some(&Type::Numeric(NumericType::Int32)),
-        &registries.expr_context(symbols, functions, allow_await),
-    )
 }
 
 fn require_mutable_binding(

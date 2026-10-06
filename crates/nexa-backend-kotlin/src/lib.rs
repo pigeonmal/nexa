@@ -1,5 +1,27 @@
 mod generator;
 
+/// Source files and Android drawable resources generated for Glance widgets.
+pub struct WidgetGeneratedSources {
+    pub sources: nexa_codegen::GeneratedSources,
+    /// Resource paths are relative to `src/main/res`, e.g. `drawable/nexa_icon.xml`.
+    pub resources: Vec<nexa_codegen::SourceUnit>,
+}
+
+/// A typed widget IR value that cannot be rendered safely by the Kotlin backend.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WidgetGenerationError {
+    pub widget: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for WidgetGenerationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "widget `{}`: {}", self.widget, self.message)
+    }
+}
+
+impl std::error::Error for WidgetGenerationError {}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct KotlinProjectFeatures {
     pub uses_network: bool,
@@ -9,6 +31,7 @@ pub struct KotlinProjectFeatures {
     pub uses_coroutines: bool,
     pub uses_permission_request: bool,
     pub uses_navigation: bool,
+    pub uses_bottom_bar: bool,
     pub uses_compose_animation: bool,
     pub uses_compose_graphics: bool,
     pub uses_lifecycle_events: bool,
@@ -32,6 +55,15 @@ impl nexa_codegen::Backend for KotlinBackend {
 }
 
 impl KotlinBackend {
+    /// Generate Jetpack Glance widget target sources from typed Nexa widget
+    /// declarations. Project generation owns manifest/provider registration.
+    pub fn generate_widget_units(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> Result<WidgetGeneratedSources, WidgetGenerationError> {
+        generator::generate_widget_units(module)
+    }
+
     /// Generate the release host as one concatenated source string.
     pub fn generate_with_project_features(
         &self,

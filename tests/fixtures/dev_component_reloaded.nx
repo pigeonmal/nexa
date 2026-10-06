@@ -148,16 +148,16 @@ app ComponentSmoke {
                 Text("Accessible none", fontSize: 8, accessibilityLabel: "No role", accessibilityRole: None)
             }
             Link(url: "https://example.com") { Text("External link", fontSize: 8) }
-            TextInput(value: keyboardText, placeholder: "Keyboard text", keyboard: Text, capitalization: Sentences)
-            TextInput(value: keyboardNumber, placeholder: "Keyboard number", keyboard: Number, capitalization: None)
-            TextInput(value: keyboardEmail, placeholder: "Keyboard email", keyboard: Email, capitalization: Words)
-            TextInput(value: keyboardPhone, placeholder: "Keyboard phone", keyboard: Phone, capitalization: Characters)
-            TextInput(value: keyboardUrl, placeholder: "Keyboard url", keyboard: Url, capitalization: None)
+            TextInput(value: keyboardText, placeholder: "Keyboard text", keyboardType: Text, capitalization: Sentences)
+            TextInput(value: keyboardNumber, placeholder: "Keyboard number", keyboardType: Number, capitalization: None)
+            TextInput(value: keyboardEmail, placeholder: "Keyboard email", keyboardType: Email, capitalization: Words)
+            TextInput(value: keyboardPhone, placeholder: "Keyboard phone", keyboardType: Phone, capitalization: Characters)
+            TextInput(value: keyboardUrl, placeholder: "Keyboard url", keyboardType: Url, capitalization: None)
             KeyboardAware(dismiss: Never) { Text("Never dismiss", fontSize: 8) }
             Row {
-                Pressable(disabled: false, haptic: Light) { Text("Haptic light") }.onPress {}
-                Pressable(disabled: false, haptic: Medium) { Text("Haptic medium") }.onPress {}
-                Pressable(disabled: false, haptic: Heavy) { Text("Haptic heavy") }.onPress {}
+                Pressable(disabled: false, haptic: Light) { Text("Haptic light") }.onTap {}
+                Pressable(disabled: false, haptic: Medium) { Text("Haptic medium") }.onTap {}
+                Pressable(disabled: false, haptic: Heavy) { Text("Haptic heavy") }.onTap {}
             }
         }
     }

@@ -2,17 +2,19 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-use nexa_ir::Permission;
+use nexa_ir::{Permission, Widget, WidgetFamily};
 use nexa_plugin_idl::manifest::{EntitlementValue, SwiftPackage};
 
 use super::ProjectConfig;
 use super::pbxproj::BuildSettings;
 use super::pbxproj::{
-    PbxIdAllocator, PbxProject, SettingValue, build_configuration_object, build_file_object,
-    configuration_list_object, embed_build_file_object, embed_frameworks_phase_object,
+    PbxIdAllocator, PbxProject, SettingValue, app_extension_product_reference_object,
+    build_configuration_object, build_file_object, configuration_list_object,
+    embed_app_extensions_phase_object, embed_build_file_object, embed_frameworks_phase_object,
     file_reference_object, frameworks_phase_object, group_object, native_target_object,
     package_build_file_object, package_product_dependency_object, product_reference_object,
     project_object, remote_package_reference_object, resources_phase_object, sources_phase_object,
+    target_dependency_object, target_dependency_proxy_object,
 };
 use super::plugin_package::PluginPackage;
 
@@ -118,6 +120,16 @@ pub(super) fn ios_info_plist_with_orientation(
     } else {
         ""
     };
+    let app_group_identifier = config
+        .ios_app_group_identifier
+        .as_deref()
+        .map(|identifier| {
+            format!(
+                "<key>NexaAppGroupIdentifier</key><string>{}</string>",
+                xml_escape(identifier)
+            )
+        })
+        .unwrap_or_default();
     let schemes = config
         .deep_links
         .iter()
@@ -132,16 +144,31 @@ pub(super) fn ios_info_plist_with_orientation(
             xml_escape(&config.ios_bundle_identifier)
         )
     };
-    // Scene geometry requests can only select orientations the host declares
-    // as supported. Keep phone landscape available for `Screen.lockOrientation`
-    // and allow every interface orientation on iPad.
-    let interface_orientations = if supports_screen_orientation {
-        "<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array><key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>"
-    } else {
-        ""
+    // Scene geometry requests can only select orientations declared here.
+    let phone_orientations = match config.orientation.as_str() {
+        "portrait" | "portrait-phones" => {
+            "<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>"
+        }
+        "all" if supports_screen_orientation => {
+            "<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>"
+        }
+        _ => "",
     };
+    let ipad_orientations = match config.orientation.as_str() {
+        "portrait" => {
+            "<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string></array>"
+        }
+        "portrait-phones" => {
+            "<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>"
+        }
+        "all" if supports_screen_orientation => {
+            "<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>"
+        }
+        _ => "",
+    };
+    let interface_orientations = format!("{phone_orientations}{ipad_orientations}");
     Ok(format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{interface_orientations}{dev_network}{url_types}{background_modes}{background_identifiers}{entries}</dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{interface_orientations}{dev_network}{url_types}{background_modes}{background_identifiers}{app_group_identifier}{entries}</dict></plist>\n",
         xml_escape(&config.display_name),
         xml_escape(&config.ios_bundle_identifier),
         xml_escape(&config.version),
@@ -154,6 +181,7 @@ pub(super) fn ios_app_source(
     app_root: &str,
     tasks: &[nexa_ir::BackgroundTask],
     plugins: &[PluginPackage],
+    has_widgets: bool,
 ) -> Result<String, String> {
     let app_delegates = plugins
         .iter()
@@ -166,10 +194,16 @@ pub(super) fn ios_app_source(
         ));
     }
     let mut source = String::from("import SwiftUI\n");
+    if has_widgets {
+        source.push_str("import WidgetKit\n");
+    }
     if !tasks.is_empty() {
         source.push_str("import BackgroundTasks\n");
     }
     source.push_str(&format!("\n@main\nstruct {app_name}App: App {{\n"));
+    if has_widgets {
+        source.push_str("    @Environment(\\.scenePhase) private var scenePhase\n");
+    }
     if let Some(delegate) = app_delegates.first() {
         source.push_str(&format!(
             "    @UIApplicationDelegateAdaptor({delegate}.self) private var nexaApplicationDelegate\n"
@@ -182,6 +216,11 @@ pub(super) fn ios_app_source(
         source.push_str("\n                .task { __nexaScheduleBackgroundTasks() }");
     }
     source.push_str("\n        }");
+    if has_widgets {
+        source.push_str(
+            "\n        .onChange(of: scenePhase) { phase in\n            if phase == .background {\n                WidgetCenter.shared.reloadAllTimelines()\n            }\n        }",
+        );
+    }
     for task in tasks.iter().enumerate() {
         let (index, task) = task;
         source.push_str(&format!(
@@ -203,6 +242,45 @@ pub(super) fn ios_app_source(
         );
     }
     Ok(source)
+}
+
+pub(super) fn ios_widget_info_plist(app_name: &str, config: &ProjectConfig) -> String {
+    let group_identifier = config
+        .ios_app_group_identifier
+        .as_deref()
+        .map(|identifier| {
+            format!(
+                "<key>NexaAppGroupIdentifier</key><string>{}</string>",
+                xml_escape(identifier)
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}.widgets</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>XPC!</string><key>CFBundleInfoDictionaryVersion</key><string>6.0</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string>{group_identifier}<key>NSExtension</key><dict><key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string></dict></dict></plist>\n",
+        xml_escape(&config.display_name),
+        xml_escape(&config.ios_bundle_identifier),
+        xml_escape(&config.version),
+        config.build_number
+    )
+}
+
+/// App Groups are optional for widgets that only render values provided by
+/// their timeline. When the host configures one, grant that shared-container
+/// entitlement to the extension without leaking app-only capabilities.
+pub(super) fn ios_widget_entitlements(config: &ProjectConfig) -> String {
+    let shared_group = config
+        .ios_app_group_identifier
+        .as_deref()
+        .map(|identifier| {
+            format!(
+                "<key>com.apple.security.application-groups</key><array><string>{}</string></array>",
+                xml_escape(identifier)
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>{shared_group}</dict></plist>\n"
+    )
 }
 
 pub(super) fn ios_privacy_manifest(
@@ -269,6 +347,29 @@ fn ios_entitlements_for_environment(
             }
             values.entry(key.clone()).or_insert_with(|| value.clone());
             owners.entry(key.clone()).or_insert(&plugin.namespace);
+        }
+    }
+    if let Some(identifier) = &config.ios_app_group_identifier {
+        let key = "com.apple.security.application-groups";
+        match values.get_mut(key) {
+            Some(EntitlementValue::Strings(existing)) => {
+                if !existing.contains(identifier) {
+                    existing.push(identifier.clone());
+                    existing.sort();
+                }
+            }
+            Some(_) => {
+                return Err(format!(
+                    "iOS appGroupIdentifier conflicts with plugin entitlement `{key}`"
+                ));
+            }
+            None => {
+                values.insert(
+                    key.to_owned(),
+                    EntitlementValue::Strings(vec![identifier.clone()]),
+                );
+                owners.insert(key.to_owned(), "app config");
+            }
         }
     }
     if let Some(environment) = aps_environment
@@ -349,7 +450,11 @@ fn merge_swift_packages(plugins: &[PluginPackage]) -> Result<Vec<SwiftPackage>, 
                         package.url
                     ));
                 }
-                for product in &package.products {
+                for product in package
+                    .products
+                    .iter()
+                    .chain(package.extension_products.iter())
+                {
                     if let Some(owner) = product_owners.get(product)
                         && owner != &package.url
                     {
@@ -359,12 +464,20 @@ fn merge_swift_packages(plugins: &[PluginPackage]) -> Result<Vec<SwiftPackage>, 
                         ));
                     }
                     product_owners.insert(product.clone(), package.url.clone());
-                    if !existing.products.contains(product) {
-                        existing.products.push(product.clone());
+                    if package.products.contains(product) {
+                        if !existing.products.contains(product) {
+                            existing.products.push(product.clone());
+                        }
+                    } else if !existing.extension_products.contains(product) {
+                        existing.extension_products.push(product.clone());
                     }
                 }
             } else {
-                for product in &package.products {
+                for product in package
+                    .products
+                    .iter()
+                    .chain(package.extension_products.iter())
+                {
                     if let Some(owner) = product_owners.get(product)
                         && owner != &package.url
                     {
@@ -474,6 +587,7 @@ fn merge_maven_dependencies(plugins: &[PluginPackage]) -> Result<Vec<String>, St
 /// identifiers come from one [`PbxIdAllocator`]; see its docs for the key
 /// scheme.
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 pub(super) fn ios_project_file_with_config(
     app_name: &str,
     has_assets: bool,
@@ -486,11 +600,84 @@ pub(super) fn ios_project_file_with_config(
     plugins: &[PluginPackage],
     config: &ProjectConfig,
 ) -> Result<String, String> {
+    ios_project_file_with_localization_config(
+        app_name,
+        has_assets,
+        has_plugin_resources,
+        false,
+        has_privacy_manifest,
+        generated_sources,
+        plugin_sources,
+        cpp_sources,
+        xcframeworks,
+        plugins,
+        config,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn ios_project_file_with_localization_config(
+    app_name: &str,
+    has_assets: bool,
+    has_plugin_resources: bool,
+    has_localization_catalog: bool,
+    has_privacy_manifest: bool,
+    generated_sources: &[String],
+    plugin_sources: &[String],
+    cpp_sources: &[String],
+    xcframeworks: &[String],
+    plugins: &[PluginPackage],
+    config: &ProjectConfig,
+) -> Result<String, String> {
+    ios_project_file_with_localization_config_and_widgets(
+        app_name,
+        has_assets,
+        has_plugin_resources,
+        has_localization_catalog,
+        has_privacy_manifest,
+        generated_sources,
+        plugin_sources,
+        cpp_sources,
+        xcframeworks,
+        plugins,
+        config,
+        &[],
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn ios_project_file_with_localization_config_and_widgets(
+    app_name: &str,
+    has_assets: bool,
+    has_plugin_resources: bool,
+    has_localization_catalog: bool,
+    has_privacy_manifest: bool,
+    generated_sources: &[String],
+    plugin_sources: &[String],
+    cpp_sources: &[String],
+    xcframeworks: &[String],
+    plugins: &[PluginPackage],
+    config: &ProjectConfig,
+    widget_sources: &[super::NativeWidgetSource],
+    has_configurable_widget: bool,
+) -> Result<String, String> {
     let packages = merge_swift_packages(plugins)?;
     let frameworks = merge_ios_frameworks(plugins);
     let linker_flags = merge_ios_linker_flags(plugins);
     let minimum_version = minimum_ios_version(&config.ios_min_version, plugins)?;
-
+    let widget_minimum_version = if has_configurable_widget
+        && minimum_version
+            .split('.')
+            .next()
+            .and_then(|major| major.parse::<u32>().ok())
+            .is_some_and(|major| major < 17)
+    {
+        "17.0".to_owned()
+    } else {
+        minimum_version.clone()
+    };
+    let has_widget_extension = !widget_sources.is_empty();
     let mut alloc = PbxIdAllocator::new();
     // Core object identifiers, each derived from a stable logical key.
     let project_id = alloc.id("project")?;
@@ -513,6 +700,53 @@ pub(super) fn ios_project_file_with_config(
     let project_debug_id = alloc.id("config:project:debug")?;
     let target_release_id = alloc.id("config:target:release")?;
     let target_debug_id = alloc.id("config:target:debug")?;
+    let widget_target_id = has_widget_extension
+        .then(|| alloc.id("target:widgets"))
+        .transpose()?;
+    let widget_sources_phase_id = has_widget_extension
+        .then(|| alloc.id("phase:widgets:sources"))
+        .transpose()?;
+    let widget_frameworks_phase_id = has_widget_extension
+        .then(|| alloc.id("phase:widgets:frameworks"))
+        .transpose()?;
+    let widget_resources_phase_id = has_widget_extension
+        .then(|| alloc.id("phase:widgets:resources"))
+        .transpose()?;
+    let embed_widgets_phase_id = has_widget_extension
+        .then(|| alloc.id("phase:embed-widgets"))
+        .transpose()?;
+    let widget_group_id = has_widget_extension
+        .then(|| alloc.id("group:widgets"))
+        .transpose()?;
+    let widget_info_id = has_widget_extension
+        .then(|| alloc.id("file:widgets:info"))
+        .transpose()?;
+    let widget_product_id = has_widget_extension
+        .then(|| alloc.id("file:widgets:product"))
+        .transpose()?;
+    let widget_embed_build_id = has_widget_extension
+        .then(|| alloc.id("build:widgets:embed"))
+        .transpose()?;
+    let widget_localization_build_id = if has_widget_extension && has_localization_catalog {
+        Some(alloc.id("build:widgets:localization-catalog")?)
+    } else {
+        None
+    };
+    let widget_dependency_proxy_id = has_widget_extension
+        .then(|| alloc.id("proxy:widgets"))
+        .transpose()?;
+    let widget_dependency_id = has_widget_extension
+        .then(|| alloc.id("dependency:widgets"))
+        .transpose()?;
+    let widget_config_list_id = has_widget_extension
+        .then(|| alloc.id("configList:widgets"))
+        .transpose()?;
+    let widget_release_id = has_widget_extension
+        .then(|| alloc.id("config:widgets:release"))
+        .transpose()?;
+    let widget_debug_id = has_widget_extension
+        .then(|| alloc.id("config:widgets:debug"))
+        .transpose()?;
 
     // Per-file identifiers keyed by stable logical names. Unlike the previous
     // numeric-range scheme (plugin files at 30+index colliding with generated
@@ -523,6 +757,12 @@ pub(super) fn ios_project_file_with_config(
     for name in generated_sources.iter().skip(1) {
         generated_file_ids.push(alloc.id(&format!("file:generated:{name}"))?);
         generated_build_ids.push(alloc.id(&format!("build:generated:{name}"))?);
+    }
+    let mut widget_file_ids = Vec::new();
+    let mut widget_build_ids = Vec::new();
+    for source in widget_sources {
+        widget_file_ids.push(alloc.id(&format!("file:widgets:{}", source.relative_path))?);
+        widget_build_ids.push(alloc.id(&format!("build:widgets:{}", source.relative_path))?);
     }
     let mut plugin_file_ids = Vec::new();
     let mut plugin_build_ids = Vec::new();
@@ -539,11 +779,23 @@ pub(super) fn ios_project_file_with_config(
     let mut package_reference_ids = Vec::new();
     let mut package_product_ids = Vec::new();
     let mut package_build_ids = Vec::new();
+    let mut extension_product_ids = Vec::new();
+    let mut extension_product_build_ids = Vec::new();
     for package in &packages {
         package_reference_ids.push(alloc.id(&format!("package:{}", package.url))?);
         for product in &package.products {
             package_product_ids.push(alloc.id(&format!("package:{}:{product}", package.url))?);
             package_build_ids.push(alloc.id(&format!("build:product:{}:{product}", package.url))?);
+        }
+        if has_widget_extension {
+            for product in &package.extension_products {
+                extension_product_ids
+                    .push(alloc.id(&format!("package-extension:{}:{product}", package.url))?);
+                extension_product_build_ids.push(alloc.id(&format!(
+                    "build:extension-product:{}:{product}",
+                    package.url
+                ))?);
+            }
         }
     }
     let mut framework_reference_ids = Vec::new();
@@ -569,6 +821,16 @@ pub(super) fn ios_project_file_with_config(
     let asset_build_id = alloc.id("build:assets")?;
     let resources_reference_id = alloc.id("file:plugin-resources")?;
     let resources_build_id = alloc.id("build:plugin-resources")?;
+    let localization_reference_id = if has_localization_catalog {
+        Some(alloc.id("file:localization-catalog")?)
+    } else {
+        None
+    };
+    let localization_build_id = if has_localization_catalog {
+        Some(alloc.id("build:localization-catalog")?)
+    } else {
+        None
+    };
     let privacy_reference_id = if has_privacy_manifest {
         Some(alloc.id("file:privacy-manifest")?)
     } else {
@@ -581,6 +843,18 @@ pub(super) fn ios_project_file_with_config(
     };
     let icon_reference_id = alloc.id("file:icon")?;
     let icon_build_id = alloc.id("build:icon")?;
+    let mut alternate_icon_reference_ids = Vec::new();
+    let mut alternate_icon_build_ids = Vec::new();
+    let mut alternate_icon_names = Vec::new();
+    for source in &config.ios_alternate_icons {
+        let name = source
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("invalid alternate iOS icon path: {}", source.display()))?;
+        alternate_icon_names.push(name.to_owned());
+        alternate_icon_reference_ids.push(alloc.id(&format!("file:alternate-icon:{name}"))?);
+        alternate_icon_build_ids.push(alloc.id(&format!("build:alternate-icon:{name}"))?);
+    }
     let splash_reference_id = alloc.id("file:splash")?;
     let splash_build_id = alloc.id("build:splash")?;
 
@@ -602,6 +876,10 @@ pub(super) fn ios_project_file_with_config(
         generated_root_id.clone(),
         info_id.clone(),
     ];
+    if let (Some(widget_group_id), Some(widget_info_id)) = (&widget_group_id, &widget_info_id) {
+        app_children.push(widget_group_id.clone());
+        app_children.push(widget_info_id.clone());
+    }
     if has_assets {
         app_children.push(asset_reference_id.clone());
     }
@@ -609,8 +887,12 @@ pub(super) fn ios_project_file_with_config(
     app_children.extend(plugin_file_ids.clone());
     app_children.extend(xcframework_reference_ids.clone());
     app_children.extend(cpp_file_ids.clone());
+    app_children.extend(alternate_icon_reference_ids.clone());
     if has_plugin_resources {
         app_children.push(resources_reference_id.clone());
+    }
+    if let Some(localization_reference_id) = &localization_reference_id {
+        app_children.push(localization_reference_id.clone());
     }
     if let Some(privacy_reference_id) = &privacy_reference_id {
         app_children.push(privacy_reference_id.clone());
@@ -619,6 +901,10 @@ pub(super) fn ios_project_file_with_config(
     main_children.extend(framework_reference_ids.clone());
 
     // Sources phase.
+    let mut product_children = vec![product_id.clone()];
+    if let Some(widget_product_id) = &widget_product_id {
+        product_children.push(widget_product_id.clone());
+    }
     let mut source_files = vec![app_build_id.clone(), generated_root_build_id.clone()];
     source_files.extend(generated_build_ids.clone());
     source_files.extend(plugin_build_ids.clone());
@@ -637,14 +923,24 @@ pub(super) fn ios_project_file_with_config(
     if has_icon_composer {
         resource_files.push(icon_build_id.clone());
     }
+    resource_files.extend(alternate_icon_build_ids.iter().cloned());
     if config.splash_source.is_some() {
         resource_files.push(splash_build_id.clone());
     }
     if has_plugin_resources {
         resource_files.push(resources_build_id.clone());
     }
+    if let Some(localization_build_id) = &localization_build_id {
+        resource_files.push(localization_build_id.clone());
+    }
     if let Some(privacy_build_id) = &privacy_build_id {
         resource_files.push(privacy_build_id.clone());
+    }
+    let widget_source_files = widget_build_ids.clone();
+    let widget_framework_files = extension_product_build_ids.clone();
+    let mut widget_resource_files = Vec::new();
+    if let Some(widget_localization_build_id) = &widget_localization_build_id {
+        widget_resource_files.push(widget_localization_build_id.clone());
     }
 
     // Target build phases.
@@ -655,6 +951,9 @@ pub(super) fn ios_project_file_with_config(
     ];
     if let Some(embed_id) = &embed_phase_id {
         target_phases.push(embed_id.clone());
+    }
+    if let Some(embed_widgets_phase_id) = &embed_widgets_phase_id {
+        target_phases.push(embed_widgets_phase_id.clone());
     }
 
     // Build settings. Every value is typed -- a list stays a list, so
@@ -690,6 +989,12 @@ pub(super) fn ios_project_file_with_config(
             SettingValue::bare("AppIcon"),
         );
     }
+    if !alternate_icon_names.is_empty() {
+        target_common.set(
+            "ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES",
+            SettingValue::quoted_list(&alternate_icon_names),
+        );
+    }
     // Apps using APNs need configuration-specific entitlement files so
     // development provisioning uses the sandbox and distribution provisioning
     // uses production. Other entitlement users share one generated file.
@@ -700,9 +1005,10 @@ pub(super) fn ios_project_file_with_config(
             .iter()
             .any(|(key, _)| key == "aps-environment")
     });
-    let has_code_sign_entitlements = plugins
-        .iter()
-        .any(|plugin| !plugin.artifacts.ios_entitlements.is_empty())
+    let has_code_sign_entitlements = config.ios_app_group_identifier.is_some()
+        || plugins
+            .iter()
+            .any(|plugin| !plugin.artifacts.ios_entitlements.is_empty())
         || config
             .deep_links
             .iter()
@@ -849,14 +1155,61 @@ pub(super) fn ios_project_file_with_config(
         );
     }
 
+    let widget_build_settings = if has_widget_extension {
+        let mut release = BuildSettings::new();
+        release.set("ALWAYS_SEARCH_USER_PATHS", SettingValue::bare("NO"));
+        release.set(
+            "PRODUCT_BUNDLE_IDENTIFIER",
+            SettingValue::Scalar(format!("{}.widgets", config.ios_bundle_identifier)),
+        );
+        release.set(
+            "PRODUCT_NAME",
+            SettingValue::bare(&format!("{app_name}Widgets")),
+        );
+        release.set(
+            "INFOPLIST_FILE",
+            SettingValue::Scalar(format!("{app_name}/NexaWidgets-Info.plist")),
+        );
+        release.set("GENERATE_INFOPLIST_FILE", SettingValue::bare("NO"));
+        release.set("APPLICATION_EXTENSION_API_ONLY", SettingValue::bare("YES"));
+        release.set("SKIP_INSTALL", SettingValue::bare("YES"));
+        release.set(
+            "SUPPORTED_PLATFORMS",
+            SettingValue::quoted("iphoneos iphonesimulator"),
+        );
+        release.set("TARGETED_DEVICE_FAMILY", SettingValue::quoted("1,2"));
+        release.set("SWIFT_VERSION", SettingValue::bare("6.0"));
+        release.set("SWIFT_OPTIMIZATION_LEVEL", SettingValue::quoted("-O"));
+        release.set("SWIFT_COMPILATION_MODE", SettingValue::bare("wholemodule"));
+        release.set("GCC_OPTIMIZATION_LEVEL", SettingValue::bare("s"));
+        release.set("DEAD_CODE_STRIPPING", SettingValue::bare("YES"));
+        release.set(
+            "IPHONEOS_DEPLOYMENT_TARGET",
+            SettingValue::Scalar(widget_minimum_version.clone()),
+        );
+        let mut debug = release.clone();
+        debug.set("SWIFT_OPTIMIZATION_LEVEL", SettingValue::quoted("-Onone"));
+        let entitlements = SettingValue::Scalar(format!("{app_name}/NexaWidgets.entitlements"));
+        release.set("CODE_SIGN_ENTITLEMENTS", entitlements.clone());
+        debug.set("CODE_SIGN_ENTITLEMENTS", entitlements);
+        Some((release, debug))
+    } else {
+        None
+    };
+
+    let mut project_targets = vec![target_id.clone()];
+    if let Some(widget_target_id) = &widget_target_id {
+        project_targets.push(widget_target_id.clone());
+    }
+
     // Core objects.
     pbx.insert(
-        project_id,
+        project_id.clone(),
         project_object(
             &project_list_id,
             &main_group_id,
             &products_group_id,
-            &target_id,
+            &project_targets,
             &package_reference_ids,
         ),
     )?;
@@ -865,9 +1218,15 @@ pub(super) fn ios_project_file_with_config(
         app_group_id,
         group_object(&app_children, Some(app_name), None),
     )?;
+    if let (Some(widget_group_id), true) = (&widget_group_id, has_widget_extension) {
+        pbx.insert(
+            widget_group_id.clone(),
+            group_object(&widget_file_ids, Some("NexaWidgets"), None),
+        )?;
+    }
     pbx.insert(
         products_group_id,
-        group_object(std::slice::from_ref(&product_id), None, Some("Products")),
+        group_object(&product_children, None, Some("Products")),
     )?;
     pbx.insert(
         app_file_id.clone(),
@@ -890,6 +1249,21 @@ pub(super) fn ios_project_file_with_config(
         product_id.clone(),
         product_reference_object(&format!("{app_name}.app")),
     )?;
+    if let (Some(product_id), Some(info_id)) = (&widget_product_id, &widget_info_id) {
+        pbx.insert(
+            product_id.clone(),
+            app_extension_product_reference_object(&format!("{app_name}Widgets.appex")),
+        )?;
+        pbx.insert(
+            info_id.clone(),
+            file_reference_object(
+                "text.plist.xml",
+                "NexaWidgets-Info.plist",
+                "\"<group>\"",
+                None,
+            ),
+        )?;
+    }
     pbx.insert(app_build_id, build_file_object(&app_file_id))?;
     pbx.insert(
         generated_root_build_id,
@@ -916,6 +1290,20 @@ pub(super) fn ios_project_file_with_config(
             resources_build_id,
             build_file_object(&resources_reference_id),
         )?;
+    }
+    if let (Some(reference_id), Some(build_id)) =
+        (&localization_reference_id, &localization_build_id)
+    {
+        pbx.insert(
+            reference_id.clone(),
+            file_reference_object(
+                "text.json.xcstrings",
+                "Localizable.xcstrings",
+                "\"<group>\"",
+                None,
+            ),
+        )?;
+        pbx.insert(build_id.clone(), build_file_object(reference_id))?;
     }
     if let (Some(privacy_reference_id), Some(privacy_build_id)) =
         (&privacy_reference_id, &privacy_build_id)
@@ -946,6 +1334,22 @@ pub(super) fn ios_project_file_with_config(
         )?;
         pbx.insert(icon_build_id, build_file_object(&icon_reference_id))?;
     }
+    for ((name, reference_id), build_id) in alternate_icon_names
+        .iter()
+        .zip(alternate_icon_reference_ids.iter())
+        .zip(alternate_icon_build_ids.iter())
+    {
+        pbx.insert(
+            reference_id.clone(),
+            file_reference_object(
+                "folder.iconcomposer.icon",
+                &format!("{app_name}/{name}.icon"),
+                "SOURCE_ROOT",
+                None,
+            ),
+        )?;
+        pbx.insert(build_id.clone(), build_file_object(reference_id))?;
+    }
     if config.splash_source.is_some() {
         pbx.insert(
             splash_reference_id.clone(),
@@ -972,6 +1376,28 @@ pub(super) fn ios_project_file_with_config(
             file_reference_object("sourcecode.swift", name, "\"<group>\"", None),
         )?;
         pbx.insert(build_id.clone(), build_file_object(file_id))?;
+    }
+    for (source, file_id, build_id) in widget_sources
+        .iter()
+        .zip(widget_file_ids.iter())
+        .zip(widget_build_ids.iter())
+        .map(|((source, file_id), build_id)| (source, file_id, build_id))
+    {
+        pbx.insert(
+            file_id.clone(),
+            file_reference_object(
+                "sourcecode.swift",
+                &source.relative_path,
+                "\"<group>\"",
+                None,
+            ),
+        )?;
+        pbx.insert(build_id.clone(), build_file_object(file_id))?;
+    }
+    if let (Some(build_id), Some(reference_id)) =
+        (&widget_localization_build_id, &localization_reference_id)
+    {
+        pbx.insert(build_id.clone(), build_file_object(reference_id))?;
     }
     // Plugin file references and build files.
     for (name, file_id, build_id) in plugin_sources
@@ -1020,6 +1446,8 @@ pub(super) fn ios_project_file_with_config(
     {
         let mut product_ids = package_product_ids.iter();
         let mut build_ids = package_build_ids.iter();
+        let mut extension_ids = extension_product_ids.iter();
+        let mut extension_build_ids = extension_product_build_ids.iter();
         for (package, reference_id) in packages.iter().zip(package_reference_ids.iter()) {
             for product in &package.products {
                 let product_id = product_ids.next().cloned().unwrap_or_else(|| {
@@ -1033,6 +1461,21 @@ pub(super) fn ios_project_file_with_config(
                     package_product_dependency_object(reference_id, product),
                 )?;
                 pbx.insert(build_id, package_build_file_object(&product_id))?;
+            }
+            if has_widget_extension {
+                for product in &package.extension_products {
+                    let product_id = extension_ids.next().cloned().ok_or_else(|| {
+                        format!("missing SwiftPM extension product identifier for `{product}`")
+                    })?;
+                    let build_id = extension_build_ids.next().cloned().ok_or_else(|| {
+                        format!("missing SwiftPM extension build identifier for `{product}`")
+                    })?;
+                    pbx.insert(
+                        product_id.clone(),
+                        package_product_dependency_object(reference_id, product),
+                    )?;
+                    pbx.insert(build_id, package_build_file_object(&product_id))?;
+                }
             }
         }
     }
@@ -1075,16 +1518,30 @@ pub(super) fn ios_project_file_with_config(
             embed_frameworks_phase_object(&xcframework_embed_ids),
         )?;
     }
+    if let (Some(phase_id), Some(product_id), Some(build_id)) = (
+        &embed_widgets_phase_id,
+        &widget_product_id,
+        &widget_embed_build_id,
+    ) {
+        pbx.insert(build_id.clone(), embed_build_file_object(product_id))?;
+        pbx.insert(
+            phase_id.clone(),
+            embed_app_extensions_phase_object(std::slice::from_ref(build_id)),
+        )?;
+    }
 
     // Target and phases.
+    let app_dependencies = widget_dependency_id.iter().cloned().collect::<Vec<_>>();
     pbx.insert(
-        target_id,
+        target_id.clone(),
         native_target_object(
             app_name,
             &target_list_id,
             &target_phases,
             &product_id,
             &package_product_ids,
+            "com.apple.product-type.application",
+            &app_dependencies,
         ),
     )?;
     pbx.insert(sources_phase_id, sources_phase_object(&source_files))?;
@@ -1093,6 +1550,82 @@ pub(super) fn ios_project_file_with_config(
         frameworks_phase_object(&frameworks_files),
     )?;
     pbx.insert(resources_phase_id, resources_phase_object(&resource_files))?;
+    if let (
+        Some(widget_target_id),
+        Some(widget_sources_phase_id),
+        Some(widget_frameworks_phase_id),
+        Some(widget_resources_phase_id),
+        Some(widget_product_id),
+        Some(widget_config_list_id),
+        Some(widget_release_id),
+        Some(widget_debug_id),
+        Some((widget_release_settings, widget_debug_settings)),
+    ) = (
+        &widget_target_id,
+        &widget_sources_phase_id,
+        &widget_frameworks_phase_id,
+        &widget_resources_phase_id,
+        &widget_product_id,
+        &widget_config_list_id,
+        &widget_release_id,
+        &widget_debug_id,
+        &widget_build_settings,
+    ) {
+        let widget_name = format!("{app_name}Widgets");
+        let widget_phases = vec![
+            widget_sources_phase_id.clone(),
+            widget_frameworks_phase_id.clone(),
+            widget_resources_phase_id.clone(),
+        ];
+        pbx.insert(
+            widget_target_id.clone(),
+            native_target_object(
+                &widget_name,
+                widget_config_list_id,
+                &widget_phases,
+                widget_product_id,
+                &extension_product_ids,
+                "com.apple.product-type.app-extension",
+                &[],
+            ),
+        )?;
+        pbx.insert(
+            widget_sources_phase_id.clone(),
+            sources_phase_object(&widget_source_files),
+        )?;
+        pbx.insert(
+            widget_frameworks_phase_id.clone(),
+            frameworks_phase_object(&widget_framework_files),
+        )?;
+        pbx.insert(
+            widget_resources_phase_id.clone(),
+            resources_phase_object(&widget_resource_files),
+        )?;
+        pbx.insert(
+            widget_config_list_id.clone(),
+            configuration_list_object(widget_release_id, widget_debug_id),
+        )?;
+        pbx.insert(
+            widget_release_id.clone(),
+            build_configuration_object("Release", widget_release_settings),
+        )?;
+        pbx.insert(
+            widget_debug_id.clone(),
+            build_configuration_object("Debug", widget_debug_settings),
+        )?;
+        if let (Some(proxy_id), Some(dependency_id)) =
+            (&widget_dependency_proxy_id, &widget_dependency_id)
+        {
+            pbx.insert(
+                proxy_id.clone(),
+                target_dependency_proxy_object(&project_id, widget_target_id, &widget_name),
+            )?;
+            pbx.insert(
+                dependency_id.clone(),
+                target_dependency_object(widget_target_id, proxy_id),
+            )?;
+        }
+    }
     pbx.insert(
         project_list_id.clone(),
         configuration_list_object(&project_release_id, &project_debug_id),
@@ -1212,6 +1745,7 @@ pub(super) const ANDROID_GRADLEW: &str = include_str!("../../resources/gradle-wr
 pub(super) const ANDROID_GRADLEW_BAT: &str =
     include_str!("../../resources/gradle-wrapper/gradlew.bat");
 
+#[allow(dead_code)]
 pub(super) fn android_manifest(
     _app_name: &str,
     package: &str,
@@ -1219,6 +1753,26 @@ pub(super) fn android_manifest(
     network_connectivity: bool,
     config: &ProjectConfig,
     plugins: &[PluginPackage],
+) -> Result<String, String> {
+    android_manifest_with_widgets(
+        _app_name,
+        package,
+        remote,
+        network_connectivity,
+        config,
+        plugins,
+        &[],
+    )
+}
+
+pub(super) fn android_manifest_with_widgets(
+    _app_name: &str,
+    package: &str,
+    remote: bool,
+    network_connectivity: bool,
+    config: &ProjectConfig,
+    plugins: &[PluginPackage],
+    widgets: &[Widget],
 ) -> Result<String, String> {
     let application_metadata = merged_android_application_metadata(plugins)?;
     let application_metadata_xml = application_metadata
@@ -1296,18 +1850,63 @@ pub(super) fn android_manifest(
     } else {
         ""
     };
+    let alternate_launcher_icons = !config.android_alternate_icons.is_empty();
+    let launcher_filter = if alternate_launcher_icons {
+        String::new()
+    } else {
+        "            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n".to_owned()
+    };
+    let mut icon_aliases = String::new();
+    if alternate_launcher_icons {
+        icon_aliases.push_str(&format!(
+            "        <activity-alias android:name=\"{package}.NexaIconDefault\" android:targetActivity=\"{package}.MainActivity\" android:enabled=\"true\" android:exported=\"true\" android:icon=\"@mipmap/ic_launcher\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity-alias>\n"
+        ));
+        for source in &config.android_alternate_icons {
+            let name = source
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| {
+                    format!("invalid alternate Android icon path: {}", source.display())
+                })?;
+            icon_aliases.push_str(&format!(
+                "        <activity-alias android:name=\"{package}.NexaIcon{}\" android:targetActivity=\"{package}.MainActivity\" android:enabled=\"false\" android:exported=\"true\" android:icon=\"@mipmap/{}\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity-alias>\n",
+                xml_escape(name),
+                xml_escape(&name.to_ascii_lowercase()),
+            ));
+        }
+    }
     let app_theme = if config.splash_source.is_some() {
         "@style/NexaSplashTheme"
     } else {
-        "@android:style/Theme.Material.Light.NoActionBar"
+        "@style/NexaAppTheme"
     };
-    let picture_in_picture_attributes = if plugins
-        .iter()
-        .any(|plugin| plugin.artifacts.android_picture_in_picture)
-    {
-        " android:supportsPictureInPicture=\"true\" android:configChanges=\"screenSize|smallestScreenSize|screenLayout|orientation\""
+    let orientation_policy = if config.orientation == "portrait" {
+        "portrait"
+    } else {
+        "fullUser"
+    };
+    let orientation_config_changes = if config.orientation == "portrait-phones" {
+        "orientation|screenSize|smallestScreenSize|screenLayout"
     } else {
         ""
+    };
+    let uses_picture_in_picture = plugins
+        .iter()
+        .any(|plugin| plugin.artifacts.android_picture_in_picture);
+    let picture_in_picture_attributes = if uses_picture_in_picture {
+        " android:supportsPictureInPicture=\"true\""
+    } else {
+        ""
+    };
+    let config_changes = if uses_picture_in_picture || !orientation_config_changes.is_empty() {
+        let changes = if uses_picture_in_picture {
+            "screenSize|smallestScreenSize|screenLayout|orientation"
+        } else {
+            orientation_config_changes
+        };
+        format!(" android:configChanges=\"{changes}\"")
+    } else {
+        String::new()
     };
     let deep_link_filters = config
         .deep_links
@@ -1366,10 +1965,69 @@ pub(super) fn android_manifest(
             )
         })
         .collect::<String>();
+    let widget_declarations = widgets
+        .iter()
+        .enumerate()
+        .map(|(index, widget)| {
+            let widget_type = nexa_codegen::names::widget_name(&widget.name);
+            let receiver = format!("{widget_type}Receiver");
+            let configuration_activity = widget.configuration.as_ref().map_or_else(
+                String::new,
+                |_| {
+                    format!(
+                        "        <activity android:name=\"{package}.{widget_type}ConfigurationActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.appwidget.action.APPWIDGET_CONFIGURE\" /></intent-filter></activity>\n"
+                    )
+                },
+            );
+            format!(
+                "{configuration_activity}        <receiver android:name=\"{package}.{receiver}\" android:exported=\"true\"><intent-filter><action android:name=\"android.appwidget.action.APPWIDGET_UPDATE\" /></intent-filter><meta-data android:name=\"android.appwidget.provider\" android:resource=\"@xml/{}\" /></receiver>\n",
+                android_widget_resource_name(index)
+            )
+        })
+        .collect::<String>();
     Ok(format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"fullUser\"{picture_in_picture_attributes}>\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n{deep_link_filters}        </activity>\n{media_playback_service_declarations}{firebase_messaging_service_declarations}{application_metadata_xml}    </application>\n</manifest>\n",
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <meta-data android:name=\"dev.nexa.orientationPolicy\" android:value=\"{}\" />\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"{orientation_policy}\"{config_changes}{picture_in_picture_attributes}>\n{launcher_filter}{deep_link_filters}        </activity>\n{icon_aliases}{widget_declarations}{media_playback_service_declarations}{firebase_messaging_service_declarations}{application_metadata_xml}    </application>\n</manifest>\n",
         xml_escape(&config.display_name),
+        xml_escape(&config.orientation),
     ))
+}
+
+pub(super) fn android_widget_resource_name(index: usize) -> String {
+    format!("nexa_widget_info_{index}")
+}
+
+pub(super) fn android_widget_provider_info(widget: &Widget, package: &str) -> String {
+    let (min_width, min_height, cells) = widget
+        .families
+        .iter()
+        .map(|family| match family {
+            WidgetFamily::Small => (110, 110, 2),
+            WidgetFamily::Medium => (250, 110, 2),
+            WidgetFamily::Large => (250, 180, 2),
+            WidgetFamily::ExtraLarge => (375, 245, 3),
+        })
+        .min_by_key(|(width, height, _)| width * height)
+        .unwrap_or((110, 110, 2));
+    let update_millis = widget.refresh_seconds.max(1_800).saturating_mul(1_000);
+    let configuration_attributes = if widget.configuration.is_some() {
+        let widget_type = nexa_codegen::names::widget_name(&widget.name);
+        format!(
+            " android:configure=\"{}.{}ConfigurationActivity\" android:widgetFeatures=\"reconfigurable|configuration_optional\"",
+            xml_escape(package),
+            widget_type
+        )
+    } else {
+        String::new()
+    };
+    let display_name = nexa_codegen::names::localization_resource_name(
+        &nexa_ir::localization::widget_display_name(widget),
+    );
+    let description = nexa_codegen::names::localization_resource_name(
+        &nexa_ir::localization::widget_description(widget),
+    );
+    format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<appwidget-provider xmlns:android=\"http://schemas.android.com/apk/res/android\" android:minWidth=\"{min_width}dp\" android:minHeight=\"{min_height}dp\" android:targetCellWidth=\"{cells}\" android:targetCellHeight=\"2\" android:updatePeriodMillis=\"{update_millis}\" android:label=\"@string/{display_name}\" android:description=\"@string/{description}\" android:initialLayout=\"@layout/glance_default_loading_layout\" android:resizeMode=\"horizontal|vertical\" android:widgetCategory=\"home_screen\"{configuration_attributes} />\n"
+    )
 }
 
 pub(super) fn android_firebase_resources(
@@ -1467,6 +2125,7 @@ fn android_manifest_placeholder_names(metadata: &BTreeMap<String, String>) -> Ve
         .collect()
 }
 
+#[allow(dead_code)]
 pub(super) fn android_app_gradle_with_dev_runtime(
     package: &str,
     features: nexa_backend_kotlin::KotlinProjectFeatures,
@@ -1474,6 +2133,26 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     local_aars: &[String],
     config: &ProjectConfig,
     dev_runtime: bool,
+) -> Result<String, String> {
+    android_app_gradle_with_widgets_and_dev_runtime(
+        package,
+        features,
+        plugins,
+        local_aars,
+        config,
+        dev_runtime,
+        false,
+    )
+}
+
+pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
+    package: &str,
+    features: nexa_backend_kotlin::KotlinProjectFeatures,
+    plugins: &[PluginPackage],
+    local_aars: &[String],
+    config: &ProjectConfig,
+    dev_runtime: bool,
+    has_widgets: bool,
 ) -> Result<String, String> {
     if features.uses_background_tasks && config.android_min_sdk < 23 {
         return Err(format!(
@@ -1519,6 +2198,11 @@ pub(super) fn android_app_gradle_with_dev_runtime(
             "    implementation(\"androidx.compose.foundation:foundation\")\n    implementation(\"androidx.compose.runtime:runtime\")\n    implementation(\"androidx.core:core\")\n",
         );
     }
+    if dev_runtime || features.uses_bottom_bar {
+        dependencies.push_str(
+            "    implementation(\"androidx.compose.material3:material3-adaptive-navigation-suite\")\n    implementation(\"androidx.compose.runtime:runtime-saveable\")\n",
+        );
+    }
     if dev_runtime || features.uses_compose_graphics {
         dependencies.push_str("    implementation(\"androidx.compose.ui:ui-graphics\")\n");
     }
@@ -1544,7 +2228,12 @@ pub(super) fn android_app_gradle_with_dev_runtime(
             "    implementation(\"androidx.compose.material:material-icons-extended\")\n",
         );
     }
-    if dev_runtime || features.uses_coroutines {
+    if has_widgets {
+        dependencies.push_str(
+            "    implementation(\"androidx.glance:glance-appwidget:1.2.0\")\n    implementation(\"androidx.lifecycle:lifecycle-runtime-ktx:2.11.0\")\n",
+        );
+    }
+    if dev_runtime || features.uses_coroutines || has_widgets {
         dependencies.push_str(
             "    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
         );
@@ -1594,7 +2283,7 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     ))
 }
 
-fn xml_escape(value: &str) -> String {
+pub(super) fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")

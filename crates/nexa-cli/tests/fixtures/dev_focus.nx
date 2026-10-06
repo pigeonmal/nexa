@@ -3,6 +3,6 @@ app FocusSmoke {
     state isFocused: Bool = false
 
     body {
-        TextInput(value: email, placeholder: "Email", focused: isFocused)
+        TextInput(value: email, placeholder: "Email", focused: isFocused, multiline: true, font: Title3, minLines: 1, maxLines: 5)
     }
 }

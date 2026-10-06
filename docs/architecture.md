@@ -54,6 +54,14 @@ C++ native plugins use generated bindings and standard C++ types such as `std::i
 
 ## 3. Generated Source Cache
 
+`build-v149` emits Swift glass, tab-search, custom button-shape, and dynamic-color helpers only when the optimized module uses them; this avoids unused newer SwiftUI API references in unrelated apps. It also gates the Android dynamic-color parser and uses deployment-compatible Foundation language access in generated Swift.
+
+`build-v148` corrects the shared barcode icon to Compose's available scanner vector.
+
+`build-v150` extracts source text and translator comments into `locales/translations.json`, then generates SwiftUI string catalogs and Android Compose string resources. DevRuntime sends translation edits over its WebSocket connection without rebuilding native resources.
+
+`build-v146` adds the built-in `Locale` language-information API to both AOT backends and DevRuntime, and expands the shared system icon catalog with additional portable semantic names.
+
 `build-v135` exposes the currently bound Android host `Activity` as a nullable weak-reference read so native plugins can start platform UI flows without retaining the activity or using reflection.
 
 `build-v130` adds typed optional array `first()` and `last()` accessors to both AOT backends and DevRuntime, and advances the Dev IR format.

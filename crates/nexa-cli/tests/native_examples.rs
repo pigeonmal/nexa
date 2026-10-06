@@ -524,6 +524,11 @@ fn screen_orientation_generates_direct_native_calls_and_runtime_support() {
 }"#,
     )
     .expect("orientation fixture should be written");
+    fs::write(
+        temp.join("nexa.config.nx"),
+        "config { app { orientation: \"portrait-phones\" } }",
+    )
+    .expect("write phone-only orientation policy");
 
     let ios = temp.join("orientation-ios");
     nexa_cli::generate_project(&entry, "ios", &ios, "NexaOrientation")
@@ -585,6 +590,13 @@ fn screen_orientation_generates_direct_native_calls_and_runtime_support() {
     .expect("read generated Android core runtime");
     assert!(core_runtime.contains("lockOrientation(mode: String)"));
     assert!(core_runtime.contains("SCREEN_ORIENTATION_SENSOR_LANDSCAPE"));
+    assert!(core_runtime.contains("applyConfiguredOrientation(activity: android.app.Activity)"));
+    let activity = fs::read_to_string(
+        android.join("android/app/src/main/java/com/nexa/nexaorientation/MainActivity.kt"),
+    )
+    .expect("read generated Android activity");
+    assert!(activity.contains("applyConfiguredOrientation(this)"));
+    assert!(activity.contains("onConfigurationChanged(newConfig: Configuration)"));
 }
 
 #[test]

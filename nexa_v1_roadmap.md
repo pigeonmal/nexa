@@ -178,7 +178,7 @@ graph TD
 #### 3.3 Gesture Handling Suite (very optimized gesture, for 120+ fps)
 
 - [x] Modifiers for interactive nodes:
-  - [x] `.onTap { ... }` (legacy `.onPress` remains accepted)
+  - [x] `.onTap { ... }`
   - [x] `.onDoubleTap { ... }` (TikTok double tap to like)
   - [x] `.onLongPress(durationMs: Int32) { ... }`
   - [x] `.onDrag { translationX, translationY, velocityX, velocityY -> ... }` (translation uses points/dp; velocity uses points/dp per second)

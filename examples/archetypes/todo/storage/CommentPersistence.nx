@@ -1,0 +1,74 @@
+import "TodoDatabase.nx"
+
+struct CommentItem {
+    id: Int32,
+    taskID: Int32,
+    content: String,
+    imageUri: String,
+    createdAt: Int64,
+    isDeleted: Bool
+}
+
+struct CommentIDValue {
+    value: Int32
+}
+
+fn findComment(items: Array<CommentItem>, id: Int32) -> CommentItem? {
+    for comment in items {
+        if comment.id == id { return comment }
+    }
+    return null
+}
+
+// Comments share the Todo database and keep deleted rows for stable IDs.
+class CommentPersistence {
+    async fn loadItems() -> Array<CommentItem> {
+        try {
+            let items: Array<CommentItem> = await todoDatabase.query(
+                "SELECT id, taskID, content, imageUri, createdAt, isDeleted FROM comments ORDER BY id",
+                []
+            )
+            return items
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_COMMENTS_LOAD_FAILED")
+                return []
+            }
+        }
+    }
+
+    async fn loadNextID() -> Int32 {
+        try {
+            let rows: Array<CommentIDValue> = await todoDatabase.query(
+                "SELECT COALESCE(MAX(id), 0) + 1 AS value FROM comments",
+                []
+            )
+            return rows.first()?.value ?? 1
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_COMMENT_ID_LOAD_FAILED")
+                return 1
+            }
+        }
+    }
+
+    async fn saveComment(items: Array<CommentItem>, id: Int32) -> Bool {
+        let item = findComment(items, id)
+        if item == null { return false }
+        let comment = item ?? CommentItem(0, 0, "", "", 0, true)
+        try {
+            await todoDatabase.execute(
+                "INSERT INTO comments (id, taskID, content, imageUri, createdAt, isDeleted) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET taskID = excluded.taskID, content = excluded.content, imageUri = excluded.imageUri, createdAt = excluded.createdAt, isDeleted = excluded.isDeleted",
+                [comment.id, comment.taskID, comment.content, comment.imageUri, comment.createdAt, comment.isDeleted]
+            )
+            return true
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_COMMENT_SAVE_FAILED")
+                return false
+            }
+        }
+    }
+}
+
+let commentPersistence = CommentPersistence()

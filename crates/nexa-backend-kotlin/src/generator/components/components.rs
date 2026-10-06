@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{LayoutKind, Module, Node, ToolbarPlacement, ViewStyle};
 
 use crate::generator::{
     accessibility, bottom_bar, controls, dialogs, features::Features, images, input, keyboard,
@@ -8,6 +8,7 @@ use crate::generator::{
 
 use super::RenderScope;
 use super::conditional;
+use crate::generator::components::split_view;
 use crate::generator::components::text;
 
 pub(crate) fn render_node(
@@ -19,6 +20,36 @@ pub(crate) fn render_node(
 ) {
     let scope = RenderScope { module, features };
     match node {
+        Node::Appearance { mode, children } => {
+            let mode = crate::generator::engine::expressions::expression(mode);
+            let system_dark = format!("nexaSystemDarkTheme{}", out.next_id());
+            out.line_at(
+                depth,
+                format_args!("val {system_dark} = isSystemInDarkTheme()"),
+            );
+            out.line_at(
+                depth,
+                format_args!("MaterialTheme(colorScheme = remember({mode}, {system_dark}) {{"),
+            );
+            out.line_at(depth + 1, format_args!("when ({mode}) {{"));
+            out.line_at(depth + 2, format_args!("\"dark\" -> darkColorScheme()"));
+            out.line_at(depth + 2, format_args!("\"light\" -> lightColorScheme()"));
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "else -> if ({system_dark}) darkColorScheme() else lightColorScheme()"
+                ),
+            );
+            out.line_at(depth + 1, format_args!("}}"));
+            out.line_at(
+                depth,
+                format_args!(
+                    "}}, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {{"
+                ),
+            );
+            render_children(children, module, features, depth + 1, out);
+            out.line_at(depth, format_args!("}}"));
+        }
         Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::OnAppear { .. }
@@ -32,7 +63,75 @@ pub(crate) fn render_node(
             style,
             children,
         } => layout::render_layout(*kind, *spacing, style, children, &scope, depth, out),
-        Node::Text { value, style } => text::render(value, style, depth, out),
+        Node::Form { children } => layout::render_form(children, &scope, depth, out),
+        Node::FormSection {
+            title,
+            footer,
+            children,
+            ..
+        } => layout::render_form_section(
+            title.as_ref(),
+            footer.as_ref(),
+            children,
+            &scope,
+            depth,
+            out,
+        ),
+        Node::Toolbar {
+            placement,
+            children,
+        } => {
+            let horizontal = match placement {
+                ToolbarPlacement::Leading => "Start",
+                ToolbarPlacement::Trailing => "End",
+            };
+            out.line_at(depth, format_args!("Row(horizontalArrangement = Arrangement.{horizontal}, verticalAlignment = Alignment.CenterVertically) {{"));
+            render_children(children, module, features, depth + 1, out);
+            out.line_at(depth, format_args!("}}"));
+        }
+        Node::Text { value, style, .. } => text::render(value, style, depth, out),
+        Node::ContentUnavailable {
+            title,
+            icon,
+            description,
+        } => {
+            out.line_at(
+                depth,
+                format_args!(
+                    "Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {{"
+                ),
+            );
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "Icon(imageVector = {}, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)",
+                    icon.material_reference()
+                ),
+            );
+            out.line_at(
+                depth + 1,
+                format_args!("Spacer(modifier = Modifier.height(8.dp))"),
+            );
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "Text({}, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)",
+                    crate::generator::engine::expressions::text_expression(title)
+                ),
+            );
+            out.line_at(
+                depth + 1,
+                format_args!("Spacer(modifier = Modifier.height(8.dp))"),
+            );
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "Text({}, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)",
+                    crate::generator::engine::expressions::text_expression(description)
+                ),
+            );
+            out.line_at(depth, format_args!("}}"));
+        }
         Node::Spacer => out.line_at(
             depth,
             format_args!("Spacer(modifier = Modifier.weight(1f))"),
@@ -50,13 +149,16 @@ pub(crate) fn render_node(
             icon,
             loading,
             disabled,
+            tint,
             actions,
+            ..
         } => {
             controls::render_button(
                 label,
-                icon.as_deref(),
+                icon.as_ref(),
                 loading.as_ref(),
                 disabled.as_ref(),
+                tint.as_ref(),
                 actions,
                 depth,
                 out,
@@ -74,7 +176,13 @@ pub(crate) fn render_node(
             capitalization,
             focused,
             max_length,
+            font,
+            min_lines,
+            max_lines,
+            searchable,
             actions,
+            on_change,
+            ..
         } => input::render_text_input(
             input::TextInputProps {
                 state,
@@ -88,12 +196,17 @@ pub(crate) fn render_node(
                 capitalization: *capitalization,
                 focused: focused.as_deref(),
                 max_length: *max_length,
+                font: *font,
+                min_lines: *min_lines,
+                max_lines: *max_lines,
+                searchable: *searchable,
                 actions,
+                on_change: on_change.as_ref(),
             },
             depth,
             out,
         ),
-        Node::Switch { state, label } => controls::render_switch(state, label, depth, out),
+        Node::Switch { state, label, .. } => controls::render_switch(state, label, depth, out),
         Node::Slider {
             state,
             animated,
@@ -103,21 +216,33 @@ pub(crate) fn render_node(
         } => controls::render_slider(state, *animated, *min, *max, *step, depth, out),
         Node::ProgressBar { progress } => controls::render_progress_bar(progress, depth, out),
         Node::ProgressRing { progress } => controls::render_progress_ring(progress, depth, out),
-        Node::SegmentedControl { items, state } => {
+        Node::SegmentedControl { items, state, .. } => {
             controls::render_segmented_control(items, state, depth, out)
         }
-        Node::Picker { items, state } => controls::render_picker(items, state, depth, out),
+        Node::Picker {
+            items,
+            state,
+            icon,
+            label,
+            ..
+        } => controls::render_picker(items, state, icon.as_ref(), label.as_ref(), depth, out),
+        Node::DatePicker {
+            timestamp_state,
+            has_time_state,
+        } => controls::render_date_picker(timestamp_state, has_time_state, depth, out),
         Node::Image {
             source,
             description,
             scale,
             placeholder,
+            max_height,
             shared_element,
         } => images::render_image(
             source,
             description,
             *scale,
             placeholder.as_deref(),
+            *max_height,
             shared_element.as_ref(),
             depth,
             out,
@@ -127,7 +252,7 @@ pub(crate) fn render_node(
             description,
             size,
             tint,
-        } => system_icons::render(*icon, description, *size, *tint, depth, out),
+        } => system_icons::render(icon, description, *size, tint, depth, out),
         Node::LinearGradient {
             start_color,
             end_color,
@@ -164,6 +289,13 @@ pub(crate) fn render_node(
         Node::NavigationStack { root, arguments } => {
             navigation::render_navigation_stack(module, *root, arguments, features, depth, out);
         }
+        Node::NavigationSplitView {
+            detail_visible,
+            sidebar,
+            detail,
+        } => {
+            split_view::render(detail_visible, sidebar, detail, &scope, depth, out);
+        }
         Node::NavigationLink {
             destination,
             arguments,
@@ -178,18 +310,20 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
-        Node::NavigationBack { label } => navigation::render_back(label, depth, out),
+        Node::NavigationBack { label, .. } => navigation::render_back(label, depth, out),
         Node::Link { url, children } => {
             links::render_link(url, children, module, features, depth, out)
         }
         Node::Accessibility {
             label,
             hint,
+            value,
             role,
             children,
         } => accessibility::render_accessibility(
             label,
             hint.as_ref(),
+            value.as_ref(),
             *role,
             children,
             &scope,
@@ -202,14 +336,32 @@ pub(crate) fn render_node(
         Node::BottomSheet {
             state,
             partial,
+            large_only,
+            title,
             children,
-        } => sheets::render_bottom_sheet(state, *partial, children, module, features, depth, out),
+        } => sheets::render_bottom_sheet(
+            state,
+            *partial,
+            *large_only,
+            title.as_ref(),
+            children,
+            module,
+            features,
+            depth,
+            out,
+        ),
         Node::Dialog {
             state,
             title,
             message,
             children,
+            ..
         } => dialogs::render_dialog(state, title, message, children, &scope, depth, out),
+        Node::ConfirmationDialog {
+            state,
+            title,
+            children,
+        } => dialogs::render_confirmation_dialog(state, title, children, &scope, depth, out),
         Node::RefreshControl {
             state,
             children,
@@ -217,8 +369,17 @@ pub(crate) fn render_node(
         } => {
             refresh::render_refresh_control(state, children, actions, module, features, depth, out)
         }
-        Node::AppBottomBar { state, tabs } => {
-            bottom_bar::render_app_bottom_bar(state, tabs, module, features, depth, out)
+        Node::AppBottomBar { state, tint, tabs } => bottom_bar::render_app_bottom_bar(
+            state,
+            tint.as_ref(),
+            tabs,
+            module,
+            features,
+            depth,
+            out,
+        ),
+        Node::PagePager { state, pages } => {
+            bottom_bar::render_page_pager(state, pages, module, features, depth, out);
         }
         Node::FastList { plan } => {
             lists::render_virtualized_list(plan, module, features, depth, out);

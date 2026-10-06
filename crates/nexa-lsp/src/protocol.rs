@@ -142,6 +142,21 @@ pub struct CompletionItem {
     pub documentation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "insertText")]
     pub insert_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "filterText")]
+    pub filter_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sortText")]
+    pub sort_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "insertTextFormat")]
+    pub insert_text_format: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "textEdit")]
+    pub text_edit: Option<TextEdit>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextEdit {
+    pub range: Range,
+    #[serde(rename = "newText")]
+    pub new_text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

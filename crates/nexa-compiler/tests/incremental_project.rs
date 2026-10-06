@@ -4,6 +4,38 @@ use nexa_compiler::{IncrementalProjectCompiler, Target};
 use nexa_testkit::TestProject;
 
 #[test]
+fn imported_file_scope_values_are_shared_with_persistence_functions_on_both_targets() {
+    let project = TestProject::new("nexa-imported-file-scope-values");
+    let entry = project.join("App.nx");
+    project.write(
+        "App.nx",
+        "import \"storage/Comments.nx\"\napp Demo { body { Text(loadCommentCount()) } }\n",
+    );
+    project.write(
+        "storage/Comments.nx",
+        "let commentCount: Int32 = 1\nfn loadCommentCount() -> Int32 { return commentCount }\n",
+    );
+
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = nexa_compiler::compile_file_for_target(&entry, target)
+            .expect("compile imported persistence module");
+        assert_eq!(module.globals.len(), 1);
+        assert_eq!(module.globals[0].name, "commentCount");
+        assert!(!module.globals[0].mutable);
+        let function = module
+            .functions
+            .iter()
+            .find(|function| function.name == "loadCommentCount")
+            .expect("imported persistence helper is available");
+        assert!(matches!(
+            function.body,
+            nexa_ir::Expr::State(ref name, nexa_ir::Type::Numeric(nexa_ir::NumericType::Int32))
+                if name == "commentCount"
+        ));
+    }
+}
+
+#[test]
 fn unchanged_project_reuses_parsed_imports_and_reparses_only_changed_source() {
     let project = TestProject::new("nexa-incremental-project");
     let entry = project.join("App.nx");

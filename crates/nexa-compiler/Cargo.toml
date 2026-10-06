@@ -9,6 +9,10 @@ nexa-diagnostics = { path = "../nexa-diagnostics" }
 nexa-ir = { path = "../nexa-ir" }
 nexa-syntax = { path = "../nexa-syntax" }
 nexa-plugin-idl = { path = "../nexa-plugin-idl" }
+nexa-plugin-compiler-api = { path = "../nexa-plugin-compiler-api" }
 
 [dev-dependencies]
+nexa-codegen = { path = "../nexa-codegen" }
 nexa-testkit = { path = "../nexa-testkit" }
+nexa-backend-swift = { path = "../nexa-backend-swift" }
+nexa-backend-kotlin = { path = "../nexa-backend-kotlin" }

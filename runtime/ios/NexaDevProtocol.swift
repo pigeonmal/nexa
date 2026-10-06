@@ -67,6 +67,7 @@ final class NexaDevRuntime: ObservableObject {
             guard let devModule = payload[NexaDevKeys.module] as? [String: Any],
                   let nextModule = devModule[NexaDevKeys.module] as? [String: Any]
             else { return }
+            store.installTranslations(devModule["translations"])
             store.install(module: nextModule)
             currentRevision = devModule[NexaDevKeys.revision] as? String
             diagnostics = []
@@ -86,6 +87,9 @@ final class NexaDevRuntime: ObservableObject {
             guard Self.apply(operations, to: &nextModule) else {
                 requestFullModule()
                 return
+            }
+            if let translations = patch["translations"] {
+                store.installTranslations(translations)
             }
             store.install(module: nextModule)
             currentRevision = revision

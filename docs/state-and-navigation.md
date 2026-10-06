@@ -103,7 +103,7 @@ app ModularTabs {
 
     body {
         AppBottomBar(selected: currentTab) {
-            Tab(index: 0, label: "Home", icon: "house") {
+            Tab(index: 0, label: "Home", icon: "home", comment: "Primary navigation destination") {
                 HomeTab()
             }
             Tab(index: 1, label: "Profile", icon: "person") {
@@ -160,12 +160,12 @@ app TabbedApp {
                     Text("Home Tab View")
                 }
             }
-            Tab(index: 1, label: "Explore", icon: "safari") {
+            Tab(index: 1, label: "Explore", icon: "language") {
                 Column(spacing: 8) {
                     Text("Explore Tab View")
                 }
             }
-            Tab(index: 2, label: "Notifications", icon: "bell", badge: "3") {
+            Tab(index: 2, label: "Notifications", icon: "notifications", badge: "3") {
                 Column(spacing: 8) {
                     Text("Notifications Tab View")
                 }
@@ -181,8 +181,8 @@ app TabbedApp {
 ```
 
 - **`selected: stateVar`**: Reactive two-way binding tracking the active tab index.
-- **`Tab(index: Int32, label: String, icon: String?, badge: String?) { ... }`**: Each tab specifies its zero-based index, label, optional system icon, optional badge text, and body content.
-- Compiles to native `TabView` on iOS and `NavigationBar` / `NavigationBarItem` on Android.
+- **`Tab(index: Int32, label: String, icon: String?, badge: String?) { ... }`**: Each tab specifies its zero-based index, label, optional shared system icon, optional badge text, and body content. The label stays in the tab bar; it does not become an automatic screen title.
+- Compiles to native SwiftUI `TabView` on iOS and Material 3 `NavigationSuiteScaffold` on Android. iOS 18+ uses the sidebar-adaptable tab style with a native tab bar on iPhone; older versions use the native `TabView` tab bar. Android adapts between bottom navigation on compact windows and rail or drawer navigation on wide windows. Android retains saveable state for each tab while another destination is selected.
 
 ---
 

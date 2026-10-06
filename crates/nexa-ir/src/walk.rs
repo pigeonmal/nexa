@@ -1,6 +1,7 @@
 use crate::{
-    Action, BottomBarTab, ErrorCatchArm, Expr, FastListRefresh, InterpolatedPart, ListCommon,
-    ListPlan, NativeComponentEventHandler, NetworkRequest, Node, SectionedListCommon, WhenCase,
+    Action, BottomBarTab, ErrorCatchArm, Expr, FastListMove, FastListRefresh, InterpolatedPart,
+    ListCommon, ListPlan, NativeComponentEventHandler, NetworkRequest, Node, SectionedListCommon,
+    WhenCase,
 };
 
 /// Visits IR nodes and expressions in preorder without building an intermediate tree.
@@ -13,8 +14,11 @@ pub fn walk_ir(
         visit_node(node);
         match node {
             Node::Layout { children, .. }
-            | Node::KeyboardAware { children, .. }
-            | Node::BottomSheet { children, .. } => walk_ir(children, visit_node, visit_expression),
+            | Node::Form { children }
+            | Node::Toolbar { children, .. }
+            | Node::KeyboardAware { children, .. } => {
+                walk_ir(children, visit_node, visit_expression)
+            }
             Node::Dialog {
                 title,
                 message,
@@ -25,10 +29,39 @@ pub fn walk_ir(
                 walk_expression(message, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
+            Node::ConfirmationDialog {
+                title, children, ..
+            } => {
+                walk_expression(title, visit_expression);
+                walk_ir(children, visit_node, visit_expression);
+            }
+            Node::BottomSheet {
+                title, children, ..
+            } => {
+                if let Some(title) = title {
+                    walk_expression(title, visit_expression);
+                }
+                walk_ir(children, visit_node, visit_expression);
+            }
+            Node::FormSection {
+                title,
+                footer,
+                children,
+                ..
+            } => {
+                if let Some(title) = title {
+                    walk_expression(title, visit_expression);
+                }
+                if let Some(footer) = footer {
+                    walk_expression(footer, visit_expression);
+                }
+                walk_ir(children, visit_node, visit_expression);
+            }
             Node::Pressable {
                 disabled,
                 long_press_duration_ms,
                 children,
+                context_menu,
                 actions,
                 double_tap_actions,
                 long_press_actions,
@@ -44,6 +77,7 @@ pub fn walk_ir(
                 walk_actions(drag_actions, visit_expression);
                 walk_actions(pinch_actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
+                walk_ir(context_menu, visit_node, visit_expression);
             }
             Node::Link { url, children } => {
                 walk_expression(url, visit_expression);
@@ -63,10 +97,26 @@ pub fn walk_ir(
                 }
                 walk_ir(children, visit_node, visit_expression);
             }
+            Node::NavigationSplitView {
+                sidebar, detail, ..
+            } => {
+                walk_ir(sidebar, visit_node, visit_expression);
+                walk_ir(detail, visit_node, visit_expression);
+            }
             Node::Accessibility {
-                label, children, ..
+                label,
+                hint,
+                value,
+                children,
+                ..
             } => {
                 walk_expression(label, visit_expression);
+                if let Some(hint) = hint {
+                    walk_expression(hint, visit_expression);
+                }
+                if let Some(value) = value {
+                    walk_expression(value, visit_expression);
+                }
                 walk_ir(children, visit_node, visit_expression);
             }
             Node::RefreshControl {
@@ -80,9 +130,17 @@ pub fn walk_ir(
             | Node::OnActive { actions }
             | Node::OnInactive { actions }
             | Node::OnBackground { actions } => walk_actions(actions, visit_expression),
-            Node::AppBottomBar { tabs, .. } => {
+            Node::AppBottomBar { tint, tabs, .. } => {
+                if let Some(crate::ColorExpression::Dynamic(color)) = tint {
+                    walk_expression(color, visit_expression);
+                }
                 for tab in tabs {
                     walk_ir(&tab.children, visit_node, visit_expression);
+                }
+            }
+            Node::PagePager { pages, .. } => {
+                for page in pages {
+                    walk_ir(page, visit_node, visit_expression);
                 }
             }
             Node::FastList { plan } => {
@@ -104,6 +162,9 @@ pub fn walk_ir(
                 }
                 if let Some(section_header) = plan.section_header() {
                     walk_ir(section_header, visit_node, visit_expression);
+                }
+                if let Some(swipe_actions) = plan.swipe_actions() {
+                    walk_ir(swipe_actions, visit_node, visit_expression);
                 }
                 walk_ir(plan.children(), visit_node, visit_expression);
             }
@@ -133,15 +194,27 @@ pub fn walk_ir(
                 walk_ir(else_body, visit_node, visit_expression);
             }
             Node::Text { value, .. } => walk_expression(value, visit_expression),
+            Node::ContentUnavailable {
+                title, description, ..
+            } => {
+                walk_expression(title, visit_expression);
+                walk_expression(description, visit_expression);
+            }
             Node::ProgressBar { progress } | Node::ProgressRing { progress } => {
                 walk_expression(progress, visit_expression)
             }
             Node::SegmentedControl { items, .. } => walk_expression(items, visit_expression),
-            Node::Picker { items, .. } => walk_expression(items, visit_expression),
+            Node::Picker { items, label, .. } => {
+                walk_expression(items, visit_expression);
+                if let Some(label) = label {
+                    walk_expression(label, visit_expression);
+                }
+            }
             Node::Button {
                 label,
                 loading,
                 disabled,
+                tint,
                 actions,
                 ..
             } => {
@@ -151,6 +224,9 @@ pub fn walk_ir(
                 }
                 if let Some(disabled) = disabled {
                     walk_expression(disabled, visit_expression);
+                }
+                if let Some(crate::ColorExpression::Dynamic(color)) = tint {
+                    walk_expression(color, visit_expression);
                 }
                 walk_actions(actions, visit_expression);
             }
@@ -182,28 +258,46 @@ pub fn walk_ir(
                     walk_ir(children, visit_node, visit_expression);
                 }
             }
-            Node::TextInput { actions, .. } => walk_actions(actions, visit_expression),
+            Node::TextInput {
+                actions, on_change, ..
+            } => {
+                walk_actions(actions, visit_expression);
+                if let Some(change) = on_change {
+                    walk_actions(&change.actions, visit_expression);
+                }
+            }
+            Node::Switch { label, .. } => walk_expression(label, visit_expression),
+            Node::Appearance { mode, children } => {
+                walk_expression(mode, visit_expression);
+                walk_ir(children, visit_node, visit_expression);
+            }
             Node::Content
             | Node::Spacer
             | Node::Divider { .. }
-            | Node::SystemIcon { .. }
             | Node::LinearGradient { .. }
-            | Node::Switch { .. }
             | Node::Slider { .. }
+            | Node::DatePicker { .. }
             | Node::StatusBar { .. }
             | Node::Direction { .. } => {}
+            Node::SystemIcon { tint, .. } => {
+                if let crate::ColorExpression::Dynamic(color) = tint {
+                    walk_expression(color, visit_expression);
+                }
+            }
             Node::NavigationStack { arguments, .. } => {
                 for argument in arguments {
                     walk_expression(argument, visit_expression);
                 }
             }
-            Node::NavigationBack { label } => walk_expression(label, visit_expression),
+            Node::NavigationBack { label, .. } => walk_expression(label, visit_expression),
             Node::Image {
                 source,
                 shared_element,
                 ..
             } => {
-                if let crate::ImageSource::RemoteUrl(url) = source {
+                if let crate::ImageSource::RemoteUrl(url) | crate::ImageSource::LocalFile(url) =
+                    source
+                {
                     walk_expression(url, visit_expression);
                 }
                 if let Some(id) = shared_element {
@@ -276,6 +370,10 @@ pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) 
                         visit(actions);
                         walk_nested_callback_actions(actions, visit);
                     }
+                    if let Some(on_move) = plan.on_move() {
+                        visit(&on_move.actions);
+                        walk_nested_callback_actions(&on_move.actions, visit);
+                    }
                     if let Some(refresh) = plan.refresh() {
                         visit(&refresh.actions);
                         walk_nested_callback_actions(&refresh.actions, visit);
@@ -337,6 +435,8 @@ fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Act
                 }
             }
             Action::Expression(_)
+            | Action::Let { .. }
+            | Action::Return { .. }
             | Action::Assign { .. }
             | Action::NativePropertyAssign { .. }
             | Action::CollectionMutation { .. }
@@ -365,6 +465,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(collection, visit);
         }
         Expr::Not(value) | Expr::Negate { value, .. } => walk_expression(value, visit),
+        Expr::LocalizedText { value, .. } => walk_expression(value, visit),
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
                 walk_expression(item, visit);
@@ -390,6 +491,12 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
                 walk_expression(argument, visit);
             }
         }
+        Expr::PluginEnumConstructor { arguments, .. } => {
+            for argument in arguments {
+                walk_expression(argument, visit);
+            }
+        }
+        Expr::PluginEnumOptionalConstructor { value, .. } => walk_expression(value, visit),
         Expr::CollectionTransform {
             collection,
             initial,
@@ -512,25 +619,34 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
-        | Expr::IsCompactHeight => {}
+        | Expr::IsCompactHeight
+        | Expr::This(_) => {}
     }
 }
 
 /// Returns whether a node tree already contains a native scrolling primitive.
 pub fn contains_scrollable(nodes: &[Node]) -> bool {
     nodes.iter().any(|node| match node {
-        Node::FastList { .. } | Node::KeyboardAware { .. } => true,
-        Node::Layout { children, .. }
+        Node::FastList { .. } | Node::KeyboardAware { .. } | Node::Form { .. } => true,
+        Node::Appearance { children, .. }
+        | Node::Layout { children, .. }
+        | Node::FormSection { children, .. }
+        | Node::Toolbar { children, .. }
         | Node::NavigationLink { children, .. }
         | Node::Link { children, .. }
         | Node::Accessibility { children, .. }
         | Node::Pressable { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::Dialog { children, .. }
+        | Node::ConfirmationDialog { children, .. }
         | Node::RefreshControl { children, .. } => contains_scrollable(children),
+        Node::NavigationSplitView {
+            sidebar, detail, ..
+        } => contains_scrollable(sidebar) || contains_scrollable(detail),
         Node::AppBottomBar { tabs, .. } => {
             tabs.iter().any(|tab| contains_scrollable(&tab.children))
         }
+        Node::PagePager { pages, .. } => pages.iter().any(|page| contains_scrollable(page)),
         Node::If {
             then_body,
             else_body,
@@ -547,6 +663,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::Text { .. }
+        | Node::ContentUnavailable { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }
         | Node::Switch { .. }
@@ -555,6 +672,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::ProgressRing { .. }
         | Node::SegmentedControl { .. }
         | Node::Picker { .. }
+        | Node::DatePicker { .. }
         | Node::Image { .. }
         | Node::SystemIcon { .. }
         | Node::LinearGradient { .. }
@@ -608,6 +726,7 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
     for action in actions {
         match action {
             Action::Expression(expression) => walk_expression(expression, visit),
+            Action::Let { value, .. } | Action::Return { value } => walk_expression(value, visit),
             Action::Assign { value, .. } => walk_expression(value, visit),
             Action::NativePropertyAssign {
                 receiver, value, ..
@@ -710,6 +829,8 @@ pub fn walk_action_tree(actions: &[Action], visit: &mut impl FnMut(&Action)) {
                 }
             }
             Action::Expression(_)
+            | Action::Let { .. }
+            | Action::Return { .. }
             | Action::Assign { .. }
             | Action::NativePropertyAssign { .. }
             | Action::CollectionMutation { .. }
@@ -742,6 +863,7 @@ pub fn walk_callback_expressions(actions: &[Action], visit: &mut impl FnMut(&Exp
     for action in actions {
         match action {
             Action::Expression(expression) => walk_expression(expression, visit),
+            Action::Let { value, .. } | Action::Return { value } => walk_expression(value, visit),
             Action::Assign { value, .. } => walk_expression(value, visit),
             Action::NativePropertyAssign {
                 receiver, value, ..
@@ -860,9 +982,12 @@ pub trait IrFolder: Sized {
 pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
     match node {
         Node::Layout { children, .. }
+        | Node::Form { children }
+        | Node::Toolbar { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::Dialog { children, .. } => visitor.visit_nodes(children),
+        Node::ConfirmationDialog { children, .. } => visitor.visit_nodes(children),
         Node::Pressable {
             disabled,
             children,
@@ -870,6 +995,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             double_tap_actions,
             long_press_duration_ms,
             long_press_actions,
+            context_menu,
             drag_actions,
             pinch_actions,
             ..
@@ -879,8 +1005,23 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             visitor.visit_actions(actions);
             visitor.visit_actions(double_tap_actions);
             visitor.visit_actions(long_press_actions);
+            visitor.visit_nodes(context_menu);
             visitor.visit_actions(drag_actions);
             visitor.visit_actions(pinch_actions);
+            visitor.visit_nodes(children);
+        }
+        Node::FormSection {
+            title,
+            footer,
+            children,
+            ..
+        } => {
+            if let Some(title) = title {
+                visitor.visit_expr(title);
+            }
+            if let Some(footer) = footer {
+                visitor.visit_expr(footer);
+            }
             visitor.visit_nodes(children);
         }
         Node::Link { url, children } => {
@@ -901,10 +1042,26 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             }
             visitor.visit_nodes(children);
         }
+        Node::NavigationSplitView {
+            sidebar, detail, ..
+        } => {
+            visitor.visit_nodes(sidebar);
+            visitor.visit_nodes(detail);
+        }
         Node::Accessibility {
-            label, children, ..
+            label,
+            hint,
+            value,
+            children,
+            ..
         } => {
             visitor.visit_expr(label);
+            if let Some(hint) = hint {
+                visitor.visit_expr(hint);
+            }
+            if let Some(value) = value {
+                visitor.visit_expr(value);
+            }
             visitor.visit_nodes(children);
         }
         Node::RefreshControl {
@@ -918,9 +1075,17 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         | Node::OnActive { actions }
         | Node::OnInactive { actions }
         | Node::OnBackground { actions } => visitor.visit_actions(actions),
-        Node::AppBottomBar { tabs, .. } => {
+        Node::AppBottomBar { tint, tabs, .. } => {
+            if let Some(crate::ColorExpression::Dynamic(color)) = tint {
+                visitor.visit_expr(color);
+            }
             for tab in tabs {
                 visitor.visit_nodes(&tab.children);
+            }
+        }
+        Node::PagePager { pages, .. } => {
+            for page in pages {
+                visitor.visit_nodes(page);
             }
         }
         Node::FastList { plan } => {
@@ -934,6 +1099,10 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             if let Some(actions) = plan.on_scroll() {
                 visitor.visit_actions(actions);
             }
+            if let Some(on_move) = plan.on_move() {
+                visitor.visit_expr(&on_move.enabled);
+                visitor.visit_actions(&on_move.actions);
+            }
             if let Some(refresh) = plan.refresh() {
                 visitor.visit_actions(&refresh.actions);
             }
@@ -942,6 +1111,9 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             }
             if let Some(section_header) = plan.section_header() {
                 visitor.visit_nodes(section_header);
+            }
+            if let Some(swipe_actions) = plan.swipe_actions() {
+                visitor.visit_nodes(swipe_actions);
             }
             visitor.visit_nodes(plan.children());
         }
@@ -971,15 +1143,28 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             visitor.visit_nodes(else_body);
         }
         Node::Text { value, .. } => visitor.visit_expr(value),
+        Node::ContentUnavailable {
+            title, description, ..
+        } => {
+            visitor.visit_expr(title);
+            visitor.visit_expr(description);
+        }
         Node::ProgressBar { progress } | Node::ProgressRing { progress } => {
             visitor.visit_expr(progress)
         }
         Node::SegmentedControl { items, .. } => visitor.visit_expr(items),
-        Node::Picker { items, .. } => visitor.visit_expr(items),
+        Node::Picker { items, label, .. } => {
+            visitor.visit_expr(items);
+            if let Some(label) = label {
+                visitor.visit_expr(label);
+            }
+        }
+        Node::DatePicker { .. } => {}
         Node::Button {
             label,
             loading,
             disabled,
+            tint,
             actions,
             ..
         } => {
@@ -990,7 +1175,15 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             if let Some(disabled) = disabled {
                 visitor.visit_expr(disabled);
             }
+            if let Some(crate::ColorExpression::Dynamic(color)) = tint {
+                visitor.visit_expr(color);
+            }
             visitor.visit_actions(actions);
+        }
+        Node::SystemIcon { tint, .. } => {
+            if let crate::ColorExpression::Dynamic(color) = tint {
+                visitor.visit_expr(color);
+            }
         }
         Node::ComponentCall {
             arguments,
@@ -1020,13 +1213,23 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 visitor.visit_nodes(children);
             }
         }
-        Node::TextInput { actions, .. } => visitor.visit_actions(actions),
+        Node::TextInput {
+            actions, on_change, ..
+        } => {
+            visitor.visit_actions(actions);
+            if let Some(change) = on_change {
+                visitor.visit_actions(&change.actions);
+            }
+        }
+        Node::Switch { label, .. } => visitor.visit_expr(label),
+        Node::Appearance { mode, children } => {
+            visitor.visit_expr(mode);
+            visitor.visit_nodes(children);
+        }
         Node::Content
         | Node::Spacer
         | Node::Divider { .. }
-        | Node::SystemIcon { .. }
         | Node::LinearGradient { .. }
-        | Node::Switch { .. }
         | Node::Slider { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. } => {}
@@ -1035,13 +1238,14 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 visitor.visit_expr(argument);
             }
         }
-        Node::NavigationBack { label } => visitor.visit_expr(label),
+        Node::NavigationBack { label, .. } => visitor.visit_expr(label),
         Node::Image {
             source,
             shared_element,
             ..
         } => {
-            if let crate::ImageSource::RemoteUrl(url) = source {
+            if let crate::ImageSource::RemoteUrl(url) | crate::ImageSource::LocalFile(url) = source
+            {
                 visitor.visit_expr(url);
             }
             if let Some(id) = shared_element {
@@ -1067,6 +1271,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
             visitor.visit_expr(collection);
         }
         Expr::Not(value) | Expr::Negate { value, .. } => visitor.visit_expr(value),
+        Expr::LocalizedText { value, .. } => visitor.visit_expr(value),
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
                 visitor.visit_expr(item);
@@ -1092,6 +1297,12 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
                 visitor.visit_expr(argument);
             }
         }
+        Expr::PluginEnumConstructor { arguments, .. } => {
+            for argument in arguments {
+                visitor.visit_expr(argument);
+            }
+        }
+        Expr::PluginEnumOptionalConstructor { value, .. } => visitor.visit_expr(value),
         Expr::CollectionTransform {
             collection,
             initial,
@@ -1216,13 +1427,15 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
-        | Expr::IsCompactHeight => {}
+        | Expr::IsCompactHeight
+        | Expr::This(_) => {}
     }
 }
 
 pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
     match action {
         Action::Expression(expr) => visitor.visit_expr(expr),
+        Action::Let { value, .. } | Action::Return { value } => visitor.visit_expr(value),
         Action::Assign { value, .. } => visitor.visit_expr(value),
         Action::NativePropertyAssign {
             receiver, value, ..
@@ -1288,6 +1501,22 @@ pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
 
 pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Node> {
     match node {
+        Node::Form { children } => Some(Node::Form {
+            children: folder.fold_nodes(children),
+        }),
+        Node::Switch { state, label } => Some(Node::Switch {
+            state,
+            label: folder.fold_expr(label),
+        }),
+        Node::FormSection {
+            title,
+            footer,
+            children,
+        } => Some(Node::FormSection {
+            title: title.map(|title| folder.fold_expr(title)),
+            footer: footer.map(|footer| folder.fold_expr(footer)),
+            children: folder.fold_nodes(children),
+        }),
         Node::Layout {
             kind,
             spacing,
@@ -1299,6 +1528,13 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             style,
             children: folder.fold_nodes(children),
         }),
+        Node::Toolbar {
+            placement,
+            children,
+        } => Some(Node::Toolbar {
+            placement,
+            children: folder.fold_nodes(children),
+        }),
         Node::KeyboardAware { dismiss, children } => Some(Node::KeyboardAware {
             dismiss,
             children: folder.fold_nodes(children),
@@ -1306,10 +1542,14 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::BottomSheet {
             state,
             partial,
+            large_only,
+            title,
             children,
         } => Some(Node::BottomSheet {
             state,
             partial,
+            large_only,
+            title: title.map(|title| folder.fold_expr(title)),
             children: folder.fold_nodes(children),
         }),
         Node::Dialog {
@@ -1323,6 +1563,15 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             message: folder.fold_expr(message),
             children: folder.fold_nodes(children),
         }),
+        Node::ConfirmationDialog {
+            state,
+            title,
+            children,
+        } => Some(Node::ConfirmationDialog {
+            state,
+            title: folder.fold_expr(title),
+            children: folder.fold_nodes(children),
+        }),
         Node::Pressable {
             disabled,
             haptic,
@@ -1332,6 +1581,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             double_tap_actions,
             long_press_duration_ms,
             long_press_actions,
+            context_menu,
             drag_parameters,
             drag_actions,
             pinch_parameter,
@@ -1345,6 +1595,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             double_tap_actions: folder.fold_actions(double_tap_actions),
             long_press_duration_ms: folder.fold_expr(long_press_duration_ms),
             long_press_actions: folder.fold_actions(long_press_actions),
+            context_menu: folder.fold_nodes(context_menu),
             drag_parameters,
             drag_actions: folder.fold_actions(drag_actions),
             pinch_parameter,
@@ -1368,14 +1619,25 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             guard: guard.map(|g| folder.fold_expr(g)),
             children: folder.fold_nodes(children),
         }),
+        Node::NavigationSplitView {
+            detail_visible,
+            sidebar,
+            detail,
+        } => Some(Node::NavigationSplitView {
+            detail_visible,
+            sidebar: folder.fold_nodes(sidebar),
+            detail: folder.fold_nodes(detail),
+        }),
         Node::Accessibility {
             label,
             hint,
+            value,
             role,
             children,
         } => Some(Node::Accessibility {
             label: folder.fold_expr(label),
             hint: hint.map(|h| folder.fold_expr(h)),
+            value: value.map(|value| folder.fold_expr(value)),
             role,
             children: folder.fold_nodes(children),
         }),
@@ -1407,17 +1669,36 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::OnBackground { actions } => Some(Node::OnBackground {
             actions: folder.fold_actions(actions),
         }),
-        Node::AppBottomBar { state, tabs } => Some(Node::AppBottomBar {
+        Node::AppBottomBar { state, tint, tabs } => Some(Node::AppBottomBar {
             state,
+            tint: tint.map(|tint| match tint {
+                crate::ColorExpression::Dynamic(color) => {
+                    crate::ColorExpression::Dynamic(folder.fold_expr(color))
+                }
+                other => other,
+            }),
             tabs: tabs
                 .into_iter()
                 .map(|tab| BottomBarTab {
                     index: tab.index,
                     label: tab.label,
+                    comment: tab.comment,
                     icon: tab.icon,
                     badge: tab.badge,
+                    role: tab.role,
+                    navigation_title: tab.navigation_title,
+                    large_title: tab.large_title,
+                    search_state: tab.search_state,
+                    search_prompt: tab.search_prompt,
                     children: folder.fold_nodes(tab.children),
                 })
+                .collect(),
+        }),
+        Node::PagePager { state, pages } => Some(Node::PagePager {
+            state,
+            pages: pages
+                .into_iter()
+                .map(|page| folder.fold_nodes(page))
                 .collect(),
         }),
         Node::FastList { plan } => Some(Node::FastList {
@@ -1455,6 +1736,15 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             value: folder.fold_expr(value),
             style,
         }),
+        Node::ContentUnavailable {
+            title,
+            icon,
+            description,
+        } => Some(Node::ContentUnavailable {
+            title: folder.fold_expr(title),
+            icon,
+            description: folder.fold_expr(description),
+        }),
         Node::ProgressBar { progress } => Some(Node::ProgressBar {
             progress: folder.fold_expr(progress),
         }),
@@ -1465,21 +1755,50 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             items: folder.fold_expr(items),
             state,
         }),
-        Node::Picker { items, state } => Some(Node::Picker {
+        Node::Picker {
+            items,
+            state,
+            icon,
+            label,
+        } => Some(Node::Picker {
             items: folder.fold_expr(items),
             state,
+            icon,
+            label: label.map(|label| folder.fold_expr(label)),
+        }),
+        Node::DatePicker {
+            timestamp_state,
+            has_time_state,
+        } => Some(Node::DatePicker {
+            timestamp_state,
+            has_time_state,
         }),
         Node::Button {
             label,
             icon,
             loading,
             disabled,
+            style,
+            size,
+            shape,
+            tint,
+            glass,
             actions,
         } => Some(Node::Button {
             label: folder.fold_expr(label),
             icon,
             loading: loading.map(|l| folder.fold_expr(l)),
             disabled: disabled.map(|d| folder.fold_expr(d)),
+            style,
+            size,
+            shape,
+            tint: tint.map(|tint| match tint {
+                crate::ColorExpression::Dynamic(color) => {
+                    crate::ColorExpression::Dynamic(folder.fold_expr(color))
+                }
+                other => other,
+            }),
+            glass,
             actions: folder.fold_actions(actions),
         }),
         Node::TextInput {
@@ -1494,10 +1813,17 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             capitalization,
             focused,
             max_length,
+            font,
+            min_lines,
+            max_lines,
+            searchable,
             actions,
+            on_change,
+            comment,
         } => Some(Node::TextInput {
             state,
             placeholder,
+            comment,
             keyboard,
             secure,
             multiline,
@@ -1507,7 +1833,15 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             capitalization,
             focused,
             max_length,
+            font,
+            min_lines,
+            max_lines,
+            searchable,
             actions: folder.fold_actions(actions),
+            on_change: on_change.map(|mut change| {
+                change.actions = folder.fold_actions(change.actions);
+                change
+            }),
         }),
         Node::ComponentCall {
             name,
@@ -1544,6 +1878,10 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 })
                 .collect(),
         }),
+        Node::Appearance { mode, children } => Some(Node::Appearance {
+            mode: folder.fold_expr(mode),
+            children: folder.fold_nodes(children),
+        }),
         Node::NavigationStack { root, arguments } => Some(Node::NavigationStack {
             root,
             arguments: arguments
@@ -1559,28 +1897,47 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             description,
             scale,
             placeholder,
+            max_height,
             shared_element,
         } => Some(Node::Image {
             source: match source {
                 crate::ImageSource::RemoteUrl(url) => {
                     crate::ImageSource::RemoteUrl(folder.fold_expr(url))
                 }
+                crate::ImageSource::LocalFile(url) => {
+                    crate::ImageSource::LocalFile(folder.fold_expr(url))
+                }
                 other => other,
             },
             description,
             scale,
             placeholder,
+            max_height,
             shared_element: shared_element.map(|id| folder.fold_expr(id)),
         }),
         Node::Content
         | Node::Spacer
         | Node::Divider { .. }
-        | Node::SystemIcon { .. }
         | Node::LinearGradient { .. }
-        | Node::Switch { .. }
         | Node::Slider { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. } => Some(node),
+        Node::SystemIcon {
+            icon,
+            description,
+            size,
+            tint,
+        } => Some(Node::SystemIcon {
+            icon,
+            description,
+            size,
+            tint: match tint {
+                crate::ColorExpression::Dynamic(color) => {
+                    crate::ColorExpression::Dynamic(folder.fold_expr(color))
+                }
+                other => other,
+            },
+        }),
     }
 }
 
@@ -1593,6 +1950,13 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
                 children: folder.fold_nodes(common.children),
                 on_end_reached: common.on_end_reached.map(|a| folder.fold_actions(a)),
                 on_scroll: common.on_scroll.map(|a| folder.fold_actions(a)),
+                on_move: common.on_move.map(|callback| FastListMove {
+                    from: callback.from,
+                    to: callback.to,
+                    enabled: folder.fold_expr(callback.enabled),
+                    actions: folder.fold_actions(callback.actions),
+                }),
+                swipe_actions: common.swipe_actions.map(|nodes| folder.fold_nodes(nodes)),
                 sticky_header: common.sticky_header.map(|h| folder.fold_nodes(h)),
                 refresh: common.refresh.map(|r| FastListRefresh {
                     state: r.state,
@@ -1615,6 +1979,13 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
                 children: folder.fold_nodes(common.children),
                 on_end_reached: common.on_end_reached.map(|a| folder.fold_actions(a)),
                 on_scroll: common.on_scroll.map(|a| folder.fold_actions(a)),
+                on_move: common.on_move.map(|callback| FastListMove {
+                    from: callback.from,
+                    to: callback.to,
+                    enabled: folder.fold_expr(callback.enabled),
+                    actions: folder.fold_actions(callback.actions),
+                }),
+                swipe_actions: common.swipe_actions.map(|nodes| folder.fold_nodes(nodes)),
                 sticky_header: common.sticky_header.map(|h| folder.fold_nodes(h)),
                 refresh: common.refresh.map(|r| FastListRefresh {
                     state: r.state,
@@ -1638,6 +2009,7 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
                 key: common.key.map(|k| folder.fold_expr(k)),
                 children: folder.fold_nodes(common.children),
                 section_header: common.section_header.map(|h| folder.fold_nodes(h)),
+                swipe_actions: common.swipe_actions.map(|nodes| folder.fold_nodes(nodes)),
                 refresh: common.refresh.map(|r| FastListRefresh {
                     state: r.state,
                     actions: folder.fold_actions(r.actions),
@@ -1650,6 +2022,15 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
 
 pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
     match expr {
+        Expr::LocalizedText {
+            key,
+            value,
+            comment,
+        } => Expr::LocalizedText {
+            key,
+            value: Box::new(folder.fold_expr(*value)),
+            comment,
+        },
         Expr::Add(left, right, ty) => Expr::Add(
             Box::new(folder.fold_expr(*left)),
             Box::new(folder.fold_expr(*right)),
@@ -1721,6 +2102,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
             arguments,
             return_type,
             is_async,
+            is_throwing,
             is_constructor,
         } => Expr::Call {
             name,
@@ -1730,7 +2112,43 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
                 .collect(),
             return_type,
             is_async,
+            is_throwing,
             is_constructor,
+        },
+        Expr::PluginEnumConstructor {
+            namespace,
+            enum_name,
+            case_name,
+            payload_names,
+            arguments,
+            return_type,
+        } => Expr::PluginEnumConstructor {
+            namespace,
+            enum_name,
+            case_name,
+            payload_names,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| folder.fold_expr(argument))
+                .collect(),
+            return_type,
+        },
+        Expr::PluginEnumOptionalConstructor {
+            namespace,
+            enum_name,
+            case_name,
+            null_case_name,
+            payload_name,
+            value,
+            return_type,
+        } => Expr::PluginEnumOptionalConstructor {
+            namespace,
+            enum_name,
+            case_name,
+            null_case_name,
+            payload_name,
+            value: Box::new(folder.fold_expr(*value)),
+            return_type,
         },
         Expr::CollectionTransform {
             operation,
@@ -1947,13 +2365,22 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
-        | Expr::IsCompactHeight => expr,
+        | Expr::IsCompactHeight
+        | Expr::This(_) => expr,
     }
 }
 
 pub fn fold_action_children<F: IrFolder>(action: Action, folder: &mut F) -> Option<Action> {
     match action {
         Action::Expression(expr) => Some(Action::Expression(folder.fold_expr(expr))),
+        Action::Let { name, ty, value } => Some(Action::Let {
+            name,
+            ty,
+            value: folder.fold_expr(value),
+        }),
+        Action::Return { value } => Some(Action::Return {
+            value: folder.fold_expr(value),
+        }),
         Action::Assign { name, value } => Some(Action::Assign {
             name,
             value: folder.fold_expr(value),
@@ -2132,6 +2559,11 @@ mod tests {
                 icon: None,
                 loading: None,
                 disabled: None,
+                style: None,
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
                 actions: nested,
             },
             Node::NativeComponentCall {
@@ -2214,6 +2646,11 @@ mod tests {
                         icon: None,
                         loading: None,
                         disabled: None,
+                        style: None,
+                        size: None,
+                        shape: None,
+                        tint: None,
+                        glass: false,
                         actions: vec![Action::Assign {
                             name: "count".to_owned(),
                             value: Expr::State(

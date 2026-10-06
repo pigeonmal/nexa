@@ -10,9 +10,11 @@ pub(crate) struct RenderScope<'a> {
 }
 
 pub(crate) mod accessibility;
+pub(crate) mod appearance;
 pub(crate) mod assets;
 pub(crate) mod bottom_bar;
 pub(crate) mod conditional;
+pub(crate) mod content_unavailable;
 pub(crate) mod controls;
 pub(crate) mod custom_components;
 pub(crate) mod dialogs;
@@ -30,6 +32,7 @@ pub(crate) mod node_renderer;
 pub(crate) mod refresh;
 pub(crate) mod shared_elements;
 pub(crate) mod sheets;
+pub(crate) mod split_view;
 pub(crate) mod status_bar;
 pub(crate) mod system_icons;
 pub(crate) mod text;

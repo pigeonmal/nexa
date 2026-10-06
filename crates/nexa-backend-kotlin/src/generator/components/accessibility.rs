@@ -23,22 +23,24 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.ui.semantics.heading",
     );
     imports.add(
-        features.uses_accessibility_hint,
-        "androidx.compose.ui.semantics.stateDescription",
-    );
-    imports.add(
-        features.uses_switch || features.uses_accessibility,
+        features.uses_switch || features.uses_date_picker || features.uses_accessibility,
         "androidx.compose.ui.semantics.contentDescription",
     );
     imports.add(
-        features.uses_switch || features.uses_accessibility,
+        features.uses_switch || features.uses_date_picker || features.uses_accessibility,
         "androidx.compose.ui.semantics.semantics",
+    );
+    imports.add(
+        features.uses_accessibility,
+        "androidx.compose.ui.semantics.stateDescription",
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_accessibility(
     label: &Expr,
     hint: Option<&Expr>,
+    value: Option<&Expr>,
     role: AccessibilityRole,
     children: &[Node],
     scope: &RenderScope<'_>,
@@ -55,13 +57,21 @@ pub(crate) fn render_accessibility(
     if !child_has_same_image_label {
         out.line_at(
             depth + 2,
-            format_args!("contentDescription = {}", expression(label)),
+            format_args!(
+                "contentDescription = {}",
+                accessibility_description(label, hint)
+            ),
         );
-    }
-    if let Some(hint) = hint {
+    } else if let Some(hint) = hint {
         out.line_at(
             depth + 2,
-            format_args!("stateDescription = {}", expression(hint)),
+            format_args!("contentDescription = {}", expression(hint)),
+        );
+    }
+    if let Some(value) = value {
+        out.line_at(
+            depth + 2,
+            format_args!("stateDescription = {}", expression(value)),
         );
     }
     if matches!(role, AccessibilityRole::Header) {
@@ -78,6 +88,21 @@ pub(crate) fn render_accessibility(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+/// Compose has no stable standalone accessibility-hint semantic in Nexa's
+/// pinned BOM. Keep the hint attached to the accessible description instead
+/// of misrepresenting it as the control's current state.
+fn accessibility_description(label: &Expr, hint: Option<&Expr>) -> String {
+    match (label, hint) {
+        (Expr::String(label), Some(Expr::String(hint))) => {
+            crate::generator::utils::kotlin_string(&format!("{label}, {hint}"))
+        }
+        (label, Some(hint)) => {
+            format!("{} + \", \" + {}", expression(label), expression(hint))
+        }
+        (label, None) => expression(label),
+    }
 }
 
 fn role_name(role: AccessibilityRole) -> Option<&'static str> {

@@ -8,8 +8,8 @@
 //! date style. A formatter carries locale and calendar settings that would make
 //! the output differ between platforms and between devices, and a hand-rolled
 //! civil-date conversion is a fixed, testable layout: `yyyy-MM-ddTHH:mm:ss.SSSZ`
-//! in UTC. Both platforms implement the same layout and the same leap-year
-//! rules, so a timestamp written on one reads on the other.
+//! in UTC. Calendar-relative operations use the current platform calendar and
+//! time zone, which is required for local-day arithmetic around DST changes.
 
 use nexa_codegen::SourceWriter;
 
@@ -26,12 +26,55 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(true, "Dispatch");
 }
 
-/// Emits the clock helpers an app needs to read, format, parse, and sleep.
+/// Emits the clock and calendar helpers an app reaches from its typed IR.
 pub(crate) fn render(out: &mut SourceWriter) {
     out.push_str(TIME_RUNTIME);
 }
 
 const TIME_RUNTIME: &str = r#"// MARK: - Core clock
+
+/// Reuses per-thread native formatters so list rows do not allocate a formatter on every render.
+func nexaFormatDate(_ milliseconds: Int64, _ pattern: String) -> String {
+    let locale = Locale.current
+    let calendar = Calendar.current
+    let timeZone = TimeZone.current
+    let key = "nexa.date.\(locale.identifier).\(String(describing: calendar.identifier)).\(timeZone.identifier).\(pattern)"
+    let cache = Thread.current.threadDictionary
+    let formatter: DateFormatter
+    if let cached = cache[key] as? DateFormatter {
+        formatter = cached
+    } else {
+        let cachedKeys = cache.allKeys.compactMap { key -> String? in
+            guard let key = key as? String, key.hasPrefix("nexa.date.") else { return nil }
+            return key
+        }
+        if cachedKeys.count >= 32 {
+            cachedKeys.forEach { cache.removeObject(forKey: $0) }
+        }
+        formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = timeZone
+        formatter.dateFormat = pattern
+        cache[key] = formatter
+    }
+    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000))
+}
+
+/// The local calendar-day key for a wall-clock timestamp.
+func nexaStartOfDay(_ milliseconds: Int64) -> Int64 {
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    return Int64(Calendar.current.startOfDay(for: date).timeIntervalSince1970 * 1000)
+}
+
+/// Advances by local calendar days while preserving the wall-clock time over daylight-saving changes.
+func nexaAddCalendarDays(_ milliseconds: Int64, _ days: Int32) -> Int64 {
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    guard let advanced = Calendar.current.date(byAdding: .day, value: Int(days), to: date) else {
+        return milliseconds
+    }
+    return Int64((advanced.timeIntervalSince1970 * 1000).rounded())
+}
 
 /// Days from the Unix epoch to the civil date 0000-03-01, which is where the
 /// civil-date conversion counts from.

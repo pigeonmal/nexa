@@ -20,6 +20,15 @@ pub struct PluginManifest {
     /// Optional sources compiled into the generated native host projects.
     pub cpp: CppManifest,
     pub assets: Vec<String>,
+    /// Optional host-side compiler analyzer supplied by this plugin.
+    pub compiler: Option<CompilerManifest>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompilerManifest {
+    /// Executable and arguments, launched without a shell from the plugin
+    /// package root. A relative executable is resolved against that root.
+    pub analyzer: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -37,6 +46,10 @@ pub struct PlatformManifest {
     pub min_version: Option<String>,
     pub min_sdk: Option<u32>,
     pub sources: Vec<String>,
+    /// iOS implementation files that are safe to compile into app-extension
+    /// targets. This is an explicit subset/selection, separate from app
+    /// sources because extension targets have stricter API availability.
+    pub extension_sources: Vec<String>,
     /// iOS system frameworks linked by the generated Xcode target.
     pub frameworks: Vec<String>,
     /// Local iOS XCFramework bundles copied into the generated Xcode project.
@@ -100,6 +113,9 @@ pub struct SwiftPackage {
     pub url: String,
     pub requirement: SwiftPackageRequirement,
     pub products: Vec<String>,
+    /// SwiftPM products linked by generated app-extension targets, never by
+    /// the main application target unless also listed in `products`.
+    pub extension_products: Vec<String>,
 }
 
 impl Default for PluginManifest {
@@ -114,6 +130,7 @@ impl Default for PluginManifest {
             android: PlatformManifest::default(),
             cpp: CppManifest::default(),
             assets: Vec::new(),
+            compiler: None,
         }
     }
 }
@@ -324,6 +341,9 @@ impl Parser {
                 Some("ios") => self.parse_platform(&mut manifest.ios, false)?,
                 Some("android") => self.parse_platform(&mut manifest.android, true)?,
                 Some("cpp") => self.parse_cpp(&mut manifest.cpp)?,
+                Some("compiler") => {
+                    manifest.compiler = Some(self.parse_compiler()?);
+                }
                 Some(name) => return self.error(format!("unknown plugin manifest field `{name}`")),
                 None => return self.error("expected a plugin manifest field"),
             }
@@ -357,6 +377,42 @@ impl Parser {
         Ok(())
     }
 
+    fn parse_compiler(&mut self) -> Result<CompilerManifest, String> {
+        self.expect_identifier("compiler")?;
+        self.expect(TokenKind::LeftBrace, "`{`")?;
+        let mut analyzer = None;
+        let mut seen = std::collections::HashSet::new();
+        while !self.consume(TokenKind::RightBrace) {
+            let field = self
+                .peek_identifier()
+                .ok_or_else(|| self.error_value("expected a compiler analyzer field"))?;
+            if !seen.insert(field.clone()) {
+                return Err(self.error_value(format!(
+                    "compiler field `{field}` is declared more than once"
+                )));
+            }
+            match field.as_str() {
+                "analyzer" => analyzer = Some(self.parse_string_array_field("analyzer")?),
+                name => return self.error(format!("unknown compiler field `{name}`")),
+            }
+            self.consume(TokenKind::Comma);
+        }
+        let analyzer = analyzer.ok_or_else(|| self.error_value("compiler requires `analyzer`"))?;
+        let Some(program) = analyzer.first() else {
+            return self.error("compiler analyzer command cannot be empty");
+        };
+        if program.is_empty() || program.contains('\0') {
+            return self.error("compiler analyzer executable must be a non-empty path or command");
+        }
+        if program.contains('/') || program.contains('\\') || program.starts_with('.') {
+            validate_relative_path(program)?;
+        }
+        if analyzer.iter().any(|argument| argument.contains('\0')) {
+            return self.error("compiler analyzer arguments cannot contain NUL bytes");
+        }
+        Ok(CompilerManifest { analyzer })
+    }
+
     fn parse_platform(
         &mut self,
         platform: &mut PlatformManifest,
@@ -382,6 +438,11 @@ impl Parser {
                     platform.min_sdk = Some(self.parse_u32_field("minSdk")?)
                 }
                 Some("sources") => platform.sources = self.parse_string_array_field("sources")?,
+                Some("extensionSources") if !android => {
+                    platform.extension_sources =
+                        self.parse_string_array_field("extensionSources")?;
+                    validate_unique_paths(&platform.extension_sources, "iOS extension source")?;
+                }
                 Some("frameworks") if !android => {
                     platform.frameworks = self.parse_string_array_field("frameworks")?;
                     validate_ios_frameworks(&platform.frameworks)?;
@@ -529,6 +590,7 @@ impl Parser {
             let mut branch = None;
             let mut revision = None;
             let mut products = None;
+            let mut extension_products = Vec::new();
             while !self.consume(TokenKind::RightBrace) {
                 let field = self
                     .peek_identifier()
@@ -544,6 +606,9 @@ impl Parser {
                     "branch" => branch = Some(self.parse_string_field("branch")?),
                     "revision" => revision = Some(self.parse_string_field("revision")?),
                     "products" => products = Some(self.parse_string_array_field("products")?),
+                    "extensionProducts" => {
+                        extension_products = self.parse_string_array_field("extensionProducts")?
+                    }
                     name => return self.error(format!("unknown Swift package field `{name}`")),
                 }
                 self.consume(TokenKind::Comma);
@@ -565,6 +630,7 @@ impl Parser {
                 requirement,
                 products: products
                     .ok_or_else(|| self.error_value("Swift package requires `products`"))?,
+                extension_products,
             };
             validate_swift_package(&package)?;
             if !urls.insert(package.url.clone()) {
@@ -744,6 +810,7 @@ impl Parser {
             .chain(manifest.native.iter())
             .chain(manifest.assets.iter())
             .chain(manifest.ios.sources.iter())
+            .chain(manifest.ios.extension_sources.iter())
             .chain(manifest.android.sources.iter())
             .chain(manifest.cpp.sources.iter())
             .chain(manifest.cpp.headers.iter())
@@ -780,6 +847,7 @@ impl Parser {
         validate_native_artifacts(&manifest.ios.xcframeworks, "iOS XCFramework", "xcframework")?;
         validate_native_artifacts(&manifest.android.aars, "Android AAR", "aar")?;
         validate_unique_paths(&manifest.ios.resources, "iOS platform resource")?;
+        validate_unique_paths(&manifest.ios.extension_sources, "iOS extension source")?;
         validate_unique_paths(&manifest.android.resources, "Android platform resource")?;
         validate_unique_paths(&manifest.cpp.sources, "C++ source")?;
         validate_unique_paths(&manifest.cpp.headers, "C++ header")?;
@@ -938,7 +1006,11 @@ fn validate_swift_package(package: &SwiftPackage) -> Result<(), String> {
         ));
     }
     let mut products = std::collections::HashSet::new();
-    for product in &package.products {
+    for product in package
+        .products
+        .iter()
+        .chain(package.extension_products.iter())
+    {
         let mut characters = product.chars();
         let valid = characters
             .next()
@@ -1279,11 +1351,11 @@ fn validate_android_application_metadata(values: &[(String, String)]) -> Result<
         let valid_key = !key.is_empty()
             && key.split('.').all(|part| {
                 let mut characters = part.chars();
-                characters.next().is_some_and(|first| {
-                    first.is_ascii_alphabetic() || first == '_'
-                }) && characters.all(|character| {
-                    character.is_ascii_alphanumeric() || character == '_'
-                })
+                characters
+                    .next()
+                    .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+                    && characters
+                        .all(|character| character.is_ascii_alphanumeric() || character == '_')
             });
         if !valid_key {
             return Err(format!(
@@ -1310,11 +1382,11 @@ fn validate_android_application_metadata(values: &[(String, String)]) -> Result<
                 ));
             };
             let mut characters = variable.chars();
-            let valid_variable = characters.next().is_some_and(|first| {
-                first.is_ascii_alphabetic() || first == '_'
-            }) && characters.all(|character| {
-                character.is_ascii_alphanumeric() || character == '_'
-            });
+            let valid_variable = characters
+                .next()
+                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+                && characters
+                    .all(|character| character.is_ascii_alphanumeric() || character == '_');
             if !valid_variable {
                 return Err(format!(
                     "Android application metadata placeholder `{variable}` for `{key}` must be an environment-variable name"
@@ -1344,6 +1416,7 @@ mod tests {
                     minVersion: "17.0"
                     backgroundModes: ["audio"]
                     sources: ["ios/Sources/**"]
+                    extensionSources: ["ios/Sources/MMKVStoreImpl.swift"]
                     frameworks: ["AVFoundation"]
                     xcframeworks: ["ios/Vendor.xcframework"]
                     privacyManifest: "ios/PrivacyInfo.xcprivacy"
@@ -1362,6 +1435,7 @@ mod tests {
                             url: "https://github.com/example/video-sdk.git"
                             from: "2.1.0"
                             products: ["VideoSDK"]
+                            extensionProducts: ["VideoSDKExtension"]
                         }
                     }
                 }
@@ -1385,12 +1459,25 @@ mod tests {
                     sources: ["cpp/Sources/**"]
                     headers: ["cpp/include/**"]
                 }
+                compiler {
+                    analyzer: ["python3", "compiler/analyze.py"]
+                }
                 assets: ["assets/**"]
             }
             "#,
         )
         .expect("manifest should parse");
         assert_eq!(manifest.native.as_deref(), Some("native.nxid"));
+        assert_eq!(
+            manifest
+                .compiler
+                .as_ref()
+                .map(|compiler| &compiler.analyzer),
+            Some(&vec![
+                "python3".to_owned(),
+                "compiler/analyze.py".to_owned()
+            ])
+        );
         assert_eq!(manifest.android.min_sdk, Some(28));
         assert!(manifest.android.picture_in_picture);
         assert_eq!(
@@ -1399,6 +1486,10 @@ mod tests {
         );
         assert_eq!(manifest.ios.background_modes, vec!["audio"]);
         assert_eq!(manifest.ios.sources, vec!["ios/Sources/**"]);
+        assert_eq!(
+            manifest.ios.extension_sources,
+            vec!["ios/Sources/MMKVStoreImpl.swift"]
+        );
         assert_eq!(manifest.ios.frameworks, vec!["AVFoundation"]);
         assert_eq!(manifest.ios.xcframeworks, vec!["ios/Vendor.xcframework"]);
         assert_eq!(
@@ -1412,6 +1503,10 @@ mod tests {
             SwiftPackageRequirement::From("2.1.0".to_owned())
         );
         assert_eq!(manifest.ios.swift_packages[0].products, vec!["VideoSDK"]);
+        assert_eq!(
+            manifest.ios.swift_packages[0].extension_products,
+            vec!["VideoSDKExtension"]
+        );
         assert_eq!(
             manifest.android.maven_dependencies,
             vec!["androidx.media3:media3-exoplayer:1.5.1"]
@@ -1479,6 +1574,27 @@ mod tests {
             parse(r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" assets: ["../outside"] }"#)
                 .expect_err("path traversal must be rejected");
         assert!(error.contains("must stay inside"));
+    }
+
+    #[test]
+    fn extension_sources_are_ios_only_and_confined_to_package() {
+        let escaped = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } ios { extensionSources: ["../outside.swift"] } }"#,
+        )
+        .expect_err("extension source paths must stay inside the package");
+        assert!(escaped.contains("stay inside"));
+
+        let android_field = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } android { extensionSources: ["android/Source.kt"] } }"#,
+        )
+        .expect_err("extensionSources is an iOS target declaration");
+        assert!(android_field.contains("unknown platform field `extensionSources`"));
+
+        let duplicate = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } ios { extensionSources: ["ios/Safe.swift", "ios/Safe.swift"] } }"#,
+        )
+        .expect_err("extension source patterns must be unique");
+        assert!(duplicate.contains("declared more than once"));
     }
 
     #[test]
@@ -1620,5 +1736,20 @@ mod tests {
         let empty = validate_ios_linker_flags(&[String::new()])
             .expect_err("empty linker arguments must be rejected");
         assert!(empty.contains("non-empty single arguments"));
+    }
+
+    #[test]
+    fn compiler_analyzer_command_must_be_non_empty_and_package_relative_when_local() {
+        let empty = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } compiler { analyzer: [] } }"#,
+        )
+        .expect_err("an empty analyzer command is invalid");
+        assert!(empty.contains("cannot be empty"));
+
+        let traversal = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } compiler { analyzer: ["../outside"] } }"#,
+        )
+        .expect_err("local analyzer executables must stay in the package");
+        assert!(traversal.contains("stay inside the package"));
     }
 }

@@ -3,10 +3,10 @@ app BottomBarSmoke {
 
     body {
         AppBottomBar(selected: selectedTab) {
-            Tab(index: 0, label: "Home", icon: "house") {
+            Tab(index: 0, label: "Home", icon: "home") {
                 Text("Home tab")
             }
-            Tab(index: 1, label: "Settings", icon: "gearshape", badge: "2") {
+            Tab(index: 1, label: "Settings", icon: "settings", badge: "2") {
                 Text("Settings tab")
             }
         }

@@ -1,9 +1,10 @@
 use nexa_codegen::{GeneratedSources, SourceUnit, SourceUnits};
-use nexa_ir::{LayoutKind, Module, State, ViewStyle};
+use nexa_ir::{LayoutKind, Module, Node, State, ViewStyle};
 
 mod api;
 mod components;
 mod engine;
+mod widget;
 
 const DRAG_GESTURE_HELPERS: &str = r#"@MainActor
 private final class NexaDragVelocityTracker {
@@ -118,6 +119,178 @@ private struct NexaDragGestureView<Content: View>: View {
 
 "#;
 
+const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"private func nexaColor(hex: String) -> Color {
+    let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+    guard let value = UInt64(digits, radix: 16) else { return .accentColor }
+    let red: UInt64
+    let green: UInt64
+    let blue: UInt64
+    let alpha: UInt64
+    switch digits.count {
+    case 6:
+        red = (value >> 16) & 0xFF
+        green = (value >> 8) & 0xFF
+        blue = value & 0xFF
+        alpha = 0xFF
+    case 8:
+        red = (value >> 24) & 0xFF
+        green = (value >> 16) & 0xFF
+        blue = (value >> 8) & 0xFF
+        alpha = value & 0xFF
+    default:
+        return .accentColor
+    }
+    return Color(
+        .sRGB,
+        red: Double(red) / 255,
+        green: Double(green) / 255,
+        blue: Double(blue) / 255,
+        opacity: Double(alpha) / 255
+    )
+}
+"##;
+
+const NEXA_BUTTON_SHAPE_HELPER: &str = r#"fileprivate enum NexaButtonBorderShape {
+    case circle
+    case capsule
+    case roundedRectangle(Double)
+}
+
+fileprivate extension View {
+    @ViewBuilder
+    func nexaButtonShape(_ shape: NexaButtonBorderShape) -> some View {
+        if #available(iOS 17.0, *) {
+            switch shape {
+            case .circle:
+                self.buttonBorderShape(.circle)
+            case .capsule:
+                self.buttonBorderShape(.capsule)
+            case .roundedRectangle(let r):
+                self.buttonBorderShape(.roundedRectangle(radius: CGFloat(r)))
+            }
+        } else {
+            switch shape {
+            case .circle:
+                self.clipShape(Circle())
+            case .capsule:
+                self.clipShape(Capsule())
+            case .roundedRectangle(let r):
+                self.clipShape(RoundedRectangle(cornerRadius: CGFloat(r)))
+            }
+        }
+    }
+
+}
+"#;
+
+const NEXA_GLASS_HELPER: &str = r#"fileprivate enum NexaGlassShape {
+    case circle
+    case capsule
+    case rounded(Double)
+}
+
+fileprivate extension View {
+    @ViewBuilder
+    func nexaGlass(tint: Color? = nil, shape: NexaGlassShape = .circle) -> some View {
+        if #available(iOS 26.0, *) {
+            switch shape {
+            case .circle:
+                if let tint {
+                    self.glassEffect(.clear.tint(tint).interactive(), in: .circle)
+                } else {
+                    self.glassEffect(.clear.interactive(), in: .circle)
+                }
+            case .capsule:
+                if let tint {
+                    self.glassEffect(.clear.tint(tint).interactive(), in: .capsule)
+                } else {
+                    self.glassEffect(.clear.interactive(), in: .capsule)
+                }
+            case .rounded(let r):
+                if let tint {
+                    self.glassEffect(.clear.tint(tint).interactive(), in: .rect(cornerRadius: CGFloat(r)))
+                } else {
+                    self.glassEffect(.clear.interactive(), in: .rect(cornerRadius: CGFloat(r)))
+                }
+            }
+        } else {
+            switch shape {
+            case .circle:
+                self.background(.ultraThinMaterial, in: Circle())
+            case .capsule:
+                self.background(.ultraThinMaterial, in: Capsule())
+            case .rounded(let r):
+                self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: CGFloat(r)))
+            }
+        }
+    }
+
+}
+"#;
+
+const NEXA_SEARCH_ACTIVATION_HELPER: &str = r#"fileprivate extension View {
+    @ViewBuilder
+    func nexaAvoidHidingSearchToolbar() -> some View {
+        if #available(iOS 17.1, *) {
+            self.searchPresentationToolbarBehavior(.avoidHidingContent)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func nexaSearchActivation() -> some View {
+        if #available(iOS 26.0, *) {
+            self.tabViewSearchActivation(.searchTabSelection)
+        } else {
+            self
+        }
+    }
+
+}
+"#;
+
+const NEXA_LARGE_TITLE_HELPER: &str = r#"fileprivate extension View {
+    @ViewBuilder
+    func nexaLargeTitleDisplayMode() -> some View {
+        if #available(iOS 26.0, *) {
+            self.toolbarTitleDisplayMode(.inlineLarge)
+        } else {
+            self.navigationBarTitleDisplayMode(.large)
+        }
+    }
+}
+"#;
+
+const NEXA_LOCALE_HELPER: &str = r#"private func nexaCurrentLanguageCode() -> String {
+    if #available(iOS 16.0, *) {
+        return Locale.current.language.languageCode?.identifier ?? "und"
+    }
+    return Locale.current.languageCode ?? "und"
+}
+
+"#;
+
+const NEXA_COLLECTION_HELPERS: &str = r#"private func nexaGroupByStable<Element, Key: Hashable>(
+    _ elements: [Element],
+    by keyForElement: (Element) -> Key
+) -> [[Element]] {
+    var sectionByKey: [Key: Int] = [:]
+    var sections: [[Element]] = []
+    for element in elements {
+        let key = keyForElement(element)
+        if let section = sectionByKey[key] {
+            sections[section].append(element)
+        } else {
+            sectionByKey[key] = sections.count
+            sections.append([element])
+        }
+    }
+    return sections
+}
+
+"#;
+
 pub(super) use api::{crypto, network, number, permissions, time};
 use components::node_renderer as component_renderer;
 pub(super) use components::{
@@ -125,7 +298,10 @@ pub(super) use components::{
     layout, lifecycle, links, list_runtime, lists, navigation, refresh, sheets, status_bar,
     system_icons,
 };
-pub(super) use engine::state::{render_immutable_state, render_native_object_state};
+pub(super) use engine::state::{
+    render_immutable_state, render_native_object_state,
+    render_native_object_state_uninitialized, render_state_initializers_in_init,
+};
 use engine::types::{self, swift_type};
 pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils, value};
 
@@ -145,6 +321,12 @@ pub(super) fn generate(module: &Module) -> String {
 pub(super) fn generate_units(module: &Module) -> GeneratedSources {
     let features = features::Features::analyze(module);
     generate_with_analysis(module, features)
+}
+
+pub(super) fn generate_widget_units(
+    module: &Module,
+) -> Result<crate::WidgetGeneratedSources, crate::WidgetGenerationError> {
+    widget::generate(module)
 }
 
 pub(super) fn generate_units_with_project_features(
@@ -193,10 +375,10 @@ fn generate_with_analysis_mode(
     dev_runtime: bool,
     plugin_value_runtime: bool,
 ) -> GeneratedSources {
-    let app_focus_bindings = features.facts.focus_bindings.app.clone();
+    let app_focus_bindings = app_focus_bindings(module, &features);
     let mut all_focus_bindings = app_focus_bindings.clone();
-    for bindings in features.facts.focus_bindings.screens.values() {
-        all_focus_bindings.extend(bindings.iter().cloned());
+    for screen in &module.screens {
+        all_focus_bindings.extend(screen_focus_bindings(screen, &features));
     }
     let uses_fast_list = features.uses_fast_list;
     // Each unit becomes its own file, so every file needs the full import
@@ -210,6 +392,34 @@ fn generate_with_analysis_mode(
     if features.uses_drag || features.uses_pinch {
         preamble.push_str(DRAG_GESTURE_HELPERS);
     }
+    if features.facts.ui.style.dynamic_color {
+        preamble.push_str(NEXA_DYNAMIC_COLOR_HELPER);
+    }
+    if features.facts.ui.button.custom_shape {
+        preamble.push_str(NEXA_BUTTON_SHAPE_HELPER);
+    }
+    if features.facts.ui.style.glass || features.facts.ui.button.glass {
+        preamble.push_str(NEXA_GLASS_HELPER);
+    }
+    if features.facts.ui.bottom_bar.search_role {
+        preamble.push_str(NEXA_SEARCH_ACTIVATION_HELPER);
+    }
+    if features.facts.capabilities.uses_locale_api {
+        preamble.push_str(NEXA_LOCALE_HELPER);
+    }
+    if !module.screens.is_empty()
+        || features.facts.ui.app.navigation
+        || features
+            .facts
+            .ui
+            .components
+            .values()
+            .any(|scope| scope.navigation)
+        || features.facts.ui.bottom_bar.present
+    {
+        preamble.push_str(NEXA_LARGE_TITLE_HELPER);
+    }
+    preamble.push_str(NEXA_COLLECTION_HELPERS);
     let mut units = SourceUnits::new("swift");
     units.set_imports(&imports::render(&features));
     units.set_preamble(&preamble);
@@ -248,9 +458,25 @@ fn generate_with_analysis_mode(
         if features.uses_shared_elements {
             out.push_str("    @Namespace private var nexaSharedNamespace\n");
         }
+        let has_signals = module
+            .states
+            .iter()
+            .any(|state| matches!(state.ty, nexa_ir::Type::Signal(_)));
         for state in &module.states {
             if state.is_native_class_constructor_binding() {
-                render_native_object_state(state, 1, out);
+                if has_signals {
+                    render_native_object_state_uninitialized(state, 1, out);
+                } else {
+                    render_native_object_state(state, 1, out);
+                }
+                continue;
+            }
+            if matches!(state.ty, nexa_ir::Type::Signal(_)) {
+                let name = nexa_codegen::names::state_name(&state.name);
+                out.push_str(&format!(
+                    "    @StateObject private var {name}: {}\n",
+                    swift_type(&state.ty),
+                ));
                 continue;
             }
             if (!state.mutable && !state.is_native_class_instance_binding())
@@ -288,6 +514,7 @@ fn generate_with_analysis_mode(
         if module.on_active.is_some()
             || module.on_inactive.is_some()
             || module.on_background.is_some()
+            || features.uses_widgets
         {
             out.push_str("    @Environment(\\.scenePhase) private var nexaScenePhase\n");
         }
@@ -300,14 +527,37 @@ fn generate_with_analysis_mode(
             || module.on_active.is_some()
             || module.on_inactive.is_some()
             || module.on_background.is_some()
+            || features.uses_widgets
         {
             out.push('\n');
         }
-        out.push_str("    public init() {}\n\n    public var body: some View {\n");
+        if has_signals {
+            out.push_str("    public init() {\n");
+            let mut writer = nexa_codegen::SourceWriter::new();
+            render_state_initializers_in_init(&module.states, 2, &mut writer);
+            out.push_str(&writer.finish());
+            out.push_str("    }\n\n    public var body: some View {\n");
+        } else {
+            out.push_str("    public init() {}\n\n    public var body: some View {\n");
+        }
         if module.screens.is_empty() {
             render_immutable_state(&module.states, 2, out);
         }
-        if module.body.len() == 1 {
+        let has_body_modifiers = module.direction.is_some()
+            || module.on_appear.is_some()
+            || module.on_appear_async
+            || module.on_disappear.is_some()
+            || module.status_bar.is_some()
+            || features.uses_shared_elements;
+        let needs_group = module.body.len() == 1
+            && matches!(module.body[0], Node::If { .. })
+            && has_body_modifiers;
+
+        if needs_group {
+            out.push_str("        Group {\n");
+            component_renderer::render_node(&module.body[0], module, &features, 3, out);
+            out.push_str("\n        }");
+        } else if module.body.len() == 1 {
             component_renderer::render_node(&module.body[0], module, &features, 2, out);
         } else {
             layout::render_layout(
@@ -337,6 +587,7 @@ fn generate_with_analysis_mode(
             out.push_str("\n        .environment(\\.nexaSharedNamespace, nexaSharedNamespace)");
         }
         out.push_str("\n    }\n");
+        components::bottom_bar::render_bottom_bar_helpers(&module.body, module, &features, out);
         if !module.screens.is_empty() {
             for screen in &module.screens {
                 navigation::render_screen_view(screen, module, &features, out);
@@ -394,6 +645,9 @@ fn generate_with_analysis_mode(
             time::render(out);
         });
     }
+    if features.facts.capabilities.uses_app_icon_api {
+        units.write("app-icon", api::app_icon::render);
+    }
     if features.facts.capabilities.uses_number_formatting {
         units.write("number", |out| {
             number::render(out);
@@ -422,6 +676,48 @@ fn generate_with_analysis_mode(
         functions::render(module, out);
     });
     units.finish()
+}
+
+pub(super) fn app_focus_bindings(
+    module: &Module,
+    features: &features::Features,
+) -> std::collections::BTreeSet<String> {
+    let mut bindings = features.facts.focus_bindings.app.clone();
+    for screen in &module.screens {
+        for binding in screen_focus_bindings(screen, features) {
+            if module.states.iter().any(|state| state.name == binding) {
+                bindings.insert(binding);
+            }
+        }
+    }
+    bindings
+}
+
+pub(super) fn screen_focus_bindings(
+    screen: &nexa_ir::Screen,
+    features: &features::Features,
+) -> std::collections::BTreeSet<String> {
+    let mut bindings = features
+        .facts
+        .focus_bindings
+        .screens
+        .get(&screen.name)
+        .cloned()
+        .unwrap_or_default();
+    nexa_ir::walk::walk_ir(
+        &screen.body,
+        &mut |node| {
+            if let Node::TextInput {
+                focused: Some(name),
+                ..
+            } = node
+            {
+                bindings.insert(name.clone());
+            }
+        },
+        &mut |_| {},
+    );
+    bindings
 }
 
 /// Concatenates units into a single source string.
@@ -516,12 +812,120 @@ mod tests {
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
         ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
-        TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn pressable_context_menu_emits_native_swiftui_actions() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "ContextMenuApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                fill_max_size: false,
+                children: vec![Node::Text {
+                    value: Expr::String("Row".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                actions: Vec::new(),
+                double_tap_actions: Vec::new(),
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                long_press_actions: Vec::new(),
+                context_menu: vec![Node::Button {
+                    label: Expr::LocalizedText {
+                        key: "Edit".to_owned(),
+                        value: Box::new(Expr::String("Edit".to_owned())),
+                        comment: Some("Context menu action".to_owned()),
+                    },
+                    icon: Some(SystemIcon::Shared("edit".to_owned())),
+                    loading: None,
+                    disabled: None,
+                    style: None,
+                    size: None,
+                    shape: None,
+                    tint: None,
+                    glass: false,
+                    actions: Vec::new(),
+                }],
+                drag_parameters: Vec::new(),
+                drag_actions: Vec::new(),
+                pinch_parameter: None,
+                pinch_actions: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains(".contextMenu {"));
+        assert!(swift.contains(
+            "Label { Text(\"Edit\", comment: \"Context menu action\") } icon: { Image(systemName: \"pencil\") }"
+        ));
+    }
+
+    #[test]
+    fn appearance_wraps_content_in_native_swiftui_color_scheme() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "AppearanceApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Appearance {
+                mode: Expr::String("dark".to_owned()),
+                children: vec![Node::Text {
+                    value: Expr::String("Hello".to_owned()),
+                    style: TextStyle::default(),
+                }],
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let swift = generate(&module);
+        assert!(swift.contains(".preferredColorScheme(\"dark\" == \"dark\" ? .dark"));
+        assert!(swift.contains("Text(\"Hello\")"));
+        assert!(!swift.contains("glassEffect("));
+        assert!(!swift.contains("nexaColor(hex:"));
+        assert!(!swift.contains("nexaLargeTitleDisplayMode()"));
+    }
 
     #[test]
     fn page_snap_lists_use_viewport_rows_and_report_the_settled_page() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PageSnap".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -529,6 +933,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![State {
                 name: "currentPage".to_owned(),
                 ty: Type::Numeric(NumericType::Int32),
@@ -548,6 +953,7 @@ mod tests {
                     },
                     common: ListCommon {
                         axis: ListAxis::Vertical,
+                        native: false,
                         reverse_layout: false,
                         page_snap: true,
                         item_extent: None,
@@ -560,6 +966,8 @@ mod tests {
                         }],
                         on_end_reached: None,
                         on_scroll: None,
+                        on_move: None,
+                        swipe_actions: None,
                         sticky_header: None,
                         refresh: None,
                     },
@@ -585,15 +993,77 @@ mod tests {
     }
 
     #[test]
+    fn native_flat_lists_emit_swiftui_list_without_the_custom_uikit_runtime() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "NativeList".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::FastList {
+                plan: ListPlan::Count {
+                    count: Expr::Number {
+                        raw: "3".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                    common: ListCommon {
+                        axis: ListAxis::Vertical,
+                        native: true,
+                        reverse_layout: false,
+                        page_snap: false,
+                        item_extent: None,
+                        index: "index".to_owned(),
+                        key: None,
+                        scroll_position: None,
+                        children: vec![Node::Text {
+                            value: Expr::String("Task".to_owned()),
+                            style: TextStyle::default(),
+                        }],
+                        on_end_reached: None,
+                        on_scroll: None,
+                        on_move: None,
+                        swipe_actions: None,
+                        sticky_header: None,
+                        refresh: None,
+                    },
+                },
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains("List {"));
+        assert!(swift.contains("ForEach(0..<(max(0, Int(3))), id: \\.self)"));
+        assert!(!swift.contains("NexaFastList("));
+        assert!(!swift.contains("import UIKit"));
+    }
+
+    #[test]
     fn shared_image_elements_use_a_namespace_across_navigation_screens() {
         let image = Node::Image {
             source: ImageSource::Asset("hero".to_owned()),
             description: "Hero".to_owned(),
             scale: ImageScale::Fit,
             placeholder: None,
+            max_height: None,
             shared_element: Some(Expr::String("hero-image".to_owned())),
         };
         let module = Module {
+            widgets: Vec::new(),
             app_name: "SharedHero".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -601,6 +1071,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: vec![Screen {
                 id: ScreenId(0),
@@ -638,6 +1109,7 @@ mod tests {
     #[test]
     fn configured_spring_uses_native_response_and_damping_values() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "SpringAnimation".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -645,6 +1117,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -700,6 +1173,7 @@ mod tests {
             is_throwing: false,
         };
         let module = Module {
+            widgets: Vec::new(),
             app_name: "CurrencyFormatting".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -707,6 +1181,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![State {
                 name: "price".to_owned(),
                 ty: Type::String,
@@ -738,6 +1213,7 @@ mod tests {
     #[test]
     fn conditional_view_transitions_use_native_swiftui_modifiers() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "ConditionalTransitions".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -745,6 +1221,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -793,6 +1270,7 @@ mod tests {
     #[test]
     fn double_tap_pressable_emits_exclusive_double_and_single_tap_gestures() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "DoubleTapApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -800,6 +1278,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -824,6 +1303,7 @@ mod tests {
                     ty: NumericType::Int32,
                 },
                 long_press_actions: Vec::new(),
+                context_menu: Vec::new(),
                 drag_parameters: Vec::new(),
                 drag_actions: Vec::new(),
                 pinch_parameter: None,
@@ -854,6 +1334,7 @@ mod tests {
     #[test]
     fn drag_pressable_emits_native_gesture_and_typed_callback() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "DragApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -861,6 +1342,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![State {
                 name: "distance".to_owned(),
                 ty: Type::Numeric(NumericType::Float64),
@@ -887,6 +1369,7 @@ mod tests {
                     ty: NumericType::Int32,
                 },
                 long_press_actions: Vec::new(),
+                context_menu: Vec::new(),
                 drag_parameters: vec![
                     "translationX".to_owned(),
                     "translationY".to_owned(),
@@ -938,6 +1421,7 @@ mod tests {
     #[test]
     fn pinch_pressable_emits_native_scale_delta_callback() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PinchApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -945,6 +1429,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![State {
                 name: "zoom".to_owned(),
                 ty: Type::Numeric(NumericType::Float64),
@@ -971,6 +1456,7 @@ mod tests {
                     ty: NumericType::Int32,
                 },
                 long_press_actions: Vec::new(),
+                context_menu: Vec::new(),
                 drag_parameters: Vec::new(),
                 drag_actions: Vec::new(),
                 pinch_parameter: Some("scaleFactor".to_owned()),
@@ -1014,6 +1500,7 @@ mod tests {
                 arguments: Vec::new(),
                 return_type: ty,
                 is_async: false,
+                is_throwing: false,
                 is_constructor: true,
             },
             mutable: false,
@@ -1023,6 +1510,7 @@ mod tests {
     #[test]
     fn app_native_class_instances_are_not_recreated_in_the_body() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PlayerApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1030,6 +1518,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![native_instance_state("player")],
             screens: Vec::new(),
             components: Vec::new(),
@@ -1064,6 +1553,7 @@ mod tests {
         let mut player = native_instance_state("player");
         player.mutable = true;
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PlayerApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1071,6 +1561,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![player],
             screens: Vec::new(),
             components: Vec::new(),
@@ -1099,6 +1590,7 @@ mod tests {
             name: "VideoPlayer".to_owned(),
         };
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PlayerApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1106,6 +1598,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![
                 native_instance_state("appPlayer"),
                 State {
@@ -1132,6 +1625,7 @@ mod tests {
                                 arguments: Vec::new(),
                                 return_type: player_type.clone(),
                                 is_async: false,
+                                is_throwing: false,
                                 is_constructor: true,
                             },
                             mutable: false,
@@ -1170,6 +1664,11 @@ mod tests {
                         icon: None,
                         loading: None,
                         disabled: None,
+                        style: None,
+                        size: None,
+                        shape: None,
+                        tint: None,
+                        glass: false,
                         actions: vec![Action::Expression(Expr::NativeCall {
                             receiver: Some(Box::new(Expr::State(
                                 "appPlayer".to_owned(),
@@ -1243,6 +1742,7 @@ mod tests {
     #[test]
     fn component_native_class_instances_use_swiftui_identity_storage() {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "PlayerApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1250,6 +1750,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: vec![Component {
@@ -1258,6 +1759,9 @@ mod tests {
                 parameters: Vec::new(),
                 states: vec![native_instance_state("player")],
                 body: Vec::new(),
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
             }],
             body: vec![Node::ComponentCall {
                 name: "PlayerPanel".to_owned(),
@@ -1285,6 +1789,7 @@ mod tests {
     fn generates_result_and_try_in_swift() {
         let err_type = Type::Enum("AppError".to_owned());
         let module = Module {
+            widgets: Vec::new(),
             app_name: "ResultApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1297,9 +1802,13 @@ mod tests {
             functions: vec![
                 Function {
                     name: "fetchCode".to_owned(),
+                    receiver: None,
+                    class_initializers: Vec::new(),
                     is_async: false,
+                    is_throwing: false,
                     parameters: Vec::new(),
                     locals: Vec::new(),
+                    body_actions: None,
                     return_type: Type::Result(
                         Box::new(Type::Numeric(NumericType::Int32)),
                         Box::new(err_type.clone()),
@@ -1315,9 +1824,13 @@ mod tests {
                 },
                 Function {
                     name: "compute".to_owned(),
+                    receiver: None,
+                    class_initializers: Vec::new(),
                     is_async: false,
+                    is_throwing: false,
                     parameters: Vec::new(),
                     locals: Vec::new(),
+                    body_actions: None,
                     return_type: Type::Result(
                         Box::new(Type::Numeric(NumericType::Int32)),
                         Box::new(err_type.clone()),
@@ -1331,6 +1844,7 @@ mod tests {
                                 Box::new(err_type.clone()),
                             ),
                             is_async: false,
+                            is_throwing: false,
                             is_constructor: false,
                         }),
                         value_type: Type::Numeric(NumericType::Int32),
@@ -1338,6 +1852,7 @@ mod tests {
                     },
                 },
             ],
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),

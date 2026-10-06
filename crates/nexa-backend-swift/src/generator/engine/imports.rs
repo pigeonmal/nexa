@@ -29,12 +29,14 @@ impl ImportSet {
 pub(crate) fn render(features: &Features) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "SwiftUI");
+    imports.add(features.uses_widgets, "WidgetKit");
     crate::generator::components::controls::imports(features, &mut imports);
     crate::generator::components::list_runtime::imports(features, &mut imports);
     crate::generator::components::links::imports(features, &mut imports);
     crate::generator::api::network::imports(features, &mut imports);
     crate::generator::api::json::imports(features, &mut imports);
     crate::generator::api::number::imports(features, &mut imports);
+    imports.add(features.facts.capabilities.uses_locale_api, "Foundation");
     crate::generator::api::crypto::imports(features, &mut imports);
     crate::generator::api::clipboard::imports(features, &mut imports);
     crate::generator::api::permissions::imports(features, &mut imports);
@@ -44,7 +46,8 @@ pub(crate) fn render(features: &Features) -> String {
     imports.add(
         features.facts.capabilities.uses_keyboard_api
             || features.facts.capabilities.uses_haptics_api
-            || features.facts.capabilities.uses_screen_orientation_api,
+            || features.facts.capabilities.uses_screen_orientation_api
+            || features.facts.capabilities.uses_app_icon_api,
         "UIKit",
     );
     imports.render()

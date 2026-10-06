@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use nexa_diagnostics::Span;
@@ -141,6 +142,7 @@ enum Value {
     Integer(i128),
     Float(f64),
     Enum(String, String),
+    EnumPayload(String, String, Vec<Value>),
     Array(Vec<Value>),
     Set(Vec<Value>),
     Map(Vec<(Value, Value)>),
@@ -724,7 +726,9 @@ impl<'a> HeadlessRuntime<'a> {
         }
         for (index, node) in nodes.iter().enumerate() {
             match node {
-                Node::Layout { children, .. } => self.render_nodes(
+                Node::Layout { children, .. }
+                | Node::Form { children }
+                | Node::Toolbar { children, .. } => self.render_nodes(
                     children,
                     environment,
                     instance_path,
@@ -732,9 +736,48 @@ impl<'a> HeadlessRuntime<'a> {
                     snapshot,
                     depth + 1,
                 )?,
+                Node::FormSection {
+                    title,
+                    footer,
+                    children,
+                    ..
+                } => {
+                    for value in title.iter().chain(footer) {
+                        snapshot.texts.push(display_value(eval_expr(
+                            value,
+                            environment,
+                            self.functions,
+                            0,
+                        )?));
+                    }
+                    self.render_nodes(
+                        children,
+                        environment,
+                        instance_path,
+                        content,
+                        snapshot,
+                        depth + 1,
+                    )?;
+                }
                 Node::Text { value, .. } => {
                     let value = eval_expr(value, environment, self.functions, 0)?;
                     snapshot.texts.push(display_value(value));
+                }
+                Node::ContentUnavailable {
+                    title, description, ..
+                } => {
+                    snapshot.texts.push(display_value(eval_expr(
+                        title,
+                        environment,
+                        self.functions,
+                        0,
+                    )?));
+                    snapshot.texts.push(display_value(eval_expr(
+                        description,
+                        environment,
+                        self.functions,
+                        0,
+                    )?));
                 }
                 Node::Button {
                     label,
@@ -789,10 +832,11 @@ impl<'a> HeadlessRuntime<'a> {
                         },
                     ));
                 }
-                Node::Switch { state, label } => {
+                Node::Switch { state, label, .. } => {
                     if !matches!(environment.get(state), Some(Value::Bool(_))) {
                         return Err(format!("Switch state `{state}` is not a Boolean"));
                     }
+                    let label = display_value(eval_expr(label, environment, self.functions, 0)?);
                     snapshot.texts.push(label.clone());
                     snapshot.controls.push((
                         instance_path.to_owned(),
@@ -822,7 +866,7 @@ impl<'a> HeadlessRuntime<'a> {
                         },
                     ));
                 }
-                Node::SegmentedControl { items, state } | Node::Picker { items, state } => {
+                Node::SegmentedControl { items, state, .. } | Node::Picker { items, state, .. } => {
                     let values = match eval_expr(items, environment, self.functions, 0)? {
                         Value::Array(values) => values
                             .into_iter()
@@ -846,6 +890,21 @@ impl<'a> HeadlessRuntime<'a> {
                             values,
                         },
                     ));
+                }
+                Node::DatePicker {
+                    timestamp_state,
+                    has_time_state,
+                } => {
+                    if !matches!(environment.get(timestamp_state), Some(Value::Integer(_))) {
+                        return Err(format!(
+                            "DatePicker timestamp state `{timestamp_state}` is not an Int64"
+                        ));
+                    }
+                    if !matches!(environment.get(has_time_state), Some(Value::Bool(_))) {
+                        return Err(format!(
+                            "DatePicker hasTime state `{has_time_state}` is not a Boolean"
+                        ));
+                    }
                 }
                 Node::Pressable {
                     disabled,
@@ -1059,23 +1118,31 @@ fn node_name(node: &Node) -> &'static str {
         Node::ProgressRing { .. } => "ProgressRing",
         Node::SegmentedControl { .. } => "SegmentedControl",
         Node::Picker { .. } => "Picker",
+        Node::DatePicker { .. } => "DatePicker",
         Node::Image { .. } => "Image",
         Node::SystemIcon { .. } => "Icon",
         Node::LinearGradient { .. } => "LinearGradient",
         Node::Pressable { .. } => "Pressable",
         Node::NavigationStack { .. } => "NavigationStack",
         Node::NavigationLink { .. } => "NavigationLink",
+        Node::NavigationSplitView { .. } => "NavigationSplitView",
         Node::NavigationBack { .. } => "NavigationBack",
         Node::Link { .. } => "Link",
         Node::Accessibility { .. } => "Accessibility",
         Node::KeyboardAware { .. } => "KeyboardAware",
         Node::BottomSheet { .. } => "BottomSheet",
         Node::Dialog { .. } => "Dialog",
+        Node::ConfirmationDialog { .. } => "ConfirmationDialog",
         Node::RefreshControl { .. } => "RefreshControl",
         Node::AppBottomBar { .. } => "AppBottomBar",
+        Node::PagePager { .. } => "PagePager",
+        Node::Toolbar { .. } => "Toolbar",
         Node::FastList { .. } => "FastList",
         Node::StatusBar { .. } => "StatusBar",
         Node::Direction { .. } => "Direction",
+        Node::Appearance { .. } => "Appearance",
+        Node::Form { .. } => "Form",
+        Node::FormSection { .. } => "Section",
         Node::OnAppear { .. } => "OnAppear",
         Node::OnDisappear { .. } => "OnDisappear",
         Node::OnActive { .. } => "OnActive",
@@ -1083,6 +1150,7 @@ fn node_name(node: &Node) -> &'static str {
         Node::OnBackground { .. } => "OnBackground",
         Node::Layout { .. }
         | Node::Text { .. }
+        | Node::ContentUnavailable { .. }
         | Node::Spacer
         | Node::Divider { .. }
         | Node::Button { .. }
@@ -1105,14 +1173,16 @@ fn run_actions(
         HeadlessActionFlow::Break | HeadlessActionFlow::Continue => {
             Err("loop control escaped its headless loop".to_owned())
         }
+        HeadlessActionFlow::Return(_) => Err("function return escaped an action block".to_owned()),
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 enum HeadlessActionFlow {
     Normal,
     Break,
     Continue,
+    Return(Value),
 }
 
 fn run_action_sequence(
@@ -1126,6 +1196,18 @@ fn run_action_sequence(
     }
     for action in actions {
         match action {
+            Action::Let { name, value, .. } => {
+                let value = eval_expr(value, environment, functions, depth + 1)?;
+                environment.insert(name.clone(), value);
+            }
+            Action::Return { value } => {
+                return Ok(HeadlessActionFlow::Return(eval_expr(
+                    value,
+                    environment,
+                    functions,
+                    depth + 1,
+                )?));
+            }
             Action::Assign { name, value } => {
                 let value = eval_expr(value, environment, functions, depth + 1)?;
                 if !environment.contains_key(name) {
@@ -1180,6 +1262,7 @@ fn run_action_sequence(
                     match result? {
                         HeadlessActionFlow::Normal | HeadlessActionFlow::Continue => {}
                         HeadlessActionFlow::Break => break,
+                        returned @ HeadlessActionFlow::Return(_) => return Ok(returned),
                     }
                 }
             }
@@ -1202,6 +1285,7 @@ fn run_action_sequence(
                     match result? {
                         HeadlessActionFlow::Normal | HeadlessActionFlow::Continue => {}
                         HeadlessActionFlow::Break => break,
+                        returned @ HeadlessActionFlow::Return(_) => return Ok(returned),
                     }
                 }
             }
@@ -1220,6 +1304,7 @@ fn run_action_sequence(
                     match run_action_sequence(body, environment, functions, depth + 1)? {
                         HeadlessActionFlow::Normal | HeadlessActionFlow::Continue => {}
                         HeadlessActionFlow::Break => break,
+                        returned @ HeadlessActionFlow::Return(_) => return Ok(returned),
                     }
                 }
             }
@@ -1318,6 +1403,47 @@ fn mutate_collection(
             }
             items.remove(index);
         }
+        (CollectionMutation::ArrayMove, Value::Array(items)) => {
+            let [Value::Integer(from), Value::Integer(to)] = values.as_slice() else {
+                return Err("headless Array.move expects two integer indexes".to_owned());
+            };
+            let (Ok(from), Ok(to)) = (usize::try_from(*from), usize::try_from(*to)) else {
+                return Ok(());
+            };
+            if from < items.len() && to < items.len() && from != to {
+                let item = items.remove(from);
+                items.insert(to, item);
+            }
+        }
+        (CollectionMutation::ArrayMoveSubset, Value::Array(items)) => {
+            let [
+                Value::Integer(from),
+                Value::Integer(to),
+                Value::Array(subset),
+            ] = values.as_slice()
+            else {
+                return Err(
+                    "headless Array.moveSubset expects two integer indexes and an array subset"
+                        .to_owned(),
+                );
+            };
+            let (Ok(from), Ok(to)) = (usize::try_from(*from), usize::try_from(*to)) else {
+                return Ok(());
+            };
+            if from >= subset.len() || to >= subset.len() || from == to {
+                return Ok(());
+            }
+            let mut reordered = subset.clone();
+            let item = reordered.remove(from);
+            reordered.insert(to, item);
+            let mut cursor = 0;
+            for backing in items.iter_mut() {
+                if cursor < subset.len() && *backing == subset[cursor] {
+                    *backing = reordered[cursor].clone();
+                    cursor += 1;
+                }
+            }
+        }
         (CollectionMutation::SetInsert, Value::Set(items)) => match values.as_slice() {
             [value] if !items.contains(value) => items.push(value.clone()),
             [_] => {}
@@ -1394,6 +1520,15 @@ fn eval_function(
         let value = eval_expr(&local.initial, &environment, functions, depth + 1)?;
         environment.insert(local.name.clone(), value);
     }
+    if let Some(actions) = &function.body_actions {
+        return match run_action_sequence(actions, &mut environment, functions, depth + 1)? {
+            HeadlessActionFlow::Return(value) => Ok(value),
+            _ => Err(format!(
+                "function `{}` completed without returning",
+                function.name
+            )),
+        };
+    }
     eval_expr(&function.body, &environment, functions, depth + 1)
 }
 
@@ -1408,6 +1543,7 @@ fn eval_expr(
     }
     match expression {
         Expr::String(value) => Ok(Value::String(value.clone())),
+        Expr::LocalizedText { value, .. } => eval_expr(value, environment, functions, depth + 1),
         Expr::Bool(value) => Ok(Value::Bool(*value)),
         Expr::Number { raw, ty } => parse_number(raw, *ty),
         Expr::State(name, _) => environment
@@ -1426,6 +1562,38 @@ fn eval_expr(
             format!("{namespace}.{enum_name}"),
             case_name.clone(),
         )),
+        Expr::PluginEnumConstructor {
+            namespace,
+            enum_name,
+            case_name,
+            arguments,
+            ..
+        } => Ok(Value::EnumPayload(
+            format!("{namespace}.{enum_name}"),
+            case_name.clone(),
+            arguments
+                .iter()
+                .map(|argument| eval_expr(argument, environment, functions, depth + 1))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        Expr::PluginEnumOptionalConstructor {
+            namespace,
+            enum_name,
+            case_name,
+            null_case_name,
+            value,
+            ..
+        } => {
+            let enum_name = format!("{namespace}.{enum_name}");
+            match eval_expr(value, environment, functions, depth + 1)? {
+                Value::Null => Ok(Value::Enum(enum_name, null_case_name.clone())),
+                value => Ok(Value::EnumPayload(
+                    enum_name,
+                    case_name.clone(),
+                    vec![value],
+                )),
+            }
+        }
         Expr::Add(left, right, ty) => {
             let left = eval_expr(left, environment, functions, depth + 1)?;
             let right = eval_expr(right, environment, functions, depth + 1)?;
@@ -1529,7 +1697,13 @@ fn eval_expr(
             let contains = match collection {
                 Value::Array(values) | Value::Set(values) => values.contains(&value),
                 Value::Map(entries) => entries.iter().any(|(key, _)| key == &value),
-                _ => return Err("membership requires an Array, Set, or Map".to_owned()),
+                Value::String(haystack) => match value {
+                    Value::String(needle) => {
+                        haystack.to_lowercase().contains(&needle.to_lowercase())
+                    }
+                    _ => return Err("String membership requires a String value".to_owned()),
+                },
+                _ => return Err("membership requires a String, Array, Set, or Map".to_owned()),
             };
             Ok(Value::Bool(contains))
         }
@@ -1582,6 +1756,9 @@ fn eval_expr(
                 base
             };
             match (kind, base) {
+                (MemberKind::StringTrimmed, Value::String(value)) => {
+                    Ok(Value::String(value.trim().to_owned()))
+                }
                 (MemberKind::CollectionCount, Value::Array(values) | Value::Set(values)) => {
                     Ok(Value::Integer(values.len() as i128))
                 }
@@ -1657,6 +1834,12 @@ fn eval_expr(
                             .to_vec(),
                     ))
                 }
+                CollectionUtilityKind::Take => {
+                    let count =
+                        eval_range_bound(end.as_deref(), environment, functions, depth + 1)?;
+                    let count = usize::try_from(count).unwrap_or(0);
+                    Ok(Value::Array(values.into_iter().take(count).collect()))
+                }
                 CollectionUtilityKind::Random | CollectionUtilityKind::Shuffled => Err(
                     "randomized collection utilities are not deterministic in headless tests"
                         .to_owned(),
@@ -1677,7 +1860,9 @@ fn eval_expr(
                 return Err("headless collection transform requires an inline closure".to_owned());
             };
             match operation {
-                CollectionTransform::Map | CollectionTransform::Filter => {
+                CollectionTransform::Map
+                | CollectionTransform::FlatMap
+                | CollectionTransform::Filter => {
                     let [parameter] = parameters.as_slice() else {
                         return Err(
                             "headless map/filter closure must take one parameter".to_owned()
@@ -1690,6 +1875,13 @@ fn eval_expr(
                         let mapped = eval_expr(body, &scope, functions, depth + 1)?;
                         match operation {
                             CollectionTransform::Map => result.push(mapped),
+                            CollectionTransform::FlatMap => match mapped {
+                                Value::Array(values) => result.extend(values),
+                                _ => {
+                                    return Err("headless flatMap closure did not return an Array"
+                                        .to_owned());
+                                }
+                            },
                             CollectionTransform::Filter => match mapped {
                                 Value::Bool(true) => result.push(value),
                                 Value::Bool(false) => {}
@@ -1699,12 +1891,67 @@ fn eval_expr(
                                     );
                                 }
                             },
+                            CollectionTransform::SortedBy => {
+                                return Err("invalid headless transform dispatch".to_owned());
+                            }
+                            CollectionTransform::GroupedBy => {
+                                return Err("invalid headless transform dispatch".to_owned());
+                            }
                             CollectionTransform::Reduce => {
                                 return Err("invalid headless transform dispatch".to_owned());
                             }
                         }
                     }
                     Ok(Value::Array(result))
+                }
+                CollectionTransform::SortedBy => {
+                    let [parameter] = parameters.as_slice() else {
+                        return Err("headless sortedBy closure must take one parameter".to_owned());
+                    };
+                    let mut keyed = Vec::with_capacity(values.len());
+                    for value in values {
+                        let mut scope = environment.clone();
+                        scope.insert(parameter.clone(), value.clone());
+                        keyed.push((value, eval_expr(body, &scope, functions, depth + 1)?));
+                    }
+                    let mut comparison_error = None;
+                    keyed.sort_by(|left, right| match compare_sort_values(&left.1, &right.1) {
+                        Ok(ordering) => ordering,
+                        Err(error) => {
+                            comparison_error = Some(error);
+                            Ordering::Equal
+                        }
+                    });
+                    if let Some(error) = comparison_error {
+                        return Err(error);
+                    }
+                    Ok(Value::Array(
+                        keyed.into_iter().map(|(value, _)| value).collect(),
+                    ))
+                }
+                CollectionTransform::GroupedBy => {
+                    let [parameter] = parameters.as_slice() else {
+                        return Err("headless groupedBy closure must take one parameter".to_owned());
+                    };
+                    let mut groups: Vec<(Value, Vec<Value>)> = Vec::new();
+                    for value in values {
+                        let mut scope = environment.clone();
+                        scope.insert(parameter.clone(), value.clone());
+                        let key = eval_expr(body, &scope, functions, depth + 1)?;
+                        if let Some(position) =
+                            groups.iter().position(|(candidate, _)| candidate == &key)
+                        {
+                            groups[position].1.push(value);
+                        } else {
+                            groups.push((key, vec![value]));
+                        }
+                    }
+                    Ok(Value::Array(
+                        groups
+                            .into_iter()
+                            .map(|(_, values)| Value::Array(values))
+                            .collect(),
+                    ))
                 }
                 CollectionTransform::Reduce => {
                     let [accumulator_parameter, value_parameter] = parameters.as_slice() else {
@@ -1815,6 +2062,23 @@ fn eval_expr(
             "`nexa test` cannot evaluate this expression yet: {}",
             expression_name(expression)
         )),
+    }
+}
+
+fn compare_sort_values(left: &Value, right: &Value) -> Result<Ordering, String> {
+    match (left, right) {
+        (Value::String(left), Value::String(right)) => Ok(left.cmp(right)),
+        (Value::Integer(left), Value::Integer(right)) => Ok(left.cmp(right)),
+        (Value::Float(left), Value::Float(right)) => left
+            .partial_cmp(right)
+            .ok_or_else(|| "sortedBy key values must not be NaN".to_owned()),
+        (Value::Integer(left), Value::Float(right)) => (*left as f64)
+            .partial_cmp(right)
+            .ok_or_else(|| "sortedBy key values must not be NaN".to_owned()),
+        (Value::Float(left), Value::Integer(right)) => left
+            .partial_cmp(&(*right as f64))
+            .ok_or_else(|| "sortedBy key values must not be NaN".to_owned()),
+        _ => Err("sortedBy keys must be String or numeric values".to_owned()),
     }
 }
 
@@ -2039,6 +2303,14 @@ fn display_value(value: Value) -> String {
         Value::Integer(value) => value.to_string(),
         Value::Float(value) => value.to_string(),
         Value::Enum(name, case) => format!("{name}.{case}"),
+        Value::EnumPayload(name, case, values) => format!(
+            "{name}.{case}({})",
+            values
+                .into_iter()
+                .map(display_value)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Value::Array(values) => format!(
             "[{}]",
             values

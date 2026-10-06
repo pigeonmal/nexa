@@ -22,6 +22,25 @@ pub fn swift(plan: &BridgePlan) -> String {
         out.push_str(&swift_named_type(ty));
         out.push('\n');
     }
+    if plan
+        .interfaces
+        .iter()
+        .flat_map(|interface| &interface.methods)
+        .any(|method| !method.row_type_parameters.is_empty())
+    {
+        out.push_str(
+            "public struct NexaRowReader<Cell: Sendable, Failure: Error> {\n    public let value: (Int32) -> Cell\n    public let boolean: (Int32, String) throws(Failure) -> Bool\n    public let optionalBoolean: (Int32, String) throws(Failure) -> Bool?\n    public let integer: (Int32, String) throws(Failure) -> Int64\n    public let optionalInteger: (Int32, String) throws(Failure) -> Int64?\n    public let decimal: (Int32, String) throws(Failure) -> Double\n    public let optionalDecimal: (Int32, String) throws(Failure) -> Double?\n    public let text: (Int32, String) throws(Failure) -> String\n    public let optionalText: (Int32, String) throws(Failure) -> String?\n    public let bytes: (Int32, String) throws(Failure) -> Data\n    public let optionalBytes: (Int32, String) throws(Failure) -> Data?\n\n    public init(\n        value: @escaping (Int32) -> Cell,\n        boolean: @escaping (Int32, String) throws(Failure) -> Bool,\n        optionalBoolean: @escaping (Int32, String) throws(Failure) -> Bool?,\n        integer: @escaping (Int32, String) throws(Failure) -> Int64,\n        optionalInteger: @escaping (Int32, String) throws(Failure) -> Int64?,\n        decimal: @escaping (Int32, String) throws(Failure) -> Double,\n        optionalDecimal: @escaping (Int32, String) throws(Failure) -> Double?,\n        text: @escaping (Int32, String) throws(Failure) -> String,\n        optionalText: @escaping (Int32, String) throws(Failure) -> String?,\n        bytes: @escaping (Int32, String) throws(Failure) -> Data,\n        optionalBytes: @escaping (Int32, String) throws(Failure) -> Data?\n    ) {\n        self.value = value\n        self.boolean = boolean\n        self.optionalBoolean = optionalBoolean\n        self.integer = integer\n        self.optionalInteger = optionalInteger\n        self.decimal = decimal\n        self.optionalDecimal = optionalDecimal\n        self.text = text\n        self.optionalText = optionalText\n        self.bytes = bytes\n        self.optionalBytes = optionalBytes\n    }\n}\npublic typealias NexaRowMapper<Cell: Sendable, Row: Sendable, Failure: Error> = @Sendable ([String], @Sendable (String) -> Failure) throws(Failure) -> (@Sendable (NexaRowReader<Cell, Failure>) throws(Failure) -> Row)\n\n",
+        );
+    }
+    let has_signals = plan.interfaces.iter().any(|interface| {
+        interface.methods.iter().any(|m| matches!(&m.return_type, BridgeType::Signal(_)))
+            || interface.properties.iter().any(|p| matches!(&p.ty, BridgeType::Signal(_)))
+    });
+    if has_signals {
+        out.push_str(
+            "@MainActor\npublic final class NexaSignal<Value: Sendable>: ObservableObject {\n    @Published public private(set) var value: Value\n    private var cancelSubscription: (@Sendable () -> Void)?\n    private let subscribeClosure: @MainActor (@escaping @Sendable (Value) -> Void) -> (@Sendable () -> Void)\n\n    public init(\n        initial: Value,\n        subscribe: @escaping @MainActor (@escaping @Sendable (Value) -> Void) -> (@Sendable () -> Void)\n    ) {\n        self.value = initial\n        self.subscribeClosure = subscribe\n        self.cancelSubscription = subscribe { [weak self] newValue in\n            Task { @MainActor in\n                self?.value = newValue\n            }\n        }\n    }\n\n    public var values: AsyncStream<Value> {\n        AsyncStream { continuation in\n            continuation.yield(self.value)\n            let cancel = self.subscribeClosure { newValue in\n                continuation.yield(newValue)\n            }\n            continuation.onTermination = { _ in cancel() }\n        }\n    }\n\n    public func dispose() {\n        cancelSubscription?()\n        cancelSubscription = nil\n    }\n\n    deinit {\n        cancelSubscription?()\n    }\n}\n\nextension NexaSignal: @preconcurrency AsyncSequence {\n    public typealias Element = Value\n    public typealias AsyncIterator = AsyncStream<Value>.Iterator\n\n    public func makeAsyncIterator() -> AsyncStream<Value>.Iterator {\n        values.makeAsyncIterator()\n    }\n}\n\n",
+        );
+    }
     for interface in &plan.interfaces {
         if interface.kind == InterfaceKind::NativeComponent {
             out.push_str(&swift_native_component(interface));
@@ -90,6 +109,25 @@ pub fn kotlin(plan: &BridgePlan, package: &str) -> String {
     for ty in &plan.types {
         out.push_str(&kotlin_named_type(ty));
         out.push('\n');
+    }
+    if plan
+        .interfaces
+        .iter()
+        .flat_map(|interface| &interface.methods)
+        .any(|method| !method.row_type_parameters.is_empty())
+    {
+        out.push_str(
+            "public class NexaRowReader<Cell>(\n    public val value: (Int) -> Cell,\n    public val boolean: (Int, String) -> Boolean,\n    public val optionalBoolean: (Int, String) -> Boolean?,\n    public val integer: (Int, String) -> Long,\n    public val optionalInteger: (Int, String) -> Long?,\n    public val decimal: (Int, String) -> Double,\n    public val optionalDecimal: (Int, String) -> Double?,\n    public val text: (Int, String) -> String,\n    public val optionalText: (Int, String) -> String?,\n    public val bytes: (Int, String) -> ByteArray,\n    public val optionalBytes: (Int, String) -> ByteArray?\n)\npublic typealias NexaRowMapper<Cell, Row, Failure> = (List<String>, (String) -> Failure) -> (NexaRowReader<Cell>) -> Row\n\n",
+        );
+    }
+    let has_signals = plan.interfaces.iter().any(|interface| {
+        interface.methods.iter().any(|m| matches!(&m.return_type, BridgeType::Signal(_)))
+            || interface.properties.iter().any(|p| matches!(&p.ty, BridgeType::Signal(_)))
+    });
+    if has_signals {
+        out.push_str(
+            "public class NexaSignal<T>(\n    initial: T,\n    private val subscribe: ((T) -> Unit) -> (() -> Unit)\n) {\n    private val _flow = kotlinx.coroutines.flow.MutableStateFlow(initial)\n    public val flow: kotlinx.coroutines.flow.StateFlow<T> = _flow\n    public val value: T get() = _flow.value\n    private var cancelSubscription: (() -> Unit)?\n\n    init {\n        cancelSubscription = subscribe { newValue ->\n            _flow.value = newValue\n        }\n    }\n\n    public fun asStateFlow(): kotlinx.coroutines.flow.StateFlow<T> = flow\n\n    public fun dispose() {\n        cancelSubscription?.invoke()\n        cancelSubscription = null\n    }\n}\n\n",
+        );
     }
     for interface in &plan.interfaces {
         if interface.kind == InterfaceKind::NativeComponent {
@@ -350,15 +388,29 @@ fn event_callback_type(event: &BridgeEvent, swift: bool) -> String {
 
 fn swift_named_type(ty: &BridgeNamedType) -> String {
     match ty.kind {
-        BridgeTypeKind::Enum => format!(
-            "public enum {} {{\n{}\n}}",
-            ty.name,
-            ty.cases
+        BridgeTypeKind::Enum => {
+            let cases = ty
+                .cases
                 .iter()
-                .map(|variant| format!("    case {}", variant.name))
+                .map(|variant| {
+                    if variant.parameters.is_empty() {
+                        format!("    case {}", variant.name)
+                    } else {
+                        let payload = variant
+                            .parameters
+                            .iter()
+                            .map(|parameter| {
+                                format!("{}: {}", parameter.name, swift_type(&parameter.ty))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("    case {}({payload})", variant.name)
+                    }
+                })
                 .collect::<Vec<_>>()
-                .join("\n")
-        ),
+                .join("\n");
+            format!("public enum {}: Sendable {{\n{}\n}}", ty.name, cases)
+        }
         BridgeTypeKind::Error => {
             let cases = if ty.cases.is_empty() {
                 String::new()
@@ -409,7 +461,7 @@ fn swift_named_type(ty: &BridgeNamedType) -> String {
                 .collect::<Vec<_>>()
                 .join("\n");
             let mut definition = format!(
-                "public struct {} {{\n{}\n\n    public init({}) {{\n{}\n    }}",
+                "public struct {}: Sendable {{\n{}\n\n    public init({}) {{\n{}\n    }}",
                 ty.name,
                 fields.join("\n"),
                 parameters,
@@ -442,6 +494,37 @@ fn swift_named_type(ty: &BridgeNamedType) -> String {
 
 fn kotlin_named_type(ty: &BridgeNamedType) -> String {
     match ty.kind {
+        BridgeTypeKind::Enum
+            if ty
+                .cases
+                .iter()
+                .any(|variant| !variant.parameters.is_empty()) =>
+        {
+            let cases = ty
+                .cases
+                .iter()
+                .map(|variant| {
+                    if variant.parameters.is_empty() {
+                        format!("    public object {} : {}()", variant.name, ty.name)
+                    } else {
+                        let parameters = variant
+                            .parameters
+                            .iter()
+                            .map(|parameter| {
+                                format!("val {}: {}", parameter.name, kotlin_type(&parameter.ty))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!(
+                            "    public data class {}({parameters}) : {}()",
+                            variant.name, ty.name
+                        )
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("public sealed class {} {{\n{}\n}}", ty.name, cases)
+        }
         BridgeTypeKind::Enum => format!(
             "public enum class {} {{ {} }}",
             ty.name,
@@ -511,6 +594,7 @@ fn kotlin_named_type(ty: &BridgeNamedType) -> String {
 fn swift_method(method: &BridgeMethod) -> String {
     let mut parameters = swift_parameters(&method.parameters);
     parameters.push_str(&swift_codec_parameters(method));
+    parameters.push_str(&swift_row_mapper_parameters(method));
     let return_type = method.success_type();
     let throws = method
         .error_type()
@@ -560,7 +644,8 @@ fn codec_types(method: &BridgeMethod) -> Vec<(&BridgeType, bool)> {
         .map(|ty| (ty, false))
         .collect();
     let success = method.success_type();
-    if super::bridge_plan::contains_type_parameter(success) {
+    if method.row_type_parameters.is_empty() && super::bridge_plan::contains_type_parameter(success)
+    {
         codecs.push((
             match success {
                 BridgeType::Optional(inner) => inner.as_ref(),
@@ -570,6 +655,27 @@ fn codec_types(method: &BridgeMethod) -> Vec<(&BridgeType, bool)> {
         ));
     }
     codecs
+}
+
+fn swift_row_mapper_parameters(method: &BridgeMethod) -> String {
+    let Some(row_value_type) = method.row_value_type.as_ref() else {
+        return String::new();
+    };
+    let Some(row_parameter) = method.row_type_parameters.first() else {
+        return String::new();
+    };
+    let error = method
+        .error_type()
+        .or(method.row_error_type.as_deref());
+    let Some(error) = error else {
+        return String::new();
+    };
+    format!(
+        ", _ mapRow: @escaping NexaRowMapper<{}, {}, {}>",
+        swift_type(row_value_type),
+        row_parameter,
+        error
+    )
 }
 
 fn swift_generics(method: &BridgeMethod) -> String {
@@ -585,7 +691,9 @@ fn swift_generics(method: &BridgeMethod) -> String {
         .type_parameters
         .iter()
         .map(|parameter| {
-            if hashable.contains(parameter) {
+            if method.row_type_parameters.contains(parameter) {
+                format!("{parameter}: Copyable & Sendable")
+            } else if hashable.contains(parameter) {
                 format!("{parameter}: Copyable & Hashable")
             } else {
                 format!("{parameter}: Copyable")
@@ -606,7 +714,9 @@ fn collect_hashable_type_parameters(
             collect_all_type_parameters(key, hashable);
             collect_hashable_type_parameters(value, hashable);
         }
-        BridgeType::Array(inner) | BridgeType::Optional(inner) => {
+        BridgeType::Array(inner)
+        | BridgeType::Signal(inner)
+        | BridgeType::Optional(inner) => {
             collect_hashable_type_parameters(inner, hashable)
         }
         BridgeType::Pair(first, second) => {
@@ -633,7 +743,10 @@ fn collect_all_type_parameters(
         BridgeType::TypeParameter(name) => {
             parameters.insert(name.clone());
         }
-        BridgeType::Array(inner) | BridgeType::Set(inner) | BridgeType::Optional(inner) => {
+        BridgeType::Array(inner)
+        | BridgeType::Set(inner)
+        | BridgeType::Signal(inner)
+        | BridgeType::Optional(inner) => {
             collect_all_type_parameters(inner, parameters);
         }
         BridgeType::Map(key, value) | BridgeType::Pair(key, value) => {
@@ -655,6 +768,7 @@ fn collect_all_type_parameters(
 fn kotlin_method(method: &BridgeMethod) -> String {
     let mut parameters = kotlin_parameters(&method.parameters);
     parameters.push_str(&kotlin_codec_parameters(method));
+    parameters.push_str(&kotlin_row_mapper_parameters(method));
     let return_type = method.success_type();
     let annotation = method
         .error_type()
@@ -672,6 +786,25 @@ fn kotlin_method(method: &BridgeMethod) -> String {
         method.name,
         parameters,
         kotlin_type(return_type)
+    )
+}
+
+fn kotlin_row_mapper_parameters(method: &BridgeMethod) -> String {
+    let Some(row_value_type) = method.row_value_type.as_ref() else {
+        return String::new();
+    };
+    let Some(row_parameter) = method.row_type_parameters.first() else {
+        return String::new();
+    };
+    let error = method
+        .error_type()
+        .or(method.row_error_type.as_deref())
+        .unwrap_or("Throwable");
+    format!(
+        ", mapRow: NexaRowMapper<{}, {}, {}>",
+        kotlin_type(row_value_type),
+        row_parameter,
+        error
     )
 }
 
@@ -847,6 +980,56 @@ mod tests {
         assert!(kotlin.contains(
             "fun <K, V> getMap(key: String, decode0: (dev.nexa.core.NexaValueReader) -> dev.nexa.core.NexaValueReadResult<Map<K, V>>): Map<K, V>?"
         ));
+    }
+
+    #[test]
+    fn typed_plugin_row_reader_keeps_direct_getters_and_a_dynamic_value_fallback() {
+        let plan = validate_swift_and_kotlin(
+            r#"
+            enum Value { nullValue }
+            error Failure { invalidValue(message: String) }
+            native class Database {
+                init()
+                async fn query<T: Row>(sql: String, parameters: Array<Value>) -> Array<T> throws Failure rowFailure invalidValue
+            }
+            "#,
+        );
+
+        let swift = swift(&plan);
+        assert!(swift.contains("public let value: (Int32) -> Cell"));
+        assert!(
+            swift.contains("public let optionalInteger: (Int32, String) throws(Failure) -> Int64?")
+        );
+        assert!(swift.contains("NexaRowMapper<Value, T, Failure>"));
+        assert!(swift.contains("_ mapRow: @escaping NexaRowMapper<Value, T, Failure>"));
+        assert!(swift.contains("NexaRowReader<Cell, Failure>"));
+
+        let kotlin = kotlin(&plan, "dev.nexa.sqlite");
+        assert!(kotlin.contains("public val value: (Int) -> Cell"));
+        assert!(kotlin.contains("public val optionalInteger: (Int, String) -> Long?"));
+        assert!(kotlin.contains("NexaRowMapper<Value, T, Failure>"));
+    }
+
+    #[test]
+    fn signal_return_type_generates_nexa_signal_contract_and_wrapper() {
+        let plan = validate_swift_and_kotlin(
+            r#"
+            enum Value { nullValue }
+            error Failure { queryFailed(message: String) }
+            native class Database {
+                init()
+                fn observeQuery<T: Row>(sql: String, parameters: Array<Value>) -> Signal<Array<T>> throws Failure rowFailure queryFailed
+            }
+            "#,
+        );
+
+        let swift = swift(&plan);
+        assert!(swift.contains("public final class NexaSignal<Value: Sendable>: ObservableObject"));
+        assert!(swift.contains("func observeQuery<T: Copyable & Sendable>(_ sql: String, _ parameters: [Value], _ mapRow: @escaping NexaRowMapper<Value, T, Failure>) throws(Failure) -> NexaSignal<[T]>"));
+
+        let kotlin = kotlin(&plan, "dev.nexa.sqlite");
+        assert!(kotlin.contains("public class NexaSignal<T>("));
+        assert!(kotlin.contains("fun <T> observeQuery(sql: String, parameters: List<Value>, mapRow: NexaRowMapper<Value, T, Failure>): NexaSignal<List<T>>"));
     }
 
     /// The C++ bridge has no spelling for a per-call-site value type, so a
@@ -1067,6 +1250,7 @@ fn swift_type(ty: &BridgeType) -> String {
         BridgeType::TypeParameter(name) => name.clone(),
         BridgeType::Array(element) => format!("[{}]", swift_type(element)),
         BridgeType::Set(element) => format!("Set<{}>", swift_type(element)),
+        BridgeType::Signal(element) => format!("NexaSignal<{}>", swift_type(element)),
         BridgeType::Map(key, value) => {
             format!("[{}: {}]", swift_type(key), swift_type(value))
         }
@@ -1106,6 +1290,7 @@ fn kotlin_type(ty: &BridgeType) -> String {
         BridgeType::TypeParameter(name) => name.clone(),
         BridgeType::Array(element) => format!("List<{}>", kotlin_type(element)),
         BridgeType::Set(element) => format!("Set<{}>", kotlin_type(element)),
+        BridgeType::Signal(element) => format!("NexaSignal<{}>", kotlin_type(element)),
         BridgeType::Map(key, value) => {
             format!("Map<{}, {}>", kotlin_type(key), kotlin_type(value))
         }

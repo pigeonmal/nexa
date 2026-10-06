@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "plugins": [
+    {"alias":"Browser","id":"dev.nexa.browser","source":"path:../../../plugins/browser","revision":null,"package":null,"contentHash":"007488f84093dcd4"},
+    {"alias":"DataExtractor","id":"dev.nexa.data-extractor","source":"path:../../../plugins/data-extractor","revision":null,"package":null,"contentHash":"936b9152300699cd"},
+    {"alias":"Mail","id":"dev.nexa.mail-composer","source":"path:../../../plugins/mail-composer","revision":null,"package":null,"contentHash":"a09bb9a3c3a86ca9"},
+    {"alias":"MediaPicker","id":"dev.nexa.media-picker","source":"path:../../../plugins/media-picker","revision":null,"package":null,"contentHash":"217d399b5a9b8766"},
+    {"alias":"Notifications","id":"dev.nexa.notifications","source":"path:../../../plugins/notifications","revision":null,"package":null,"contentHash":"a0e5cfdd8bac4e54"},
+    {"alias":"SQLite","id":"dev.nexa.sqlite","source":"path:../../../plugins/sqlite","revision":null,"package":null,"contentHash":"59cd7364f58487b3"}
+  ]
+}

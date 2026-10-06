@@ -7,7 +7,7 @@ public enum NexaDevSchema {
     public static let protocolVersion: Int = 10
 
     /// Format version of the Dev IR payload.
-    public static let devIRFormatVersion: Int = 25
+    public static let devIRFormatVersion: Int = 38
 
     /// Platform identifier for iOS dev runtimes.
     public static let targetPlatform = "ios"
@@ -64,6 +64,10 @@ public enum NexaDevKeys {
     public static let functions = "functions"
     public static let structs = "structs"
     public static let components = "components"
+    public static let receiver = "receiver"
+    public static let locals = "locals"
+    public static let returnType = "return_type"
+    public static let bodyActions = "body_actions"
     public static let direction = "direction"
     public static let statusBar = "status_bar"
     public static let onAppear = "on_appear"
@@ -111,9 +115,12 @@ public enum NexaDevKeys {
 public enum NexaDevNodeKind {
     public static let layout = "Layout"
     public static let column = "Column"
+    public static let form = "Form"
+    public static let formSection = "FormSection"
     public static let row = "Row"
     public static let stack = "Stack"
     public static let text = "Text"
+    public static let contentUnavailable = "ContentUnavailable"
     public static let spacer = "Spacer"
     public static let divider = "Divider"
     public static let button = "Button"
@@ -134,11 +141,14 @@ public enum NexaDevNodeKind {
     public static let accessibility = "Accessibility"
     public static let keyboardAware = "KeyboardAware"
     public static let appBottomBar = "AppBottomBar"
+    public static let pagePager = "PagePager"
     public static let bottomSheet = "BottomSheet"
     public static let dialog = "Dialog"
     public static let segmentedControl = "SegmentedControl"
     public static let picker = "Picker"
+    public static let datePicker = "DatePicker"
     public static let navigationStack = "NavigationStack"
+    public static let navigationSplitView = "NavigationSplitView"
     public static let navigationLink = "NavigationLink"
     public static let navigationBack = "NavigationBack"
     public static let content = "Content"
@@ -149,6 +159,8 @@ public enum NexaDevNodeKind {
 public enum NexaDevActionKind {
     public static let assign = "Assign"
     public static let expression = "Expression"
+    public static let letBinding = "Let"
+    public static let returnAction = "Return"
     public static let ifAction = "If"
     public static let forLoop = "For"
     public static let forMap = "ForMap"
@@ -165,6 +177,8 @@ public enum NexaDevActionKind {
 public enum NexaDevCollectionMutationKind {
     public static let arrayAppend = "ArrayAppend"
     public static let arrayRemoveAt = "ArrayRemoveAt"
+    public static let arrayMove = "ArrayMove"
+    public static let arrayMoveSubset = "ArrayMoveSubset"
     public static let setInsert = "SetInsert"
     public static let setRemove = "SetRemove"
     public static let mapSet = "MapSet"

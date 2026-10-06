@@ -2,7 +2,11 @@ use serde::{Deserialize, Serialize};
 
 pub mod capabilities;
 pub mod facts;
+pub mod localization;
+pub mod system_icons;
 pub mod walk;
+
+pub use system_icons::SystemIcon;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Module {
@@ -15,7 +19,12 @@ pub struct Module {
     #[serde(default)]
     pub background_tasks: Vec<BackgroundTask>,
     pub states: Vec<State>,
+    /// Immutable process-lifetime module bindings, emitted outside UI trees.
+    pub globals: Vec<State>,
     pub screens: Vec<Screen>,
+    /// Cross-platform widget declarations compiled from `.nx` source.
+    #[serde(default)]
+    pub widgets: Vec<Widget>,
     pub components: Vec<Component>,
     pub body: Vec<Node>,
     pub status_bar: Option<StatusBarConfig>,
@@ -86,11 +95,26 @@ pub struct StructField {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Function {
     pub name: String,
+    /// Present for an instance user-defined class method. The receiver type
+    /// carries the class's immutable constructor properties.
+    pub receiver: Option<Type>,
+    /// Immutable extra stored-property initializers for a class method's owner.
+    /// Constructor parameters are stored in the receiver type itself.
+    pub class_initializers: Vec<FunctionLocal>,
     pub is_async: bool,
+    /// Whether this function propagates a native error (`throws` on Swift;
+    /// Kotlin exceptions propagate without a declaration).
+    #[serde(default)]
+    pub is_throwing: bool,
     pub parameters: Vec<FunctionParameter>,
     pub locals: Vec<FunctionLocal>,
     pub return_type: Type,
     pub body: Expr,
+    /// Statement body for functions that require control flow, expression
+    /// statements, or multiple returns. Simple functions retain the compact
+    /// locals + expression representation above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_actions: Option<Vec<Action>>,
 }
 
 /// A periodic app task emitted as a native background worker.
@@ -122,6 +146,12 @@ pub struct Component {
     pub parameters: Vec<ComponentParameter>,
     pub states: Vec<State>,
     pub body: Vec<Node>,
+    #[serde(default)]
+    pub on_appear: Option<Vec<Action>>,
+    #[serde(default)]
+    pub on_appear_async: bool,
+    #[serde(default)]
+    pub on_disappear: Option<Vec<Action>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -141,6 +171,57 @@ pub struct Screen {
     pub on_appear: Option<Vec<Action>>,
     pub on_appear_async: bool,
     pub on_disappear: Option<Vec<Action>>,
+}
+
+/// Typed, platform-neutral widget UI and immutable timeline entry shape.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Widget {
+    pub name: String,
+    /// Optional source text for native widget gallery metadata.
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Optional source text for the configuration UI.
+    #[serde(default)]
+    pub configuration_title: Option<String>,
+    #[serde(default)]
+    pub configuration_description: Option<String>,
+    /// Optional user-configurable value and its statically resolved struct type.
+    /// The default expression remains typed IR so each platform can generate
+    /// its native widget-configuration mechanism without runtime reflection.
+    #[serde(default)]
+    pub configuration: Option<WidgetConfiguration>,
+    /// Statically resolved provider used to produce timeline entries.
+    pub entry_provider: Expr,
+    /// Synchronous provider used for native placeholders and provider errors.
+    #[serde(default)]
+    pub placeholder_provider: Option<Expr>,
+    /// Whether the entry provider contains an awaited operation.
+    #[serde(default)]
+    pub entry_provider_async: bool,
+    /// Whether the entry provider contains a throwing awaited operation.
+    #[serde(default)]
+    pub entry_provider_throws: bool,
+    pub entry_type: Type,
+    pub families: Vec<WidgetFamily>,
+    /// Minimum requested refresh delay. Native schedulers may defer the update.
+    pub refresh_seconds: u32,
+    pub body: Vec<Node>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WidgetConfiguration {
+    pub ty: Type,
+    pub default: Expr,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WidgetFamily {
+    Small,
+    Medium,
+    Large,
+    ExtraLarge,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -257,6 +338,7 @@ pub enum Type {
     Map(Box<Type>, Box<Type>),
     Pair(Box<Type>, Box<Type>),
     Triple(Box<Type>, Box<Type>, Box<Type>),
+    Signal(Box<Type>),
     Enum(String),
     /// A plugin method type parameter, present only in signatures. Every call
     /// site resolves it to a concrete value type before the IR is built, so
@@ -274,11 +356,27 @@ pub enum Type {
         name: String,
         fields: Vec<(String, Type)>,
     },
+    /// User-defined reference identity. Unlike `Struct`, class equality is
+    /// identity-based and instances may retain native plugin objects.
+    Class {
+        name: String,
+        fields: Vec<(String, Type)>,
+        constructor_parameter_count: usize,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Expr {
+    /// The implicit instance receiver inside a user class method.
+    This(Type),
     String(String),
+    /// A static UI text value that uses its source template as its localization
+    /// key. Dynamic interpolation arguments remain typed child expressions.
+    LocalizedText {
+        key: String,
+        value: Box<Expr>,
+        comment: Option<String>,
+    },
     Interpolation(Vec<InterpolatedPart>),
     Bool(bool),
     Number {
@@ -299,6 +397,26 @@ pub enum Expr {
         namespace: String,
         enum_name: String,
         case_name: String,
+    },
+    /// A typed payload-bearing enum case declared by a native plugin.
+    PluginEnumConstructor {
+        namespace: String,
+        enum_name: String,
+        case_name: String,
+        payload_names: Vec<String>,
+        arguments: Vec<Expr>,
+        return_type: Type,
+    },
+    /// Maps a nullable scalar to a payload-bearing plugin enum case without
+    /// evaluating the nullable expression more than once.
+    PluginEnumOptionalConstructor {
+        namespace: String,
+        enum_name: String,
+        case_name: String,
+        null_case_name: String,
+        payload_name: String,
+        value: Box<Expr>,
+        return_type: Type,
     },
     Add(Box<Expr>, Box<Expr>, NumericType),
     Concat(Box<Expr>, Box<Expr>),
@@ -333,6 +451,8 @@ pub enum Expr {
         arguments: Vec<Expr>,
         return_type: Type,
         is_async: bool,
+        #[serde(default)]
+        is_throwing: bool,
         is_constructor: bool,
     },
     CollectionTransform {
@@ -487,8 +607,11 @@ pub enum Expr {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CollectionTransform {
     Map,
+    FlatMap,
     Filter,
     Reduce,
+    SortedBy,
+    GroupedBy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -499,6 +622,7 @@ pub enum CollectionUtilityKind {
     Shuffled,
     Reverse,
     Slice,
+    Take,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -522,6 +646,10 @@ pub enum BinaryOp {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Node {
+    Appearance {
+        mode: Expr,
+        children: Vec<Node>,
+    },
     StatusBar {
         config: StatusBarConfig,
     },
@@ -550,9 +678,25 @@ pub enum Node {
         style: ViewStyle,
         children: Vec<Node>,
     },
+    /// Native settings-style container. Child sections map to SwiftUI Form
+    /// sections and to Material settings groups on Android.
+    Form {
+        children: Vec<Node>,
+    },
+    FormSection {
+        title: Option<Expr>,
+        footer: Option<Expr>,
+        children: Vec<Node>,
+    },
     Text {
         value: Expr,
         style: TextStyle,
+    },
+    /// Empty-state content rendered with native platform presentation.
+    ContentUnavailable {
+        title: Expr,
+        icon: SystemIcon,
+        description: Expr,
     },
     Spacer,
     Divider {
@@ -561,14 +705,22 @@ pub enum Node {
     },
     Button {
         label: Expr,
-        icon: Option<String>,
+        icon: Option<SystemIcon>,
         loading: Option<Expr>,
         disabled: Option<Expr>,
+        style: Option<ButtonStyle>,
+        size: Option<ButtonSize>,
+        shape: Option<ButtonShape>,
+        tint: Option<ColorExpression>,
+        glass: bool,
         actions: Vec<Action>,
     },
     TextInput {
         state: String,
         placeholder: String,
+        /// Optional translator context for the placeholder.
+        #[serde(default)]
+        comment: Option<String>,
         keyboard: KeyboardType,
         secure: bool,
         multiline: bool,
@@ -578,11 +730,18 @@ pub enum Node {
         capitalization: Option<Capitalization>,
         focused: Option<String>,
         max_length: Option<i32>,
+        font: Option<TextInputFont>,
+        min_lines: Option<i32>,
+        max_lines: Option<i32>,
+        #[serde(default)]
+        searchable: bool,
         actions: Vec<Action>,
+        #[serde(default)]
+        on_change: Option<TextInputChange>,
     },
     Switch {
         state: String,
-        label: String,
+        label: Expr,
     },
     Slider {
         state: String,
@@ -605,19 +764,26 @@ pub enum Node {
     Picker {
         items: Expr,
         state: String,
+        icon: Option<SystemIcon>,
+        label: Option<Expr>,
+    },
+    DatePicker {
+        timestamp_state: String,
+        has_time_state: String,
     },
     Image {
         source: ImageSource,
         description: String,
         scale: ImageScale,
         placeholder: Option<String>,
+        max_height: Option<f32>,
         shared_element: Option<Expr>,
     },
     SystemIcon {
         icon: SystemIcon,
         description: String,
         size: f32,
-        tint: ColorValue,
+        tint: ColorExpression,
     },
     LinearGradient {
         start_color: ColorValue,
@@ -634,6 +800,8 @@ pub enum Node {
         double_tap_actions: Vec<Action>,
         long_press_duration_ms: Expr,
         long_press_actions: Vec<Action>,
+        #[serde(default)]
+        context_menu: Vec<Node>,
         drag_parameters: Vec<String>,
         drag_actions: Vec<Action>,
         pinch_parameter: Option<String>,
@@ -642,6 +810,11 @@ pub enum Node {
     NavigationStack {
         root: ScreenId,
         arguments: Vec<Expr>,
+    },
+    NavigationSplitView {
+        detail_visible: String,
+        sidebar: Vec<Node>,
+        detail: Vec<Node>,
     },
     NavigationLink {
         destination: ScreenId,
@@ -659,6 +832,10 @@ pub enum Node {
     Accessibility {
         label: Expr,
         hint: Option<Expr>,
+        /// Optional current value announced separately from the label where
+        /// the native accessibility system supports that distinction.
+        #[serde(default)]
+        value: Option<Expr>,
         role: AccessibilityRole,
         children: Vec<Node>,
     },
@@ -669,12 +846,21 @@ pub enum Node {
     BottomSheet {
         state: String,
         partial: bool,
+        #[serde(default)]
+        large_only: bool,
+        #[serde(default)]
+        title: Option<Expr>,
         children: Vec<Node>,
     },
     Dialog {
         state: String,
         title: Expr,
         message: Expr,
+        children: Vec<Node>,
+    },
+    ConfirmationDialog {
+        state: String,
+        title: Expr,
         children: Vec<Node>,
     },
     RefreshControl {
@@ -684,7 +870,16 @@ pub enum Node {
     },
     AppBottomBar {
         state: String,
+        tint: Option<ColorExpression>,
         tabs: Vec<BottomBarTab>,
+    },
+    PagePager {
+        state: String,
+        pages: Vec<Vec<Node>>,
+    },
+    Toolbar {
+        placement: ToolbarPlacement,
+        children: Vec<Node>,
     },
     FastList {
         plan: ListPlan,
@@ -717,6 +912,12 @@ pub enum Node {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TextInputChange {
+    pub parameter: String,
+    pub actions: Vec<Action>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FastListRefresh {
     pub state: String,
     pub actions: Vec<Action>,
@@ -726,8 +927,23 @@ pub struct FastListRefresh {
 pub struct BottomBarTab {
     pub index: i32,
     pub label: String,
-    pub icon: Option<String>,
+    #[serde(default)]
+    pub comment: Option<String>,
+    pub icon: Option<SystemIcon>,
     pub badge: Option<String>,
+    pub role: Option<String>,
+    /// Optional native navigation title for this destination.
+    #[serde(default)]
+    pub navigation_title: Option<String>,
+    /// Use the native large title presentation when a navigation title exists.
+    #[serde(default)]
+    pub large_title: bool,
+    /// Mutable string state bound to the native navigation search field.
+    #[serde(default)]
+    pub search_state: Option<String>,
+    /// Native navigation search prompt.
+    #[serde(default)]
+    pub search_prompt: Option<String>,
     pub children: Vec<Node>,
 }
 
@@ -752,6 +968,10 @@ pub enum AccessibilityRole {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ListCommon {
     pub axis: ListAxis,
+    /// Render a vertical collection with the platform's native list control.
+    /// On iOS this emits SwiftUI `List`; Android keeps the Compose lazy list.
+    #[serde(default)]
+    pub native: bool,
     /// Invert a flat vertical list so logical rows appear bottom-to-top.
     #[serde(default)]
     pub reverse_layout: bool,
@@ -766,8 +986,24 @@ pub struct ListCommon {
     pub children: Vec<Node>,
     pub on_end_reached: Option<Vec<Action>>,
     pub on_scroll: Option<Vec<Action>>,
+    /// Drag-reorder callback for native flat collection lists.
+    #[serde(default)]
+    pub on_move: Option<FastListMove>,
+    #[serde(default)]
+    pub swipe_actions: Option<Vec<Node>>,
     pub sticky_header: Option<Vec<Node>>,
     pub refresh: Option<FastListRefresh>,
+}
+
+/// Callback payload for a flat-list row move. Indexes use zero-based logical
+/// positions in the displayed rows, independent of reverse visual layout.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FastListMove {
+    pub from: String,
+    pub to: String,
+    /// Whether native move affordances are enabled for the current list state.
+    pub enabled: Expr,
+    pub actions: Vec<Action>,
 }
 
 /// Options for the sectioned list plan. Sectioned lists always render
@@ -776,12 +1012,17 @@ pub struct ListCommon {
 /// cannot be represented here at all.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SectionedListCommon {
+    /// Use the platform's standard list container where the backend supports it.
+    #[serde(default)]
+    pub native: bool,
     pub item_extent: Option<f32>,
     /// Row index binding name (always `Int32`).
     pub index: String,
     pub key: Option<Expr>,
     pub children: Vec<Node>,
     pub section_header: Option<Vec<Node>>,
+    #[serde(default)]
+    pub swipe_actions: Option<Vec<Node>>,
     pub refresh: Option<FastListRefresh>,
 }
 
@@ -814,6 +1055,15 @@ pub enum ListPlan {
 }
 
 impl ListPlan {
+    /// Whether a vertical list opts into the platform's standard list control
+    /// instead of Nexa's custom virtualized surface.
+    pub fn native(&self) -> bool {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.native,
+            ListPlan::Sections { common, .. } => common.native,
+        }
+    }
+
     /// Whether a flat list is laid out from its logical end toward its start.
     pub fn reverse_layout(&self) -> bool {
         match self {
@@ -878,6 +1128,16 @@ impl ListPlan {
         }
     }
 
+    /// Native reorder callback for flat lists.
+    pub fn on_move(&self) -> Option<&FastListMove> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.on_move.as_ref()
+            }
+            ListPlan::Sections { .. } => None,
+        }
+    }
+
     /// Sticky header content, if any. Sectioned lists use `section_header`.
     pub fn sticky_header(&self) -> Option<&[Node]> {
         match self {
@@ -893,6 +1153,16 @@ impl ListPlan {
         match self {
             ListPlan::Count { .. } | ListPlan::Items { .. } => None,
             ListPlan::Sections { common, .. } => common.section_header.as_deref(),
+        }
+    }
+
+    /// Native trailing swipe actions, if any.
+    pub fn swipe_actions(&self) -> Option<&[Node]> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.swipe_actions.as_deref()
+            }
+            ListPlan::Sections { common, .. } => common.swipe_actions.as_deref(),
         }
     }
 
@@ -956,6 +1226,10 @@ pub enum MemberKind {
     TupleIndex(TuplePosition),
     /// Struct field access; carries the source field name.
     StructField(String),
+    /// User-defined class property access; carries the source property name.
+    ClassField(String),
+    /// User-defined class-level immutable property access; carries the source property name.
+    ClassStaticField(String),
     /// Native class property access; carries the source property name.
     PluginField(String),
     /// `NetworkResponse.statusCode`.
@@ -968,6 +1242,10 @@ pub enum MemberKind {
     CollectionCount,
     /// `Array<T>`, `Set<T>`, or `Map<K, V>.isEmpty`.
     CollectionIsEmpty,
+    /// `String.trimmed` whitespace trimming property.
+    StringTrimmed,
+    /// `Signal<T>.value` reactive value property.
+    SignalValue,
 }
 
 /// Validated `Network.fetch` / `Network.download` arguments. Every field is
@@ -996,6 +1274,10 @@ pub struct NetworkRequest {
 pub struct PluginCodec {
     pub ty: Type,
     pub decodes: bool,
+    /// This call binds named row metadata to one generated struct constructor.
+    /// It uses a row-mapper factory, not the binary value codec.
+    #[serde(default)]
+    pub row_mapper: bool,
 }
 
 /// A core clock operation.
@@ -1018,6 +1300,19 @@ pub enum TimeMethod {
     Iso8601,
     /// `Time.iso8601ToMillis(text:)`: the inverse, or null when malformed.
     Iso8601ToMillis,
+    /// `Time.startOfDay(timestamp:)`: local calendar start of the timestamp's day.
+    StartOfDay,
+    /// `Time.addCalendarDays(timestamp:days:)`: advances by local calendar days,
+    /// preserving the wall-clock time across daylight-saving transitions.
+    AddCalendarDays,
+    /// `Time.localizedDate(timestamp:)`: local date formatted using native locale conventions.
+    LocalizedDate,
+    /// `Time.localizedTime(timestamp:)`: local time formatted using native locale conventions.
+    LocalizedTime,
+    /// `Time.localizedDateTime(timestamp:)`: local date and time formatted using native locale conventions.
+    LocalizedDateTime,
+    /// `Time.format(timestamp, pattern)`: formats a local timestamp with a shared Foundation/Java date pattern.
+    Format,
 }
 
 /// A core logging operation.
@@ -1038,6 +1333,12 @@ impl TimeMethod {
             TimeMethod::Sleep => "sleep",
             TimeMethod::Iso8601 => "iso8601",
             TimeMethod::Iso8601ToMillis => "iso8601ToMillis",
+            TimeMethod::StartOfDay => "startOfDay",
+            TimeMethod::AddCalendarDays => "addCalendarDays",
+            TimeMethod::LocalizedDate => "localizedDate",
+            TimeMethod::LocalizedTime => "localizedTime",
+            TimeMethod::LocalizedDateTime => "localizedDateTime",
+            TimeMethod::Format => "format",
         }
     }
 }
@@ -1087,6 +1388,13 @@ pub enum ReturnKeyType {
     Next,
 }
 
+/// Native, dynamic-type typography presets available to editable text fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextInputFont {
+    Body,
+    Title3,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Capitalization {
     None,
@@ -1099,34 +1407,6 @@ pub enum Capitalization {
 pub enum ImageScale {
     Fit,
     Fill,
-}
-
-/// A platform-neutral system icon. Backends map each icon to SF Symbols on
-/// iOS and the matching Compose Material icon on Android.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SystemIcon {
-    Home,
-    Search,
-    Inbox,
-    Profile,
-    Heart,
-    HeartFilled,
-    Comment,
-    CommentFilled,
-    Bookmark,
-    BookmarkFilled,
-    Share,
-    Music,
-    Back,
-    Screen,
-    Layers,
-    Plus,
-    Close,
-    Checkmark,
-    Send,
-    Volume,
-    VolumeMuted,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1142,6 +1422,7 @@ pub enum GradientDirection {
 pub enum ImageSource {
     Asset(String),
     RemoteUrl(Expr),
+    LocalFile(Expr),
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -1192,6 +1473,7 @@ pub struct ViewEffects {
     pub blur: Option<f32>,
     pub clip_rounded: Option<f32>,
     pub z_index: Option<i32>,
+    pub glass: Option<ViewGlass>,
 }
 
 impl ViewEffects {
@@ -1202,7 +1484,43 @@ impl ViewEffects {
             || self.blur.is_some()
             || self.clip_rounded.is_some()
             || self.z_index.is_some()
+            || self.glass.is_some()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ViewGlass {
+    pub tint: Option<ColorValue>,
+    pub shape: GlassShape,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum GlassShape {
+    Circle,
+    Capsule,
+    Rounded(f32),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ButtonStyle {
+    BorderedProminent,
+    Bordered,
+    Borderless,
+    Plain,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ButtonSize {
+    Small,
+    Regular,
+    Large,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ButtonShape {
+    Capsule,
+    Circle,
+    Rounded(f32),
 }
 
 /// Static rounded-rectangle shadow parameters shared by SwiftUI and Compose.
@@ -1242,6 +1560,12 @@ pub enum Alignment {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolbarPlacement {
+    Leading,
+    Trailing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Color {
     pub red: u8,
     pub green: u8,
@@ -1255,8 +1579,17 @@ pub enum ColorValue {
     Adaptive { light: Color, dark: Color },
 }
 
+/// A native color supplied either as a compile-time color value or as a
+/// runtime hexadecimal string expression.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ColorExpression {
+    Static(ColorValue),
+    Dynamic(Expr),
+}
+
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct TextStyle {
+    pub alignment: Option<TextAlignment>,
     pub color: Option<ColorValue>,
     pub font_size: Option<f32>,
     pub font_weight: Option<FontWeight>,
@@ -1266,6 +1599,8 @@ pub struct TextStyle {
     pub line_limit: Option<i32>,
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,
+    #[serde(default)]
+    pub strikethrough: bool,
     pub selectable: bool,
 }
 
@@ -1277,9 +1612,26 @@ pub enum FontWeight {
     Bold,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextAlignment {
+    Leading,
+    Center,
+    Trailing,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Action {
     Expression(Expr),
+    /// Immutable binding scoped to the current action block.
+    Let {
+        name: String,
+        ty: Type,
+        value: Expr,
+    },
+    /// Function return, including returns nested in control-flow actions.
+    Return {
+        value: Expr,
+    },
     Assign {
         name: String,
         value: Expr,
@@ -1305,7 +1657,7 @@ pub enum Action {
         arguments: Vec<Expr>,
     },
     TaskLaunch {
-        handle: String,
+        handle: Option<String>,
         executor: TaskExecutor,
         actions: Vec<Action>,
     },
@@ -1367,6 +1719,10 @@ pub struct ErrorCatchArm {
 pub enum CollectionMutation {
     ArrayAppend,
     ArrayRemoveAt,
+    ArrayMove,
+    /// Moves an item in an order-preserving visible subset while keeping
+    /// items outside that subset in their existing backing-array slots.
+    ArrayMoveSubset,
     SetInsert,
     SetRemove,
     MapSet,
@@ -1390,6 +1746,9 @@ impl Expr {
         matches!(
             self,
             Expr::NativeCall {
+                is_throwing: true,
+                ..
+            } | Expr::Call {
                 is_throwing: true,
                 ..
             } | Expr::NetworkFetch(_)
@@ -1423,6 +1782,7 @@ mod state_tests {
                 arguments: Vec::new(),
                 return_type: class,
                 is_async: false,
+                is_throwing: false,
                 is_constructor: true,
             },
             mutable: false,
@@ -1445,6 +1805,7 @@ mod state_tests {
                 arguments: Vec::new(),
                 return_type: class,
                 is_async: false,
+                is_throwing: false,
                 is_constructor: true,
             },
             mutable: true,

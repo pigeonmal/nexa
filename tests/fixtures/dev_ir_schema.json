@@ -3,7 +3,7 @@
   "title": "NexaDevIRSchema",
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
   "protocol_version": 10,
-  "dev_ir_format_version": 25,
+  "dev_ir_format_version": 38,
   "view_transitions": [
     "Fade",
     "SlideFromBottom",
@@ -43,7 +43,10 @@
     "Column",
     "Row",
     "Stack",
+    "Form",
+    "FormSection",
     "Text",
+    "ContentUnavailable",
     "Button",
     "Pressable",
     "TextInput",
@@ -66,7 +69,9 @@
     "Dialog",
     "SegmentedControl",
     "Picker",
+    "DatePicker",
     "NavigationStack",
+    "NavigationSplitView",
     "NavigationLink",
     "NavigationBack",
     "Content",
@@ -75,6 +80,8 @@
   "action_kinds": [
     "Assign",
     "Expression",
+    "Let",
+    "Return",
     "If",
     "For",
     "ForMap",
@@ -142,6 +149,15 @@
       "on_inactive": "on_inactive",
       "on_background": "on_background",
       "transition": "transition"
+    },
+    "function": {
+      "name": "name",
+      "receiver": "receiver",
+      "parameters": "parameters",
+      "locals": "locals",
+      "return_type": "return_type",
+      "body": "body",
+      "body_actions": "body_actions"
     },
     "screen": {
       "name": "name",

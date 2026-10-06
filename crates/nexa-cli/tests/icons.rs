@@ -2,6 +2,10 @@
 #[allow(dead_code)]
 mod assets;
 
+#[path = "../src/project/localization.rs"]
+#[allow(dead_code)]
+mod localization;
+
 use std::fs;
 
 /// Claims a temporary asset root that is removed when the guard is dropped.
@@ -19,20 +23,123 @@ fn write_test_icon(root: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[test]
-fn shared_raster_icon_generates_android_adaptive_round_and_themed_layers() {
+fn flat_raster_icon_only_generates_legacy_density_resources() {
     let root = temp_root("nexa-assets");
     let source = write_test_icon(&root);
-    assets::generate_android_icon(&source, &root).expect("generate adaptive icon resources");
+    assets::generate_android_icon(&source, &root).expect("generate legacy icon resources");
 
     let res = root.join("android/app/src/main/res");
     assert!(res.join("mipmap-mdpi/ic_launcher.png").is_file());
     assert!(res.join("mipmap-xxxhdpi/ic_launcher_round.png").is_file());
+    assert!(!res.join("mipmap-anydpi-v26/ic_launcher.xml").exists());
+    assert!(!res.join("mipmap-anydpi-v33/ic_launcher.xml").exists());
+}
+
+#[test]
+fn layered_android_icon_generates_adaptive_and_themed_layers() {
+    let root = temp_root("nexa-layered-icon");
+    let source = root.path().join("Icon");
+    fs::create_dir_all(&source).expect("create Android icon set");
+    write_test_icon(&source);
+    fs::write(
+        source.join("foreground.xml"),
+        r##"<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#FFFFFFFF" android:pathData="M 20,20 L 88,20 L 88,88 L 20,88 Z" /></vector>"##,
+    )
+    .expect("write foreground layer");
+    fs::write(
+        source.join("background.xml"),
+        r##"<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FF336699" /></shape>"##,
+    )
+    .expect("write background layer");
+    fs::write(
+        source.join("monochrome.xml"),
+        r##"<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#FFFFFFFF" android:pathData="M 20,20 L 88,20 L 88,88 L 20,88 Z" /></vector>"##,
+    )
+    .expect("write monochrome layer");
+
+    assets::generate_android_icon(&source, root.path())
+        .expect("generate layered adaptive icon resources");
+
+    let res = root.path().join("android/app/src/main/res");
     let adaptive = fs::read_to_string(res.join("mipmap-anydpi-v26/ic_launcher.xml"))
         .expect("adaptive icon XML");
-    assert!(adaptive.contains("ic_launcher_foreground"));
     let themed = fs::read_to_string(res.join("mipmap-anydpi-v33/ic_launcher.xml"))
         .expect("themed adaptive icon XML");
-    assert!(themed.contains("<monochrome"));
+    assert!(adaptive.contains("@drawable/ic_launcher_foreground"));
+    assert!(adaptive.contains("@drawable/ic_launcher_background"));
+    assert!(!adaptive.contains("monochrome"));
+    assert!(themed.contains("@drawable/ic_launcher_monochrome"));
+    assert!(res.join("drawable/ic_launcher_foreground.xml").is_file());
+    assert!(res.join("mipmap-xxxhdpi/ic_launcher_round.png").is_file());
+}
+
+#[test]
+fn android_icon_generation_removes_stale_layered_and_monochrome_outputs() {
+    let root = temp_root("nexa-icon-cleanup");
+    let icon_set = root.path().join("Icon");
+    fs::create_dir_all(&icon_set).expect("create icon set");
+    write_test_icon(&icon_set);
+    fs::write(
+        icon_set.join("foreground.xml"),
+        r##"<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#FFFFFFFF" android:pathData="M 20,20 L 88,20 L 88,88 L 20,88 Z" /></vector>"##,
+    )
+    .expect("write foreground layer");
+    fs::write(
+        icon_set.join("background.xml"),
+        r##"<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#FF336699" /></shape>"##,
+    )
+    .expect("write background layer");
+    fs::write(
+        icon_set.join("monochrome.xml"),
+        r##"<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#FFFFFFFF" android:pathData="M 20,20 L 88,20 L 88,88 L 20,88 Z" /></vector>"##,
+    )
+    .expect("write monochrome layer");
+
+    assets::generate_android_icon_named(&icon_set, root.path(), "ic_launcher")
+        .expect("generate layered icon");
+    fs::remove_file(icon_set.join("monochrome.xml")).expect("remove monochrome layer");
+    assets::generate_android_icon_named(&icon_set, root.path(), "ic_launcher")
+        .expect("regenerate without monochrome layer");
+
+    let res = root.path().join("android/app/src/main/res");
+    assert!(!res.join("mipmap-anydpi-v33/ic_launcher.xml").exists());
+    assert!(!res.join("drawable/ic_launcher_monochrome.xml").exists());
+
+    let flat = write_test_icon(&root.path().join("flat"));
+    assets::generate_android_icon_named(&flat, root.path(), "ic_launcher")
+        .expect("replace adaptive icon with flat fallback");
+    assert!(!res.join("mipmap-anydpi-v26/ic_launcher.xml").exists());
+    assert!(!res.join("drawable/ic_launcher_foreground.xml").exists());
+    assert!(res.join("mipmap-xxxhdpi/ic_launcher.png").is_file());
+}
+
+#[test]
+fn android_drawable_xml_is_well_formed_and_has_a_drawable_root() {
+    let root = temp_root("nexa-invalid-icon-xml");
+    let source = root.path().join("Icon");
+    fs::create_dir_all(&source).expect("create Android icon set");
+    write_test_icon(&source);
+    fs::write(
+        source.join("foreground.xml"),
+        "<manifest><broken></manifest>",
+    )
+    .expect("write malformed drawable");
+    fs::write(source.join("background.xml"), "<shape />").expect("write background");
+
+    let error = assets::generate_android_icon(&source, root.path())
+        .expect_err("malformed drawable XML should fail before writing output");
+    assert!(error.contains("is malformed"));
+    assert!(
+        !root
+            .path()
+            .join("android/app/src/main/res/mipmap-mdpi/ic_launcher.png")
+            .exists()
+    );
+
+    fs::write(source.join("foreground.xml"), "<manifest />").expect("write invalid drawable root");
+    let error = assets::generate_android_icon(&source, root.path())
+        .expect_err("non-drawable XML root should fail");
+    assert!(error.contains("must have a drawable root element"));
 }
 
 #[test]

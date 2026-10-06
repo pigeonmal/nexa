@@ -137,6 +137,15 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         val argumentName = entry.optString(0)
         options[argumentName] = evaluateAsync(entry.opt(1), locals, scope)
     }
+    if (namespace.startsWith("__NexaUserClass:")) {
+        val receiver = if (call.isNull("receiver")) null else evaluateAsync(call.opt("receiver"), locals, scope)
+        val result = if (call.optBoolean("is_async")) {
+            invokeUserClassMethodAsync(namespace, name, receiver, options, locals, scope)
+        } else {
+            invokeUserClassMethod(namespace, name, receiver, options, scope)
+        }
+        if (result.first) return result.second
+    }
     if (call.isNull("receiver")) {
         val pluginResult = NexaDevPluginBridge.invokeAsync(namespace, name, options, codecs, enumCases)
         if (pluginResult.first) return pluginResult.second
@@ -148,6 +157,9 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
     if (namespace == "Keyboard" && name == "dismiss") {
         dev.nexa.core.NexaRuntimeCore.dismissKeyboard()
         return JSONObject.NULL
+    }
+    if (namespace == "AppIcon" && name == "set") {
+        return NexaRuntime.setAlternateAppIcon(options["name"] as? String)
     }
     if (namespace == "Haptics") {
         nexaDevPerformHaptics(name, options)
@@ -205,6 +217,20 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         (options[key] as? Number)?.toDouble() ?: fallback
     if (namespace == "Number" && name == "formatCurrency") {
         return nexaDevFormatCurrency(numberOption("amount", 0.0), stringOption("currencyCode"))
+    }
+    if (namespace == "Locale") {
+        val locale = java.util.Locale.getDefault()
+        return when (name) {
+            "currentLanguageCode" -> locale.language
+            "preferredLanguageCodes" -> if (android.os.Build.VERSION.SDK_INT >= 24) {
+                android.os.LocaleList.getDefault().let { locales ->
+                    (0 until locales.size()).map { locales[it].toLanguageTag() }
+                }
+            } else listOf(locale.toLanguageTag())
+            "displayName" -> java.util.Locale.forLanguageTag(stringOption("languageCode"))
+                .getDisplayLanguage(locale).takeIf { it.isNotEmpty() } ?: ""
+            else -> error("Unsupported locale call $name")
+        }
     }
     if (namespace == "Crypto") {
         return when (name) {
@@ -350,6 +376,11 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
         options[argumentName] = evaluate(entry.opt(1), locals, scope)
     }
     try {
+        if (namespace.startsWith("__NexaUserClass:")) {
+            val receiver = if (call.isNull("receiver")) null else evaluate(call.opt("receiver"), locals, scope)
+            val result = invokeUserClassMethod(namespace, name, receiver, options, scope)
+            if (result.first) return result.second
+        }
         if (call.isNull("receiver")) {
             val pluginResult = NexaDevPluginBridge.invokeSync(namespace, name, options, codecs, enumCases)
             if (pluginResult.first) return pluginResult.second
@@ -440,6 +471,20 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
     if (namespace == "Number" && name == "formatCurrency") {
         val amount = (options["amount"] as? Number)?.toDouble() ?: 0.0
         return nexaDevFormatCurrency(amount, stringOption("currencyCode"))
+    }
+    if (namespace == "Locale") {
+        val locale = java.util.Locale.getDefault()
+        return when (name) {
+            "currentLanguageCode" -> locale.language
+            "preferredLanguageCodes" -> if (android.os.Build.VERSION.SDK_INT >= 24) {
+                android.os.LocaleList.getDefault().let { locales ->
+                    (0 until locales.size()).map { locales[it].toLanguageTag() }
+                }
+            } else listOf(locale.toLanguageTag())
+            "displayName" -> java.util.Locale.forLanguageTag(stringOption("languageCode"))
+                .getDisplayLanguage(locale).takeIf { it.isNotEmpty() } ?: ""
+            else -> error("Unsupported locale call $name")
+        }
     }
     if (namespace == "Crypto") {
         return when (name) {

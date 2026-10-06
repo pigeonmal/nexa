@@ -5,16 +5,17 @@ use nexa_ir::{Module, Permission};
 #[derive(Default)]
 pub(crate) struct Features {
     pub(crate) uses_status_bar: bool,
-    pub(crate) uses_bottom_bar: bool,
     pub(crate) uses_bottom_sheet: bool,
     pub(crate) uses_bottom_sheet_partial: bool,
+    pub(crate) uses_bottom_sheet_full_screen: bool,
     pub(crate) uses_dialog: bool,
+    pub(crate) uses_content_unavailable: bool,
     pub(crate) uses_refresh_control: bool,
     pub(crate) uses_refresh_scroll: bool,
     pub(crate) uses_asset: bool,
-    pub(crate) uses_tab_icon: bool,
     pub(crate) uses_tab_badge: bool,
-    pub(crate) uses_tab_badge_placeholder: bool,
+    pub(crate) uses_adaptive_tabs: bool,
+    pub(crate) uses_page_pager: bool,
     pub(crate) uses_remote_image: bool,
     pub(crate) uses_shared_elements: bool,
     pub(crate) uses_native_library: bool,
@@ -32,12 +33,12 @@ pub(crate) struct Features {
     pub(crate) uses_navigation_link: bool,
     pub(crate) uses_navigation_back: bool,
     pub(crate) uses_navigation_uri: bool,
+    pub(crate) uses_navigation_split_view: bool,
     pub(crate) uses_link: bool,
     pub(crate) app_uses_link: bool,
     pub(crate) uses_accessibility: bool,
     pub(crate) uses_accessibility_role: bool,
     pub(crate) uses_accessibility_heading: bool,
-    pub(crate) uses_accessibility_hint: bool,
     pub(crate) uses_list: bool,
     pub(crate) uses_linear_list: bool,
     pub(crate) uses_reverse_layout: bool,
@@ -62,13 +63,13 @@ pub(crate) struct Features {
     pub(crate) uses_text_sp: bool,
     pub(crate) uses_selectable_text: bool,
     pub(crate) uses_button: bool,
-    pub(crate) uses_button_icon: bool,
     pub(crate) uses_button_loading: bool,
     pub(crate) uses_text_node: bool,
     pub(crate) uses_spacer: bool,
     pub(crate) uses_divider: bool,
     pub(crate) uses_text_input: bool,
     pub(crate) uses_text_input_submit: bool,
+    pub(crate) uses_text_input_searchable: bool,
     pub(crate) uses_text_input_autofill: bool,
     pub(crate) uses_focus: bool,
     pub(crate) uses_secure_text_input: bool,
@@ -79,16 +80,19 @@ pub(crate) struct Features {
     pub(crate) uses_progress_ring: bool,
     pub(crate) uses_segmented_control: bool,
     pub(crate) uses_picker: bool,
+    pub(crate) uses_date_picker: bool,
     pub(crate) uses_pressable: bool,
     pub(crate) uses_haptic: bool,
     pub(crate) app_uses_haptic: bool,
     pub(crate) uses_clickable: bool,
     pub(crate) uses_long_press: bool,
+    pub(crate) uses_context_menu: bool,
     pub(crate) uses_double_tap: bool,
     pub(crate) uses_drag: bool,
     pub(crate) uses_drag_velocity: bool,
     pub(crate) uses_pinch: bool,
     pub(crate) uses_column: bool,
+    pub(crate) uses_form: bool,
     pub(crate) uses_row: bool,
     pub(crate) uses_box: bool,
     pub(crate) uses_alignment: bool,
@@ -181,13 +185,14 @@ impl Features {
         let ui = &facts.ui;
         self.uses_shared_elements = ui.image.shared_element;
         let types = &facts.used_types;
-        self.uses_bottom_bar = ui.bottom_bar.present;
-        self.uses_tab_icon = ui.bottom_bar.tab_icon;
         self.uses_tab_badge = ui.bottom_bar.tab_badge;
-        self.uses_tab_badge_placeholder = ui.bottom_bar.tab_badge_placeholder;
+        self.uses_adaptive_tabs = ui.bottom_bar.adaptive_tabs;
+        self.uses_page_pager = ui.page_pager;
         self.uses_bottom_sheet = ui.bottom_sheet.present;
         self.uses_bottom_sheet_partial = ui.bottom_sheet.partial;
+        self.uses_bottom_sheet_full_screen = ui.bottom_sheet.full_screen;
         self.uses_dialog = ui.dialog_present;
+        self.uses_content_unavailable = ui.content_unavailable;
         self.uses_refresh_control = ui.refresh.present || ui.lists.refresh_fused;
         self.uses_refresh_scroll = ui.refresh.scroll_variant;
         self.uses_asset = ui.image.asset;
@@ -230,12 +235,12 @@ impl Features {
 
         let button = &ui.button;
         self.uses_button = button.present;
-        self.uses_button_icon = button.icon;
         self.uses_button_loading = button.loading;
 
         let input = &ui.text_input;
         self.uses_text_input = input.present;
         self.uses_text_input_submit = input.submit || input.return_key;
+        self.uses_text_input_searchable = input.searchable;
         self.uses_text_input_autofill = input.autofill;
         self.uses_focus = input.focus;
         self.uses_modifier |= input.focus || input.autofill;
@@ -249,11 +254,13 @@ impl Features {
         self.uses_progress_ring = ui.progress_ring_present;
         self.uses_segmented_control = ui.segmented_control_present;
         self.uses_picker = ui.picker_present;
+        self.uses_date_picker = ui.date_picker_present;
 
         let pressable = &ui.pressable;
         self.uses_pressable = pressable.present;
         self.uses_clickable = pressable.clickable;
         self.uses_long_press = pressable.long_press;
+        self.uses_context_menu = pressable.context_menu;
         self.uses_double_tap = pressable.double_tap;
         self.uses_drag = pressable.drag;
         self.uses_drag_velocity = pressable.drag_velocity;
@@ -269,7 +276,6 @@ impl Features {
 
         let accessibility = &ui.accessibility;
         self.uses_accessibility = accessibility.present;
-        self.uses_accessibility_hint = accessibility.hint;
         self.uses_accessibility_role = accessibility.role;
         self.uses_accessibility_heading = accessibility.heading;
         self.uses_box |= accessibility.present;
@@ -294,10 +300,16 @@ impl Features {
         self.uses_modifier |= ui.refresh.scroll_variant;
 
         let layout = &ui.layout;
+        self.uses_form = layout.form;
         self.uses_column |= layout.column;
         self.uses_row = layout.row;
         self.uses_box |= layout.box_;
         self.uses_column |= layout.multi_child;
+        self.uses_column |= layout.form;
+        self.uses_text_node |= layout.form;
+        self.uses_padding |= layout.form;
+        self.uses_dp |= layout.form;
+        self.uses_modifier |= layout.form;
         self.uses_spacer = layout.spacer;
         self.uses_divider = layout.divider;
         self.uses_modifier |= layout.spacer;
@@ -350,6 +362,7 @@ impl Features {
             ui.app.navigation || ui.components.values().any(|scope| scope.navigation);
         self.uses_navigation_back =
             ui.app.navigation_back || ui.components.values().any(|scope| scope.navigation_back);
+        self.uses_navigation_split_view = ui.navigation_split_view;
 
         self.components_using_link = component_names(&ui.components, |scope| scope.link);
         self.components_using_haptic = component_names(&ui.components, |scope| scope.haptic);

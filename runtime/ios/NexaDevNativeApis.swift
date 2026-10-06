@@ -2,6 +2,13 @@ import Foundation
 import UIKit
 import Network
 
+private func nexaCurrentLanguageCode() -> String {
+    if #available(iOS 16.0, *) {
+        return Locale.current.language.languageCode?.identifier ?? "und"
+    }
+    return Locale.current.languageCode ?? "und"
+}
+
 final class NexaDevNetworkPathStatus: @unchecked Sendable {
     static let shared = NexaDevNetworkPathStatus()
 
@@ -158,6 +165,15 @@ extension NexaDevStateStore {
             )
             return NSNull()
         }
+        if namespace == "AppIcon", name == "set" {
+            let iconName = options["name"] as? String
+            guard UIApplication.shared.supportsAlternateIcons else { return false }
+            return await withCheckedContinuation { continuation in
+                UIApplication.shared.setAlternateIconName(iconName) { error in
+                    continuation.resume(returning: error == nil)
+                }
+            }
+        }
         if namespace == "Clipboard" {
             switch name {
             case "setText":
@@ -209,6 +225,15 @@ extension NexaDevStateStore {
         }
         if namespace == "Number", name == "formatCurrency" {
             return nexaDevFormatCurrency(numberOption("amount", 0), stringOption("currencyCode"))
+        }
+        if namespace == "Locale" {
+            switch name {
+            case "currentLanguageCode": return nexaCurrentLanguageCode()
+            case "preferredLanguageCodes": return Locale.preferredLanguages
+            case "displayName":
+                return Locale.current.localizedString(forLanguageCode: stringOption("languageCode")) ?? NSNull() as Any
+            default: break
+            }
         }
         if namespace == "Crypto" {
             switch name {
@@ -482,6 +507,15 @@ extension NexaDevStateStore {
         if namespace == "Number", name == "formatCurrency" {
             let amount = (options["amount"] as? NSNumber)?.doubleValue ?? 0
             return nexaDevFormatCurrency(amount, stringOption("currencyCode"))
+        }
+        if namespace == "Locale" {
+            switch name {
+            case "currentLanguageCode": return nexaCurrentLanguageCode()
+            case "preferredLanguageCodes": return Locale.preferredLanguages
+            case "displayName":
+                return Locale.current.localizedString(forLanguageCode: stringOption("languageCode")) ?? NSNull() as Any
+            default: break
+            }
         }
         if namespace == "Crypto" {
             switch name {

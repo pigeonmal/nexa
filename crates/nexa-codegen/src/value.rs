@@ -209,6 +209,9 @@ impl IrVisitor for CodecCollector {
                 return;
             }
             for codec in codecs {
+                if codec.row_mapper {
+                    continue;
+                }
                 let direction = if codec.decodes {
                     Direction::Read
                 } else {
@@ -347,10 +350,21 @@ const CORE_RUNTIME: &str = r#"/**
 public object NexaRuntimeCore {
     @Volatile private var applicationContext: android.content.Context? = null
     @Volatile private var foregroundActivity: java.lang.ref.WeakReference<android.app.Activity>? = null
+    @Volatile private var orientationPolicy: String = "all"
+    private val widgetRefreshHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+    private val widgetRefreshLock = Any()
+    @Volatile private var pendingWidgetRefresh: Runnable? = null
 
     public fun bind(context: android.content.Context) {
         val application = context.applicationContext
-        if (applicationContext !== application) applicationContext = application
+        if (applicationContext !== application) {
+            applicationContext = application
+            try {
+                orientationPolicy = readOrientationPolicy(application)
+            } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+                orientationPolicy = "all"
+            }
+        }
         var current: android.content.Context? = context
         while (current != null) {
             if (current is android.app.Activity) {
@@ -365,6 +379,51 @@ public object NexaRuntimeCore {
 
     public fun context(): android.content.Context = requireNotNull(applicationContext) {
         "NexaRuntime.bind must run before a native API call"
+    }
+
+    /** Coalesces widget reload requests and targets this app's registered providers. */
+    public fun requestWidgetRefresh() {
+        val application = applicationContext ?: return
+        synchronized(widgetRefreshLock) {
+            pendingWidgetRefresh?.let(widgetRefreshHandler::removeCallbacks)
+            lateinit var request: Runnable
+            request = Runnable {
+                try {
+                    refreshAppWidgets(application)
+                } catch (_: Exception) {
+                    // Refresh is best-effort; a widget host must not fail a database write.
+                } finally {
+                    synchronized(widgetRefreshLock) {
+                        if (pendingWidgetRefresh === request) pendingWidgetRefresh = null
+                    }
+                }
+            }
+            pendingWidgetRefresh = request
+            widgetRefreshHandler.postDelayed(request, 350L)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun refreshAppWidgets(context: android.content.Context) {
+        val manager = android.appwidget.AppWidgetManager.getInstance(context)
+        val update = android.content.Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE)
+            .setPackage(context.packageName)
+        val receivers = context.packageManager.queryBroadcastReceivers(
+            update,
+            android.content.pm.PackageManager.GET_META_DATA,
+        )
+        for (receiver in receivers) {
+            val activity = receiver.activityInfo ?: continue
+            if (activity.metaData?.containsKey("android.appwidget.provider") != true) continue
+            val component = android.content.ComponentName(context, activity.name)
+            val ids = manager.getAppWidgetIds(component)
+            if (ids.isEmpty()) continue
+            context.sendBroadcast(
+                android.content.Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE)
+                    .setComponent(component)
+                    .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_IDS, ids),
+            )
+        }
     }
 
     /** Returns the currently bound host Activity without retaining it. */
@@ -395,7 +454,7 @@ public object NexaRuntimeCore {
 
     public fun lockOrientation(mode: String) {
         val activity = foregroundActivity?.get() ?: return
-        val requestedOrientation = when (mode) {
+        val requestedOrientation = configuredOrientation(activity) ?: when (mode) {
             "Portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             "Landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
@@ -405,6 +464,26 @@ public object NexaRuntimeCore {
                 activity.requestedOrientation = requestedOrientation
             }
         }
+    }
+
+    public fun applyConfiguredOrientation(activity: android.app.Activity) {
+        val requestedOrientation = configuredOrientation(activity) ?: return
+        activity.requestedOrientation = requestedOrientation
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readOrientationPolicy(context: android.content.Context): String =
+        context.packageManager.getApplicationInfo(context.packageName, 128)
+            .metaData?.getString("dev.nexa.orientationPolicy") ?: "all"
+
+    private fun configuredOrientation(activity: android.app.Activity): Int? = when (orientationPolicy) {
+        "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        "portrait-phones" -> if (activity.resources.configuration.screenWidthDp < 600) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        }
+        else -> null
     }
 }
 "#;
@@ -614,6 +693,7 @@ mod tests {
     /// a body, which is where a call to a plugin that restores state belongs.
     fn module_with_lifecycle_call() -> nexa_ir::Module {
         nexa_ir::Module {
+            widgets: Vec::new(),
             app_name: "Demo".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -621,6 +701,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -635,6 +716,7 @@ mod tests {
                 codecs: vec![PluginCodec {
                     ty: Type::Numeric(NumericType::Float64),
                     decodes: true,
+                    row_mapper: false,
                 }],
                 return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Float64))),
                 is_async: false,
@@ -680,6 +762,7 @@ mod tests {
                     Box::new(Type::Array(Box::new(Type::Bool))),
                 ),
                 decodes: false,
+                row_mapper: false,
             });
         }
         let names = collect(&module)
@@ -742,6 +825,7 @@ mod tests {
             codecs.push(PluginCodec {
                 ty: optional,
                 decodes: false,
+                row_mapper: false,
             });
         }
         let names = collect(&module)

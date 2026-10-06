@@ -25,7 +25,7 @@ app IosInteractionSmoke {
             Text("Presses: $taps")
             Pressable(disabled: false, haptic: Light) {
                 Text("Press me")
-            }.onPress {
+            }.onTap {
                 taps = taps + 1
             }
             NavigationLink(destination: Details) {

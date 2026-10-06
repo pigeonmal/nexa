@@ -41,8 +41,40 @@ fn dev_boundary(enum_name: &str, variant_name: &str) -> Option<&'static str> {
         // Plugin class values can refer only to native types compiled into
         // the host; hot reload cannot load a new native plugin implementation.
         ("Type", "Plugin") => Some("partial"),
+        // Interpreted user classes support constructors, methods and fields,
+        // but IR does not yet carry stored-property initializers for classes
+        // with no instance methods.
+        ("Type", "Class") | ("MemberKind", "ClassField") => Some("partial"),
         _ => None,
     }
+}
+
+#[test]
+fn user_classes_are_interpreted_by_both_dev_runtimes() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS dev state evaluator");
+    let swift_classes = fs::read_to_string(root.join("../../runtime/ios/NexaDevClasses.swift"))
+        .expect("read iOS class evaluator");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state evaluator");
+    for marker in [
+        "is_constructor",
+        "__NexaUserClass:",
+        "ClassStaticField",
+        "moduleValues",
+    ] {
+        assert!(
+            swift.contains(marker) || swift_classes.contains(marker),
+            "iOS class runtime missing {marker}"
+        );
+        assert!(
+            kotlin.contains(marker),
+            "Android class runtime missing {marker}"
+        );
+    }
+    assert!(swift_classes.contains("functionScope.merge(instance.fields)"));
+    assert!(kotlin.contains("callLocals = instance.fields.toMutableMap()"));
 }
 
 fn is_semantically_probed_plugin_variant(enum_name: &str, variant_name: &str) -> bool {
@@ -79,21 +111,6 @@ fn section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .split_once(end)
         .unwrap_or_else(|| panic!("runtime section `{end}` was not found"))
         .0
-}
-
-fn serde_snake_case(name: &str) -> String {
-    let mut value = String::new();
-    for character in name.chars() {
-        if character.is_ascii_uppercase() {
-            if !value.is_empty() {
-                value.push('_');
-            }
-            value.push(character.to_ascii_lowercase());
-        } else {
-            value.push(character);
-        }
-    }
-    value
 }
 
 #[test]
@@ -249,19 +266,26 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
         .expect("read Android dev renderer");
     let swift_icons = section(&swift, "case \"SystemIcon\":", "case \"LinearGradient\":");
     let kotlin_icons = section(&kotlin, "\"SystemIcon\" -> {", "\"LinearGradient\" -> {");
-    for entry in fixture["ir_variants"]["SystemIcon"]
-        .as_array()
-        .expect("SystemIcon inventory")
-    {
-        let name = entry["name"].as_str().expect("system icon variant");
-        let icon = serde_snake_case(name);
+    for (kind, swift_key, kotlin_key) in [
+        ("shared", "icon[\"shared\"]", "selection.has(\"shared\")"),
+        (
+            "SF Symbol",
+            "icon[\"sf_symbol\"]",
+            "selection.has(\"sf_symbol\")",
+        ),
+        (
+            "Material Symbol",
+            "icon[\"material_symbol\"]",
+            "selection.has(\"material_symbol\")",
+        ),
+    ] {
         assert!(
-            swift_icons.contains(&format!("case \"{icon}\":")),
-            "iOS dev renderer has no SystemIcon::{name} mapping"
+            swift_icons.contains(swift_key),
+            "iOS dev renderer has no {kind} system icon mapping"
         );
         assert!(
-            kotlin_icons.contains(&format!("\"{icon}\" ->")),
-            "Android dev renderer has no SystemIcon::{name} mapping"
+            kotlin_icons.contains(kotlin_key),
+            "Android dev renderer has no {kind} system icon mapping"
         );
     }
 
@@ -281,6 +305,41 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
             "Android dev renderer has no GradientDirection::{name} handling"
         );
     }
+}
+
+#[test]
+fn calendar_day_arithmetic_has_native_and_dev_runtime_mappings() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS dev state evaluator");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state evaluator");
+    assert!(swift.contains("case \"AddCalendarDays\":"));
+    assert!(swift.contains("nexaDevAddCalendarDays(timestamp.int64Value, days.int32Value)"));
+    assert!(kotlin.contains("\"AddCalendarDays\" ->"));
+    assert!(kotlin.contains("nexaDevAddCalendarDays(timestamp, days)"));
+}
+
+#[test]
+fn localized_date_time_formatting_has_both_dev_runtime_mappings() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS dev state evaluator");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state evaluator");
+
+    for method in ["LocalizedDate", "LocalizedTime", "LocalizedDateTime"] {
+        assert!(
+            swift.contains(&format!("case \"{method}\":")),
+            "iOS DevRuntime has no {method} dispatch"
+        );
+        assert!(
+            kotlin.contains(&format!("\"{method}\" ->")),
+            "Android DevRuntime has no {method} dispatch"
+        );
+    }
+    assert!(swift.contains("DateFormatter.localizedString(from: date"));
+    assert!(kotlin.contains("java.text.DateFormat.getDateTimeInstance("));
 }
 
 #[test]
@@ -317,6 +376,7 @@ fn async_member_access_handles_tuple_positions_and_collection_size() {
         "case \"first\": 0",
         "case \"second\": 1",
         "case \"third\": 2",
+        "name == \"trimmed\"",
         "name == \"count\"",
         "name == \"isEmpty\"",
     ] {
@@ -343,6 +403,7 @@ fn async_member_access_handles_tuple_positions_and_collection_size() {
         "\"first\" -> base.getOrNull(0)",
         "\"second\" -> base.getOrNull(1)",
         "\"third\" -> base.getOrNull(2)",
+        "\"trimmed\" -> (base as? String)?.trim()",
         "\"count\" ->",
         "\"isEmpty\" ->",
     ] {
@@ -737,6 +798,19 @@ fn runtime_feature_gaps_have_explicit_dual_platform_status() {
 }
 
 #[test]
+fn appearance_wrapper_is_rendered_by_both_dev_runtimes() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+    assert!(swift.contains("case \"Appearance\":"));
+    assert!(swift.contains("preferredColorScheme(mode == \"dark\""));
+    assert!(kotlin.contains("\"Appearance\" -> {"));
+    assert!(kotlin.contains("MaterialTheme(colorScheme = scheme)"));
+}
+
+#[test]
 fn plugin_hot_reload_coverage_uses_log_only_semantic_device_evidence() {
     let (root, fixture) = fixture();
     let script =
@@ -843,4 +917,38 @@ fn keyboard_ergonomics_are_consumed_by_dev_runtime() {
     assert!(kotlin_native.contains("namespace == \"Keyboard\" && name == \"dismiss\""));
     assert!(kotlin_core.contains("foregroundActivity"));
     assert!(kotlin_core.contains("hideSoftInputFromWindow"));
+}
+
+#[test]
+fn dev_renderers_keep_release_native_structure_for_common_controls() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+
+    for marker in [
+        "else if nodes.count == 1",
+        "spacing: nativeSpacing",
+        "nexaDevGlass(tint:",
+        "navigationBarTitleDisplayMode(.large)",
+        "tabViewStyle(.sidebarAdaptable)",
+        "Tab(title, systemImage: name, value: tag, role: .search)",
+        "ProgressView()",
+    ] {
+        assert!(swift.contains(marker), "iOS DevRuntime is missing {marker}");
+    }
+    for marker in [
+        "1 -> NexaDevNode(nexaDevNodeObject(nodes.opt(0))",
+        "TextField(",
+        "enabled = !loading && !disabled",
+        "DialogProperties(usePlatformDefaultWidth = false)",
+        "TextDecoration.LineThrough",
+        "nexaDevSpecificMaterialIcon",
+    ] {
+        assert!(
+            kotlin.contains(marker),
+            "Android DevRuntime is missing {marker}"
+        );
+    }
 }

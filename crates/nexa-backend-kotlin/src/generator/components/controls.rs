@@ -2,17 +2,15 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
     Action, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node,
-    TaskExecutor,
+    SystemIcon, TaskExecutor,
 };
 
 use crate::generator::{
-    components::render_children,
-    expressions::expression,
-    features::Features,
-    utils::{indent, kotlin_string},
+    components::render_children, expressions::expression, features::Features, utils::indent,
 };
 
 use crate::generator::engine::imports::ImportSet;
+use crate::generator::engine::types::kotlin_type;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_haptic, "android.view.HapticFeedbackConstants");
@@ -21,7 +19,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.clickable",
     );
     imports.add(
-        features.uses_long_press || features.uses_double_tap,
+        features.uses_long_press || features.uses_double_tap || features.uses_context_menu,
         "androidx.compose.foundation.combinedClickable",
     );
     imports.add(
@@ -43,6 +41,26 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_long_press,
         "androidx.compose.ui.platform.ViewConfiguration",
+    );
+    imports.add(
+        features.uses_context_menu,
+        "androidx.compose.material3.DropdownMenu",
+    );
+    imports.add(
+        features.uses_context_menu,
+        "androidx.compose.material3.DropdownMenuItem",
+    );
+    imports.add(
+        features.uses_context_menu,
+        "androidx.compose.runtime.mutableStateOf",
+    );
+    imports.add(
+        features.uses_context_menu,
+        "androidx.compose.runtime.remember",
+    );
+    imports.add(
+        features.uses_context_menu,
+        "androidx.compose.material3.Text",
     );
     imports.add(
         features.uses_drag && !features.uses_pinch,
@@ -97,6 +115,16 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_picker,
+        "androidx.compose.foundation.layout.Row",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.foundation.layout.Spacer",
+    );
+    imports.add(features.uses_picker, "androidx.compose.ui.Alignment");
+    imports.add(features.uses_picker, "androidx.compose.ui.Modifier");
+    imports.add(
+        features.uses_picker,
         "androidx.compose.material3.DropdownMenu",
     );
     imports.add(
@@ -107,11 +135,45 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_picker,
         "androidx.compose.material3.TextButton",
     );
+    imports.add(features.uses_picker, "androidx.compose.material3.Icon");
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.ui.graphics.vector.ImageVector",
+    );
     imports.add(
         features.uses_picker,
         "androidx.compose.runtime.mutableStateOf",
     );
     imports.add(features.uses_picker, "androidx.compose.runtime.remember");
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.DatePicker",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.foundation.layout.Column",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.Switch",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.TimePicker",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.rememberDatePickerState",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.rememberTimePickerState",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.runtime.LaunchedEffect",
+    );
+    imports.add(features.uses_date_picker, "java.util.Calendar");
     imports.add(
         features.uses_progress_bar,
         "androidx.compose.material3.LinearProgressIndicator",
@@ -125,10 +187,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.Text",
     );
     imports.add(
-        features.uses_tab_icon || features.uses_button_icon,
-        "androidx.compose.material3.Icon",
-    );
-    imports.add(
         features.uses_pressable || features.uses_accessibility_role,
         "androidx.compose.ui.semantics.Role",
     );
@@ -138,11 +196,13 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_button(
     label: &Expr,
-    icon: Option<&str>,
+    icon: Option<&SystemIcon>,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
+    tint: Option<&nexa_ir::ColorExpression>,
     actions: &[Action],
     depth: usize,
     out: &mut SourceWriter,
@@ -164,6 +224,7 @@ pub(crate) fn render_button(
             out.push_str(" && !");
             out.push_str(&expression(disabled));
         }
+        append_button_tint(tint, out);
         out.push_str(") {");
         out.push('\n');
         out.line_at(depth + 1, format_args!("if ({}) {{", expression(loading)));
@@ -193,30 +254,50 @@ pub(crate) fn render_button(
         out.push_str(", enabled = !");
         out.push_str(&expression(disabled));
     }
+    append_button_tint(tint, out);
     out.push_str(") {\n");
     render_button_content(label, icon, depth + 1, out);
     indent(out, depth);
     out.push('}');
 }
 
-fn render_button_content(label: &Expr, icon: Option<&str>, depth: usize, out: &mut SourceWriter) {
+fn append_button_tint(tint: Option<&nexa_ir::ColorExpression>, out: &mut SourceWriter) {
+    if let Some(tint) = tint {
+        out.push_str(&format!(
+            ", colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = {})",
+            crate::generator::colors::expression_for_color(tint)
+        ));
+    }
+}
+
+fn render_button_content(
+    label: &Expr,
+    icon: Option<&SystemIcon>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     if let Some(icon) = icon {
         out.line_at(
             depth,
             format_args!(
-                "Icon(painter = nexaDrawablePainter({}), contentDescription = null)",
-                kotlin_string(icon)
+                "Icon(imageVector = {}, contentDescription = null)",
+                icon.material_reference()
             ),
         );
     }
     out.line_at(depth, format_args!("Text({})", expression(label)));
 }
 
-pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_switch(
+    state: &str,
+    label: &nexa_ir::Expr,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     out.text_at(depth, format_args!("Switch(checked = {}, onCheckedChange = {{ {} = it }}, modifier = Modifier.semantics {{ contentDescription = {} }})",
         state_name(state),
         state_name(state),
-        kotlin_string(label)
+        expression(label)
     ));
 }
 
@@ -300,20 +381,43 @@ pub(crate) fn render_segmented_control(
     out.line_at(depth, format_args!("}}"));
 }
 
-pub(crate) fn render_picker(items: &Expr, state: &str, depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_picker(
+    items: &Expr,
+    state: &str,
+    icon: Option<&SystemIcon>,
+    label: Option<&Expr>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     let selected = state_name(state);
+    let icon = icon.map_or_else(|| "null".to_owned(), SystemIcon::material_reference);
+    let label = label.map_or_else(|| "null".to_owned(), expression);
     out.line_at(
         depth,
         format_args!(
-            "nexaPickerMenu({}, {selected}, {{ {selected} = it }})",
-            expression(items)
+            "nexaPickerMenu({}, {selected}, {icon}, {label}) {{ {selected} = it }}",
+            expression(items),
         ),
     );
 }
 
+pub(crate) fn render_date_picker(
+    timestamp_state: &str,
+    has_time_state: &str,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let timestamp = state_name(timestamp_state);
+    let has_time = state_name(has_time_state);
+    let pad = "    ".repeat(depth);
+    out.push_str(&format!(
+        "Column {{\n{pad}    val nexaDatePickerState = rememberDatePickerState(initialSelectedDateMillis = {timestamp})\n{pad}    val nexaTimePickerState = rememberTimePickerState()\n{pad}    Switch(checked = {has_time}, onCheckedChange = {{ {has_time} = it }}, modifier = Modifier.semantics {{ contentDescription = \"Time\" }})\n{pad}    DatePicker(state = nexaDatePickerState, title = {{ Text(\"Select Date\") }})\n{pad}    if ({has_time}) TimePicker(state = nexaTimePickerState)\n{pad}    LaunchedEffect({timestamp}) {{ nexaDatePickerState.selectedDateMillis = {timestamp} }}\n{pad}    LaunchedEffect(nexaDatePickerState.selectedDateMillis, nexaTimePickerState.hour, nexaTimePickerState.minute, {has_time}) {{\n{pad}        nexaDatePickerState.selectedDateMillis?.let {{ selectedMillis ->\n{pad}            val calendar = Calendar.getInstance().apply {{\n{pad}                timeInMillis = selectedMillis\n{pad}                set(Calendar.HOUR_OF_DAY, if ({has_time}) nexaTimePickerState.hour else 0)\n{pad}                set(Calendar.MINUTE, if ({has_time}) nexaTimePickerState.minute else 0)\n{pad}                set(Calendar.SECOND, 0)\n{pad}                set(Calendar.MILLISECOND, 0)\n{pad}            }}\n{pad}            {timestamp} = calendar.timeInMillis\n{pad}        }}\n{pad}    }}\n{pad}}}"
+    ));
+}
+
 pub(crate) fn render_picker_helper(out: &mut SourceWriter) {
     out.push_str(
-        "@Composable\ninternal fun nexaPickerMenu(\n    items: List<String>,\n    selected: String,\n    onSelectionChanged: (String) -> Unit,\n) {\n    val expanded = remember { mutableStateOf(false) }\n    Box {\n        TextButton(onClick = { expanded.value = true }) {\n            Text(selected)\n        }\n        DropdownMenu(\n            expanded = expanded.value,\n            onDismissRequest = { expanded.value = false },\n        ) {\n            items.forEach { item ->\n                DropdownMenuItem(\n                    text = { Text(item) },\n                    onClick = {\n                        onSelectionChanged(item)\n                        expanded.value = false\n                    },\n                )\n            }\n        }\n    }\n}\n\n",
+        "@Composable\ninternal fun nexaPickerMenu(\n    items: List<String>,\n    selected: String,\n    icon: ImageVector?,\n    label: String?,\n    onSelectionChanged: (String) -> Unit,\n) {\n    val expanded = remember { mutableStateOf(false) }\n    Row(verticalAlignment = Alignment.CenterVertically) {\n        if (label != null) {\n            Text(label)\n            Spacer(Modifier.weight(1f))\n        }\n        Box {\n            TextButton(onClick = { expanded.value = true }) {\n                if (icon != null) {\n                    Icon(imageVector = icon, contentDescription = selected)\n                } else {\n                    Text(selected)\n                }\n            }\n            DropdownMenu(\n                expanded = expanded.value,\n                onDismissRequest = { expanded.value = false },\n            ) {\n                items.forEach { item ->\n                    DropdownMenuItem(\n                        text = { Text(item) },\n                        onClick = {\n                            onSelectionChanged(item)\n                            expanded.value = false\n                        },\n                    )\n                }\n            }\n        }\n    }\n}\n\n",
     );
 }
 
@@ -333,6 +437,7 @@ pub(crate) fn render_pressable(
         double_tap_actions,
         long_press_duration_ms,
         long_press_actions,
+        context_menu,
         drag_parameters,
         drag_actions,
         pinch_parameter,
@@ -341,8 +446,10 @@ pub(crate) fn render_pressable(
     else {
         return;
     };
+    let has_context_menu = !context_menu.is_empty();
     let has_double_tap = !double_tap_actions.is_empty();
-    let has_combined_clickable = !long_press_actions.is_empty() || has_double_tap;
+    let has_combined_clickable =
+        !long_press_actions.is_empty() || has_double_tap || has_context_menu;
     let modifier = if has_combined_clickable {
         "combinedClickable"
     } else {
@@ -386,6 +493,14 @@ pub(crate) fn render_pressable(
         out.line_at(
             depth,
             format_args!("val nexaDragDensity = LocalDensity.current.density"),
+        );
+    }
+    if has_context_menu {
+        out.line_at(depth, format_args!("Box {{"));
+        depth += 1;
+        out.line_at(
+            depth,
+            format_args!("val nexaContextMenuExpanded = remember {{ mutableStateOf(false) }}"),
         );
     }
     out.text_at(
@@ -589,9 +704,15 @@ pub(crate) fn render_pressable(
             "}),\n"
         });
     }
-    if has_long_press {
+    if has_long_press || has_context_menu {
         indent(out, depth + 2);
         out.push_str("onLongClick = {\n");
+        if has_context_menu {
+            out.line_at(
+                depth + 3,
+                format_args!("nexaContextMenuExpanded.value = true"),
+            );
+        }
         if let Some(haptic) = haptic {
             render_haptic(*haptic, depth + 3, out);
         }
@@ -619,9 +740,73 @@ pub(crate) fn render_pressable(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+    if has_context_menu {
+        out.push('\n');
+        indent(out, depth);
+        out.push_str("DropdownMenu(\n");
+        out.line_at(
+            depth + 1,
+            format_args!("expanded = nexaContextMenuExpanded.value,"),
+        );
+        out.line_at(
+            depth + 1,
+            format_args!("onDismissRequest = {{ nexaContextMenuExpanded.value = false }},"),
+        );
+        out.line_at(depth, format_args!(") {{"));
+        render_context_menu(context_menu, depth + 1, out);
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+        depth -= 1;
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+    }
     if has_long_press {
         indent(out, depth - 1);
         out.push('}');
+    }
+}
+
+fn render_context_menu(nodes: &[Node], depth: usize, out: &mut SourceWriter) {
+    for node in nodes {
+        let Node::Button {
+            label,
+            icon,
+            disabled,
+            actions,
+            ..
+        } = node
+        else {
+            continue;
+        };
+        out.line_at(depth, format_args!("DropdownMenuItem("));
+        out.line_at(
+            depth + 1,
+            format_args!("text = {{ Text({}) }},", expression(label)),
+        );
+        if let Some(icon) = icon {
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "leadingIcon = {{ Icon(imageVector = {}, contentDescription = null) }},",
+                    icon.material_reference()
+                ),
+            );
+        }
+        let enabled = disabled.as_ref().map_or_else(
+            || "true".to_owned(),
+            |disabled| format!("!({})", expression(disabled)),
+        );
+        out.line_at(depth + 1, format_args!("enabled = {enabled},"));
+        out.line_at(depth + 1, format_args!("onClick = {{"));
+        render_actions(actions, depth + 2, out);
+        out.line_at(
+            depth + 2,
+            format_args!("nexaContextMenuExpanded.value = false"),
+        );
+        out.line_at(depth + 1, format_args!("}},"));
+        out.line_at(depth, format_args!(")"));
     }
 }
 
@@ -671,6 +856,20 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
         match action {
             Action::Expression(value) => {
                 out.line_at(depth, format_args!("{}", expression(value)));
+            }
+            Action::Let { name, ty, value } => {
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "val {}: {} = {}",
+                        state_name(name),
+                        kotlin_type(ty),
+                        expression(value)
+                    ),
+                );
+            }
+            Action::Return { value } => {
+                out.line_at(depth, format_args!("return {}", expression(value)));
             }
             Action::Assign { name, value } => {
                 out.line_at(
@@ -735,8 +934,10 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 executor,
                 actions,
             } => {
-                let handle = state_name(handle);
-                out.line_at(depth, format_args!("{handle}?.cancel()"));
+                let handle = handle.as_ref().map(|handle| state_name(handle));
+                if let Some(handle) = &handle {
+                    out.line_at(depth, format_args!("{handle}?.cancel()"));
+                }
                 let dispatcher = match executor {
                     TaskExecutor::Main => "Dispatchers.Main.immediate",
                     TaskExecutor::Background => "Dispatchers.Default",
@@ -751,7 +952,9 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 render_actions(actions, depth + 1, out);
                 indent(out, depth + 1);
                 out.push_str("}\n");
-                out.line_at(depth + 1, format_args!("{handle} = nexaTaskJob"));
+                if let Some(handle) = &handle {
+                    out.line_at(depth + 1, format_args!("{handle} = nexaTaskJob"));
+                }
                 out.line_at(depth + 1, format_args!("nexaTaskJob.start()"));
                 out.line_at(depth, format_args!("}}"));
             }
@@ -786,6 +989,35 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                     }
                     CollectionMutation::ArrayRemoveAt => {
                         out.push_str(&format!("{state}.removeAt({})\n", rendered[0]));
+                    }
+                    CollectionMutation::ArrayMove => {
+                        let suffix = out.next_id();
+                        let from = format!("nexaMoveFrom{suffix}");
+                        let to = format!("nexaMoveTo{suffix}");
+                        let moved_value = format!("nexaMovedValue{suffix}");
+                        let nested_indent = "    ".repeat(depth + 1);
+                        let line_indent = "    ".repeat(depth);
+                        out.push_str(&format!(
+                            "val {from} = {}\n{line_indent}val {to} = {}\n{line_indent}if ({from} in {state}.indices && {to} in {state}.indices && {from} != {to}) {{\n{nested_indent}val {moved_value} = {state}.removeAt({from})\n{nested_indent}{state}.add({to}, {moved_value})\n{line_indent}}}\n",
+                            rendered[0], rendered[1],
+                        ));
+                    }
+                    CollectionMutation::ArrayMoveSubset => {
+                        let suffix = out.next_id();
+                        let from = format!("nexaMoveFrom{suffix}");
+                        let to = format!("nexaMoveTo{suffix}");
+                        let original = format!("nexaOriginalSubset{suffix}");
+                        let reordered = format!("nexaReorderedSubset{suffix}");
+                        let cursor = format!("nexaSubsetCursor{suffix}");
+                        let slots = format!("nexaSubsetSlots{suffix}");
+                        let moved = format!("nexaSubsetMoved{suffix}");
+                        let nested_indent = "    ".repeat(depth + 1);
+                        let inner_indent = "    ".repeat(depth + 2);
+                        let line_indent = "    ".repeat(depth);
+                        out.push_str(&format!(
+                            "val {from} = {}\n{line_indent}val {to} = {}\n{line_indent}val {original} = {}\n{line_indent}val {reordered} = {original}.toMutableList()\n{line_indent}if ({from} in {reordered}.indices && {to} in {reordered}.indices && {from} != {to}) {{\n{nested_indent}val {moved} = {reordered}.removeAt({from})\n{nested_indent}{reordered}.add({to}, {moved})\n{line_indent}}}\n{line_indent}var {cursor} = 0\n{line_indent}val {slots} = mutableListOf<Int>()\n{line_indent}for (nexaBackingIndex{suffix} in {state}.indices) {{\n{nested_indent}if ({cursor} < {original}.size && {state}[nexaBackingIndex{suffix}] == {original}[{cursor}]) {{\n{inner_indent}{slots}.add(nexaBackingIndex{suffix})\n{inner_indent}{cursor}++\n{nested_indent}}}\n{line_indent}}}\n{line_indent}if ({cursor} == {original}.size) {{\n{nested_indent}for (nexaSubsetIndex{suffix} in {original}.indices) {{\n{inner_indent}{state}[{slots}[nexaSubsetIndex{suffix}]] = {reordered}[nexaSubsetIndex{suffix}]\n{nested_indent}}}\n{line_indent}}}\n",
+                            rendered[0], rendered[1], rendered[2],
+                        ));
                     }
                     CollectionMutation::SetInsert => {
                         out.push_str(&format!("{state}.add({})\n", rendered[0]));
@@ -957,7 +1189,7 @@ fn render_kotlin_error_catches(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Action, Expr, NumericType, TaskExecutor, Type};
+    use nexa_ir::{Action, CollectionMutation, Expr, NumericType, TaskExecutor, Type};
 
     use super::{render_actions, render_progress_bar, render_progress_ring, render_slider};
 
@@ -984,6 +1216,27 @@ mod tests {
             output.as_str(),
             "Slider(value = nexa_volume.toFloat(), onValueChange = { nexa_volume = it.toDouble() }, valueRange = 0f..1f, steps = 9)\n"
         );
+    }
+
+    #[test]
+    fn renders_array_move_as_one_native_remove_and_insert() {
+        let int = |raw: &str| Expr::Number {
+            raw: raw.to_owned(),
+            ty: NumericType::Int32,
+        };
+        let actions = [Action::CollectionMutation {
+            name: "items".to_owned(),
+            operation: CollectionMutation::ArrayMove,
+            arguments: vec![int("2"), int("0")],
+        }];
+        let mut output = SourceWriter::new();
+
+        render_actions(&actions, 0, &mut output);
+
+        assert!(output.contains("val nexaMoveFrom"));
+        assert!(output.contains("in nexa_items.indices"));
+        assert!(output.contains("nexa_items.removeAt(nexaMoveFrom"));
+        assert!(output.contains("nexa_items.add(nexaMoveTo"));
     }
 
     #[test]
@@ -1036,7 +1289,7 @@ mod tests {
     fn renders_task_launch_and_cancellation_on_the_selected_dispatcher() {
         let actions = [
             Action::TaskLaunch {
-                handle: "refreshTask".to_owned(),
+                handle: Some("refreshTask".to_owned()),
                 executor: TaskExecutor::Main,
                 actions: vec![Action::Assign {
                     name: "finished".to_owned(),
@@ -1044,9 +1297,14 @@ mod tests {
                 }],
             },
             Action::TaskLaunch {
-                handle: "workerTask".to_owned(),
+                handle: Some("workerTask".to_owned()),
                 executor: TaskExecutor::Background,
                 actions: vec![Action::Expression(Expr::Bool(true))],
+            },
+            Action::TaskLaunch {
+                handle: None,
+                executor: TaskExecutor::Main,
+                actions: vec![Action::Expression(Expr::Bool(false))],
             },
             Action::TaskCancel {
                 handle: "refreshTask".to_owned(),
@@ -1062,6 +1320,9 @@ mod tests {
         assert!(output.contains("    nexa_finished = true"));
         assert!(output.contains(
             "nexa_workerTask?.cancel()\nrun {\n    val nexaTaskJob = nexaTaskScope.launch(context = Dispatchers.Default + nexaTaskExceptionHandler, start = CoroutineStart.LAZY) {"
+        ));
+        assert!(output.contains(
+            "val nexaTaskJob = nexaTaskScope.launch(context = Dispatchers.Main.immediate"
         ));
         assert!(output.ends_with("nexa_refreshTask?.cancel()\n"));
     }

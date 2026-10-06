@@ -440,7 +440,7 @@ pub(crate) fn render_swift_array_aliases(out: &mut SourceWriter, plan: &BridgePl
     for array in set_facades {
         render_swift_array_conversion_adapters(out, plan, &array);
     }
-    if !out.ends_with("\n\n") && out.ends_with('\n') {
+    if !out.as_str().ends_with("\n\n") && out.as_str().ends_with('\n') {
         out.push('\n');
     }
 }

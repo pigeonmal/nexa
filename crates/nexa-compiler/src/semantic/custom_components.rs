@@ -9,7 +9,7 @@ use super::{
     context::{ExprContext, ScreenSignatures, SemanticContext},
     expressions::{
         FunctionSignatures, StructTypes, lower_expr, parse_type, record_native_alias,
-        references_state, resolve_declaration_type, resolve_struct_type,
+        references_mutable_state, resolve_declaration_type, resolve_struct_type,
         validate_task_handle_state,
     },
     themes::ThemeSymbols,
@@ -41,6 +41,7 @@ pub(super) struct ComponentLoweringContext<'a> {
     pub(super) structs: &'a StructTypes,
     pub(super) enums: &'a HashSet<String>,
     pub(super) enum_symbols: &'a HashMap<String, (Type, bool)>,
+    pub(super) global_symbols: &'a HashMap<String, (Type, bool)>,
     pub(super) external_signatures: &'a ComponentSignatures,
     pub(super) target: Target,
     pub(super) allow_nullable_generic_plugin_reads: bool,
@@ -50,6 +51,7 @@ pub(super) fn retain_reachable(
     components: Vec<Component>,
     body: &[Node],
     screens: &[Screen],
+    widgets: &[nexa_ir::Widget],
 ) -> Vec<Component> {
     let components_by_name = components
         .iter()
@@ -59,6 +61,7 @@ pub(super) fn retain_reachable(
     for node in body
         .iter()
         .chain(screens.iter().flat_map(|screen| screen.body.iter()))
+        .chain(widgets.iter().flat_map(|widget| widget.body.iter()))
     {
         collect_ir_component_calls(node, &mut pending);
     }
@@ -214,6 +217,7 @@ fn lower_component(
         structs,
         enums,
         enum_symbols,
+        global_symbols,
         target,
         allow_nullable_generic_plugin_reads,
         ..
@@ -223,6 +227,11 @@ fn lower_component(
     let mut symbols = HashMap::with_capacity(signature.parameters.len() + declaration.states.len());
     symbols.extend(
         enum_symbols
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
+    symbols.extend(
+        global_symbols
             .iter()
             .map(|(name, value)| (name.clone(), value.clone())),
     );
@@ -260,25 +269,23 @@ fn lower_component(
             matches!(&state.initial, ast::Expr::Null(_)),
             state.span,
         )?;
-        let initial = lower_expr(
-            &state.initial,
-            Some(&ty),
-            &ExprContext::with_types(&symbols, functions, false, structs, enums)
-                .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
-        )?;
-        if state.mutable && references_state(&state.initial) {
+        let state_context = ExprContext::with_types(&symbols, functions, false, structs, enums)
+            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads);
+        let initial = lower_expr(&state.initial, Some(&ty), &state_context)?;
+        let mutable = state.mutable;
+        if mutable && references_mutable_state(&state.initial, &symbols) {
             return Err(CompileError::new(
                 state.initial.span(),
-                "mutable component state initializers cannot refer to other state values yet",
+                "mutable component state initializers cannot refer to mutable state values",
             ));
         }
         record_native_alias(&state.name, &ty, &initial, &mut native_aliases);
-        symbols.insert(state.name.clone(), (ty.clone(), state.mutable));
+        symbols.insert(state.name.clone(), (ty.clone(), mutable));
         states.push(State {
             name: state.name,
             ty,
             initial,
-            mutable: state.mutable,
+            mutable,
         });
     }
 
@@ -296,6 +303,9 @@ fn lower_component(
     )
     .with_navigation(false, false);
     let body = lower_nodes(declaration.body, &cx)?;
+    let (on_appear, on_appear_async, body) =
+        super::extract_on_appear(body, declaration.span, "component")?;
+    let (on_disappear, body) = super::extract_on_disappear(body, declaration.span, "component")?;
     if body.iter().any(super::contains_status_bar) {
         return Err(CompileError::new(
             declaration.span,
@@ -306,18 +316,6 @@ fn lower_component(
         return Err(CompileError::new(
             declaration.span,
             "Direction is only allowed at the app body's top level",
-        ));
-    }
-    if body.iter().any(super::contains_on_appear) {
-        return Err(CompileError::new(
-            declaration.span,
-            "OnAppear is only allowed at the app body's top level",
-        ));
-    }
-    if body.iter().any(super::contains_on_disappear) {
-        return Err(CompileError::new(
-            declaration.span,
-            "OnDisappear is only allowed at an app or screen body's top level",
         ));
     }
     if body.iter().any(super::contains_on_active)
@@ -344,6 +342,9 @@ fn lower_component(
         parameters,
         states,
         body,
+        on_appear,
+        on_appear_async,
+        on_disappear,
     })
 }
 
@@ -482,6 +483,10 @@ fn invocation_child_nodes(inv: &ast::ComponentInvocation) -> Vec<&Vec<ast::Node>
             }
         }
         ast::ChildBody::Rows(rows) => groups.push(&rows.children),
+        ast::ChildBody::SplitPanes { sidebar, detail } => {
+            groups.push(sidebar);
+            groups.push(detail);
+        }
         ast::ChildBody::None | ast::ChildBody::Actions(_) => {}
     }
     for modifier in &inv.modifiers {
@@ -509,8 +514,11 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                 }
             }
         }
-        Node::Content | Node::Spacer | Node::Divider { .. } => {}
+        Node::Content | Node::Spacer | Node::Divider { .. } | Node::ContentUnavailable { .. } => {}
         Node::Layout { children, .. }
+        | Node::Form { children }
+        | Node::FormSection { children, .. }
+        | Node::Toolbar { children, .. }
         | Node::Pressable { children, .. }
         | Node::NavigationLink { children, .. }
         | Node::Link { children, .. }
@@ -518,8 +526,16 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::Dialog { children, .. }
+        | Node::ConfirmationDialog { children, .. }
         | Node::RefreshControl { children, .. } => {
             for child in children {
+                collect_ir_component_calls(child, calls);
+            }
+        }
+        Node::NavigationSplitView {
+            sidebar, detail, ..
+        } => {
+            for child in sidebar.iter().chain(detail) {
                 collect_ir_component_calls(child, calls);
             }
         }
@@ -545,6 +561,13 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                 }
             }
         }
+        Node::PagePager { pages, .. } => {
+            for page in pages {
+                for child in page {
+                    collect_ir_component_calls(child, calls);
+                }
+            }
+        }
         Node::If {
             then_body,
             else_body,
@@ -566,6 +589,11 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                 collect_ir_component_calls(child, calls);
             }
         }
+        Node::Appearance { children, .. } => {
+            for child in children {
+                collect_ir_component_calls(child, calls);
+            }
+        }
         Node::StatusBar { .. } => {}
         Node::Text { .. }
         | Node::Button { .. }
@@ -576,6 +604,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::ProgressRing { .. }
         | Node::SegmentedControl { .. }
         | Node::Picker { .. }
+        | Node::DatePicker { .. }
         | Node::Image { .. }
         | Node::SystemIcon { .. }
         | Node::LinearGradient { .. }
@@ -727,6 +756,7 @@ mod tests {
                 structs: &HashMap::new(),
                 enums: &HashSet::new(),
                 enum_symbols: &HashMap::new(),
+                global_symbols: &HashMap::new(),
                 external_signatures: &HashMap::new(),
                 target: Target::Swift,
                 allow_nullable_generic_plugin_reads: false,

@@ -388,6 +388,8 @@ dependencies = [
  "nexa-plugin-idl",
  "nexa-syntax",
  "nexa-testkit",
+ "roxmltree",
+ "serde",
  "serde_json",
 ]
 
@@ -403,8 +405,12 @@ dependencies = [
 name = "nexa-compiler"
 version = "0.1.0"
 dependencies = [
+ "nexa-backend-kotlin",
+ "nexa-backend-swift",
+ "nexa-codegen",
  "nexa-diagnostics",
  "nexa-ir",
+ "nexa-plugin-compiler-api",
  "nexa-plugin-idl",
  "nexa-syntax",
  "nexa-testkit",
@@ -460,6 +466,16 @@ dependencies = [
  "nexa-diagnostics",
  "nexa-ir",
  "nexa-syntax",
+ "nexa-testkit",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nexa-plugin-compiler-api"
+version = "0.1.0"
+dependencies = [
+ "nexa-testkit",
  "serde",
  "serde_json",
 ]
@@ -597,6 +613,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

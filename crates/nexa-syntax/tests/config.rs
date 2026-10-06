@@ -43,6 +43,22 @@ fn parses_platform_architecture_options() {
 }
 
 #[test]
+fn parses_shared_orientation_policies_and_rejects_unknown_values() {
+    for value in ["all", "portrait", "portrait-phones"] {
+        let config = parse_config(&format!("config {{ app {{ orientation: \"{value}\" }} }}"))
+            .expect("supported orientation policy");
+        assert_eq!(
+            config.app.expect("app config").orientation.as_deref(),
+            Some(value)
+        );
+    }
+
+    let error = parse_config(r#"config { app { orientation: "landscape-phones" } }"#)
+        .expect_err("unsupported orientation policies should fail at config parsing");
+    assert!(error.to_string().contains("app orientation must be"));
+}
+
+#[test]
 fn parses_multiple_platform_architectures() {
     let config = parse_config(
         r#"config {
@@ -186,4 +202,24 @@ fn parses_named_flavors_with_optional_suffixes() {
     assert_eq!(config.flavors[1].suffix.as_deref(), Some(""));
     assert_eq!(config.flavors[2].name, "qa");
     assert_eq!(config.flavors[2].suffix, None);
+}
+
+#[test]
+fn parses_alternate_icon_asset_paths_for_both_targets() {
+    let config = parse_config(
+        r#"config {
+            ios { alternateIcons: ["assets/IconBlue.icon", "assets/IconGreen.icon"] }
+            android { alternateIcons: ["assets/IconBlue.png", "assets/IconGreen.png"] }
+        }"#,
+    )
+    .expect("alternate icon paths should be target-configured");
+
+    assert_eq!(
+        config.ios.expect("iOS config").alternate_icons,
+        ["assets/IconBlue.icon", "assets/IconGreen.icon"]
+    );
+    assert_eq!(
+        config.android.expect("Android config").alternate_icons,
+        ["assets/IconBlue.png", "assets/IconGreen.png"]
+    );
 }

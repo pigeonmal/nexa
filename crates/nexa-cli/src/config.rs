@@ -46,6 +46,7 @@ pub(super) struct ResolvedPluginOption {
 #[derive(Clone, Debug, Default)]
 pub(super) struct ProjectConfig {
     pub(super) display_name: String,
+    pub(super) orientation: String,
     pub(super) version: String,
     pub(super) build_number: u32,
     pub(super) staging_suffix: String,
@@ -61,9 +62,12 @@ pub(super) struct ProjectConfig {
     pub(super) android_cronet_disk_cache_size_mb: u32,
     pub(super) android_target_sdk: u32,
     pub(super) ios_bundle_identifier: String,
+    pub(super) ios_app_group_identifier: Option<String>,
     pub(super) android_application_id: String,
     pub(super) ios_icon: Option<PathBuf>,
     pub(super) android_icon: Option<PathBuf>,
+    pub(super) ios_alternate_icons: Vec<PathBuf>,
+    pub(super) android_alternate_icons: Vec<PathBuf>,
     pub(super) dependencies: Vec<PluginDependencyConfig>,
     pub(super) icon_source: Option<PathBuf>,
     pub(super) splash_source: Option<PathBuf>,
@@ -194,10 +198,18 @@ impl ProjectConfig {
             .as_ref()
             .map(|app| app.deep_links.clone())
             .unwrap_or_default();
+        let orientation = app
+            .as_ref()
+            .and_then(|app| app.orientation.clone())
+            .unwrap_or_else(|| "all".to_owned());
         let ios_bundle_identifier = ios
             .as_ref()
             .and_then(|ios| ios.bundle_identifier.clone())
             .unwrap_or_else(|| format!("com.nexa.{}", fallback_name.to_ascii_lowercase()));
+        let ios_app_group_identifier = ios
+            .as_ref()
+            .and_then(|ios| ios.app_group_identifier.clone())
+            .filter(|identifier| !identifier.trim().is_empty());
         let android_application_id = android
             .as_ref()
             .and_then(|android| android.application_id.clone())
@@ -267,6 +279,20 @@ impl ProjectConfig {
             &ios_bundle_identifier,
             true,
         )?;
+        if let Some(group_identifier) = &ios_app_group_identifier {
+            if !group_identifier.starts_with("group.") {
+                return Err(format!(
+                    "{}: `iOS appGroupIdentifier` must start with `group.` (found `{group_identifier}`)",
+                    path.display()
+                ));
+            }
+            validate_bundle_identifier(
+                &path.display().to_string(),
+                "iOS appGroupIdentifier",
+                group_identifier,
+                true,
+            )?;
+        }
         validate_bundle_identifier(
             &path.display().to_string(),
             "Android applicationId",
@@ -274,8 +300,34 @@ impl ProjectConfig {
             false,
         )?;
         validate_deep_links(path, &deep_links)?;
+        let ios_alternate_icons = resolve_config_paths(
+            path,
+            ios.as_ref()
+                .map(|ios| ios.alternate_icons.as_slice())
+                .unwrap_or(&[]),
+        )?;
+        let android_alternate_icons = resolve_config_paths(
+            path,
+            android
+                .as_ref()
+                .map(|android| android.alternate_icons.as_slice())
+                .unwrap_or(&[]),
+        )?;
+        let ios_icon = resolve_config_path(path, ios.and_then(|ios| ios.icon))?;
+        let android_icon = resolve_config_path(path, android.and_then(|android| android.icon))?;
+        let icon_source =
+            resolve_config_path(path, assets.as_ref().and_then(|assets| assets.icon.clone()))?;
+        validate_alternate_icons(path, "iOS", &ios_alternate_icons, "icon")?;
+        validate_alternate_icons(path, "Android", &android_alternate_icons, "png")?;
+        if !android_alternate_icons.is_empty() && android_icon.is_none() && icon_source.is_none() {
+            return Err(format!(
+                "{}: Android `alternateIcons` require a default Android `icon` or shared `assets.icon`",
+                path.display()
+            ));
+        }
         Ok(Self {
             display_name,
+            orientation,
             version,
             build_number,
             staging_suffix,
@@ -291,13 +343,13 @@ impl ProjectConfig {
             android_cronet_disk_cache_size_mb,
             android_target_sdk,
             ios_bundle_identifier,
+            ios_app_group_identifier,
             android_application_id,
-            ios_icon: resolve_config_path(path, ios.and_then(|ios| ios.icon))?,
-            android_icon: resolve_config_path(path, android.and_then(|android| android.icon))?,
-            icon_source: resolve_config_path(
-                path,
-                assets.as_ref().and_then(|assets| assets.icon.clone()),
-            )?,
+            ios_alternate_icons,
+            android_alternate_icons,
+            ios_icon,
+            android_icon,
+            icon_source,
             splash_source: resolve_config_path(path, assets.and_then(|assets| assets.splash))?,
             dependencies: config.dependencies,
         })
@@ -310,6 +362,7 @@ impl ProjectConfig {
         let plugins = resolve_plugins(Path::new("nexa.config.nx"), &[], plugin_definitions)?;
         Ok(Self {
             display_name: fallback_name.to_owned(),
+            orientation: "all".to_owned(),
             version: "1.0.0".to_owned(),
             build_number: 1,
             staging_suffix: "staging".to_owned(),
@@ -325,9 +378,12 @@ impl ProjectConfig {
             android_cronet_disk_cache_size_mb: 64,
             android_target_sdk: 36,
             ios_bundle_identifier: format!("com.nexa.{}", fallback_name.to_ascii_lowercase()),
+            ios_app_group_identifier: None,
             android_application_id: format!("com.nexa.{}", fallback_name.to_ascii_lowercase()),
             ios_icon: None,
             android_icon: None,
+            ios_alternate_icons: Vec::new(),
+            android_alternate_icons: Vec::new(),
             dependencies: Vec::new(),
             icon_source: None,
             splash_source: None,
@@ -377,13 +433,33 @@ impl ProjectConfig {
             .as_deref()
             .map(|architectures| format!(", arch: {}", render_string_array(architectures)))
             .unwrap_or_default();
+        let ios_app_group_identifier = self
+            .ios_app_group_identifier
+            .as_deref()
+            .map(nexa_config_string)
+            .unwrap_or_else(|| "\"\"".to_owned());
+        let ios_alternate_icons = render_string_array(
+            &self
+                .ios_alternate_icons
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+        );
+        let android_alternate_icons = render_string_array(
+            &self
+                .android_alternate_icons
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+        );
         let mut output = format!(
-            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {}, deepLinks: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {}{ios_arch} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {}{android_arch}, cronet {{ provider: {}, diskCacheSizeMb: {} }} }}\n    permissions {{\n",
+            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {}, deepLinks: {}, orientation: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, appGroupIdentifier: {}, icon: {}, alternateIcons: {}{ios_arch} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {}, alternateIcons: {}{android_arch}, cronet {{ provider: {}, diskCacheSizeMb: {} }} }}\n    permissions {{\n",
             nexa_config_string(&self.display_name),
             nexa_config_string(&self.version),
             self.build_number,
             nexa_config_string(&self.staging_suffix),
             render_string_array(&self.deep_links),
+            nexa_config_string(&self.orientation),
             self.icon_source
                 .as_ref()
                 .map(|path| nexa_config_string(&path.display().to_string()))
@@ -394,10 +470,12 @@ impl ProjectConfig {
                 .unwrap_or_else(|| "\"\"".to_owned()),
             nexa_config_string(&self.ios_min_version),
             nexa_config_string(&self.ios_bundle_identifier),
+            ios_app_group_identifier,
             self.ios_icon
                 .as_ref()
                 .map(|path| nexa_config_string(&path.display().to_string()))
                 .unwrap_or_else(|| "\"\"".to_owned()),
+            ios_alternate_icons,
             self.android_min_sdk,
             self.android_target_sdk,
             nexa_config_string(&self.android_application_id),
@@ -405,6 +483,7 @@ impl ProjectConfig {
                 .as_ref()
                 .map(|path| nexa_config_string(&path.display().to_string()))
                 .unwrap_or_else(|| "\"\"".to_owned()),
+            android_alternate_icons,
             nexa_config_string(self.android_cronet_provider.config_value()),
             self.android_cronet_disk_cache_size_mb,
         );
@@ -668,6 +747,97 @@ fn resolve_config_path(
     Ok(Some(canonical))
 }
 
+fn resolve_config_paths(config_path: &Path, paths: &[String]) -> Result<Vec<PathBuf>, String> {
+    paths
+        .iter()
+        .map(|path| {
+            resolve_config_path(config_path, Some(path.clone()))?.ok_or_else(|| {
+                format!(
+                    "{}: alternate icon path cannot be empty",
+                    config_path.display()
+                )
+            })
+        })
+        .collect()
+}
+
+fn validate_alternate_icons(
+    config_path: &Path,
+    platform: &str,
+    icons: &[PathBuf],
+    extension: &str,
+) -> Result<(), String> {
+    let mut names = HashSet::new();
+    for icon in icons {
+        let name = icon
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                format!(
+                    "{}: invalid {platform} alternate icon path",
+                    config_path.display()
+                )
+            })?;
+        let valid_name = name.chars().enumerate().all(|(index, character)| {
+            character.is_ascii_alphanumeric() || (index > 0 && character == '_')
+        }) && name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic);
+        if !valid_name {
+            return Err(format!(
+                "{}: {platform} alternate icon name `{name}` must start with a letter and contain only ASCII letters, numbers, or underscores",
+                config_path.display()
+            ));
+        }
+        let resource_name = name.to_ascii_lowercase();
+        if !names.insert(resource_name.clone()) {
+            return Err(format!(
+                "{}: duplicate {platform} alternate icon resource name `{name}` (resource names are case-insensitive)",
+                config_path.display()
+            ));
+        }
+        if platform == "Android"
+            && matches!(
+                resource_name.as_str(),
+                "default" | "ic_launcher" | "ic_launcher_round"
+            )
+        {
+            return Err(format!(
+                "{}: Android alternate icon name `{name}` is reserved for the default launcher icon",
+                config_path.display()
+            ));
+        }
+        let valid_kind = if extension == "icon" {
+            icon.extension().and_then(|value| value.to_str()) == Some("icon") && icon.is_dir()
+        } else {
+            // Android alternates must provide both adaptive layers instead of
+            // silently degrading to a flat density PNG.
+            icon.is_dir()
+                && icon.join("icon.png").is_file()
+                && has_android_icon_layer(icon, "foreground")
+                && has_android_icon_layer(icon, "background")
+        };
+        if !valid_kind {
+            return Err(format!(
+                "{}: invalid {platform} alternate icon asset at `{}`",
+                config_path.display(),
+                icon.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn has_android_icon_layer(icon_set: &Path, name: &str) -> bool {
+    ["png", "xml"].into_iter().any(|extension| {
+        icon_set.join(format!("{name}.{extension}")).is_file()
+            || icon_set.parent().is_some_and(|parent| {
+                parent
+                    .join("shared")
+                    .join(format!("{name}.{extension}"))
+                    .is_file()
+            })
+    })
+}
+
 pub(super) fn load_plugin_dependencies(path: &Path) -> Result<Vec<PluginDependencyConfig>, String> {
     if !path.is_file() {
         return Ok(Vec::new());
@@ -849,7 +1019,7 @@ fn collect_plugin_declarations(
 
 pub(super) fn render_template(plugin_definitions: &[PluginDefinition]) -> String {
     let mut output = String::from(
-        "config {\n    app { stagingSuffix: \"staging\" }\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 23, targetSdk: 36, cronet { provider: \"play-services\", diskCacheSizeMb: 64 } }\n    permissions {}\n",
+        "config {\n    app { stagingSuffix: \"staging\", orientation: \"all\" }\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 23, targetSdk: 36, cronet { provider: \"play-services\", diskCacheSizeMb: 64 } }\n    permissions {}\n",
     );
     let configured_plugins = plugin_definitions
         .iter()

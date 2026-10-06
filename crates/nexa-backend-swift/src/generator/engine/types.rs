@@ -61,6 +61,8 @@ pub(crate) fn swift_type(ty: &Type) -> String {
         Type::TaskHandle => "Task<Void, Never>".to_owned(),
         Type::NetworkResponse => "NexaNetworkResponse".to_owned(),
         Type::Struct { name, .. } => struct_name(name),
+        Type::Class { name, .. } => struct_name(name),
+        Type::Signal(inner) => format!("NexaSignal<{}>", swift_type(inner)),
     }
 }
 

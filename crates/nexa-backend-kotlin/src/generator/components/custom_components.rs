@@ -113,6 +113,19 @@ fn render_component(
         out.push('\n');
     }
     render_body(&component.body, module, features, 1, out);
+    if component.on_appear.is_some() || component.on_disappear.is_some() {
+        out.push('\n');
+    }
+    crate::generator::components::lifecycle::render_on_appear(
+        component.on_appear.as_deref(),
+        1,
+        out,
+    );
+    crate::generator::components::lifecycle::render_on_disappear(
+        component.on_disappear.as_deref(),
+        1,
+        out,
+    );
     out.push_str("\n}\n");
 }
 
@@ -167,7 +180,9 @@ fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut So
                     state::kotlin_state_initializer(state)
                 ));
             }
-        } else if state.is_native_class_instance_binding() {
+        } else if state.is_native_class_instance_binding()
+            || matches!(state.ty, nexa_ir::Type::Signal(_))
+        {
             out.push_str(&format!(
                 "val {name}: {} = remember {{ {} }}\n",
                 kotlin_type(&state.ty),

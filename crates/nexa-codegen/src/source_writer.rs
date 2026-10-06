@@ -20,38 +20,19 @@
 //! assert_eq!(out.as_str(), "    let answer = 42\nprint(answer)\n");
 //! ```
 //!
-//! # Migration
-//!
-//! The two statements this type replaces are mechanical:
-//!
-//! ```ignore
-//! // before
-//! indent(out, depth);
-//! out.push_str(&format!("Text({})\n", expression(label)));
-//!
-//! // after
-//! out.line_at(depth, format_args!("Text({})", expression(label)));
-//! ```
-//!
 //! `line`/`line_at` are infallible by construction (a `String` cannot fail to
 //! grow), so they return `()` and no generator grows a `Result` it did not
 //! have. For the rarer case of a fragment with no trailing newline, use
 //! [`SourceWriter::text`] and [`SourceWriter::text_at`].
 //!
-//! `Deref`/`DerefMut` to `String` are provided as a migration affordance:
-//! existing literal `push_str`/`push` calls keep working unchanged, so writers
-//! can be adopted file by file without rewriting every line at once. Use
-//! [`SourceWriter::as_str`] where a `&str` is required.
-
 use std::fmt::{self, Arguments, Write};
-use std::ops::{Deref, DerefMut};
 
 /// The indentation unit generated sources use.
 const INDENT: &str = "    ";
 
 /// An append-only buffer for generated source text.
 ///
-/// See the [module documentation](self) for the migration patterns.
+/// Use [`Self::line`] and [`Self::text`] to append formatted output.
 #[derive(Clone, Debug, Default)]
 pub struct SourceWriter {
     buffer: String,
@@ -127,23 +108,39 @@ impl SourceWriter {
         &self.buffer
     }
 
+    /// Appends a string fragment.
+    pub fn push_str(&mut self, value: &str) {
+        self.buffer.push_str(value);
+    }
+
+    /// Appends one character.
+    pub fn push(&mut self, value: char) {
+        self.buffer.push(value);
+    }
+
+    /// Returns the number of bytes written.
+    pub fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Returns whether the buffer contains `value`.
+    pub fn contains(&self, value: &str) -> bool {
+        self.buffer.contains(value)
+    }
+
+    /// Returns whether the buffer ends with `value`.
+    pub fn ends_with(&self, value: &str) -> bool {
+        self.buffer.ends_with(value)
+    }
+
+    /// Returns whether the buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
     /// Consumes the writer, returning the generated text.
     pub fn finish(self) -> String {
         self.buffer
-    }
-}
-
-impl Deref for SourceWriter {
-    type Target = String;
-
-    fn deref(&self) -> &String {
-        &self.buffer
-    }
-}
-
-impl DerefMut for SourceWriter {
-    fn deref_mut(&mut self) -> &mut String {
-        &mut self.buffer
     }
 }
 
@@ -210,8 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn deref_keeps_literal_push_str_working() {
-        // The migration affordance: unconverted call sites still compile.
+    fn appends_raw_fragments_and_reports_length() {
         let mut out = SourceWriter::new();
         out.push_str("let x = ");
         out.push('1');

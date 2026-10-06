@@ -13,7 +13,7 @@ app ComponentShowcase {
                 TextInput(
                     value: email,
                     placeholder: "Email address",
-                    keyboard: Email,
+                    keyboardType: Email,
                     autocorrect: false,
                     capitalization: None
                 )
@@ -21,7 +21,7 @@ app ComponentShowcase {
                 TextInput(
                     value: password,
                     placeholder: "Password",
-                    secure: true,
+                    isSecure: true,
                     autocorrect: false,
                     capitalization: None
                 )
@@ -40,7 +40,7 @@ app ComponentShowcase {
                         Text("Interactive Card Taps:")
                         Text(taps)
                     }
-                }.onPress {
+                }.onTap {
                     taps = taps + 1
                 }
 

@@ -346,7 +346,9 @@ fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut SourceWri
                 crate::generator::state::kotlin_state_initializer(state)
             ));
         }
-    } else if state.is_native_class_instance_binding() {
+    } else if state.is_native_class_instance_binding()
+        || matches!(state.ty, nexa_ir::Type::Signal(_))
+    {
         out.push_str(&format!(
             "val {name}: {} = remember {{ {} }}\n",
             kotlin_type(&state.ty),

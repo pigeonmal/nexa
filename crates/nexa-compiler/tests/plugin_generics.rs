@@ -54,6 +54,50 @@ fn storage_contract() -> String {
     .to_owned()
 }
 
+#[test]
+fn plugin_methods_accept_positional_named_and_mixed_arguments() {
+    let contract = r#"
+native class Store {
+    init(id: String)
+    fn writeValue(key: String, value: String) -> Bool
+    fn dispose()
+}
+"#;
+    let module = compile_with_plugin(
+        "nexa-plugin-named-arguments",
+        contract,
+        r#"
+plugin "store" as Store
+app Demo {
+    let store = Store.Store("id")
+    state positional: Bool = store.writeValue("theme", value: "dark")
+    state named: Bool = store.writeValue(key: "name", value: "Ada")
+    body {
+        Text(positional)
+        Text(named)
+    }
+}
+"#,
+    )
+    .expect("plugin methods should accept positional and named parameters");
+
+    let calls = module
+        .states
+        .iter()
+        .filter_map(|state| match &state.initial {
+            Expr::NativeCall {
+                name, arguments, ..
+            } if name == "writeValue" => Some(arguments),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0][0].0, "key");
+    assert_eq!(calls[0][1].0, "value");
+    assert_eq!(calls[1][0].0, "key");
+    assert_eq!(calls[1][1].0, "value");
+}
+
 /// Every `NativeCall` in the module, so a test can assert on the codec each
 /// call carries.
 fn native_calls(module: &nexa_ir::Module) -> Vec<(String, Vec<PluginCodec>)> {
@@ -265,6 +309,23 @@ fn an_explicit_type_argument_binds_a_getter() {
             .any(|codec| matches!(&codec.ty, Type::Numeric(_))),
         "the explicit argument should bind Float64, found {:?}",
         codecs.iter().map(|codec| &codec.ty).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_struct_constrained_getter_rejects_primitive_values() {
+    let contract = storage_contract().replace("getObject<T>", "getObject<T: Struct>");
+    let error = compile_with_plugin(
+        "nexa-generic-struct-only-getter",
+        &contract,
+        "plugin \"store\" as Store\n\
+         app Demo {\n    let store = Store.Store(\"id\")\n    state volume: Float64 = 0\n\
+         body { Button(\"Read\") { volume = store.getObject<Float64>(\"volume\") ?? 0 } }\n}\n",
+    )
+    .expect_err("a struct-constrained getter must reject a primitive type");
+    assert!(
+        error.contains("requires `T` to be an app struct"),
+        "{error}"
     );
 }
 

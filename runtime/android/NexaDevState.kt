@@ -32,6 +32,12 @@ internal data class NexaDevNetworkStatusSubscription(
     val locals: Map<String, Any>,
 )
 
+/** Runtime value for an interpreted Nexa class; its source-visible fields are immutable. */
+internal data class NexaDevUserClassInstance(val className: String, val fields: Map<String, Any>)
+
+/** Type-erased SQL row used only by the debug interpreter. */
+internal data class NexaDevDynamicRow(val fields: Map<String, Any>)
+
 internal class NexaDevStateStore(internal val context: Context) {
     internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val foregroundTasks = ConcurrentHashMap<String, Job>()
@@ -39,6 +45,9 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal val animationSpecs = mutableStateMapOf<String, androidx.compose.animation.core.AnimationSpec<Float>>()
     internal var typeSignatures = mutableMapOf<String, String>()
     internal var functions = mutableMapOf<String, JSONObject>()
+    internal var classTypes = mutableMapOf<String, JSONObject>()
+    internal var moduleValues = mutableMapOf<String, Any>()
+    private var moduleValueSignatures = mutableMapOf<String, String>()
     internal var structs = mutableMapOf<String, JSONArray>()
     internal var enumCases = mutableMapOf<String, List<String>>()
     internal val activeFunctions = mutableSetOf<String>()
@@ -63,6 +72,102 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal val activeScreenParameters = mutableMapOf<String, Map<String, Any>>()
     internal var pendingPluginFailure: NexaDevPluginFailure? = null
     private var hasInstalledModule = false
+    private var hotTranslations = JSONObject()
+
+    fun installTranslations(translations: JSONObject?) {
+        hotTranslations = translations?.let { JSONObject(it.toString()) } ?: JSONObject()
+        moduleRevision += 1
+    }
+
+    fun localizedText(
+        key: String,
+        fallback: String,
+        sourceExpression: Any? = null,
+        locals: Map<String, Any> = emptyMap(),
+        scope: String = "app",
+    ): String {
+        val locale = Locale.getDefault()
+        val language = locale.toLanguageTag().replace('_', '-')
+        val baseLanguage = locale.language
+        val localized = hotTranslations.optJSONObject(language)?.opt(key)
+            ?: hotTranslations.optJSONObject(baseLanguage)?.opt(key)
+            ?: return fallback
+        val arguments = localizedArguments(sourceExpression, locals, scope)
+        val count = arguments.firstOrNull { it.first == "count" }?.second?.let { number(it).toInt() }
+        val template = when (localized) {
+            is String -> localized
+            is JSONObject -> {
+                val category = pluralCategory(count ?: 0, baseLanguage)
+                localized.optString(category).takeIf(String::isNotEmpty)
+                    ?: localized.optString("other").takeIf(String::isNotEmpty)
+                    ?: fallback
+            }
+            else -> fallback
+        }
+        return arguments.fold(template) { value, (name, argument) ->
+            value.replace("{$name}", stringify(argument))
+        }
+    }
+
+    private fun localizedArguments(
+        sourceExpression: Any?,
+        locals: Map<String, Any>,
+        scope: String,
+    ): List<Pair<String, Any>> {
+        val expression = sourceExpression as? JSONObject ?: return emptyList()
+        val parts = expression.optJSONArray("Interpolation") ?: return emptyList()
+        return (0 until parts.length()).mapNotNull { index ->
+            val part = parts.optJSONObject(index) ?: return@mapNotNull null
+            val raw = part.optJSONObject("Value") ?: return@mapNotNull null
+            localizedArgumentName(raw, index) to evaluate(raw, locals, scope)
+        }
+    }
+
+    private fun localizedArgumentName(expression: JSONObject, index: Int): String {
+        val iterator = expression.keys()
+        if (!iterator.hasNext()) return "value${index + 1}"
+        return when (val kind = iterator.next()) {
+            "State", "AnimatedState" -> {
+                val payload = expression.optJSONArray(kind) ?: return "value${index + 1}"
+                payload.optString(0).substringAfterLast("::")
+            }
+            "Member" -> expression.optJSONObject(kind)?.optString("name")?.takeIf(String::isNotEmpty)
+                ?: "value${index + 1}"
+            else -> "value${index + 1}"
+        }
+    }
+
+    private fun pluralCategory(count: Int, language: String): String {
+        val n = kotlin.math.abs(count)
+        return when (language) {
+            "ar" -> when {
+                n == 0 -> "zero"
+                n == 1 -> "one"
+                n == 2 -> "two"
+                n % 100 in 3..10 -> "few"
+                n % 100 in 11..99 -> "many"
+                else -> "other"
+            }
+            "ru", "uk", "be" -> when {
+                n % 10 == 1 && n % 100 != 11 -> "one"
+                n % 10 in 2..4 && n % 100 !in 12..14 -> "few"
+                n % 10 == 0 || n % 100 in 11..14 -> "many"
+                else -> "other"
+            }
+            "pl" -> when {
+                n == 1 -> "one"
+                n % 10 in 2..4 && n % 100 !in 12..14 -> "few"
+                else -> "many"
+            }
+            "cs", "sk" -> when (n) {
+                1 -> "one"
+                in 2..4 -> "few"
+                else -> "other"
+            }
+            "fr", "pt" -> if (n <= 1) "one" else "other"
+            else -> if (n == 1) "one" else "other"
+        }
+    }
 
     fun install(next: JSONObject) {
         val isHotReplacement = hasInstalledModule
@@ -77,6 +182,9 @@ internal class NexaDevStateStore(internal val context: Context) {
             val function = nextFunctions.optJSONObject(index) ?: return@mapNotNull null
             val name = function.optString("name").takeIf(String::isNotEmpty) ?: return@mapNotNull null
             name to function
+        }.toMap().toMutableMap()
+        classTypes = functions.values.mapNotNull { function ->
+            function.optJSONObject("receiver")?.optJSONObject("Class")?.let { it.optString("name") to it }
         }.toMap().toMutableMap()
         val nextStructs = next.optJSONArray("structs") ?: JSONArray()
         structs = (0 until nextStructs.length()).mapNotNull { index ->
@@ -94,6 +202,28 @@ internal class NexaDevStateStore(internal val context: Context) {
         val nextValues = mutableMapOf<String, Any>()
         val nextTypes = mutableMapOf<String, String>()
         val initialLocals = mutableMapOf<String, Any>()
+        // Module globals have process lifetime, separate from Compose-observed UI state.
+        // Retain compatible values across hot replacement (including class singletons).
+        val nextModuleValues = mutableMapOf<String, Any>()
+        val nextModuleSignatures = mutableMapOf<String, String>()
+        val globals = next.optJSONArray("globals") ?: JSONArray()
+        for (index in 0 until globals.length()) {
+            val declaration = globals.optJSONObject(index) ?: continue
+            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: continue
+            val signature = declaration.opt("ty")?.toString().orEmpty()
+            nextModuleSignatures[name] = signature
+            val retained = moduleValues[name].takeIf { moduleValueSignatures[name] == signature }
+            val value = retained ?: if (declaration.has("initial")) {
+                evaluate(declaration.get("initial"), initialLocals, "app")
+            } else continue
+            nextModuleValues[name] = value
+            initialLocals[name] = value
+            declaration.optJSONObject("ty")?.optJSONObject("Class")?.let { type ->
+                classTypes.putIfAbsent(type.optString("name"), type)
+            }
+        }
+        moduleValues = nextModuleValues
+        moduleValueSignatures = nextModuleSignatures
         val declarations = mutableListOf<Pair<String, JSONObject>>()
         for (index in 0 until states.length()) {
             states.optJSONObject(index)?.let { declarations += "app" to it }
@@ -314,7 +444,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     }
 
     fun state(name: String, scope: String = "app"): Any =
-        values["$scope/state/$name"] ?: values["app/state/$name"] ?: JSONObject.NULL
+        values["$scope/state/$name"] ?: values["app/state/$name"] ?: moduleValues[name] ?: JSONObject.NULL
 
     fun setState(name: String, value: Any, scope: String = "app") {
         val target = if (values.containsKey("$scope/state/$name") || !scope.startsWith("screen/")) {
@@ -384,6 +514,13 @@ internal class NexaDevStateStore(internal val context: Context) {
         val payload = expression.opt(kind)
         return when (kind) {
             "String" -> payload as? String ?: ""
+            "LocalizedText" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val key = fields.optString("key")
+                val source = fields.opt("value")
+                val fallback = if (source == null || source === JSONObject.NULL) key else stringify(evaluate(source, locals, scope))
+                localizedText(key, fallback, source, locals, scope)
+            }
             "Bool" -> payload as? Boolean ?: false
             "Number" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
@@ -403,6 +540,26 @@ internal class NexaDevStateStore(internal val context: Context) {
                 }
             }
             "EnumValue", "PluginEnumValue" -> (payload as? JSONObject)?.optString("case_name") ?: ""
+            "PluginEnumConstructor" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val rawArguments = fields.optJSONArray("arguments") ?: JSONArray()
+                val arguments = (0 until rawArguments.length()).map { evaluate(rawArguments.opt(it), locals, scope) }
+                mapOf(
+                    "__nexaEnum" to "${fields.optString("namespace")}.${fields.optString("enum_name")}",
+                    "case_name" to fields.optString("case_name"),
+                    "arguments" to arguments,
+                )
+            }
+            "PluginEnumOptionalConstructor" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val value = evaluate(fields.opt("value"), locals, scope)
+                val isNull = value == null || value === JSONObject.NULL
+                mapOf(
+                    "__nexaEnum" to "${fields.optString("namespace")}.${fields.optString("enum_name")}",
+                    "case_name" to fields.optString(if (isNull) "null_case_name" else "case_name"),
+                    "arguments" to if (isNull) emptyList<Any>() else listOf(value),
+                )
+            }
             "Array" -> {
                 val array = payload as? JSONArray ?: JSONArray()
                 (0 until array.length()).map { evaluate(array.opt(it), locals, scope) }
@@ -435,8 +592,9 @@ internal class NexaDevStateStore(internal val context: Context) {
             }
             "State", "AnimatedState" -> {
                 val name = (payload as? JSONArray)?.optString(0) ?: payload?.toString() ?: ""
-                locals[name] ?: state(name, scope)
+                locals[name] ?: moduleValues[name] ?: state(name, scope)
             }
+            "This" -> locals["this"] ?: JSONObject.NULL
             "Interpolation" -> {
                 val parts = payload as? JSONArray ?: JSONArray()
                 buildString {
@@ -522,11 +680,31 @@ internal class NexaDevStateStore(internal val context: Context) {
                 }
                 when (transform.optString("operation")) {
                     "Map" -> items.map { applyClosure(it) }
+                    "FlatMap" -> items.flatMap { applyClosure(it) as? List<*> ?: emptyList<Any?>() }
                     "Filter" -> items.filter { truthy(applyClosure(it)) }
                     "Reduce" -> {
                         var accumulator = evaluate(transform.opt("initial"), locals, scope)
                         for (item in items) accumulator = applyClosure(item, accumulator)
                         accumulator
+                    }
+                    "SortedBy" -> items.mapIndexed { index, item ->
+                        Triple(index, item, applyClosure(item))
+                    }.sortedWith { left, right ->
+                        val comparison = compareSortable(left.third, right.third)
+                        if (comparison == 0) left.first.compareTo(right.first) else comparison
+                    }.map { it.second }
+                    "GroupedBy" -> {
+                        val groupIndexes = LinkedHashMap<Any, Int>()
+                        val groups = mutableListOf<MutableList<Any?>>()
+                        for (item in items) {
+                            val key = applyClosure(item)
+                            val index = groupIndexes[key] ?: groups.size.also {
+                                groupIndexes[key] = it
+                                groups.add(mutableListOf())
+                            }
+                            groups[index] += item
+                        }
+                        groups
                     }
                     else -> items
                 }
@@ -568,12 +746,18 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val base = evaluate(fields.opt("base"), locals, scope)
                 val name = fields.optString("name")
+                val kind = fields.optJSONObject("kind")
+                if (kind?.has("ClassStaticField") == true) {
+                    val owner = fields.optJSONObject("base_type")?.optJSONObject("Class")?.optString("name").orEmpty()
+                    return moduleValues["$owner::$name"] ?: JSONObject.NULL
+                }
                 val property = fields.optJSONObject("kind")?.optString("PluginField")
                 if (!property.isNullOrEmpty()) {
                     val result = NexaDevPluginBridge.readInstanceProperty(base, property)
                     if (result.first) return result.second
                 }
                 when (name) {
+                    "trimmed" -> (base as? String)?.trim() ?: JSONObject.NULL
                     "count" -> when (base) {
                         is Collection<*> -> base.size
                         is Map<*, *> -> base.size
@@ -587,6 +771,8 @@ internal class NexaDevStateStore(internal val context: Context) {
                         else -> JSONObject.NULL
                     }
                     else -> when (base) {
+                        is NexaDevUserClassInstance -> base.fields[name] ?: JSONObject.NULL
+                        is NexaDevDynamicRow -> base.fields[name] ?: JSONObject.NULL
                         is Map<*, *> -> base[name] ?: JSONObject.NULL
                         is JSONObject -> base.opt(name) ?: JSONObject.NULL
                         is List<*> -> when (name) {
@@ -687,6 +873,29 @@ internal class NexaDevStateStore(internal val context: Context) {
         val payload = expression.opt(kind)
         return when (kind) {
             "EnumValue", "PluginEnumValue" -> (payload as? JSONObject)?.optString("case_name") ?: ""
+            "PluginEnumConstructor" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val rawArguments = fields.optJSONArray("arguments") ?: JSONArray()
+                val arguments = ArrayList<Any>(rawArguments.length())
+                for (index in 0 until rawArguments.length()) {
+                    arguments += evaluateAsync(rawArguments.opt(index), locals, scope)
+                }
+                mapOf(
+                    "__nexaEnum" to "${fields.optString("namespace")}.${fields.optString("enum_name")}",
+                    "case_name" to fields.optString("case_name"),
+                    "arguments" to arguments,
+                )
+            }
+            "PluginEnumOptionalConstructor" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val value = evaluateAsync(fields.opt("value"), locals, scope)
+                val isNull = value == null || value === JSONObject.NULL
+                mapOf(
+                    "__nexaEnum" to "${fields.optString("namespace")}.${fields.optString("enum_name")}",
+                    "case_name" to fields.optString(if (isNull) "null_case_name" else "case_name"),
+                    "arguments" to if (isNull) emptyList<Any>() else listOf(value),
+                )
+            }
             "Await", "TryAwait" -> evaluateAsync(payload, locals, scope)
             "TimeCall" -> {
                 val call = payload as? JSONObject ?: JSONObject()
@@ -707,6 +916,22 @@ internal class NexaDevStateStore(internal val context: Context) {
                     }
                     "Iso8601" -> (first as? Number)?.toLong()?.let { nexaDevIso8601(it) } ?: JSONObject.NULL
                     "Iso8601ToMillis" -> (first as? String)?.let { nexaDevIso8601ToMillis(it) } ?: JSONObject.NULL
+                    "StartOfDay" -> (first as? Number)?.toLong()?.let { nexaDevStartOfDay(it) } ?: JSONObject.NULL
+                    "AddCalendarDays" -> {
+                        val timestamp = (arguments.getOrNull(0) as? Number)?.toLong()
+                        val days = (arguments.getOrNull(1) as? Number)?.toInt()
+                        if (timestamp != null && days != null) nexaDevAddCalendarDays(timestamp, days)
+                        else JSONObject.NULL
+                    }
+                    "LocalizedDate" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedDate) ?: JSONObject.NULL
+                    "LocalizedTime" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedTime) ?: JSONObject.NULL
+                    "LocalizedDateTime" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedDateTime) ?: JSONObject.NULL
+                    "Format" -> {
+                        val timestamp = (arguments.getOrNull(0) as? Number)?.toLong()
+                        val pattern = arguments.getOrNull(1) as? String
+                        if (timestamp != null && pattern != null) nexaDevFormatDate(timestamp, pattern)
+                        else JSONObject.NULL
+                    }
                     else -> JSONObject.NULL
                 }
             }
@@ -782,12 +1007,18 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val base = evaluateAsync(fields.opt("base"), locals, scope)
                 val memberName = fields.optString("name")
+                val kind = fields.optJSONObject("kind")
+                if (kind?.has("ClassStaticField") == true) {
+                    val owner = fields.optJSONObject("base_type")?.optJSONObject("Class")?.optString("name").orEmpty()
+                    return moduleValues["$owner::$memberName"] ?: JSONObject.NULL
+                }
                 val property = fields.optJSONObject("kind")?.optString("PluginField")
                 if (!property.isNullOrEmpty()) {
                     val result = NexaDevPluginBridge.readInstanceProperty(base, property)
                     if (result.first) return result.second
                 }
                 when (memberName) {
+                    "trimmed" -> (base as? String)?.trim() ?: JSONObject.NULL
                     "count" -> when (base) {
                         is Collection<*> -> base.size
                         is Map<*, *> -> base.size
@@ -801,6 +1032,8 @@ internal class NexaDevStateStore(internal val context: Context) {
                         else -> JSONObject.NULL
                     }
                     else -> when (base) {
+                        is NexaDevUserClassInstance -> base.fields[memberName] ?: JSONObject.NULL
+                        is NexaDevDynamicRow -> base.fields[memberName] ?: JSONObject.NULL
                         is Map<*, *> -> base[memberName] ?: JSONObject.NULL
                         is JSONObject -> base.opt(memberName) ?: JSONObject.NULL
                         is List<*> -> when (memberName) {
@@ -946,6 +1179,11 @@ internal class NexaDevStateStore(internal val context: Context) {
                 }
                 when (fields.optString("operation")) {
                     "Map" -> items.map { apply(it) }
+                    "FlatMap" -> {
+                        val flattened = ArrayList<Any?>()
+                        for (item in items) flattened.addAll(apply(item) as? List<*> ?: emptyList<Any?>())
+                        flattened
+                    }
                     "Filter" -> {
                         val filtered = ArrayList<Any?>()
                         for (item in items) if (truthy(apply(item))) filtered += item
@@ -955,6 +1193,29 @@ internal class NexaDevStateStore(internal val context: Context) {
                         var accumulator = evaluateAsync(fields.opt("initial"), locals, scope)
                         for (item in items) accumulator = apply(item, accumulator)
                         accumulator
+                    }
+                    "SortedBy" -> {
+                        val keyed = ArrayList<Triple<Int, Any?, Any>>()
+                        for ((index, item) in items.withIndex()) {
+                            keyed += Triple(index, item, apply(item))
+                        }
+                        keyed.sortedWith { left, right ->
+                            val comparison = compareSortable(left.third, right.third)
+                            if (comparison == 0) left.first.compareTo(right.first) else comparison
+                        }.map { it.second }
+                    }
+                    "GroupedBy" -> {
+                        val groupIndexes = LinkedHashMap<Any, Int>()
+                        val groups = mutableListOf<MutableList<Any?>>()
+                        for (item in items) {
+                            val key = apply(item)
+                            val index = groupIndexes[key] ?: groups.size.also {
+                                groupIndexes[key] = it
+                                groups.add(mutableListOf())
+                            }
+                            groups[index] += item
+                        }
+                        groups
                     }
                     else -> items
                 }
@@ -1031,6 +1292,13 @@ internal class NexaDevStateStore(internal val context: Context) {
                 if (result.first) return result.second
             }
             val name = call.optString("name")
+            val classType = call.optJSONObject("return_type")?.optJSONObject("Class") ?: classTypes[name]
+            if (classType != null) {
+                val arguments = call.optJSONArray("arguments") ?: JSONArray()
+                val evaluated = ArrayList<Any>(arguments.length())
+                for (index in 0 until arguments.length()) evaluated += evaluateAsync(arguments.opt(index), locals, scope)
+                return constructUserClass(name, classType, evaluated, scope)
+            }
             val fields = structs[name]
             if (fields != null) {
                 val arguments = call.optJSONArray("arguments") ?: JSONArray()
@@ -1062,7 +1330,15 @@ internal class NexaDevStateStore(internal val context: Context) {
                     callLocals[localName] = evaluateAsync(local.get("initial"), callLocals, scope)
                 }
             }
-            evaluateAsync(declaration.opt("body"), callLocals, scope)
+            val actions = declaration.optJSONArray("body_actions")
+            if (actions != null) {
+                when (val flow = performFunctionAsync(actions, scope, callLocals)) {
+                    is NexaDevFunctionFlow.Returned -> flow.value
+                    NexaDevFunctionFlow.Normal, NexaDevFunctionFlow.Break, NexaDevFunctionFlow.Continue -> JSONObject.NULL
+                }
+            } else {
+                evaluateAsync(declaration.opt("body"), callLocals, scope)
+            }
         } finally {
             activeFunctions.remove(name)
         }
@@ -1081,6 +1357,13 @@ internal class NexaDevStateStore(internal val context: Context) {
                 }
                 val result = NexaDevPluginBridge.construct(namespace, className, arguments)
                 if (result.first) return result.second
+            }
+            val classType = call.optJSONObject("return_type")?.optJSONObject("Class") ?: classTypes[name]
+            if (classType != null) {
+                val arguments = call.optJSONArray("arguments") ?: JSONArray()
+                val evaluated = ArrayList<Any>(arguments.length())
+                for (index in 0 until arguments.length()) evaluated += evaluate(arguments.opt(index), locals, scope)
+                return constructUserClass(name, classType, evaluated, scope)
             }
             val fields = structs[name] ?: return JSONObject.NULL
             val arguments = call.optJSONArray("arguments") ?: JSONArray()
@@ -1109,9 +1392,138 @@ internal class NexaDevStateStore(internal val context: Context) {
                     callLocals[localName] = evaluate(local.get("initial"), callLocals, scope)
                 }
             }
-            evaluate(declaration.opt("body"), callLocals, scope)
+            val actions = declaration.optJSONArray("body_actions")
+            if (actions != null) {
+                when (val flow = performFunction(actions, scope, callLocals)) {
+                    is NexaDevFunctionFlow.Returned -> flow.value
+                    NexaDevFunctionFlow.Normal, NexaDevFunctionFlow.Break, NexaDevFunctionFlow.Continue -> JSONObject.NULL
+                }
+            } else {
+                evaluate(declaration.opt("body"), callLocals, scope)
+            }
         } finally {
             activeFunctions.remove(name)
+        }
+    }
+
+    private fun constructUserClass(
+        className: String,
+        classType: JSONObject,
+        arguments: List<Any>,
+        scope: String,
+    ): Any {
+        val typeFields = classType.optJSONArray("fields") ?: JSONArray()
+        val constructorCount = classType.optInt("constructor_parameter_count", typeFields.length())
+        if (constructorCount != arguments.size || constructorCount > typeFields.length()) {
+            return JSONObject.NULL
+        }
+        val fields = linkedMapOf<String, Any>()
+        val initializerLocals = moduleValues.toMutableMap()
+        for (index in 0 until minOf(constructorCount, typeFields.length(), arguments.size)) {
+            val field = typeFields.optJSONArray(index) ?: continue
+            val fieldName = field.optString(0)
+            val value = arguments[index]
+            fields[fieldName] = value
+            initializerLocals[fieldName] = value
+        }
+        val initializers = functions.toSortedMap().values.firstOrNull { method ->
+            method.optJSONObject("receiver")?.optJSONObject("Class")?.optString("name") == className
+        }?.optJSONArray("class_initializers") ?: JSONArray()
+        for (index in 0 until initializers.length()) {
+            val field = initializers.optJSONObject(index) ?: continue
+            val fieldName = field.optString("name")
+            val value = evaluate(field.opt("initial"), initializerLocals, scope)
+            fields[fieldName] = value
+            initializerLocals[fieldName] = value
+        }
+        return NexaDevUserClassInstance(className, fields)
+    }
+
+    internal fun invokeUserClassMethod(
+        namespace: String,
+        methodName: String,
+        receiver: Any?,
+        arguments: Map<String, Any>,
+        scope: String,
+    ): Pair<Boolean, Any> {
+        val className = namespace.removePrefix("__NexaUserClass:")
+        val instance = receiver as? NexaDevUserClassInstance ?: return false to JSONObject.NULL
+        if (instance.className != className) return false to JSONObject.NULL
+        val fullName = "$className.$methodName"
+        val declaration = functions[fullName] ?: return false to JSONObject.NULL
+        if (!activeFunctions.add(fullName)) return true to JSONObject.NULL
+        return try {
+            val callLocals = instance.fields.toMutableMap()
+            callLocals["this"] = instance
+            val parameters = declaration.optJSONArray("parameters") ?: JSONArray()
+            for (index in 0 until parameters.length()) {
+                val parameterName = parameters.optJSONObject(index)?.optString("name") ?: continue
+                callLocals[parameterName] = arguments[parameterName] ?: JSONObject.NULL
+            }
+            val functionLocals = declaration.optJSONArray("locals") ?: JSONArray()
+            for (index in 0 until functionLocals.length()) {
+                val local = functionLocals.optJSONObject(index) ?: continue
+                val localName = local.optString("name")
+                if (local.has("initial")) callLocals[localName] = evaluate(local.opt("initial"), callLocals, scope)
+            }
+            val actions = declaration.optJSONArray("body_actions")
+            if (actions != null) {
+                when (val flow = performFunction(actions, scope, callLocals)) {
+                    is NexaDevFunctionFlow.Returned -> true to flow.value
+                    NexaDevFunctionFlow.Normal, NexaDevFunctionFlow.Break, NexaDevFunctionFlow.Continue ->
+                        true to JSONObject.NULL
+                }
+            } else {
+                true to evaluate(declaration.opt("body"), callLocals, scope)
+            }
+        } finally {
+            activeFunctions.remove(fullName)
+        }
+    }
+
+    internal suspend fun invokeUserClassMethodAsync(
+        namespace: String,
+        methodName: String,
+        receiver: Any?,
+        arguments: Map<String, Any>,
+        locals: Map<String, Any>,
+        scope: String,
+    ): Pair<Boolean, Any> {
+        val className = namespace.removePrefix("__NexaUserClass:")
+        val instance = receiver as? NexaDevUserClassInstance ?: return false to JSONObject.NULL
+        if (instance.className != className) return false to JSONObject.NULL
+        val fullName = "$className.$methodName"
+        val declaration = functions[fullName] ?: return false to JSONObject.NULL
+        if (!activeFunctions.add(fullName)) return true to JSONObject.NULL
+        return try {
+            val callLocals = locals.toMutableMap()
+            callLocals["this"] = instance
+            callLocals.putAll(instance.fields)
+            val parameters = declaration.optJSONArray("parameters") ?: JSONArray()
+            for (index in 0 until parameters.length()) {
+                val parameterName = parameters.optJSONObject(index)?.optString("name") ?: continue
+                callLocals[parameterName] = arguments[parameterName] ?: JSONObject.NULL
+            }
+            val functionLocals = declaration.optJSONArray("locals") ?: JSONArray()
+            for (index in 0 until functionLocals.length()) {
+                val local = functionLocals.optJSONObject(index) ?: continue
+                val localName = local.optString("name")
+                if (local.has("initial")) {
+                    callLocals[localName] = evaluateAsync(local.opt("initial"), callLocals, scope)
+                }
+            }
+            val actions = declaration.optJSONArray("body_actions")
+            if (actions != null) {
+                when (val flow = performFunctionAsync(actions, scope, callLocals)) {
+                    is NexaDevFunctionFlow.Returned -> true to flow.value
+                    NexaDevFunctionFlow.Normal, NexaDevFunctionFlow.Break, NexaDevFunctionFlow.Continue ->
+                        true to JSONObject.NULL
+                }
+            } else {
+                true to evaluateAsync(declaration.opt("body"), callLocals, scope)
+            }
+        } finally {
+            activeFunctions.remove(fullName)
         }
     }
 
@@ -1138,6 +1550,11 @@ internal class NexaDevStateStore(internal val context: Context) {
         "GreaterEqual" -> number(left) >= number(right)
         "Contains" -> contains(left, right)
         else -> false
+    }
+
+    private fun compareSortable(left: Any?, right: Any?): Int = when {
+        left is String && right is String -> left.compareTo(right)
+        else -> number(left ?: JSONObject.NULL).compareTo(number(right ?: JSONObject.NULL))
     }
 
     internal fun truthy(value: Any?): Boolean = when (value) {
@@ -1274,8 +1691,68 @@ private fun NexaDevStateStore.evaluateTimeCall(
         "Sleep" -> JSONObject.NULL
         "Iso8601" -> (first as? Number)?.toLong()?.let { nexaDevIso8601(it) } ?: JSONObject.NULL
         "Iso8601ToMillis" -> (first as? String)?.let { nexaDevIso8601ToMillis(it) } ?: JSONObject.NULL
+        "StartOfDay" -> (first as? Number)?.toLong()?.let { nexaDevStartOfDay(it) } ?: JSONObject.NULL
+        "AddCalendarDays" -> {
+            val timestamp = (arguments.opt(0) as? Number)?.toLong()
+            val days = (arguments.opt(1) as? Number)?.toInt()
+            if (timestamp != null && days != null) nexaDevAddCalendarDays(timestamp, days)
+            else JSONObject.NULL
+        }
+        "LocalizedDate" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedDate) ?: JSONObject.NULL
+        "LocalizedTime" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedTime) ?: JSONObject.NULL
+        "LocalizedDateTime" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedDateTime) ?: JSONObject.NULL
+        "Format" -> {
+            val timestamp = (arguments.opt(0) as? Number)?.toLong()
+            val pattern = arguments.opt(1) as? String
+            if (timestamp != null && pattern != null) nexaDevFormatDate(timestamp, pattern)
+            else JSONObject.NULL
+        }
         else -> JSONObject.NULL
     }
+}
+
+private fun nexaDevStartOfDay(milliseconds: Long): Long =
+    java.util.Calendar.getInstance().apply {
+        timeInMillis = milliseconds
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+private fun nexaDevAddCalendarDays(milliseconds: Long, days: Int): Long =
+    java.util.Calendar.getInstance().apply {
+        timeInMillis = milliseconds
+        add(java.util.Calendar.DAY_OF_MONTH, days)
+    }.timeInMillis
+
+private fun nexaDevLocalizedDate(milliseconds: Long): String =
+    java.text.DateFormat.getDateInstance(java.text.DateFormat.SHORT).format(java.util.Date(milliseconds))
+
+private fun nexaDevLocalizedTime(milliseconds: Long): String =
+    java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(milliseconds))
+
+private fun nexaDevLocalizedDateTime(milliseconds: Long): String =
+    java.text.DateFormat.getDateTimeInstance(
+        java.text.DateFormat.SHORT,
+        java.text.DateFormat.SHORT,
+    ).format(java.util.Date(milliseconds))
+
+/** Mirrors generated `Time.format` and keeps formatter allocation out of hot-reload renders. */
+private val nexaDevDateFormatters = ThreadLocal.withInitial { HashMap<String, java.text.SimpleDateFormat>() }
+
+private fun nexaDevFormatDate(milliseconds: Long, pattern: String): String {
+    val locale = java.util.Locale.getDefault()
+    val timeZone = java.util.TimeZone.getDefault()
+    val key = "${locale.toLanguageTag()}|${timeZone.id}|$pattern"
+    val formatters = nexaDevDateFormatters.get()!!
+    val formatter = formatters[key] ?: java.text.SimpleDateFormat(pattern, locale).apply {
+        this.timeZone = timeZone
+    }.also {
+        if (formatters.size >= 32) formatters.clear()
+        formatters[key] = it
+    }
+    return formatter.format(java.util.Date(milliseconds))
 }
 
 /**

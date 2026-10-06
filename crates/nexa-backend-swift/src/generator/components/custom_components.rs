@@ -4,6 +4,7 @@ use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 use crate::generator::{
     components::render_node, engine::types::swift_type, features::Features, layout, lifecycle,
     render_immutable_state, render_native_object_state,
+    render_native_object_state_uninitialized, render_state_initializers_in_init,
 };
 
 pub(crate) fn render(module: &Module, features: &Features, out: &mut SourceWriter) {
@@ -51,9 +52,25 @@ fn render_component(
     if has_content_slot {
         out.push_str("    private let nexaContent: () -> SlotContent\n");
     }
+    let has_signals = component
+        .states
+        .iter()
+        .any(|state| matches!(state.ty, nexa_ir::Type::Signal(_)));
     for state in &component.states {
         if state.is_native_class_constructor_binding() {
-            render_native_object_state(state, 1, out);
+            if has_signals {
+                render_native_object_state_uninitialized(state, 1, out);
+            } else {
+                render_native_object_state(state, 1, out);
+            }
+            continue;
+        }
+        if matches!(state.ty, nexa_ir::Type::Signal(_)) {
+            out.push_str(&format!(
+                "    @StateObject private var {}: {}\n",
+                nexa_codegen::names::state_name(&state.name),
+                swift_type(&state.ty),
+            ));
             continue;
         }
         if state.mutable && !focus_bindings.contains(&state.name) {
@@ -107,7 +124,7 @@ fn render_component(
         init_parameters.push("@ViewBuilder nexaContent: @escaping () -> SlotContent".to_owned());
     }
     out.push_str(&init_parameters.join(", "));
-    if init_parameters.is_empty() {
+    if init_parameters.is_empty() && !has_signals {
         out.push_str(") {}\n\n");
     } else {
         out.push_str(") {\n");
@@ -118,13 +135,37 @@ fn render_component(
         if has_content_slot {
             out.push_str("        self.nexaContent = nexaContent\n");
         }
+        if has_signals {
+            let mut writer = nexa_codegen::SourceWriter::new();
+            render_state_initializers_in_init(&component.states, 2, &mut writer);
+            out.push_str(&writer.finish());
+        }
         out.push_str("    }\n\n");
     }
 
     out.push_str("    var body: some View {\n");
     render_immutable_state(&component.states, 2, out);
-    render_body(&component.body, module, features, 2, out);
-    lifecycle::render_on_disappear(None, &lifecycle::task_handles(&component.states), 2, out);
+    if component.on_appear.is_some() || component.on_disappear.is_some() {
+        // Attach lifecycle modifiers to a concrete View value. Chaining a
+        // modifier after a root `if` result builder is ambiguous in Swift.
+        out.push_str("        Group {\n");
+        render_body(&component.body, module, features, 3, out);
+        out.push_str("\n        }\n");
+    } else {
+        render_body(&component.body, module, features, 2, out);
+    }
+    lifecycle::render_on_appear(
+        component.on_appear.as_deref(),
+        component.on_appear_async,
+        2,
+        out,
+    );
+    lifecycle::render_on_disappear(
+        component.on_disappear.as_deref(),
+        &lifecycle::task_handles(&component.states),
+        2,
+        out,
+    );
     out.push_str("\n    }\n}\n");
 }
 

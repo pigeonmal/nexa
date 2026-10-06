@@ -1,6 +1,10 @@
 use std::{fs, path::PathBuf};
 
 #[allow(dead_code)]
+#[path = "../src/project/localization.rs"]
+mod localization;
+
+#[allow(dead_code)]
 #[path = "../src/project/assets.rs"]
 mod assets;
 

@@ -6,11 +6,13 @@ use crate::generator::{
     utils::{indent, swift_string},
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_image(
     source: &ImageSource,
     description: &str,
     scale: ImageScale,
     placeholder: Option<&str>,
+    max_height: Option<f32>,
     shared_element: Option<&nexa_ir::Expr>,
     depth: usize,
     out: &mut SourceWriter,
@@ -23,7 +25,7 @@ pub(crate) fn render_image(
         }
         ImageSource::RemoteUrl(url) => {
             out.push_str(&format!(
-                "NexaRemoteImage(url: {}, scale: {}, placeholder: {})",
+                "NexaRemoteImage(url: {}, scale: {}, placeholder: {}, allowsFile: false)",
                 expression(url),
                 match scale {
                     ImageScale::Fit => "NexaImageScale.fit",
@@ -34,6 +36,22 @@ pub(crate) fn render_image(
                     .unwrap_or_else(|| "nil".to_owned())
             ));
         }
+        ImageSource::LocalFile(file) => {
+            out.push_str(&format!(
+                "NexaRemoteImage(url: {}, scale: {}, placeholder: nil, allowsFile: true)",
+                expression(file),
+                match scale {
+                    ImageScale::Fit => "NexaImageScale.fit",
+                    ImageScale::Fill => "NexaImageScale.fill",
+                }
+            ));
+        }
+    }
+    if let Some(max_height) = max_height {
+        out.push_str(&format!(
+            ".frame(maxHeight: {})",
+            crate::generator::engine::utils::number(max_height)
+        ));
     }
     if description.is_empty() {
         out.push_str(".accessibilityHidden(true)");

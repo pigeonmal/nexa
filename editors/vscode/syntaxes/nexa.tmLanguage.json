@@ -6,13 +6,57 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#numbers" },
+    { "include": "#config" },
+    { "include": "#declarations" },
     { "include": "#keywords" },
+    { "include": "#modifiers" },
     { "include": "#builtin-types" },
     { "include": "#ui-components" },
     { "include": "#operators" },
     { "include": "#identifiers" }
   ],
   "repository": {
+    "config": {
+      "patterns": [
+        {
+          "name": "meta.configuration.nexa",
+          "begin": "\\b(config)\\s*(\\{)",
+          "beginCaptures": {
+            "1": { "name": "keyword.declaration.config.nexa" },
+            "2": { "name": "punctuation.section.block.begin.nexa" }
+          },
+          "end": "\\}",
+          "endCaptures": { "0": { "name": "punctuation.section.block.end.nexa" } },
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#strings" },
+            { "include": "#numbers" },
+            {
+              "name": "meta.configuration.block.nexa",
+              "begin": "\\{",
+              "beginCaptures": { "0": { "name": "punctuation.section.block.begin.nexa" } },
+              "end": "\\}",
+              "endCaptures": { "0": { "name": "punctuation.section.block.end.nexa" } },
+              "patterns": [
+                { "include": "#comments" },
+                { "include": "#strings" },
+                { "include": "#numbers" },
+                { "include": "#configuration-keys" }
+              ]
+            },
+            { "include": "#configuration-keys" }
+          ]
+        }
+      ]
+    },
+    "configuration-keys": {
+      "patterns": [
+        {
+          "name": "support.type.property-name.nexa",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*:)"
+        }
+      ]
+    },
     "comments": {
       "patterns": [
         {
@@ -52,6 +96,10 @@
     "keywords": {
       "patterns": [
         {
+          "name": "keyword.control.import.nexa",
+          "match": "\\b(import|as)\\b"
+        },
+        {
           "name": "keyword.control.nexa",
           "match": "\\b(await|break|case|catch|continue|else|for|if|in|return|try|while)\\b"
         },
@@ -69,6 +117,42 @@
         }
       ]
     },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "entity.name.type.nexa",
+          "match": "\\b(app|class|component|enum|interface|screen|struct)(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.nexa" },
+            "3": { "name": "entity.name.type.nexa" }
+          }
+        },
+        {
+          "name": "entity.name.function.nexa",
+          "match": "\\b(fn)(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.nexa" },
+            "3": { "name": "entity.name.function.nexa" }
+          }
+        },
+        {
+          "name": "variable.other.property.nexa",
+          "match": "\\b(let|state)(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.nexa" },
+            "3": { "name": "variable.other.property.nexa" }
+          }
+        }
+      ]
+    },
+    "modifiers": {
+      "patterns": [
+        {
+          "name": "storage.modifier.nexa",
+          "match": "\\b(static|async)\\b"
+        }
+      ]
+    },
     "builtin-types": {
       "patterns": [
         {
@@ -81,7 +165,7 @@
       "patterns": [
         {
           "name": "support.class.component.nexa",
-          "match": "\\b(AppBottomBar|BottomSheet|Button|Column|Content|Dialog|Direction|Divider|FastList|Icon|Image|KeyboardAware|LinearGradient|Link|NavigationBack|NavigationLink|NavigationStack|OnActive|OnAppear|OnBackground|OnDisappear|OnInactive|Picker|Pressable|ProgressBar|ProgressRing|RefreshControl|Row|SegmentedControl|Slider|Spacer|Stack|StatusBar|Switch|Tab|Text|TextInput)\\b"
+          "match": "\\b(AppBottomBar|Appearance|BottomSheet|Button|Column|ConfirmationDialog|Content|ContentUnavailable|DatePicker|Dialog|Direction|Divider|FastList|Form|Icon|Image|KeyboardAware|LinearGradient|Link|NavigationBack|NavigationLink|NavigationSplitView|NavigationStack|OnActive|OnAppear|OnBackground|OnDisappear|OnInactive|PagePager|Picker|Pressable|ProgressBar|ProgressRing|RefreshControl|Row|Section|SegmentedControl|Slider|Spacer|Stack|StatusBar|Switch|Tab|Text|TextInput|Toolbar)\\b"
         }
       ]
     },

@@ -1590,6 +1590,43 @@ pub(super) fn native_plugin_sources(
     Ok(files)
 }
 
+/// Resolve only the explicitly selected iOS sources that a host may link into
+/// an app-extension target. Unlike `native_plugin_sources`, this never falls
+/// back to the plugin's ordinary app source set.
+pub(super) fn native_plugin_extension_sources(
+    plugin: &PluginPackage,
+) -> Result<Vec<(PathBuf, PathBuf)>, String> {
+    let plugin_root = Path::new(&plugin.idl_path)
+        .parent()
+        .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
+    let canonical_plugin_root = fs::canonicalize(plugin_root)
+        .map_err(|error| format!("{}: {error}", plugin_root.display()))?;
+    let mut files = Vec::new();
+    for pattern in &plugin.artifacts.ios_extension_sources {
+        let matches = expand_source_pattern(Path::new(pattern), "swift", plugin_root)?;
+        if matches.is_empty() {
+            return Err(format!(
+                "declared iOS extension source pattern `{pattern}` matches no .swift files"
+            ));
+        }
+        for (file, _) in &matches {
+            let canonical =
+                fs::canonicalize(file).map_err(|error| format!("{}: {error}", file.display()))?;
+            if !canonical.starts_with(&canonical_plugin_root) {
+                return Err(format!(
+                    "iOS extension source `{}` resolves outside the plugin package `{}`",
+                    file.display(),
+                    plugin_root.display()
+                ));
+            }
+        }
+        files.extend(matches);
+    }
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    files.dedup_by(|left, right| left.0 == right.0);
+    Ok(files)
+}
+
 fn expand_source_pattern(
     pattern: &Path,
     extension: &str,
@@ -1859,8 +1896,9 @@ mod tests {
     use super::{
         android_plugin_proguard_rules, copy_android_plugin_artifacts,
         copy_android_plugin_cpp_sources, copy_ios_plugin_cpp_sources, copy_plugin_assets,
-        native_plugin_sources, stage_android_plugin_resources, stage_ios_plugin_artifacts,
-        stage_ios_plugin_resources, validate_manifest_sources, wildcard_matches,
+        native_plugin_extension_sources, native_plugin_sources, stage_android_plugin_resources,
+        stage_ios_plugin_artifacts, stage_ios_plugin_resources, validate_manifest_sources,
+        wildcard_matches,
     };
     use crate::project::plugin_package::{PluginArtifacts, PluginPackage};
 
@@ -1889,6 +1927,49 @@ mod tests {
         assert!(wildcard_matches("a*b*c", "axbyc"));
         assert!(wildcard_matches("a**b", "axxb"));
         assert!(wildcard_matches("*", ""));
+    }
+
+    #[test]
+    fn extension_source_selection_has_no_app_source_fallback() {
+        let temporary = TempProject::new();
+        let package_root = temporary.0.join("extension-plugin");
+        fs::create_dir_all(package_root.join("ios/Sources")).expect("plugin source directory");
+        let idl_path = package_root.join("native.nxid");
+        write_fixture(&idl_path, b"// contract");
+        let implementation = package_root.join("ios/Sources/WidgetSafe.swift");
+        write_fixture(&implementation, b"// extension-safe");
+        let plugin = PluginPackage {
+            namespace: "Storage".to_owned(),
+            idl_path: idl_path.display().to_string(),
+            artifacts: PluginArtifacts {
+                ios_sources: vec![
+                    package_root
+                        .join("ios/Sources/**/*.swift")
+                        .display()
+                        .to_string(),
+                ],
+                ios_extension_sources: vec![implementation.display().to_string()],
+                ..Default::default()
+            },
+        };
+
+        let selected = native_plugin_extension_sources(&plugin)
+            .expect("declared extension-safe source should resolve");
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].0, implementation);
+
+        let app_only = PluginPackage {
+            artifacts: PluginArtifacts {
+                ios_sources: plugin.artifacts.ios_sources.clone(),
+                ..Default::default()
+            },
+            ..plugin
+        };
+        assert!(
+            native_plugin_extension_sources(&app_only)
+                .expect("an absent extension selection is valid")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1963,6 +2044,7 @@ mod tests {
 
         let idl = fs::canonicalize(idl).expect("plugin IDL path should canonicalize");
         let _module = nexa_ir::Module {
+            widgets: Vec::new(),
             app_name: "Demo".to_owned(),
             plugins: vec![nexa_ir::Plugin {
                 namespace: "Video".to_owned(),
@@ -1973,6 +2055,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -2355,6 +2438,7 @@ mod tests {
                 ios_xcframeworks: vec![],
                 ios_resources: vec![],
                 ios_privacy_manifest: None,
+                ios_extension_sources: vec![],
                 swift_packages: vec![],
                 maven_dependencies: vec![],
                 android_aars: vec![],
@@ -2408,6 +2492,7 @@ mod tests {
                 ios_xcframeworks: vec![],
                 ios_resources: vec![],
                 ios_privacy_manifest: None,
+                ios_extension_sources: vec![],
                 swift_packages: vec![],
                 maven_dependencies: vec![],
                 android_aars: vec![],
@@ -2449,6 +2534,7 @@ mod tests {
         std::os::unix::fs::symlink(&external_assets, &linked_root).expect("symlink created");
 
         let module = nexa_ir::Module {
+            widgets: Vec::new(),
             app_name: "DemoApp".to_string(),
             plugins: vec![],
             plugin_assets: vec![nexa_ir::PluginAsset {
@@ -2459,6 +2545,7 @@ mod tests {
             structs: vec![],
             functions: vec![],
             background_tasks: vec![],
+            globals: Vec::new(),
             states: vec![],
             screens: vec![],
             components: vec![],
@@ -2494,6 +2581,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, assets.join("symlink.txt")).expect("symlink created");
 
         let module = nexa_ir::Module {
+            widgets: Vec::new(),
             app_name: "DemoApp".to_string(),
             plugins: vec![],
             plugin_assets: vec![nexa_ir::PluginAsset {
@@ -2504,6 +2592,7 @@ mod tests {
             structs: vec![],
             functions: vec![],
             background_tasks: vec![],
+            globals: Vec::new(),
             states: vec![],
             screens: vec![],
             components: vec![],

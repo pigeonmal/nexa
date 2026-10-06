@@ -27,6 +27,31 @@ fn parses_top_level_async_function_declaration() {
     assert!(program.functions[0].is_async);
 }
 
+
+#[test]
+fn database_declarations_are_not_part_of_core_language_syntax() {
+    let error = nexa_syntax::parse(
+        r#"database TodoDatabase("todo") { migration 1 { "CREATE TABLE tasks(id INTEGER)" } }
+        app Todo { body { Text("ready") } }"#,
+    )
+    .expect_err("database-specific declarations belong to plugins, not core grammar");
+    assert!(error.message.contains("expected an `import`, `plugin`"));
+}
+
+#[test]
+fn ordinary_strings_keep_escape_processing_with_raw_strings_available() {
+    let app = nexa_syntax::parse(r#"app Demo { body { Text("line\\nnext") } }"#)
+        .expect("ordinary and raw string forms should parse");
+
+    let nexa_syntax::ast::Node::ComponentInvocation(invocation) = &app.body[0] else {
+        panic!("expected Text invocation");
+    };
+    let nexa_syntax::ast::Expr::String(text, _) = &invocation.positional[0] else {
+        panic!("expected ordinary string argument");
+    };
+    assert_eq!(text, "line\\nnext");
+}
+
 #[test]
 fn parses_app_scoped_periodic_background_task() {
     let app = nexa_syntax::parse(
@@ -198,6 +223,41 @@ fn parses_typed_error_catch_variants_and_payload_bindings() {
     assert_eq!(error_catches[1].variant, "decodingFailed");
     assert_eq!(error_catches[1].bindings, ["message"]);
     assert!(catch_body.is_none());
+}
+
+#[test]
+fn parses_returns_inside_if_and_catch_all_function_blocks() {
+    let program = nexa_syntax::parse_program(
+        r#"
+        async fn readValue() -> Bool {
+            if true {
+                return true
+            } else {
+                try {
+                    await Database.read()
+                    return true
+                } catch {
+                    else { return false }
+                }
+            }
+        }
+        app Demo { body { Text("ready") } }
+        "#,
+    )
+    .expect("function returns should be accepted inside nested recovery blocks");
+
+    assert_eq!(program.functions.len(), 1);
+    assert!(matches!(
+        program.functions[0].body.as_slice(),
+        [Stmt::If {
+            then_branch,
+            else_branch: Some(else_branch),
+            ..
+        }] if matches!(then_branch.as_slice(), [Stmt::Return { .. }])
+            && matches!(else_branch.as_slice(), [Stmt::TryCatch {
+                catch_body: Some(catch_body), ..
+            }] if matches!(catch_body.as_slice(), [Stmt::Return { .. }]))
+    ));
 }
 
 #[test]

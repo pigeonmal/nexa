@@ -6,6 +6,8 @@
 
 use std::{fs, path::Path};
 
+type ParsedTypeParameters = (Vec<String>, Vec<String>, Vec<String>);
+
 pub mod manifest;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,9 +112,20 @@ pub struct Method {
     /// this kind is bound per call site, and the generated contract receives
     /// the matching value codec.
     pub type_parameters: Vec<String>,
+    /// Generic parameters constrained to Nexa app value structs. The native
+    /// Swift/Kotlin contract stays generic; the compiler enforces this at the
+    /// call site before emitting the concrete codec.
+    pub struct_type_parameters: Vec<String>,
+    /// Generic parameters constrained to row-mappable app value structs.
+    /// These are distinct from `Struct`: row mappers are native, named-column
+    /// decoders and are generated at the query call site.
+    pub row_type_parameters: Vec<String>,
     pub parameters: Vec<Parameter>,
     pub return_type: TypeRef,
     pub throws: Option<TypeRef>,
+    /// Error case used when the generated hot-reload row mapper cannot decode
+    /// a declared field. The case must have one `String` payload.
+    pub row_error_case: Option<String>,
 }
 
 /// Whether a type reference mentions any of `names`, at any depth.
@@ -416,7 +429,7 @@ impl Parser {
     fn parse_enum_type(&mut self) -> Result<NamedType, String> {
         self.expect_identifier("enum")?;
         let name = self.expect_name("enum name")?;
-        let cases = self.parse_cases(false)?;
+        let cases = self.parse_cases(true)?;
         Ok(NamedType {
             name,
             is_error: false,
@@ -698,7 +711,8 @@ impl Parser {
         let is_async = self.consume_identifier("async");
         self.expect_identifier("fn")?;
         let name = self.expect_name("method name")?;
-        let type_parameters = self.parse_type_parameters()?;
+        let (type_parameters, struct_type_parameters, row_type_parameters) =
+            self.parse_type_parameters()?;
         let parameters = self.parse_parameters()?;
         let return_type = if self.consume(TokenKind::Arrow) {
             self.parse_type()?
@@ -710,17 +724,25 @@ impl Parser {
         } else {
             None
         };
+        let row_error_case = if self.consume_identifier("rowFailure") {
+            Some(self.expect_name("row mapping error case")?)
+        } else {
+            None
+        };
         self.consume(TokenKind::Semicolon);
-        if (return_type.name == "Result" || throws.is_some()) && !is_async {
+        if return_type.name == "Result" && !is_async {
             return self.error("`Result<Success, Failure>` methods must be async");
         }
         let method = Method {
             name,
             is_async,
             type_parameters,
+            struct_type_parameters,
+            row_type_parameters,
             parameters,
             return_type,
             throws,
+            row_error_case,
         };
         self.validate_method(&method)?;
         Ok(method)
@@ -731,16 +753,30 @@ impl Parser {
     /// or a value struct. The generated contract carries the value codec for
     /// it, so a plugin implements one generic body instead of one method per
     /// type.
-    fn parse_type_parameters(&mut self) -> Result<Vec<String>, String> {
+    fn parse_type_parameters(&mut self) -> Result<ParsedTypeParameters, String> {
         if !self.peek_kind(TokenKind::Less) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
         }
         self.expect(TokenKind::Less, "`<`")?;
         let mut names: Vec<String> = Vec::new();
+        let mut struct_only = Vec::new();
+        let mut row_only = Vec::new();
         loop {
             let name = self.expect_name("type parameter")?;
             if names.contains(&name) {
                 return self.error(format!("type parameter `{name}` is declared twice"));
+            }
+            if self.consume(TokenKind::Colon) {
+                let bound = self.expect_name("type parameter bound")?;
+                match bound.as_str() {
+                    "Struct" => struct_only.push(name.clone()),
+                    "Row" => row_only.push(name.clone()),
+                    _ => {
+                        return self.error(format!(
+                            "unsupported type parameter bound `{bound}`; expected `Struct` or `Row`"
+                        ));
+                    }
+                }
             }
             names.push(name);
             if self.consume(TokenKind::Greater) {
@@ -748,7 +784,7 @@ impl Parser {
             }
             self.expect(TokenKind::Comma, "`,` or `>`")?;
         }
-        Ok(names)
+        Ok((names, struct_only, row_only))
     }
 
     /// A type parameter is only useful when the method mentions it, and it may
@@ -830,11 +866,6 @@ impl Parser {
                         case.name, ty.name
                     ));
                 }
-            }
-            if ty.kind == NamedTypeKind::Enum
-                && ty.cases.iter().any(|case| !case.parameters.is_empty())
-            {
-                return Err(format!("enum `{}` cases cannot have payloads", ty.name));
             }
             if ty.kind == NamedTypeKind::Error && ty.cases.is_empty() {
                 return Err(format!(
@@ -1204,7 +1235,7 @@ fn validate_type_ref(
     type_parameters: &[String],
 ) -> Result<(), String> {
     let expected = match ty.name.as_str() {
-        "Array" | "Set" => Some(1),
+        "Array" | "Set" | "Signal" => Some(1),
         "Map" | "Pair" | "Result" => Some(2),
         "Triple" => Some(3),
         _ => None,
@@ -1315,6 +1346,7 @@ fn is_builtin_type_name(name: &str) -> bool {
             | "Pair"
             | "Triple"
             | "Result"
+            | "Signal"
     )
 }
 
@@ -1480,6 +1512,19 @@ mod tests {
     }
 
     #[test]
+    fn parses_payload_bearing_native_value_enums() {
+        let idl = parse(
+            "enum SqlValue { nullValue, integer(value: Int64), text(value: String) } service Database { fn bind(values: Array<SqlValue>) -> Void }",
+        )
+        .expect("native value enums can carry typed payloads");
+        let cases = &idl.types[0].cases;
+        assert_eq!(cases.len(), 3);
+        assert!(cases[0].parameters.is_empty());
+        assert_eq!(cases[1].parameters[0].ty.name, "Int64");
+        assert_eq!(cases[2].parameters[0].ty.name, "String");
+    }
+
+    #[test]
     fn rejects_layout_less_opaque_types() {
         let error = parse("type PlayerHandle")
             .expect_err("plugin values must describe their boundary layout or be native classes");
@@ -1561,14 +1606,28 @@ mod type_parameter_tests {
     #[test]
     fn parses_method_type_parameters() {
         let idl = parse(
-            "native class Store {\n    fn setObject<T>(key: String, value: T) -> Bool\n    fn getMap<K, V>(key: String) -> Map<K, V>?\n}\n",
+            "native class Store {\n    fn setObject<T>(key: String, value: T) -> Bool\n    fn getObject<T: Struct>(key: String) -> T?\n    fn getMap<K, V>(key: String) -> Map<K, V>?\n}\n",
         )
         .expect("generic methods should parse");
         let methods = &idl.interfaces[0].methods;
         assert_eq!(methods[0].type_parameters, vec!["T".to_owned()]);
+        assert_eq!(methods[1].struct_type_parameters, vec!["T".to_owned()]);
+        assert!(methods[1].row_type_parameters.is_empty());
         assert_eq!(
-            methods[1].type_parameters,
+            methods[2].type_parameters,
             vec!["K".to_owned(), "V".to_owned()]
         );
     }
+
+    #[test]
+    fn parses_row_type_parameter_bound() {
+        let idl = parse(
+            "error Failure { invalidValue(message: String) }\nnative class Database { async fn query<T: Row>(sql: String) -> Array<T> throws Failure rowFailure invalidValue }",
+        )
+        .expect("row type parameters and row failure metadata should parse");
+        let method = &idl.interfaces[0].methods[0];
+        assert_eq!(method.row_type_parameters, vec!["T"]);
+        assert_eq!(method.row_error_case.as_deref(), Some("invalidValue"));
+    }
 }
+

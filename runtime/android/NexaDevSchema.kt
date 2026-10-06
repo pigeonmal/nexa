@@ -6,7 +6,7 @@ package __NEXA_PACKAGE__
  */
 internal object NexaDevSchema {
     const val PROTOCOL_VERSION: Int = 10
-    const val DEV_IR_FORMAT_VERSION: Int = 25
+    const val DEV_IR_FORMAT_VERSION: Int = 38
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -63,6 +63,10 @@ internal object NexaDevKeys {
     const val FUNCTIONS = "functions"
     const val STRUCTS = "structs"
     const val COMPONENTS = "components"
+    const val RECEIVER = "receiver"
+    const val LOCALS = "locals"
+    const val RETURN_TYPE = "return_type"
+    const val BODY_ACTIONS = "body_actions"
     const val DIRECTION = "direction"
     const val STATUS_BAR = "status_bar"
     const val ON_APPEAR = "on_appear"
@@ -109,9 +113,12 @@ internal object NexaDevKeys {
 internal object NexaDevNodeKind {
     const val LAYOUT = "Layout"
     const val COLUMN = "Column"
+    const val FORM = "Form"
+    const val FORM_SECTION = "FormSection"
     const val ROW = "Row"
     const val STACK = "Stack"
     const val TEXT = "Text"
+    const val CONTENT_UNAVAILABLE = "ContentUnavailable"
     const val SPACER = "Spacer"
     const val DIVIDER = "Divider"
     const val BUTTON = "Button"
@@ -132,11 +139,14 @@ internal object NexaDevNodeKind {
     const val ACCESSIBILITY = "Accessibility"
     const val KEYBOARD_AWARE = "KeyboardAware"
     const val APP_BOTTOM_BAR = "AppBottomBar"
+    const val PAGE_PAGER = "PagePager"
     const val BOTTOM_SHEET = "BottomSheet"
     const val DIALOG = "Dialog"
     const val SEGMENTED_CONTROL = "SegmentedControl"
     const val PICKER = "Picker"
+    const val DATE_PICKER = "DatePicker"
     const val NAVIGATION_STACK = "NavigationStack"
+    const val NAVIGATION_SPLIT_VIEW = "NavigationSplitView"
     const val NAVIGATION_LINK = "NavigationLink"
     const val NAVIGATION_BACK = "NavigationBack"
     const val CONTENT = "Content"
@@ -146,6 +156,8 @@ internal object NexaDevNodeKind {
 internal object NexaDevActionKind {
     const val ASSIGN = "Assign"
     const val EXPRESSION = "Expression"
+    const val LET = "Let"
+    const val RETURN = "Return"
     const val IF = "If"
     const val FOR = "For"
     const val FOR_MAP = "ForMap"
@@ -161,6 +173,8 @@ internal object NexaDevActionKind {
 internal object NexaDevCollectionMutationKind {
     const val ARRAY_APPEND = "ArrayAppend"
     const val ARRAY_REMOVE_AT = "ArrayRemoveAt"
+    const val ARRAY_MOVE = "ArrayMove"
+    const val ARRAY_MOVE_SUBSET = "ArrayMoveSubset"
     const val SET_INSERT = "SetInsert"
     const val SET_REMOVE = "SetRemove"
     const val MAP_SET = "MapSet"

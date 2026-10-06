@@ -8,6 +8,15 @@ enum NexaDevActionFlow: Equatable {
     case `continue`
 }
 
+/// Return flow is kept separate from UI actions so interpreted class methods
+/// can propagate a value through nested branches and try/catch blocks.
+enum NexaDevFunctionFlow {
+    case normal
+    case returned(Any)
+    case `break`
+    case `continue`
+}
+
 private struct NexaDevTaskPayload: @unchecked Sendable {
     let actions: [Any]
     let scope: String
@@ -21,15 +30,19 @@ extension NexaDevStateStore {
     }
 
     func launchNativeTask(
-        handle: String,
+        handle: String?,
         executor: String,
         actions: [Any],
         scope: String,
         locals: [String: Any]
     ) {
-        guard !handle.isEmpty else { return }
-        let key = "\(scope)/task/\(handle)"
-        foregroundTasks.removeValue(forKey: key)?.cancel()
+        let key: String
+        if let handle, !handle.isEmpty {
+            key = "\(scope)/task/\(handle)"
+            foregroundTasks.removeValue(forKey: key)?.cancel()
+        } else {
+            key = "\(scope)/task/fire-and-forget/\(UUID().uuidString)"
+        }
         let payload = NexaDevTaskPayload(actions: actions, scope: scope, locals: locals)
         let task: Task<Void, Never>
         if executor == "Background" {
@@ -179,10 +192,9 @@ extension NexaDevStateStore {
                     scope: scope,
                     locals: locals
                 )
-            } else if let task = tagged["TaskLaunch"] as? [String: Any],
-                      let handle = task["handle"] as? String {
+            } else if let task = tagged["TaskLaunch"] as? [String: Any] {
                 launchNativeTask(
-                    handle: handle,
+                    handle: task["handle"] as? String,
                     executor: task["executor"] as? String ?? "Main",
                     actions: task["actions"] as? [Any] ?? [],
                     scope: scope,
@@ -573,6 +585,34 @@ extension NexaDevStateStore {
             var array = value(name, scope: scope) as? [Any] ?? []
             if let index = (arguments.first as? NSNumber)?.intValue, array.indices.contains(index) { array.remove(at: index) }
             setValue(name, value: array, scope: scope)
+        case "ArrayMove":
+            var array = value(name, scope: scope) as? [Any] ?? []
+            if arguments.count >= 2,
+               let from = (arguments[0] as? NSNumber)?.intValue,
+               let to = (arguments[1] as? NSNumber)?.intValue,
+               array.indices.contains(from), array.indices.contains(to), from != to {
+                let item = array.remove(at: from)
+                array.insert(item, at: to)
+            }
+            setValue(name, value: array, scope: scope)
+        case "ArrayMoveSubset":
+            var array = value(name, scope: scope) as? [Any] ?? []
+            guard arguments.count >= 3,
+                  let from = (arguments[0] as? NSNumber)?.intValue,
+                  let to = (arguments[1] as? NSNumber)?.intValue,
+                  let subset = arguments[2] as? [Any],
+                  subset.indices.contains(from), subset.indices.contains(to), from != to else { return }
+            var reordered = subset
+            let moved = reordered.remove(at: from)
+            reordered.insert(moved, at: to)
+            var cursor = 0
+            for index in array.indices where cursor < subset.count {
+                if NexaDevHashableValue(array[index]) == NexaDevHashableValue(subset[cursor]) {
+                    array[index] = reordered[cursor]
+                    cursor += 1
+                }
+            }
+            if cursor == subset.count { setValue(name, value: array, scope: scope) }
         case "SetInsert", "SetRemove":
             var set = NexaDevValueCodec.asSet(value(name, scope: scope)) ?? []
             if let item = arguments.first.map(NexaDevHashableValue.init) {
@@ -670,10 +710,9 @@ extension NexaDevStateStore {
                     scope: scope,
                     locals: locals
                 )
-            } else if let task = tagged["TaskLaunch"] as? [String: Any],
-                      let handle = task["handle"] as? String {
+            } else if let task = tagged["TaskLaunch"] as? [String: Any] {
                 launchNativeTask(
-                    handle: handle,
+                    handle: task["handle"] as? String,
                     executor: task["executor"] as? String ?? "Main",
                     actions: task["actions"] as? [Any] ?? [],
                     scope: scope,
@@ -772,6 +811,267 @@ extension NexaDevStateStore {
             }
         }
         return .normal
+    }
+
+    func performFunctionActions(
+        _ actions: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) -> NexaDevFunctionFlow {
+        var functionLocals = locals
+        for action in actions {
+            guard let tagged = action as? [String: Any] else { continue }
+            if let binding = tagged["Let"] as? [String: Any],
+               let name = binding["name"] as? String,
+               let value = binding["value"] {
+                functionLocals[name] = evaluate(value, locals: functionLocals, scope: scope)
+            } else if let returned = tagged["Return"] as? [String: Any],
+                      let value = returned["value"] {
+                return .returned(evaluate(value, locals: functionLocals, scope: scope))
+            } else if let expression = tagged["Expression"] {
+                _ = evaluate(expression, locals: functionLocals, scope: scope)
+            } else if let branch = tagged["If"] as? [String: Any],
+                      let condition = branch["condition"] {
+                let selected = truthy(evaluate(condition, locals: functionLocals, scope: scope))
+                    ? branch["then_branch"] as? [Any]
+                    : branch["else_branch"] as? [Any]
+                let flow = performFunctionActions(selected ?? [], scope: scope, locals: functionLocals)
+                switch flow {
+                case .normal: break
+                case .returned, .break, .continue: return flow
+                }
+            } else if let tryCatch = tagged["TryCatch"] as? [String: Any] {
+                pendingPluginFailure = nil
+                let flow = performFunctionActions(
+                    tryCatch["body"] as? [Any] ?? [],
+                    scope: scope,
+                    locals: functionLocals
+                )
+                let failure = pendingPluginFailure
+                pendingPluginFailure = nil
+                if let failure {
+                    if let caught = performFunctionPluginFailureCatch(
+                        failure,
+                        arms: tryCatch["error_catches"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: functionLocals
+                    ) {
+                        switch caught {
+                        case .normal: break
+                        case .returned, .break, .continue: return caught
+                        }
+                    } else if let catchBody = tryCatch["catch_body"] as? [Any] {
+                        let catchFlow = performFunctionActions(catchBody, scope: scope, locals: functionLocals)
+                        switch catchFlow {
+                        case .normal: break
+                        case .returned, .break, .continue: return catchFlow
+                        }
+                    } else {
+                        pendingPluginFailure = failure
+                    }
+                } else {
+                    switch flow {
+                    case .normal: break
+                    case .returned, .break, .continue: return flow
+                    }
+                }
+            } else if let loop = tagged["For"] as? [String: Any],
+                      let name = loop["name"] as? String,
+                      let iterable = loop["iterable"] {
+                let evaluated = evaluate(iterable, locals: functionLocals, scope: scope)
+                let items: [Any]
+                if let array = evaluated as? [Any] { items = array }
+                else if let set = NexaDevValueCodec.asSet(evaluated) {
+                    items = set.sorted { $0.stableOrderKey < $1.stableOrderKey }.map(\.value)
+                } else { items = [] }
+                iteration: for item in items {
+                    var iterationLocals = functionLocals
+                    iterationLocals[name] = item
+                    switch performFunctionActions(loop["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals) {
+                    case .normal, .continue: continue
+                    case .break: break iteration
+                    case .returned(let value): return .returned(value)
+                    }
+                }
+            } else if tagged["Break"] != nil {
+                return .break
+            } else if tagged["Continue"] != nil {
+                return .continue
+            }
+            if pendingPluginFailure != nil { return .normal }
+        }
+        return .normal
+    }
+
+    private func performFunctionPluginFailureCatch(
+        _ failure: NexaDevPluginFailure,
+        arms: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) -> NexaDevFunctionFlow? {
+        for rawArm in arms {
+            guard let arm = rawArm as? [String: Any],
+                  arm["namespace"] as? String == failure.namespace,
+                  arm["error_type"] as? String == failure.errorType,
+                  arm["variant"] as? String == failure.variant
+            else { continue }
+            var catchLocals = locals
+            for tuple in arm["parameters"] as? [[Any]] ?? [] where tuple.count >= 2 {
+                guard let name = tuple[0] as? String, let property = tuple[1] as? String else { continue }
+                catchLocals[name] = failure.payload[property] ?? NSNull()
+            }
+            return performFunctionActions(arm["body"] as? [Any] ?? [], scope: scope, locals: catchLocals)
+        }
+        return nil
+    }
+
+    func performFunctionAsync(
+        _ actions: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) async throws -> NexaDevFunctionFlow {
+        var functionLocals = locals
+        for action in actions {
+            guard let tagged = action as? [String: Any] else { continue }
+            if let binding = tagged["Let"] as? [String: Any],
+               let name = binding["name"] as? String,
+               let value = binding["value"] {
+                functionLocals[name] = try await evaluateAsync(value, locals: functionLocals, scope: scope)
+            } else if let returned = tagged["Return"] as? [String: Any],
+                      let value = returned["value"] {
+                return .returned(try await evaluateAsync(value, locals: functionLocals, scope: scope))
+            } else if let branch = tagged["If"] as? [String: Any],
+                      let condition = branch["condition"] {
+                let value = try await evaluateAsync(condition, locals: functionLocals, scope: scope)
+                let selected = truthy(value)
+                    ? branch["then_branch"] as? [Any]
+                    : branch["else_branch"] as? [Any]
+                let flow = try await performFunctionAsync(selected ?? [], scope: scope, locals: functionLocals)
+                switch flow {
+                case .normal: break
+                case .returned, .break, .continue: return flow
+                }
+            } else if let tryCatch = tagged["TryCatch"] as? [String: Any] {
+                do {
+                    let flow = try await performFunctionAsync(
+                        tryCatch["body"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: functionLocals
+                    )
+                    switch flow {
+                    case .normal: break
+                    case .returned, .break, .continue: return flow
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let failure as NexaDevPluginFailure {
+                    if let flow = try await performFunctionPluginFailureCatchAsync(
+                        failure,
+                        arms: tryCatch["error_catches"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: functionLocals
+                    ) {
+                        switch flow {
+                        case .normal: break
+                        case .returned, .break, .continue: return flow
+                        }
+                    } else if let catchBody = tryCatch["catch_body"] as? [Any] {
+                        let flow = try await performFunctionAsync(catchBody, scope: scope, locals: functionLocals)
+                        switch flow {
+                        case .normal: break
+                        case .returned, .break, .continue: return flow
+                        }
+                    } else {
+                        throw failure
+                    }
+                } catch {
+                    if let catchBody = tryCatch["catch_body"] as? [Any] {
+                        let flow = try await performFunctionAsync(catchBody, scope: scope, locals: functionLocals)
+                        switch flow {
+                        case .normal: break
+                        case .returned, .break, .continue: return flow
+                        }
+                    } else {
+                        throw error
+                    }
+                }
+            } else if let expression = tagged["Expression"] {
+                _ = try await evaluateAsync(expression, locals: functionLocals, scope: scope)
+            } else if let loop = tagged["For"] as? [String: Any],
+                      let name = loop["name"] as? String,
+                      let iterable = loop["iterable"] {
+                let value = try await evaluateAsync(iterable, locals: functionLocals, scope: scope)
+                let items: [Any]
+                if let array = value as? [Any] {
+                    items = array
+                } else if let set = NexaDevValueCodec.asSet(value) {
+                    items = set.sorted { $0.stableOrderKey < $1.stableOrderKey }.map(\.value)
+                } else {
+                    items = []
+                }
+                iteration: for item in items {
+                    var iterationLocals = functionLocals
+                    iterationLocals[name] = item
+                    switch try await performFunctionAsync(loop["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals) {
+                    case .normal, .continue: continue
+                    case .break: break iteration
+                    case .returned(let value): return .returned(value)
+                    }
+                }
+            } else if let loop = tagged["ForMap"] as? [String: Any],
+                      let keyName = loop["key_name"] as? String,
+                      let valueName = loop["value_name"] as? String,
+                      let iterable = loop["iterable"],
+                      let map = try await evaluateAsync(iterable, locals: functionLocals, scope: scope) as? [String: Any] {
+                iteration: for key in map.keys.sorted() {
+                    var iterationLocals = functionLocals
+                    iterationLocals[keyName] = key
+                    iterationLocals[valueName] = map[key] ?? NSNull()
+                    switch try await performFunctionAsync(loop["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals) {
+                    case .normal, .continue: continue
+                    case .break: break iteration
+                    case .returned(let value): return .returned(value)
+                    }
+                }
+            } else if let loop = tagged["While"] as? [String: Any],
+                      let condition = loop["condition"] {
+                iteration: for _ in 0..<10_000 {
+                    guard truthy(try await evaluateAsync(condition, locals: functionLocals, scope: scope)) else { break }
+                    switch try await performFunctionAsync(loop["body"] as? [Any] ?? [], scope: scope, locals: functionLocals) {
+                    case .normal, .continue: continue
+                    case .break: break iteration
+                    case .returned(let value): return .returned(value)
+                    }
+                }
+            } else if tagged["Break"] != nil {
+                return .break
+            } else if tagged["Continue"] != nil {
+                return .continue
+            }
+        }
+        return .normal
+    }
+
+    private func performFunctionPluginFailureCatchAsync(
+        _ failure: NexaDevPluginFailure,
+        arms: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) async throws -> NexaDevFunctionFlow? {
+        for rawArm in arms {
+            guard let arm = rawArm as? [String: Any],
+                  arm["namespace"] as? String == failure.namespace,
+                  arm["error_type"] as? String == failure.errorType,
+                  arm["variant"] as? String == failure.variant
+            else { continue }
+            var catchLocals = locals
+            for tuple in arm["parameters"] as? [[Any]] ?? [] where tuple.count >= 2 {
+                guard let name = tuple[0] as? String, let property = tuple[1] as? String else { continue }
+                catchLocals[name] = failure.payload[property] ?? NSNull()
+            }
+            return try await performFunctionAsync(arm["body"] as? [Any] ?? [], scope: scope, locals: catchLocals)
+        }
+        return nil
     }
 
     private func performPluginFailureCatch(

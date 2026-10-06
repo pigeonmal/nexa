@@ -89,13 +89,29 @@ app CounterApp {
 #[test]
 fn lsp_provides_rich_completions() {
     let mut server = LspServer::new();
+    let source = "app Demo {\n    state count: Int32 = 0\n    body {\n        Text(count)\n        \n    }\n}\n";
+    let (open_response, notifications) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: None,
+        method: "textDocument/didOpen".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///test.nx", "text": source }
+        })),
+    });
+    assert!(open_response.is_none());
+    assert!(
+        notifications[0]
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity != Some(DiagnosticSeverity::Error))
+    );
     let request = JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: Some(json!(2)),
         method: "textDocument/completion".to_string(),
         params: Some(json!({
             "textDocument": { "uri": "file:///test.nx" },
-            "position": { "line": 0, "character": 0 }
+            "position": { "line": 4, "character": 8 }
         })),
     };
 
@@ -114,8 +130,9 @@ fn lsp_provides_rich_completions() {
     assert!(labels.contains(&"FastList"));
     assert!(labels.contains(&"Text"));
     assert!(labels.contains(&"Button"));
-    assert!(labels.contains(&"Result"));
-    assert!(labels.contains(&"state"));
+    assert!(labels.contains(&"if"));
+    assert!(labels.contains(&"count"));
+    assert!(!labels.contains(&"state"));
 }
 
 #[test]

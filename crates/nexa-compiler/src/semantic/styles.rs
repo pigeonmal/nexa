@@ -65,6 +65,7 @@ pub(super) fn lower_style(
         style.blur,
         style.clip,
         style.z_index,
+        style.glass,
         themes,
     )?;
     let alignment = style.alignment.map(parse_alignment).transpose()?;
@@ -106,6 +107,7 @@ pub(super) fn lower_opacity(expr: Option<ast::Expr>) -> Result<Option<f32>, Comp
     .transpose()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower_view_effects(
     scale: Option<ast::Expr>,
     rotation: Option<ast::Expr>,
@@ -113,6 +115,7 @@ pub(super) fn lower_view_effects(
     blur: Option<ast::Expr>,
     clip: Option<ast::Expr>,
     z_index: Option<ast::Expr>,
+    glass: Option<ast::Expr>,
     themes: &ThemeSymbols,
 ) -> Result<ViewEffects, CompileError> {
     let scale = scale
@@ -127,6 +130,7 @@ pub(super) fn lower_view_effects(
     let shadow = shadow.map(|expr| lower_shadow(expr, themes)).transpose()?;
     let clip_rounded = clip.map(lower_rounded_clip).transpose()?;
     let z_index = z_index.map(lower_z_index).transpose()?;
+    let glass = glass.map(|expr| lower_glass(expr, themes)).transpose()?;
     Ok(ViewEffects {
         scale,
         rotation,
@@ -134,7 +138,66 @@ pub(super) fn lower_view_effects(
         blur,
         clip_rounded,
         z_index,
+        glass,
     })
+}
+
+pub(super) fn lower_glass(
+    expr: ast::Expr,
+    themes: &ThemeSymbols,
+) -> Result<nexa_ir::ViewGlass, CompileError> {
+    match expr {
+        ast::Expr::String(ref s, span) => {
+            let shape = parse_glass_shape(s, span)?;
+            Ok(nexa_ir::ViewGlass { tint: None, shape })
+        }
+        ast::Expr::Bool(true, _) => Ok(nexa_ir::ViewGlass {
+            tint: None,
+            shape: nexa_ir::GlassShape::Capsule,
+        }),
+        ast::Expr::Call(ref name, _, ref args, _span) if name == "Glass" => {
+            let mut shape = nexa_ir::GlassShape::Circle;
+            let mut tint = None;
+            for arg in args {
+                match arg {
+                    ast::Expr::String(s, span) => {
+                        shape = parse_glass_shape(s, *span)?;
+                    }
+                    _ => {
+                        if let Ok(c) = parse_color(arg.clone(), themes, "glass tint") {
+                            tint = Some(c);
+                        }
+                    }
+                }
+            }
+            Ok(nexa_ir::ViewGlass { tint, shape })
+        }
+        _ => Err(CompileError::new(
+            expr.span(),
+            "glass expects a shape string (\"circle\", \"capsule\", \"rounded\") or Glass(shape, tint: ...)",
+        )),
+    }
+}
+
+pub(super) fn parse_glass_shape(s: &str, span: Span) -> Result<nexa_ir::GlassShape, CompileError> {
+    match s.to_ascii_lowercase().as_str() {
+        "circle" => Ok(nexa_ir::GlassShape::Circle),
+        "capsule" => Ok(nexa_ir::GlassShape::Capsule),
+        "rounded" => Ok(nexa_ir::GlassShape::Rounded(16.0)),
+        other => {
+            if let Some(r) = other
+                .strip_prefix("rounded(")
+                .and_then(|r| r.strip_suffix(")"))
+                .and_then(|n| n.parse::<f32>().ok())
+            {
+                return Ok(nexa_ir::GlassShape::Rounded(r));
+            }
+            Err(CompileError::new(
+                span,
+                format!("unknown glass shape `{s}`; expected circle, capsule, or rounded"),
+            ))
+        }
+    }
 }
 
 fn lower_shadow(expr: ast::Expr, themes: &ThemeSymbols) -> Result<ViewShadow, CompileError> {
@@ -385,7 +448,7 @@ fn dimension_value(
     }
 }
 
-fn parse_color(
+pub(super) fn parse_color(
     expr: ast::Expr,
     themes: &ThemeSymbols,
     role: &str,

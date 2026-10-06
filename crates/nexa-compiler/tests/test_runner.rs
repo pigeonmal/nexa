@@ -45,14 +45,39 @@ test "typed collection expressions" {
     let doubled: Array<Int32> = values.map { value -> value * 2 }
     let evens: Array<Int32> = doubled.filter { value -> value % 2 == 0 }
     let total: Int32 = evens.reduce(0) { sum, value -> sum + value }
+    let ordered: Array<Int32> = values.sortedBy { value -> 0 - value }
     assert(values.count == 3)
     assert(2 in values)
     assert(doubled[1] == 4)
     assert(total == 12)
+    assert(ordered[0] == 3)
+    assert(ordered[2] == 1)
 }
 "#,
     )
     .expect("compile a headless collection expression test");
+
+    let report = run_tests(&compilation.tests);
+    assert_eq!(report.passed, 1, "{:?}", report.failures);
+    assert!(report.failures.is_empty());
+}
+
+#[test]
+fn evaluates_case_insensitive_string_membership_in_headless_tests() {
+    let compilation = compile_with_warnings(
+        r#"
+app Search {
+    body { Text("Search") }
+}
+
+test "substring membership ignores case" {
+    assert("meeting" in "Team Meeting")
+    assert("MEETING" in "Team Meeting")
+    assert(!("dentist" in "Team Meeting"))
+}
+"#,
+    )
+    .expect("compile case-insensitive substring assertions");
 
     let report = run_tests(&compilation.tests);
     assert_eq!(report.passed, 1, "{:?}", report.failures);
@@ -306,6 +331,9 @@ component CollectionEditor() {
             }
             values.append(4)
             values.remove(0)
+            values.move(2, 0)
+            values.move(99, 0)
+            values.move(-1, 0)
             while steps < 2 {
                 steps += 1
             }
@@ -322,10 +350,10 @@ test "collection actions" for CollectionEditor() {
     assert(total == 6)
     assert(steps == 2)
     assert(values.count == 3)
-    assert(values[0] == 2)
+    assert(values[0] == 4)
     assertText("Total: 6")
     assertText("Steps: 2")
-    assertText("Items: [2, 3, 4]")
+    assertText("Items: [4, 2, 3]")
 }
 "#,
     )

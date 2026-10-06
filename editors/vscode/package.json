@@ -26,6 +26,11 @@
     "transpiler"
   ],
   "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:nexa",
+    "workspaceContains:nexa.config.nx",
+    "onCommand:nexa.dev.start"
+  ],
   "contributes": {
     "commands": [
       {
@@ -99,6 +104,12 @@
         "path": "./syntaxes/nexa.tmLanguage.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "nexa",
+        "path": "./snippets/nexa.code-snippets"
+      }
+    ],
     "configuration": {
       "type": "object",
       "title": "Nexa",
@@ -113,7 +124,7 @@
           "default": "",
           "description": "Optional path to a Nexa language server executable. The bundled server is used by default."
         },
-        "nexa.lsp.trace.server": {
+        "nexaLsp.trace.server": {
           "type": "string",
           "enum": [
             "off",

@@ -1,0 +1,106 @@
+{
+  "Nexa app": {
+    "prefix": "nexa-app",
+    "body": [
+      "app ${1:AppName} {",
+      "    state count: Int32 = 0",
+      "",
+      "    body {",
+      "        Column(spacing: 16, padding: 24) {",
+      "            Text(\"${2:Welcome to Nexa}\")",
+      "            Text(\"Count: $count\")",
+      "            Button(\"Add one\") {",
+      "                count = count + 1",
+      "            }",
+      "        }",
+      "    }",
+      "}"
+    ],
+    "description": "Create a Nexa app with state and a simple native UI"
+  },
+  "Nexa project config": {
+    "prefix": "nexa-config",
+    "body": [
+      "config {",
+      "    app { displayName: \"${1:MyApp}\", version: \"1.0.0\", buildNumber: 1 }",
+      "    assets { icon: \"\", splash: \"\" }",
+      "    ios { minVersion: \"16.0\", bundleIdentifier: \"${2:com.example.myapp}\", icon: \"\" }",
+      "    android { minSdk: 23, targetSdk: 36, applicationId: \"${3:com.example.myapp}\", icon: \"\" }",
+      "    permissions {",
+      "        ${4}",
+      "    }",
+      "}"
+    ],
+    "description": "Create a nexa.config.nx project configuration"
+  },
+  "Nexa component": {
+    "prefix": "nexa-component",
+    "body": [
+      "component ${1:ComponentName}(${2:value: String}) {",
+      "    body {",
+      "        Column(spacing: 12) {",
+      "            Text(${3:value})",
+      "        }",
+      "    }",
+      "}"
+    ],
+    "description": "Declare a reusable Nexa UI component"
+  },
+  "Nexa screen": {
+    "prefix": "nexa-screen",
+    "body": [
+      "screen ${1:ScreenName} {",
+      "    Column(spacing: 16, padding: 24) {",
+      "        Text(\"${2:Screen title}\")",
+      "    }",
+      "}"
+    ],
+    "description": "Declare a Nexa navigation screen"
+  },
+  "Nexa struct": {
+    "prefix": "nexa-struct",
+    "body": [
+      "struct ${1:Model} {",
+      "    ${2:id}: String,",
+      "    ${3:name}: String,",
+      "}"
+    ],
+    "description": "Declare a typed Nexa value struct"
+  },
+  "Nexa function": {
+    "prefix": "nexa-fn",
+    "body": [
+      "fn ${1:functionName}(${2:value: String}) -> ${3:String} {",
+      "    return ${4:value}",
+      "}"
+    ],
+    "description": "Declare a typed Nexa function"
+  },
+  "Nexa plugin import": {
+    "prefix": "nexa-plugin",
+    "body": [
+      "plugin \"${1:dev.example.plugin}\" as ${2:Plugin}",
+      ""
+    ],
+    "description": "Import a Nexa native plugin"
+  },
+  "Nexa import": {
+    "prefix": "nexa-import",
+    "body": ["import \"${1:path/File.nx}\""],
+    "description": "Import another Nexa source file"
+  },
+  "Nexa native icon": {
+    "prefix": "nexa-icon",
+    "body": ["Icon(system: \"${1:checkmark}\", size: ${2:24})"],
+    "description": "Insert a cross-platform system icon"
+  },
+  "Nexa button": {
+    "prefix": "nexa-button",
+    "body": [
+      "Button(\"${1:Continue}\", icon: \"${2:arrow.right}\") {",
+      "    ${3:// action}",
+      "}"
+    ],
+    "description": "Insert a button with an action block"
+  }
+}

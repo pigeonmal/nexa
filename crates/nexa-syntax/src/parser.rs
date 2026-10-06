@@ -22,9 +22,13 @@ pub fn parse(tokens: Vec<Token>) -> Result<App, CompileError> {
         ));
     };
     app.components = program.components;
+    app.enums.extend(program.enums);
     app.structs = program.structs;
+    app.classes = program.classes;
+    app.globals = program.globals;
     app.functions.extend(program.functions);
     app.screens.extend(program.screens);
+    app.widgets.extend(program.widgets);
     app.tests = program.tests;
     app.plugins = program.plugins;
     Ok(app)
@@ -175,6 +179,7 @@ impl Parser {
         let mut build_number = None;
         let mut staging_suffix = None;
         let mut deep_links = Vec::new();
+        let mut orientation = None;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (field, field_span) = self.ident()?;
             self.expect(Kind::Colon, "expected `:` after app metadata field")?;
@@ -184,6 +189,16 @@ impl Parser {
                 "buildNumber" => build_number = Some(self.config_u32("app buildNumber")?),
                 "stagingSuffix" => staging_suffix = Some(self.config_string("app stagingSuffix")?),
                 "deepLinks" => deep_links = self.config_string_array("app deepLinks")?,
+                "orientation" => {
+                    let value = self.config_string("app orientation")?;
+                    if !matches!(value.as_str(), "all" | "portrait" | "portrait-phones") {
+                        return Err(CompileError::new(
+                            field_span,
+                            "app orientation must be `all`, `portrait`, or `portrait-phones`",
+                        ));
+                    }
+                    orientation = Some(value);
+                }
                 _ => {
                     return Err(CompileError::new(
                         field_span,
@@ -200,6 +215,7 @@ impl Parser {
             build_number: build_number.unwrap_or(1),
             staging_suffix,
             deep_links,
+            orientation,
         })
     }
 
@@ -284,7 +300,9 @@ impl Parser {
         let mut config = IosConfig {
             min_version: None,
             bundle_identifier: None,
+            app_group_identifier: None,
             icon: None,
+            alternate_icons: Vec::new(),
             arch: None,
         };
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
@@ -295,7 +313,14 @@ impl Parser {
                 "bundleIdentifier" => {
                     config.bundle_identifier = Some(self.config_string("ios bundleIdentifier")?)
                 }
+                "appGroupIdentifier" => {
+                    config.app_group_identifier =
+                        Some(self.config_string("ios appGroupIdentifier")?)
+                }
                 "icon" => config.icon = Some(self.config_string("ios icon")?),
+                "alternateIcons" => {
+                    config.alternate_icons = self.config_string_or_array("ios alternateIcons")?
+                }
                 "arch" => config.arch = Some(self.config_string_or_array("ios arch")?),
                 _ => {
                     return Err(CompileError::new(
@@ -318,6 +343,7 @@ impl Parser {
             target_sdk: None,
             application_id: None,
             icon: None,
+            alternate_icons: Vec::new(),
             arch: None,
             cronet: None,
         };
@@ -342,6 +368,10 @@ impl Parser {
                     config.application_id = Some(self.config_string("android applicationId")?)
                 }
                 "icon" => config.icon = Some(self.config_string("android icon")?),
+                "alternateIcons" => {
+                    config.alternate_icons =
+                        self.config_string_or_array("android alternateIcons")?
+                }
                 "arch" => config.arch = Some(self.config_string_or_array("android arch")?),
                 _ => {
                     return Err(CompileError::new(
@@ -658,10 +688,14 @@ impl Parser {
     fn program(mut self) -> Result<Program, CompileError> {
         let mut imports = Vec::new();
         let mut plugins = Vec::new();
+        let mut enums = Vec::new();
         let mut components = Vec::new();
         let mut structs = Vec::new();
+        let mut classes = Vec::new();
         let mut functions = Vec::new();
+        let mut globals = Vec::new();
         let mut screens = Vec::new();
+        let mut widgets = Vec::new();
         let mut tests = Vec::new();
         let mut app = None;
         while !self.check(&Kind::Eof) {
@@ -669,8 +703,17 @@ impl Parser {
                 imports.push(self.import_decl()?);
             } else if self.word_is("plugin") {
                 plugins.push(self.plugin_decl()?);
+            } else if self.word_is("enum") {
+                let declaration = self.enum_decl()?;
+                self.enum_names.insert(declaration.name.clone());
+                enums.push(declaration);
             } else if self.word_is("struct") {
                 structs.push(self.struct_decl()?);
+            } else if self.word_is("class") {
+                classes.push(self.class_decl()?);
+            } else if self.word_is("let") {
+                let binding = self.state_decl()?;
+                globals.push(binding);
             } else if self.word_is("component") {
                 components.push(self.component_decl()?);
             } else if self.word_is("async") {
@@ -679,6 +722,8 @@ impl Parser {
                 functions.push(self.function_decl(false)?);
             } else if self.word_is("screen") {
                 screens.push(self.screen_decl()?);
+            } else if self.word_is("widget") {
+                widgets.push(self.widget_decl()?);
             } else if self.word_is("test") {
                 tests.push(self.test_decl()?);
             } else if self.word_is("app") {
@@ -688,17 +733,21 @@ impl Parser {
                 app = Some(self.app_decl()?);
             } else {
                 return self.error_here(
-                    "expected an `import`, `plugin`, `struct`, `component`, `fn`, `async fn`, `screen`, `test`, or `app` declaration",
+                    "expected an `import`, `plugin`, `enum`, `struct`, `class`, `component`, `let`, `fn`, `async fn`, `screen`, `widget`, `test`, or `app` declaration",
                 );
             }
         }
         Ok(Program {
             imports,
             plugins,
+            enums,
             components,
             structs,
+            classes,
             functions,
+            globals,
             screens,
+            widgets,
             tests,
             app,
         })
@@ -941,6 +990,150 @@ impl Parser {
         })
     }
 
+    /// Parses a native reference class. Constructor parameters are immutable
+    /// stored properties (`val key: String`); body fields are immutable
+    /// instance properties (`let store = ...`); methods use `fn` or `async fn`
+    /// declarations and may refer to fields through `this.field`.
+    fn class_decl(&mut self) -> Result<ClassDecl, CompileError> {
+        let span = self.advance().span;
+        let (name, _) = self.ident()?;
+        let mut constructor_parameters = Vec::new();
+        if self.take(&Kind::LParen) {
+            while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+                self.expect_word("val")?;
+                let (parameter_name, parameter_span) = self.ident()?;
+                if constructor_parameters
+                    .iter()
+                    .any(|parameter: &ClassParameterDecl| parameter.name == parameter_name)
+                {
+                    return Err(CompileError::new(
+                        parameter_span,
+                        format!("class property `{parameter_name}` is declared more than once"),
+                    ));
+                }
+                self.expect(Kind::Colon, "expected `:` after constructor property name")?;
+                let ty = self.type_syntax()?;
+                constructor_parameters.push(ClassParameterDecl {
+                    name: parameter_name,
+                    ty,
+                    span: parameter_span,
+                });
+                if !self.take(&Kind::Comma) {
+                    break;
+                }
+            }
+            self.expect(
+                Kind::RParen,
+                "expected `)` after class constructor properties",
+            )?;
+        }
+        self.expect(Kind::LBrace, "expected `{` before class body")?;
+        let mut fields = Vec::new();
+        let mut static_fields = Vec::new();
+        let mut methods = Vec::new();
+        let mut static_methods = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let static_span = self.word_is("static").then(|| self.advance().span);
+            let is_static = static_span.is_some();
+            if is_static && (self.word_is("fn") || self.word_is("async")) {
+                let is_async = self.word_is("async");
+                let method = self.function_decl(is_async)?;
+                if static_methods
+                    .iter()
+                    .any(|existing: &FunctionDecl| existing.name == method.name)
+                    || methods
+                        .iter()
+                        .any(|existing: &FunctionDecl| existing.name == method.name)
+                {
+                    return Err(CompileError::new(
+                        method.span,
+                        format!("class method `{}` is declared more than once", method.name),
+                    ));
+                }
+                static_methods.push(method);
+                continue;
+            }
+            if is_static {
+                self.expect_word("let")?;
+            }
+            if is_static || self.word_is("let") {
+                let field_span = match static_span {
+                    Some(span) => span,
+                    None => self.advance().span,
+                };
+                let (field_name, name_span) = self.ident()?;
+                if static_fields
+                    .iter()
+                    .any(|field: &ClassFieldDecl| field.name == field_name)
+                    || fields
+                        .iter()
+                        .any(|field: &ClassFieldDecl| field.name == field_name)
+                    || constructor_parameters
+                        .iter()
+                        .any(|parameter| parameter.name == field_name)
+                {
+                    return Err(CompileError::new(
+                        name_span,
+                        format!("class property `{field_name}` is declared more than once"),
+                    ));
+                }
+                let ty = if self.take(&Kind::Colon) {
+                    Some(self.type_syntax()?)
+                } else {
+                    None
+                };
+                self.expect(
+                    Kind::Equal,
+                    "expected `=` before class property initializer",
+                )?;
+                let initial = self.expr()?;
+                self.optional_semicolon();
+                let declaration = ClassFieldDecl {
+                    name: field_name,
+                    ty,
+                    initial,
+                    span: field_span,
+                };
+                if is_static {
+                    static_fields.push(declaration);
+                } else {
+                    fields.push(declaration);
+                }
+            } else if self.word_is("fn") || self.word_is("async") {
+                let method = self.function_decl(self.word_is("async"))?;
+                if methods
+                    .iter()
+                    .any(|existing: &FunctionDecl| existing.name == method.name)
+                    || static_methods
+                        .iter()
+                        .any(|existing: &FunctionDecl| existing.name == method.name)
+                {
+                    return Err(CompileError::new(
+                        method.span,
+                        format!("class method `{}` is declared more than once", method.name),
+                    ));
+                }
+                methods.push(method);
+            } else {
+                return self.error_here(
+                    "class bodies support immutable `let` properties and `fn` or `async fn` methods",
+                );
+            }
+        }
+        self.expect(Kind::RBrace, "expected `}` to close class")?;
+        self.optional_semicolon();
+        Ok(ClassDecl {
+            name,
+            constructor_parameters,
+            fields,
+            static_fields,
+            methods,
+            static_methods,
+            span,
+            source_file: None,
+        })
+    }
+
     fn import_decl(&mut self) -> Result<ImportDecl, CompileError> {
         let keyword = self.advance().span;
         let token = self.advance().clone();
@@ -983,12 +1176,16 @@ impl Parser {
         self.optional_semicolon();
         Ok(PluginDecl {
             path,
+            package_id: None,
+            package_root: None,
+            compiler_analyzer: Vec::new(),
             namespace,
             span: keyword,
             idl: None,
             pure: false,
             assets_path: None,
             ios_sources: Vec::new(),
+            ios_extension_sources: Vec::new(),
             android_sources: Vec::new(),
             cpp_sources: Vec::new(),
             cpp_headers: Vec::new(),
@@ -1155,10 +1352,13 @@ impl Parser {
             plugins: Vec::new(),
             enums,
             structs: Vec::new(),
+            classes: Vec::new(),
             states,
+            globals: Vec::new(),
             functions,
             background_tasks,
             screens,
+            widgets: Vec::new(),
             theme,
             components: Vec::new(),
             tests: Vec::new(),
@@ -1260,6 +1460,154 @@ impl Parser {
         })
     }
 
+    fn widget_decl(&mut self) -> Result<WidgetDecl, CompileError> {
+        let span = self.advance().span;
+        let (name, _) = self.ident()?;
+        self.expect(Kind::LParen, "expected widget parameters after its name")?;
+        let mut display_name = None;
+        let mut description = None;
+        let mut configuration_title = None;
+        let mut configuration_description = None;
+        let mut configuration = None;
+        let mut entry_provider = None;
+        let mut placeholder_provider = None;
+        let mut families = None;
+        let mut refresh_seconds = None;
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            let (parameter, parameter_span) = self.ident()?;
+            self.expect(Kind::Colon, "expected `:` after widget parameter")?;
+            match parameter.as_str() {
+                "displayName"
+                | "description"
+                | "configurationTitle"
+                | "configurationDescription" => {
+                    let target = match parameter.as_str() {
+                        "displayName" => &mut display_name,
+                        "description" => &mut description,
+                        "configurationTitle" => &mut configuration_title,
+                        _ => &mut configuration_description,
+                    };
+                    if target.is_some() {
+                        return Err(CompileError::new(
+                            parameter_span,
+                            format!("widget `{parameter}` is specified more than once"),
+                        ));
+                    }
+                    let value = self.expr()?;
+                    let value_span = value.span();
+                    let Expr::String(text, _) = value else {
+                        return Err(CompileError::new(
+                            value_span,
+                            format!("widget `{parameter}` must be source text"),
+                        ));
+                    };
+                    if text.is_empty() {
+                        return Err(CompileError::new(
+                            parameter_span,
+                            format!("widget `{parameter}` text cannot be empty"),
+                        ));
+                    }
+                    *target = Some(text);
+                }
+                "configuration" => {
+                    if configuration.is_some() {
+                        return Err(CompileError::new(
+                            parameter_span,
+                            "widget `configuration` is specified more than once",
+                        ));
+                    }
+                    configuration = Some(self.expr()?);
+                }
+                "entry" => {
+                    if entry_provider.is_some() {
+                        return Err(CompileError::new(
+                            parameter_span,
+                            "widget `entry` is specified more than once",
+                        ));
+                    }
+                    entry_provider = Some(self.expr()?);
+                }
+                "placeholder" => {
+                    if placeholder_provider.is_some() {
+                        return Err(CompileError::new(
+                            parameter_span,
+                            "widget `placeholder` is specified more than once",
+                        ));
+                    }
+                    placeholder_provider = Some(self.expr()?);
+                }
+                "families" => {
+                    if families.is_some() {
+                        return Err(CompileError::new(
+                            parameter_span,
+                            "widget `families` is specified more than once",
+                        ));
+                    }
+                    self.expect(
+                        Kind::LBracket,
+                        "expected a family list such as `[Small, Medium]`",
+                    )?;
+                    let mut values = Vec::new();
+                    while !self.check(&Kind::RBracket) && !self.check(&Kind::Eof) {
+                        values.push(self.ident()?.0);
+                        if !self.take(&Kind::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(Kind::RBracket, "expected `]` after widget families")?;
+                    families = Some(values);
+                }
+                "refreshSeconds" => {
+                    if refresh_seconds.is_some() {
+                        return Err(CompileError::new(
+                            parameter_span,
+                            "widget `refreshSeconds` is specified more than once",
+                        ));
+                    }
+                    refresh_seconds = Some(self.expr()?);
+                }
+                _ => {
+                    return Err(CompileError::new(
+                        parameter_span,
+                        format!(
+                            "unknown widget parameter `{parameter}`; expected `displayName`, `description`, `configurationTitle`, `configurationDescription`, `configuration`, `entry`, `placeholder`, `families`, or `refreshSeconds`"
+                        ),
+                    ));
+                }
+            }
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(Kind::RParen, "expected `)` after widget parameters")?;
+        let body = self.block_nodes()?;
+        self.optional_semicolon();
+        Ok(WidgetDecl {
+            name,
+            display_name,
+            description,
+            configuration_title,
+            configuration_description,
+            configuration,
+            entry_provider: entry_provider.ok_or_else(|| {
+                CompileError::new(
+                    span,
+                    "widget declaration requires `entry: Provider.method()`",
+                )
+            })?,
+            placeholder_provider,
+            families: families.ok_or_else(|| {
+                CompileError::new(span, "widget declaration requires `families: [...]`")
+            })?,
+            refresh_seconds: refresh_seconds.ok_or_else(|| {
+                CompileError::new(span, "widget declaration requires `refreshSeconds: 1800`")
+            })?,
+            body,
+            span,
+            source_file: None,
+        })
+    }
+
     fn theme_decl(&mut self) -> Result<ThemeDecl, CompileError> {
         let keyword = self.advance().span;
         self.expect(Kind::LBrace, "expected `{` after `theme`")?;
@@ -1326,6 +1674,7 @@ impl Parser {
             initial,
             mutable,
             span,
+            source_file: None,
         })
     }
 
@@ -1371,6 +1720,7 @@ impl Parser {
             return_type,
             body,
             span: keyword,
+            source_file: None,
         })
     }
 
@@ -1418,6 +1768,7 @@ impl Parser {
             interval_minutes,
             body,
             span,
+            source_file: None,
         })
     }
 
@@ -1461,38 +1812,176 @@ impl Parser {
         Ok(nodes)
     }
 
-    fn tab_declarations(&mut self) -> Result<Vec<TabDecl>, CompileError> {
-        self.expect(Kind::LBrace, "expected `{` to open AppBottomBar tabs")?;
+    fn tab_declarations(&mut self, pager: bool) -> Result<Vec<TabDecl>, CompileError> {
+        self.expect(
+            Kind::LBrace,
+            if pager {
+                "expected `{` to open PagePager pages"
+            } else {
+                "expected `{` to open AppBottomBar tabs"
+            },
+        )?;
         let mut tabs = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (name, span) = self.ident()?;
             if name != "Tab" {
                 return Err(CompileError::new(
                     span,
-                    "AppBottomBar accepts only `Tab(index: ..., label: ..., icon: ..., badge: ...)` entries",
+                    "pager and bottom bar child blocks accept only `Tab(...)` entries",
                 ));
             }
-            let mut args = self.named_args(&["index", "label", "icon", "badge"])?;
+            let allowed_args: &[&str] = if pager {
+                &["index"]
+            } else {
+                &[
+                    "index",
+                    "label",
+                    "comment",
+                    "icon",
+                    "badge",
+                    "role",
+                    "title",
+                    "largeTitle",
+                    "searchable",
+                    "searchPrompt",
+                ]
+            };
+            let mut args = self.named_args(allowed_args)?;
             let index = self.required_arg(&mut args, "index", "Tab requires `index`")?;
-            let label = self.required_arg(&mut args, "label", "Tab requires `label`")?;
+            let label = match args.remove("label") {
+                Some(label) => label,
+                None if pager => Expr::String(String::new(), span),
+                None => return Err(CompileError::new(span, "Tab requires `label`")),
+            };
             let icon = args.remove("icon");
+            let comment = match args.remove("comment") {
+                None => None,
+                Some(Expr::String(value, _)) => Some(value),
+                Some(value) => {
+                    return Err(CompileError::new(
+                        value.span(),
+                        "Tab comment must be a string literal",
+                    ));
+                }
+            };
             let badge = args.remove("badge");
+            let role = args.remove("role");
+            let navigation_title = args.remove("title");
+            let large_title = args.remove("largeTitle");
+            let searchable = args.remove("searchable");
+            let search_prompt = args.remove("searchPrompt");
+            if pager
+                && (searchable.is_some()
+                    || search_prompt.is_some()
+                    || navigation_title.is_some()
+                    || large_title.is_some())
+            {
+                return Err(CompileError::new(
+                    span,
+                    "PagePager tabs cannot declare navigation titles or search",
+                ));
+            }
+            if large_title.is_some() && navigation_title.is_none() {
+                return Err(CompileError::new(
+                    span,
+                    "Tab `largeTitle` requires a `title`",
+                ));
+            }
+            if search_prompt.is_some() && searchable.is_none() {
+                return Err(CompileError::new(
+                    span,
+                    "Tab `searchPrompt` requires `searchable` text state",
+                ));
+            }
+            if searchable.is_some()
+                && !matches!(role.as_ref(), Some(Expr::String(value, _)) if value == "search")
+            {
+                return Err(CompileError::new(
+                    span,
+                    "Tab `searchable` requires `role: \"search\"`",
+                ));
+            }
             let children = self.block_nodes()?;
             tabs.push(TabDecl {
                 index,
                 label,
+                comment,
                 icon,
                 badge,
+                role,
+                navigation_title,
+                large_title,
+                searchable,
+                search_prompt,
                 children,
                 span,
             });
             self.optional_semicolon();
         }
-        self.expect(Kind::RBrace, "expected `}` to close AppBottomBar tabs")?;
+        self.expect(
+            Kind::RBrace,
+            if pager {
+                "expected `}` to close PagePager pages"
+            } else {
+                "expected `}` to close AppBottomBar tabs"
+            },
+        )?;
         if tabs.is_empty() {
-            return self.error_here("AppBottomBar requires at least one `Tab`");
+            return self.error_here(if pager {
+                "PagePager requires at least one page"
+            } else {
+                "AppBottomBar requires at least one `Tab`"
+            });
         }
         Ok(tabs)
+    }
+
+    fn split_panes(&mut self) -> Result<(Vec<Node>, Vec<Node>), CompileError> {
+        self.expect(
+            Kind::LBrace,
+            "expected `{` to open NavigationSplitView panes",
+        )?;
+        let mut sidebar = None;
+        let mut detail = None;
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            let nodes = self.block_nodes()?;
+            let slot = match name.as_str() {
+                "Sidebar" if sidebar.is_none() => &mut sidebar,
+                "Detail" if detail.is_none() => &mut detail,
+                "Sidebar" => {
+                    return Err(CompileError::new(
+                        span,
+                        "NavigationSplitView accepts only one `Sidebar` block",
+                    ));
+                }
+                "Detail" => {
+                    return Err(CompileError::new(
+                        span,
+                        "NavigationSplitView accepts only one `Detail` block",
+                    ));
+                }
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        "NavigationSplitView accepts only `Sidebar { ... }` and `Detail { ... }` blocks",
+                    ));
+                }
+            };
+            *slot = Some(nodes);
+            self.optional_semicolon();
+        }
+        self.expect(
+            Kind::RBrace,
+            "expected `}` to close NavigationSplitView panes",
+        )?;
+        let Some(sidebar) = sidebar else {
+            return self.error_here("NavigationSplitView requires a `Sidebar` block");
+        };
+        let Some(detail) = detail else {
+            return self.error_here("NavigationSplitView requires a `Detail` block");
+        };
+        Ok((sidebar, detail))
     }
 
     fn node(&mut self) -> Result<Node, CompileError> {
@@ -1714,7 +2203,11 @@ impl Parser {
                 }
             }
             ChildModel::RequiredActions => ChildBody::Actions(self.block_stmts()?),
-            ChildModel::Tabs => ChildBody::Tabs(self.tab_declarations()?),
+            ChildModel::Tabs => ChildBody::Tabs(self.tab_declarations(schema.name == "PagePager")?),
+            ChildModel::SplitPanes => {
+                let (sidebar, detail) = self.split_panes()?;
+                ChildBody::SplitPanes { sidebar, detail }
+            }
             ChildModel::ListRows => {
                 let (source, key) =
                     list_source.expect("ListSource positional model parses a list source");
@@ -1843,7 +2336,6 @@ impl Parser {
             let mut values = self.chained_style_named_arguments(modifier, &["shape"])?;
             return Ok(Some((argument.to_owned(), values.remove(0))));
         }
-
         self.expect(
             Kind::LParen,
             &format!("expected `(` after chained modifier `.{modifier}`"),
@@ -2141,14 +2633,22 @@ impl Parser {
     }
 
     fn block_stmts(&mut self) -> Result<Vec<Stmt>, CompileError> {
-        self.statements(false)
+        self.statements(false, true)
+    }
+
+    fn block_stmts_with_return(&mut self, allow_return: bool) -> Result<Vec<Stmt>, CompileError> {
+        self.statements(allow_return, true)
     }
 
     fn function_body(&mut self) -> Result<Vec<Stmt>, CompileError> {
-        self.statements(true)
+        self.statements(true, true)
     }
 
-    fn statements(&mut self, allow_return: bool) -> Result<Vec<Stmt>, CompileError> {
+    fn statements(
+        &mut self,
+        allow_return: bool,
+        allow_let: bool,
+    ) -> Result<Vec<Stmt>, CompileError> {
         self.expect(
             Kind::LBrace,
             if allow_return {
@@ -2157,10 +2657,14 @@ impl Parser {
                 "expected `{` to open event handler"
             },
         )?;
-        self.statements_after_open(allow_return)
+        self.statements_after_open(allow_return, allow_let)
     }
 
-    fn statements_after_open(&mut self, allow_return: bool) -> Result<Vec<Stmt>, CompileError> {
+    fn statements_after_open(
+        &mut self,
+        allow_return: bool,
+        allow_let: bool,
+    ) -> Result<Vec<Stmt>, CompileError> {
         let mut stmts = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             if self.word_is("withAnimation") {
@@ -2173,11 +2677,10 @@ impl Parser {
                 self.optional_semicolon();
                 continue;
             }
-            if !allow_return && self.word_is("let") {
-                return self
-                    .error_here("local `let` declarations are only allowed inside functions");
+            if !allow_let && self.word_is("let") {
+                return self.error_here("local `let` declarations are not allowed in this context");
             }
-            if allow_return && self.word_is("let") {
+            if allow_let && self.word_is("let") {
                 let span = self.advance().span;
                 let (name, _) = self.ident()?;
                 let ty = if self.take(&Kind::Colon) {
@@ -2214,23 +2717,23 @@ impl Parser {
                 continue;
             }
             if self.word_is("if") {
-                stmts.push(self.if_stmt()?);
+                stmts.push(self.if_stmt(allow_return)?);
                 self.optional_semicolon();
                 continue;
             }
             if self.word_is("for") {
-                stmts.push(self.for_stmt()?);
+                stmts.push(self.for_stmt(allow_return)?);
                 self.optional_semicolon();
                 continue;
             }
             if self.word_is("while") {
-                stmts.push(self.while_stmt()?);
+                stmts.push(self.while_stmt(allow_return)?);
                 self.optional_semicolon();
                 continue;
             }
             if self.word_is("try") {
                 let span = self.advance().span;
-                let body = self.statements(allow_return)?;
+                let body = self.statements(allow_return, allow_let)?;
                 if !self.word_is("catch") {
                     return self.error_here("a `try` block requires a `catch` recovery block");
                 }
@@ -2246,20 +2749,20 @@ impl Parser {
                             if catch_body.is_some() {
                                 return self.error_here("typed catch cases must precede `else`");
                             }
-                            error_catches.push(self.error_catch_arm()?);
+                            error_catches.push(self.error_catch_arm(allow_return)?);
                         } else if self.word_is("else") {
                             if catch_body.is_some() {
                                 return self
                                     .error_here("a catch block can declare only one `else`");
                             }
                             self.advance();
-                            catch_body = Some(self.block_stmts()?);
+                            catch_body = Some(self.block_stmts_with_return(allow_return)?);
                         } else {
                             return self.error_here("expected a typed `case` or catch-all `else`");
                         }
                         self.optional_semicolon();
                     }
-                    if error_catches.is_empty() {
+                    if error_catches.is_empty() && catch_body.is_none() {
                         return self
                             .error_here("typed catch recovery requires at least one `case`");
                     }
@@ -2267,7 +2770,7 @@ impl Parser {
                 } else {
                     (
                         Vec::new(),
-                        Some(self.statements_after_open(allow_return)?),
+                        Some(self.statements_after_open(allow_return, allow_let)?),
                         true,
                     )
                 };
@@ -2349,13 +2852,14 @@ impl Parser {
                     }
                 };
                 stmts.push(Stmt::Assign { name, value, span });
-            } else if name.chars().next().is_some_and(char::is_uppercase)
-                && self.check(&Kind::Dot)
-                && matches!(
-                    self.tokens.get(self.cursor + 1).map(|token| &token.kind),
-                    Some(Kind::Ident(_))
-                )
-                && self.qualified_call_ahead()
+            } else if self.check(&Kind::LParen)
+                || (name.chars().next().is_some_and(char::is_uppercase)
+                    && self.check(&Kind::Dot)
+                    && matches!(
+                        self.tokens.get(self.cursor + 1).map(|token| &token.kind),
+                        Some(Kind::Ident(_))
+                    )
+                    && self.qualified_call_ahead())
             {
                 self.cursor -= 1;
                 let expression = self.expr()?;
@@ -2426,7 +2930,7 @@ impl Parser {
         Ok(stmts)
     }
 
-    fn error_catch_arm(&mut self) -> Result<ErrorCatchArm, CompileError> {
+    fn error_catch_arm(&mut self, allow_return: bool) -> Result<ErrorCatchArm, CompileError> {
         let span = self.advance().span;
         let (namespace, _) = self.ident()?;
         self.expect(Kind::Dot, "expected `.` after catch plugin alias")?;
@@ -2445,7 +2949,7 @@ impl Parser {
             }
             self.expect(Kind::RParen, "expected `)` after catch payload bindings")?;
         }
-        let body = self.block_stmts()?;
+        let body = self.block_stmts_with_return(allow_return)?;
         Ok(ErrorCatchArm {
             namespace,
             error_name,
@@ -2474,7 +2978,7 @@ impl Parser {
             self.cursor = parameter_start;
             parameters.clear();
         }
-        let actions = self.statements_after_open(false)?;
+        let actions = self.statements_after_open(false, true)?;
         Ok((parameters, actions))
     }
 
@@ -2705,7 +3209,7 @@ impl Parser {
                 let type_arguments = self.type_arguments()?;
                 if self.take(&Kind::LParen) {
                     let (mut arguments, named_arguments) =
-                        self.call_arguments_after_open_with_names()?;
+                        self.call_arguments_after_open_mixed()?;
                     if self.check(&Kind::LBrace) {
                         arguments.push(self.closure_expression()?);
                     }
@@ -2717,7 +3221,12 @@ impl Parser {
                         named_arguments,
                         span,
                     };
-                } else if self.check(&Kind::LBrace) && matches!(name.as_str(), "map" | "filter") {
+                } else if self.check(&Kind::LBrace)
+                    && matches!(
+                        name.as_str(),
+                        "map" | "flatMap" | "filter" | "sortedBy" | "groupedBy"
+                    )
+                {
                     expression = Expr::MethodCall {
                         base: Box::new(expression),
                         name,
@@ -3280,7 +3789,7 @@ impl Parser {
     ) -> Result<Expr, CompileError> {
         let type_arguments = self.type_arguments()?;
         self.expect(Kind::LParen, "expected `(` after qualified function name")?;
-        let (arguments, named_arguments) = self.call_arguments_after_open_with_names()?;
+        let (arguments, named_arguments) = self.call_arguments_after_open_mixed()?;
         Ok(Expr::QualifiedCall {
             namespace,
             name,
@@ -3289,6 +3798,47 @@ impl Parser {
             named_arguments,
             span,
         })
+    }
+
+    /// Qualified API calls accept positional arguments in declaration order,
+    /// followed by named arguments for clarity or optional parameters.
+    fn call_arguments_after_open_mixed(
+        &mut self,
+    ) -> Result<(Vec<Expr>, BTreeMap<String, Expr>), CompileError> {
+        let mut positional = Vec::new();
+        let mut named = BTreeMap::new();
+        let mut saw_named = false;
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            let next_is_named = matches!(
+                (
+                    &self.peek().kind,
+                    self.tokens.get(self.cursor + 1).map(|token| &token.kind)
+                ),
+                (Kind::Ident(_), Some(Kind::Colon))
+            );
+            if next_is_named {
+                saw_named = true;
+                let (name, name_span) = self.ident()?;
+                if named.contains_key(&name) {
+                    return Err(CompileError::new(
+                        name_span,
+                        format!("argument `{name}` was provided more than once"),
+                    ));
+                }
+                self.expect(Kind::Colon, "expected `:` after argument name")?;
+                named.insert(name, self.expr()?);
+            } else {
+                if saw_named {
+                    return self.error_here("positional arguments must precede named arguments");
+                }
+                positional.push(self.call_argument_expression()?);
+            }
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(Kind::RParen, "expected `)` after call arguments")?;
+        Ok((positional, named))
     }
 
     /// A namespace call may have explicit generic arguments between its
@@ -3458,16 +4008,16 @@ impl Parser {
         })
     }
 
-    fn if_stmt(&mut self) -> Result<Stmt, CompileError> {
+    fn if_stmt(&mut self, allow_return: bool) -> Result<Stmt, CompileError> {
         let span = self.advance().span;
         let condition = self.expr()?;
-        let then_branch = self.block_stmts()?;
+        let then_branch = self.block_stmts_with_return(allow_return)?;
         let else_branch = if self.word_is("else") {
             self.advance();
             if self.word_is("if") {
-                Some(vec![self.if_stmt()?])
+                Some(vec![self.if_stmt(allow_return)?])
             } else {
-                Some(self.block_stmts()?)
+                Some(self.block_stmts_with_return(allow_return)?)
             }
         } else {
             None
@@ -3480,7 +4030,7 @@ impl Parser {
         })
     }
 
-    fn for_stmt(&mut self) -> Result<Stmt, CompileError> {
+    fn for_stmt(&mut self, allow_return: bool) -> Result<Stmt, CompileError> {
         let span = self.advance().span;
         if self.take(&Kind::LParen) {
             let (key_name, _) = self.ident()?;
@@ -3489,7 +4039,7 @@ impl Parser {
             self.expect(Kind::RParen, "expected `)` after map loop bindings")?;
             self.expect_word("in")?;
             let iterable = self.expr()?;
-            let body = self.block_stmts()?;
+            let body = self.block_stmts_with_return(allow_return)?;
             return Ok(Stmt::ForMap {
                 key_name,
                 value_name,
@@ -3532,7 +4082,7 @@ impl Parser {
         } else {
             start
         };
-        let body = self.block_stmts()?;
+        let body = self.block_stmts_with_return(allow_return)?;
         Ok(Stmt::For {
             name,
             iterable,
@@ -3541,10 +4091,10 @@ impl Parser {
         })
     }
 
-    fn while_stmt(&mut self) -> Result<Stmt, CompileError> {
+    fn while_stmt(&mut self, allow_return: bool) -> Result<Stmt, CompileError> {
         let span = self.advance().span;
         let condition = self.expr()?;
-        let body = self.block_stmts()?;
+        let body = self.block_stmts_with_return(allow_return)?;
         Ok(Stmt::While {
             condition,
             body,
@@ -3582,6 +4132,7 @@ impl Parser {
                     "Task `handle` must name a mutable `TaskHandle?` state",
                 ));
             }
+            None if method == "launch" => String::new(),
             None => {
                 return Err(CompileError::new(
                     span,
@@ -3622,7 +4173,7 @@ impl Parser {
         };
         let body = self.block_stmts()?;
         Ok(Stmt::TaskLaunch {
-            handle,
+            handle: (!handle.is_empty()).then_some(handle),
             executor,
             body,
             span,

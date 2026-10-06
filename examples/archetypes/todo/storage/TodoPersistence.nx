@@ -1,0 +1,242 @@
+import "../models/TaskItem.nx"
+import "../models/ReminderItem.nx"
+import "TodoDatabase.nx"
+
+struct TodoIDValue {
+    value: Int32
+}
+
+fn findTask(items: Array<TaskItem>, id: Int32) -> TaskItem? {
+    for task in items {
+        if task.id == id { return task }
+    }
+    return null
+}
+
+fn findReminder(items: Array<ReminderItem>, id: Int32) -> ReminderItem? {
+    for reminder in items {
+        if reminder.id == id { return reminder }
+    }
+    return null
+}
+
+fn taskUpsertStatement(task: TaskItem) -> SQLite.Statement {
+    return SQLite.Statement(
+        "INSERT INTO tasks (id, title, taskDescription, dueTimestamp, hasTime, priority, isCompleted, isDeleted, sortOrder, completedTimestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, taskDescription = excluded.taskDescription, dueTimestamp = excluded.dueTimestamp, hasTime = excluded.hasTime, priority = excluded.priority, isCompleted = excluded.isCompleted, isDeleted = excluded.isDeleted, sortOrder = excluded.sortOrder, completedTimestamp = excluded.completedTimestamp",
+        [task.id, task.title, task.taskDescription, task.dueTimestamp, task.hasTime, task.priority, task.isCompleted, task.isDeleted, task.sortOrder, task.completedTimestamp]
+    )
+}
+
+fn reminderUpsertStatement(reminder: ReminderItem) -> SQLite.Statement {
+    return SQLite.Statement(
+        "INSERT INTO reminders (id, taskID, identifier, title, timestamp, isDeleted) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET taskID = excluded.taskID, identifier = excluded.identifier, title = excluded.title, timestamp = excluded.timestamp, isDeleted = excluded.isDeleted",
+        [reminder.id, reminder.taskID, reminder.identifier, reminder.title, reminder.timestamp, reminder.isDeleted]
+    )
+}
+
+class TodoPersistence {
+    async fn initialize() -> Bool {
+        try {
+            await todoDatabase.migrate([
+                SQLite.Migration(1, [
+                    "CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, title TEXT NOT NULL, taskDescription TEXT NOT NULL, dueTimestamp INTEGER, hasTime INTEGER NOT NULL, priority TEXT NOT NULL, isCompleted INTEGER NOT NULL, isDeleted INTEGER NOT NULL, sortOrder INTEGER NOT NULL)",
+                    "CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY, taskID INTEGER NOT NULL, identifier TEXT NOT NULL, title TEXT NOT NULL, timestamp INTEGER NOT NULL, isDeleted INTEGER NOT NULL)",
+                    "CREATE TABLE IF NOT EXISTS todo_state (key TEXT PRIMARY KEY, value INTEGER NOT NULL)",
+                ]),
+                SQLite.Migration(2, [
+                    "CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY, taskID INTEGER NOT NULL, content TEXT NOT NULL, imageUri TEXT NOT NULL, createdAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL)",
+                ]),
+                SQLite.Migration(3, [
+                    "ALTER TABLE tasks ADD COLUMN completedTimestamp INTEGER",
+                    "DROP TABLE IF EXISTS todo_state",
+                    "CREATE INDEX IF NOT EXISTS idx_tasks_widget_due ON tasks (isCompleted, isDeleted, dueTimestamp, sortOrder, id)",
+                    "CREATE INDEX IF NOT EXISTS idx_comments_task_active ON comments (taskID, isDeleted)",
+                    "CREATE INDEX IF NOT EXISTS idx_reminders_task_active ON reminders (taskID, isDeleted)",
+                ]),
+                SQLite.Migration(4, [
+                    "CREATE TABLE IF NOT EXISTS todo_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+                ]),
+            ])
+            return true
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_MIGRATION_FAILED")
+                return false
+            }
+        }
+    }
+
+    async fn loadTasks() -> Array<TaskItem> {
+        try {
+            let items: Array<TaskItem> = await todoDatabase.query(
+                "SELECT t.id, t.title, t.taskDescription, t.dueTimestamp, t.hasTime, t.priority, t.isCompleted, t.completedTimestamp, t.isDeleted, t.sortOrder, (SELECT COUNT(*) FROM comments c WHERE c.taskID = t.id AND c.isDeleted = 0) AS commentCount, (SELECT COUNT(*) FROM reminders r WHERE r.taskID = t.id AND r.isDeleted = 0) AS reminderCount FROM tasks t ORDER BY t.sortOrder, t.id",
+                []
+            )
+            return items
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_TASKS_LOAD_FAILED")
+                return []
+            }
+        }
+    }
+
+    async fn loadNextID() -> Int32 {
+        try {
+            let rows: Array<TodoIDValue> = await todoDatabase.query(
+                "SELECT COALESCE(MAX(id), 0) + 1 AS value FROM tasks",
+                []
+            )
+            return rows.first()?.value ?? 1
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_TASK_ID_LOAD_FAILED")
+                return 1
+            }
+        }
+    }
+
+    async fn loadTheme() -> String {
+        try {
+            let rows: Array<TodoThemeValue> = await todoDatabase.query(
+                "SELECT value FROM todo_settings WHERE key = ?",
+                ["theme"]
+            )
+            return rows.first()?.value ?? ""
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_THEME_LOAD_FAILED")
+                return ""
+            }
+        }
+    }
+
+    async fn saveTheme(theme: String) -> Bool {
+        try {
+            await todoDatabase.execute(
+                "INSERT INTO todo_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ["theme", theme]
+            )
+            return true
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_THEME_SAVE_FAILED")
+                return false
+            }
+        }
+    }
+
+    async fn loadReminders() -> Array<ReminderItem> {
+        try {
+            let items: Array<ReminderItem> = await todoDatabase.query(
+                "SELECT id, taskID, identifier, title, timestamp, isDeleted FROM reminders ORDER BY timestamp, id",
+                []
+            )
+            return items
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_REMINDERS_LOAD_FAILED")
+                return []
+            }
+        }
+    }
+
+    async fn loadNextReminderID() -> Int32 {
+        try {
+            let rows: Array<TodoIDValue> = await todoDatabase.query(
+                "SELECT COALESCE(MAX(id), 0) + 1 AS value FROM reminders",
+                []
+            )
+            return rows.first()?.value ?? 1
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_REMINDER_ID_LOAD_FAILED")
+                return 1
+            }
+        }
+    }
+
+    async fn saveTask(items: Array<TaskItem>, id: Int32) -> Bool {
+        let item = findTask(items, id)
+        if item == null { return false }
+        let task = item ?? TaskItem(0, "", "", null, false, "None", false, null, false, 0, 0, 0)
+        let taskStatement = taskUpsertStatement(task)
+        try {
+            if task.isDeleted {
+                await todoDatabase.executeTransaction([
+                    taskStatement,
+                    SQLite.Statement("UPDATE reminders SET isDeleted = 1 WHERE taskID = ?", [id]),
+                ])
+            } else {
+                await todoDatabase.executeRaw(taskStatement.sql, taskStatement.parameters)
+            }
+            return true
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_TASK_SAVE_FAILED")
+                return false
+            }
+        }
+    }
+
+    async fn saveTaskWithReminder(items: Array<TaskItem>, taskID: Int32, reminders: Array<ReminderItem>, reminderID: Int32) -> Bool {
+        let taskItem = findTask(items, taskID)
+        let reminderItem = findReminder(reminders, reminderID)
+        if taskItem == null || reminderItem == null { return false }
+        let task = taskItem ?? TaskItem(0, "", "", null, false, "None", false, null, false, 0, 0, 0)
+        let reminder = reminderItem ?? ReminderItem(0, 0, "", "", 0, true)
+        try {
+            await todoDatabase.executeTransaction([
+                taskUpsertStatement(task),
+                reminderUpsertStatement(reminder),
+            ])
+            return true
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_TASK_REMINDER_SAVE_FAILED")
+                return false
+            }
+        }
+    }
+
+    async fn saveTaskOrder(items: Array<TaskItem>) -> Bool {
+        let rows: Array<Array<SQLite.Value>> = items.map { item -> [item.sortOrder, item.id] }
+        try {
+            await todoDatabase.executeBatch(
+                "UPDATE tasks SET sortOrder = ? WHERE id = ?",
+                rows
+            )
+            return true
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_TASK_ORDER_SAVE_FAILED")
+                return false
+            }
+        }
+    }
+
+    async fn saveReminder(items: Array<ReminderItem>, id: Int32) -> Bool {
+        let item = findReminder(items, id)
+        if item == null { return false }
+        let reminder = item ?? ReminderItem(0, 0, "", "", 0, true)
+        let statement = reminderUpsertStatement(reminder)
+        try {
+            await todoDatabase.executeRaw(
+                statement.sql,
+                statement.parameters
+            )
+            return true
+        } catch {
+            else {
+                Log.error(message: "TODO_SQLITE_REMINDER_SAVE_FAILED")
+                return false
+            }
+        }
+    }
+}
+
+struct TodoThemeValue {
+    value: String
+}
+
+let todoPersistence = TodoPersistence()

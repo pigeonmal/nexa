@@ -553,7 +553,7 @@ fn walk_invocation(
             if let ast::ChildBody::Nodes(children) = &inv.children {
                 walk_child_nodes(children, names, used, target, file, warnings);
             }
-            if let Some(actions) = modifier_actions("onPress") {
+            if let Some(actions) = modifier_actions("onTap") {
                 walk_actions(actions, names, used, target, file, warnings);
             }
             if let Some(actions) = modifier_actions("onLongPress") {
@@ -632,7 +632,7 @@ fn walk_invocation(
                 walk_actions(actions, names, used, target, file, warnings);
             }
         }
-        "AppBottomBar" => {
+        "AppBottomBar" | "PagePager" => {
             if let Some(selected) = inv.arguments.get("selected") {
                 walk_expression(selected, names, used);
             }
@@ -771,6 +771,10 @@ fn walk_invocation(
                 }
                 ast::ChildBody::Rows(rows) => {
                     walk_child_nodes(&rows.children, names, used, target, file, warnings)
+                }
+                ast::ChildBody::SplitPanes { sidebar, detail } => {
+                    walk_child_nodes(sidebar, names, used, target, file, warnings);
+                    walk_child_nodes(detail, names, used, target, file, warnings);
                 }
                 ast::ChildBody::None => {}
             }
@@ -934,7 +938,9 @@ fn walk_actions(
                 }
             }
             ast::Stmt::TaskLaunch { handle, body, .. } => {
-                if names.contains(handle) {
+                if let Some(handle) = handle
+                    && names.contains(handle)
+                {
                     used.insert(handle.clone());
                 }
                 walk_actions(body, names, used, target, file, warnings);
@@ -1063,7 +1069,7 @@ fn actions_reference_name(actions: &[ast::Stmt], name: &str) -> bool {
                     .any(|argument| expression_references_name(argument, name))
         }
         ast::Stmt::TaskLaunch { handle, body, .. } => {
-            handle == name || actions_reference_name(body, name)
+            handle.as_deref() == Some(name) || actions_reference_name(body, name)
         }
         ast::Stmt::TaskCancel { handle, .. } => handle == name,
         ast::Stmt::WithAnimation {

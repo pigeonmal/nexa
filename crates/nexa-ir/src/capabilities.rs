@@ -18,6 +18,9 @@ pub struct Capabilities {
     pub uses_result: bool,
     pub uses_time: bool,
     pub uses_number_formatting: bool,
+    pub uses_locale_api: bool,
+    pub uses_app_icon_api: bool,
+    pub uses_localized_strings: bool,
     pub uses_json_api: bool,
     pub uses_keyboard_api: bool,
     pub uses_crypto_api: bool,
@@ -53,6 +56,7 @@ mod tests {
 
     fn empty_module(body: Vec<Node>) -> Module {
         Module {
+            widgets: Vec::new(),
             app_name: "CapabilitiesTest".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -60,6 +64,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -96,6 +101,11 @@ mod tests {
                 icon: None,
                 loading: None,
                 disabled: None,
+                style: None,
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
                 actions: vec![
                     Action::Expression(call("Network", "fetch")),
                     Action::Expression(call("Path", "documents")),
@@ -130,6 +140,7 @@ mod tests {
             description: "Example image".to_owned(),
             scale: ImageScale::Fit,
             placeholder: None,
+            max_height: None,
             shared_element: None,
         }]);
 
@@ -143,6 +154,7 @@ mod tests {
     #[test]
     fn network_status_does_not_enable_request_transport() {
         let module = Module {
+            widgets: Vec::new(),
             on_appear: Some(vec![Action::Expression(Expr::NativeCall {
                 receiver: None,
                 namespace: "Network".to_owned(),
@@ -165,6 +177,7 @@ mod tests {
     #[test]
     fn synchronous_file_existence_checks_do_not_enable_async_support() {
         let module = Module {
+            widgets: Vec::new(),
             on_appear: Some(vec![Action::Expression(Expr::NativeCall {
                 receiver: None,
                 namespace: "File".to_owned(),
@@ -188,7 +201,10 @@ mod tests {
         let mut module = empty_module(Vec::new());
         module.functions.push(crate::Function {
             name: "load_text".to_owned(),
+            receiver: None,
+            class_initializers: Vec::new(),
             is_async: true,
+            is_throwing: false,
             parameters: vec![crate::FunctionParameter {
                 name: "path".to_owned(),
                 ty: crate::Type::String,
@@ -208,6 +224,7 @@ mod tests {
                 is_async: true,
                 is_throwing: false,
             })),
+            body_actions: None,
         });
 
         let capabilities = analyze(&module);
@@ -286,17 +303,24 @@ mod tests {
             parameters: Vec::new(),
             states: Vec::new(),
             body: Vec::new(),
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
         }
     }
 
     fn blank_function(name: &str) -> crate::Function {
         crate::Function {
             name: name.to_owned(),
+            receiver: None,
+            class_initializers: Vec::new(),
             is_async: false,
+            is_throwing: false,
             parameters: Vec::new(),
             locals: Vec::new(),
             return_type: Type::Void,
             body: Expr::Bool(true),
+            body_actions: None,
         }
     }
 
@@ -455,6 +479,7 @@ mod tests {
                 vec![crate::PluginCodec {
                     ty: result,
                     decodes: false,
+                    row_mapper: false,
                 }],
             ),
         ] {

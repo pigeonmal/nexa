@@ -15,6 +15,7 @@ pub(crate) fn expression(expr: &Expr) -> String {
 fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
     let render = |value: &Expr| expression_with_locals(value, locals);
     match expr {
+        Expr::This(_) => "self".to_owned(),
         Expr::String(value) => swift_string(value),
         Expr::Interpolation(parts) => {
             let mut value = String::from("\"");
@@ -33,6 +34,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             value.push('"');
             value
         }
+        Expr::LocalizedText {
+            key,
+            value,
+            comment,
+        } => localized_text_expression(key, value, comment.as_deref(), locals),
         Expr::Bool(value) => value.to_string(),
         Expr::IsRegularWidth => "(nexaHorizontalSizeClass == .regular)".to_owned(),
         Expr::IsCompactWidth => "(nexaHorizontalSizeClass == .compact)".to_owned(),
@@ -48,7 +54,14 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         {
             name.clone()
         }
-        Expr::State(name, _) | Expr::AnimatedState(name, _) => state_name(name),
+        Expr::State(name, _) | Expr::AnimatedState(name, _) => match name.split_once("::") {
+            Some((class, property)) => format!(
+                "{}.{}",
+                nexa_codegen::names::struct_name(class),
+                state_name(property)
+            ),
+            None => state_name(name),
+        },
         Expr::EnumValue {
             enum_name,
             case_name,
@@ -62,6 +75,32 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             case_name,
             ..
         } => format!("{enum_name}.{case_name}"),
+        Expr::PluginEnumConstructor {
+            enum_name,
+            case_name,
+            payload_names,
+            arguments,
+            ..
+        } => {
+            let arguments = payload_names
+                .iter()
+                .zip(arguments)
+                .map(|(name, argument)| format!("{name}: {}", render(argument)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{enum_name}.{case_name}({arguments})")
+        }
+        Expr::PluginEnumOptionalConstructor {
+            enum_name,
+            case_name,
+            null_case_name,
+            payload_name,
+            value,
+            ..
+        } => format!(
+            "({}).map {{ {enum_name}.{case_name}({payload_name}: $0) }} ?? {enum_name}.{null_case_name}",
+            render(value)
+        ),
         Expr::Not(value) => format!("(!{})", render(value)),
         Expr::Null(_) => "nil".to_owned(),
         Expr::Coalesce(left, right) => {
@@ -114,9 +153,17 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::Member {
             base,
             optional,
+            base_type,
             kind,
             ..
         } => {
+            if let MemberKind::ClassStaticField(field) = kind {
+                let owner = match base_type {
+                    Type::Class { name, .. } => nexa_codegen::names::struct_name(name),
+                    _ => render(base),
+                };
+                return format!("{}.{}", owner, nexa_codegen::names::state_name(field));
+            }
             let (field, wrap_status_code) = match kind {
                 MemberKind::TupleIndex(TuplePosition::First) => (".0".to_owned(), false),
                 MemberKind::TupleIndex(TuplePosition::Second) => (".1".to_owned(), false),
@@ -125,12 +172,25 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                     format!(".{}", nexa_codegen::names::struct_field_name(field)),
                     false,
                 ),
+                MemberKind::ClassField(field) => (
+                    format!(".{}", nexa_codegen::names::state_name(field)),
+                    false,
+                ),
+                MemberKind::ClassStaticField(field) => (
+                    format!(".{}", nexa_codegen::names::state_name(field)),
+                    false,
+                ),
                 MemberKind::PluginField(field) => (format!(".{field}"), false),
                 MemberKind::NetworkStatusCode => (".statusCode".to_owned(), true),
                 MemberKind::NetworkHeaders => (".headers".to_owned(), false),
                 MemberKind::NetworkBody => (".text".to_owned(), false),
                 MemberKind::CollectionCount => (".count".to_owned(), false),
                 MemberKind::CollectionIsEmpty => (".isEmpty".to_owned(), false),
+                MemberKind::StringTrimmed => (
+                    ".trimmingCharacters(in: .whitespacesAndNewlines)".to_owned(),
+                    false,
+                ),
+                MemberKind::SignalValue => (".value".to_owned(), false),
             };
             let access = format!(
                 "{}{}{}",
@@ -182,11 +242,20 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         } => {
             let callee = if *is_constructor {
                 swift_type(return_type)
+            } else if let Some((class_name, method_name)) = name.split_once('.') {
+                format!(
+                    "{}.{}",
+                    nexa_codegen::names::struct_name(class_name),
+                    nexa_codegen::names::function_name(method_name)
+                )
             } else {
                 function_name(name)
             };
             let arguments = if *is_constructor {
                 match return_type {
+                    Type::Class { .. } => {
+                        arguments.iter().map(render).collect::<Vec<_>>().join(", ")
+                    }
                     Type::Struct { fields, .. } => arguments
                         .iter()
                         .zip(fields)
@@ -213,17 +282,38 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             closure,
         } => {
             let collection = render(collection);
-            let closure = render(closure);
+            let closure_expression = closure;
+            let rendered_closure = render(closure_expression);
             match operation {
-                CollectionTransform::Map => format!("{collection}.map {closure}"),
-                CollectionTransform::Filter => format!("{collection}.filter {closure}"),
+                CollectionTransform::Map => format!("{collection}.map {rendered_closure}"),
+                CollectionTransform::FlatMap => {
+                    format!("{collection}.flatMap {rendered_closure}")
+                }
+                CollectionTransform::Filter => format!("{collection}.filter {rendered_closure}"),
                 CollectionTransform::Reduce => format!(
-                    "{collection}.reduce({}, {closure})",
+                    "{collection}.reduce({}, {rendered_closure})",
                     initial
                         .as_deref()
                         .map(render)
                         .unwrap_or_else(|| "0".to_owned())
                 ),
+                CollectionTransform::SortedBy => {
+                    let Expr::Closure { parameters, body } = closure_expression.as_ref() else {
+                        return "[]".to_owned();
+                    };
+                    let Some(parameter) = parameters.first() else {
+                        return "[]".to_owned();
+                    };
+                    let key = expression_with_locals(body, parameters);
+                    let lhs_key = replace_identifier(&key, parameter, "nexaLeft");
+                    let rhs_key = replace_identifier(&key, parameter, "nexaRight");
+                    format!(
+                        "{collection}.sorted {{ nexaLeft, nexaRight in {lhs_key} < {rhs_key} }}"
+                    )
+                }
+                CollectionTransform::GroupedBy => {
+                    format!("nexaGroupByStable({collection}, by: {rendered_closure})")
+                }
             }
         }
         Expr::CollectionUtility {
@@ -253,6 +343,10 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                         format!("Int({start})..<Int({end})")
                     };
                     format!("Array({collection}[{range}])")
+                }
+                CollectionUtilityKind::Take => {
+                    let count = end.as_deref().map(render).unwrap_or_else(|| "0".to_owned());
+                    format!("Array({collection}.prefix(max(0, Int({count}))))")
                 }
             }
         }
@@ -385,6 +479,13 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             collection_type,
         } => {
             let collection = render(collection);
+            if matches!(collection_type, Type::String) {
+                return format!(
+                    "{}.localizedCaseInsensitiveContains({})",
+                    collection,
+                    render(value)
+                );
+            }
             let receiver = if matches!(collection_type, Type::Map(_, _)) {
                 format!("{}.keys", collection)
             } else {
@@ -398,6 +499,45 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
     }
 }
 
+fn localized_text_expression(
+    key: &str,
+    value: &Expr,
+    comment: Option<&str>,
+    locals: &[String],
+) -> String {
+    let comment = swift_string(comment.unwrap_or(""));
+    let fallback =
+        nexa_ir::localization::apple_format_value(value).unwrap_or_else(|| key.to_owned());
+    let catalog_key =
+        nexa_ir::localization::apple_catalog_key(value).unwrap_or_else(|| key.to_owned());
+    let localized = format!(
+        "NSLocalizedString({}, tableName: nil, bundle: .main, value: {}, comment: {})",
+        swift_string(&catalog_key),
+        swift_string(&fallback),
+        comment
+    );
+    let arguments = nexa_ir::localization::interpolation_arguments(value)
+        .into_iter()
+        .map(|argument| {
+            let rendered = expression_with_locals(argument, locals);
+            match argument {
+                Expr::State(_, Type::Numeric(_))
+                | Expr::AnimatedState(_, Type::Numeric(_))
+                | Expr::Number { .. } => format!("{rendered} as CVarArg"),
+                _ => format!("String(describing: {rendered}) as CVarArg"),
+            }
+        })
+        .collect::<Vec<_>>();
+    if arguments.is_empty() {
+        localized
+    } else {
+        format!(
+            "String(format: {localized}, locale: Locale.current, arguments: [{}])",
+            arguments.join(", ")
+        )
+    }
+}
+
 /// A core clock call. Every one is a direct platform call: a system clock, a
 /// monotonic counter, or the generated ISO 8601 helpers.
 fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> String {
@@ -405,6 +545,7 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
         .iter()
         .map(|argument| expression_with_locals(argument, locals))
         .collect::<Vec<_>>();
+    let first = rendered.first().cloned().unwrap_or_else(|| "0".to_owned());
     match method {
         TimeMethod::Now => "Int64((Date().timeIntervalSince1970 * 1000).rounded())".to_owned(),
         // `uptimeNanoseconds` is a `UInt64` that only overflows after ~584
@@ -433,6 +574,29 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
                 "nexaIso8601ToMillis({})",
                 rendered.first().cloned().unwrap_or_default()
             )
+        }
+        TimeMethod::StartOfDay => {
+            format!("nexaStartOfDay({first})")
+        }
+        TimeMethod::AddCalendarDays => {
+            let days = rendered.get(1).cloned().unwrap_or_else(|| "0".to_owned());
+            format!("nexaAddCalendarDays({first}, {days})")
+        }
+        TimeMethod::LocalizedDate => format!(
+            "DateFormatter.localizedString(from: Date(timeIntervalSince1970: Double({first}) / 1000.0), dateStyle: .short, timeStyle: .none)"
+        ),
+        TimeMethod::LocalizedTime => format!(
+            "DateFormatter.localizedString(from: Date(timeIntervalSince1970: Double({first}) / 1000.0), dateStyle: .none, timeStyle: .short)"
+        ),
+        TimeMethod::LocalizedDateTime => format!(
+            "DateFormatter.localizedString(from: Date(timeIntervalSince1970: Double({first}) / 1000.0), dateStyle: .short, timeStyle: .short)"
+        ),
+        TimeMethod::Format => {
+            let pattern = rendered
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "\"\"".to_owned());
+            format!("nexaFormatDate({first}, {pattern})")
         }
     }
 }
@@ -465,6 +629,12 @@ fn native_call(
     // A generic plugin call carries its value codecs as trailing closures, so
     // the bound type never appears as a string in the generated code.
     for codec in codecs {
+        if codec.row_mapper {
+            if let Some(mapper) = plugin_row_mapper(&codec.ty) {
+                rendered.push(mapper);
+            }
+            continue;
+        }
         let function = nexa_codegen::value::codec_name(
             &codec.ty,
             if codec.decodes {
@@ -480,10 +650,15 @@ fn native_call(
         });
     }
     if let Some(receiver) = receiver {
+        let native_name = if namespace.starts_with("__NexaUserClass:") {
+            nexa_codegen::names::function_name(name)
+        } else {
+            name.to_owned()
+        };
         return format!(
             "{}.{}({})",
             expression_with_locals(receiver, locals),
-            name,
+            native_name,
             rendered.join(", ")
         );
     }
@@ -491,6 +666,10 @@ fn native_call(
         ("Screen", "lockOrientation") => format!(
             "NexaScreen.lockOrientation({})",
             rendered.first().map(String::as_str).unwrap_or("\"All\"")
+        ),
+        ("AppIcon", "set") => format!(
+            "nexaSetAlternateAppIcon({})",
+            rendered.first().map(String::as_str).unwrap_or("nil")
         ),
         ("Network", "isOnline") => "NexaNetwork.isOnline()".to_owned(),
         ("Network", "upload") => format!(
@@ -530,6 +709,12 @@ fn native_call(
             "nexaFormatCurrency({}, {})",
             rendered.first().map(String::as_str).unwrap_or("0.0"),
             rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Locale", "currentLanguageCode") => "nexaCurrentLanguageCode()".to_owned(),
+        ("Locale", "preferredLanguageCodes") => "Locale.preferredLanguages".to_owned(),
+        ("Locale", "displayName") => format!(
+            "Locale.current.localizedString(forLanguageCode: {})",
+            rendered.first().map(String::as_str).unwrap_or("\"und\"")
         ),
         ("Crypto", "sha256") => format!(
             "nexaCryptoSha256({})",
@@ -597,6 +782,106 @@ fn native_call(
     }
 }
 
+/// Emits a static native row decoder. Column names are resolved once before
+/// iteration, and each row reads only the requested typed fields.
+fn plugin_row_mapper(ty: &Type) -> Option<String> {
+    let Type::Struct { name, fields } = ty else {
+        return None;
+    };
+    let mut setup = Vec::with_capacity(fields.len() + 4);
+    let mut values = Vec::with_capacity(fields.len());
+    let expected_columns = fields
+        .iter()
+        .map(|(field, _)| swift_string(field))
+        .collect::<Vec<_>>()
+        .join(", ");
+    setup.push(format!(
+        "let nexaExpectedColumns: Set<String> = [{expected_columns}]"
+    ));
+    setup.push("var nexaColumnIndices: [String: Int32] = [:]".to_owned());
+    setup.push("nexaColumnIndices.reserveCapacity(nexaExpectedColumns.count)".to_owned());
+    setup.push("var nexaDuplicateColumns = Set<String>()".to_owned());
+    setup.push(
+        "for (index, name) in columnNames.enumerated() where nexaExpectedColumns.contains(name) {\n        if nexaColumnIndices.updateValue(Int32(index), forKey: name) != nil {\n            nexaDuplicateColumns.insert(name)\n        }\n    }"
+            .to_owned(),
+    );
+    for (index, (field, field_type)) in fields.iter().enumerate() {
+        let column = format!("nexaColumn{index}");
+        setup.push(format!(
+            "guard let {column} = nexaColumnIndices[{}], !nexaDuplicateColumns.contains({}) else {{ throw rowFailure({}) }}",
+            swift_string(field),
+            swift_string(field),
+            swift_string(&format!("Query must select column `{field}` exactly once.")),
+        ));
+        values.push(format!(
+            "{}: {}",
+            nexa_codegen::names::struct_field_name(field),
+            plugin_swift_decode(field_type, &column, field),
+        ));
+    }
+    Some(format!(
+        "{{ columnNames, rowFailure throws(Failure) in\n    {}\n    return {{ row throws(Failure) in {}({}) }}\n}}",
+        setup.join("\n    "),
+        nexa_codegen::names::struct_name(name),
+        values.join(", "),
+    ))
+}
+
+fn plugin_swift_decode(ty: &Type, index: &str, column: &str) -> String {
+    let (optional, value_type) = match ty {
+        Type::Optional(inner) => (true, inner.as_ref()),
+        other => (false, other),
+    };
+    let failure = swift_string(&format!("Row field `{column}` has an incompatible value."));
+    let (getter, conversion) = match value_type {
+        Type::Bool => ("boolean", None),
+        Type::String => ("text", None),
+        Type::Bytes => ("bytes", None),
+        Type::Numeric(NumericType::Float32) => ("decimal", Some("Float")),
+        Type::Numeric(NumericType::Float64) => ("decimal", None),
+        Type::Numeric(NumericType::Int8) => ("integer", Some("Int8")),
+        Type::Numeric(NumericType::Int16) => ("integer", Some("Int16")),
+        Type::Numeric(NumericType::Int32) => ("integer", Some("Int32")),
+        Type::Numeric(NumericType::Int64) => ("integer", None),
+        Type::Numeric(NumericType::UInt8) => ("integer", Some("UInt8")),
+        Type::Numeric(NumericType::UInt16) => ("integer", Some("UInt16")),
+        Type::Numeric(NumericType::UInt32) => ("integer", Some("UInt32")),
+        Type::Numeric(NumericType::UInt64) => ("integer", Some("UInt64")),
+        _ => {
+            return format!(
+                "try {{ () throws(Failure) -> {} in throw rowFailure({failure}) }}()",
+                crate::generator::engine::types::swift_type(ty)
+            );
+        }
+    };
+    let reader_method = if optional {
+        format!("optional{}", capitalize_ascii(getter))
+    } else {
+        getter.to_owned()
+    };
+    let read = format!("try row.{reader_method}({index}, {})", swift_string(column));
+    match (optional, conversion) {
+        (false, Some("Float")) => format!("Float({read})"),
+        (true, Some("Float")) => format!("{read}.map {{ Float($0) }}"),
+        (false, Some(target)) => format!(
+            "try {{ () throws(Failure) -> {} in guard let converted = {target}(exactly: {read}) else {{ throw rowFailure({failure}) }}; return converted }}()",
+            crate::generator::engine::types::swift_type(ty)
+        ),
+        (true, Some(target)) => format!(
+            "{read}.map {{ raw -> {target} in guard let converted = {target}(exactly: raw) else {{ throw rowFailure({failure}) }}; return converted }}"
+        ),
+        (_, None) => read,
+    }
+}
+
+fn capitalize_ascii(value: &str) -> String {
+    let mut characters = value.chars();
+    match characters.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + characters.as_str(),
+        None => String::new(),
+    }
+}
+
 /// Renders a validated network request. `destination` is present only for
 /// `Network.download`; the format strings match the previous
 /// argument-lookup rendering exactly.
@@ -658,6 +943,63 @@ fn range_bound(expr: &Expr, locals: &[String]) -> String {
     }
 }
 
+fn replace_identifier(source: &str, identifier: &str, replacement: &str) -> String {
+    if identifier.is_empty() {
+        return source.to_owned();
+    }
+    let bytes = source.as_bytes();
+    let identifier_bytes = identifier.as_bytes();
+    let mut output = String::with_capacity(source.len());
+    let mut index = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if !byte.is_ascii()
+            && let Some(character) = source[index..].chars().next()
+        {
+            output.push(character);
+            index += character.len_utf8();
+            continue;
+        }
+        if in_string {
+            output.push(byte as char);
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            index += 1;
+            continue;
+        }
+        if byte == b'"' {
+            in_string = true;
+            output.push('"');
+            index += 1;
+            continue;
+        }
+        let end = index + identifier_bytes.len();
+        let before_is_identifier =
+            index > 0 && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_');
+        let after_is_identifier =
+            end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_');
+        if !before_is_identifier
+            && !after_is_identifier
+            && end <= bytes.len()
+            && &bytes[index..end] == identifier_bytes
+        {
+            output.push_str(replacement);
+            index = end;
+        } else {
+            output.push(byte as char);
+            index += 1;
+        }
+    }
+    output
+}
+
 fn binary_operator(operator: BinaryOp) -> &'static str {
     match operator {
         BinaryOp::And => "&&",
@@ -674,6 +1016,10 @@ fn binary_operator(operator: BinaryOp) -> &'static str {
 
 pub(crate) fn text_expression(expr: &Expr) -> String {
     match expr {
+        Expr::LocalizedText { value, .. } => match value.as_ref() {
+            Expr::String(_) | Expr::Interpolation(_) => expression(value),
+            _ => expression(expr),
+        },
         Expr::State(_, Type::String)
         | Expr::Member {
             field_type: Type::String,
@@ -685,10 +1031,47 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
     }
 }
 
+pub(crate) fn localized_text_view(expr: &Expr, comment: Option<&str>) -> String {
+    let value = text_expression(expr);
+    let source_comment = match expr {
+        Expr::LocalizedText {
+            comment: Some(source_comment),
+            ..
+        } => Some(source_comment.as_str()),
+        _ => None,
+    };
+    match comment
+        .or(source_comment)
+        .filter(|comment| !comment.trim().is_empty())
+    {
+        Some(comment) => format!("Text({value}, comment: {})", swift_string(comment)),
+        None => format!("Text({value})"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::expression;
-    use nexa_ir::{ArithmeticOp, CollectionUtilityKind, Expr, NumericType, TimeMethod, Type};
+    use super::{PluginCodec, expression, plugin_row_mapper};
+    use nexa_ir::{
+        ArithmeticOp, CollectionTransform, CollectionUtilityKind, Expr, MemberKind, NumericType,
+        TimeMethod, Type,
+    };
+
+    #[test]
+    fn current_language_code_uses_the_availability_safe_native_helper() {
+        let call = Expr::NativeCall {
+            receiver: None,
+            namespace: "Locale".to_owned(),
+            name: "currentLanguageCode".to_owned(),
+            arguments: Vec::new(),
+            codecs: Vec::new(),
+            return_type: Type::String,
+            is_async: false,
+            is_throwing: false,
+        };
+
+        assert_eq!(expression(&call), "nexaCurrentLanguageCode()");
+    }
 
     #[test]
     fn conditional_expressions_use_the_native_ternary_operator() {
@@ -700,6 +1083,124 @@ mod tests {
         };
 
         assert_eq!(expression(&conditional), "(true ? \"ready\" : \"waiting\")");
+    }
+
+    #[test]
+    fn trimmed_string_member_uses_foundation_whitespace_and_newline_trimming() {
+        let trimmed = Expr::Member {
+            base: Box::new(Expr::String(" name ".to_owned())),
+            name: "trimmed".to_owned(),
+            optional: false,
+            base_type: Type::String,
+            field_type: Type::String,
+            kind: MemberKind::StringTrimmed,
+        };
+        assert_eq!(
+            expression(&trimmed),
+            "\" name \".trimmingCharacters(in: .whitespacesAndNewlines)"
+        );
+    }
+
+    #[test]
+    fn optional_plugin_payload_is_mapped_once_and_uses_the_null_case() {
+        let mapped = Expr::PluginEnumOptionalConstructor {
+            namespace: "SQLite".to_owned(),
+            enum_name: "Value".to_owned(),
+            case_name: "int64".to_owned(),
+            null_case_name: "nullValue".to_owned(),
+            payload_name: "value".to_owned(),
+            value: Box::new(Expr::State(
+                "id".to_owned(),
+                Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
+            )),
+            return_type: Type::Plugin {
+                namespace: "SQLite".to_owned(),
+                name: "Value".to_owned(),
+            },
+        };
+
+        assert_eq!(
+            expression(&mapped),
+            "(nexa_id).map { Value.int64(value: $0) } ?? Value.nullValue"
+        );
+    }
+
+    #[test]
+    fn plugin_row_mapper_resolves_columns_once_and_reads_only_typed_fields() {
+        let ty = Type::Struct {
+            name: "Note".to_owned(),
+            fields: vec![
+                (
+                    "id".to_owned(),
+                    Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
+                ),
+                ("title".to_owned(), Type::String),
+            ],
+        };
+
+        let mapper = plugin_row_mapper(&ty).expect("structs should receive typed row mappers");
+        assert!(mapper.contains("columnNames, rowFailure throws(Failure) in\n    let nexaExpectedColumns"));
+        assert!(mapper.contains("rowFailure("));
+        assert!(!mapper.contains("NexaRowReader<Value"));
+        assert!(mapper.contains("nexaColumnIndices: [String: Int32] = [:]\n"));
+        assert!(!mapper.contains("[:]; nexaColumnIndices"));
+        assert!(mapper.contains("for (index, name) in columnNames.enumerated()"));
+        assert!(!mapper.contains("columnNames.firstIndex"));
+        assert!(mapper.contains("row.optionalInteger(nexaColumn0, \"id\")"));
+        assert!(mapper.contains("row.text(nexaColumn1, \"title\")"));
+        assert!(!mapper.contains("SQLite.Value"));
+        assert!(!mapper.contains("row["));
+    }
+
+    #[test]
+    fn plugin_row_mapper_generates_direct_optional_and_range_checked_reads() {
+        let ty = Type::Struct {
+            name: "TypedNote".to_owned(),
+            fields: vec![
+                (
+                    "count".to_owned(),
+                    Type::Optional(Box::new(Type::Numeric(NumericType::Int32))),
+                ),
+                ("enabled".to_owned(), Type::Bool),
+                ("ratio".to_owned(), Type::Numeric(NumericType::Float32)),
+                ("payload".to_owned(), Type::Optional(Box::new(Type::Bytes))),
+            ],
+        };
+
+        let mapper = plugin_row_mapper(&ty).expect("structs should receive typed row mappers");
+        assert!(mapper.contains("row.optionalInteger(nexaColumn0, \"count\")"));
+        assert!(mapper.contains("Int32(exactly: raw)"));
+        assert!(mapper.contains("row.boolean(nexaColumn1, \"enabled\")"));
+        assert!(mapper.contains("row.decimal(nexaColumn2, \"ratio\")"));
+        assert!(mapper.contains("row.optionalBytes(nexaColumn3, \"payload\")"));
+    }
+
+    #[test]
+    fn typed_row_mapping_works_for_any_plugin_namespace() {
+        let item = Type::Struct {
+            name: "Item".to_owned(),
+            fields: vec![("title".to_owned(), Type::String)],
+        };
+        let call = Expr::NativeCall {
+            receiver: None,
+            namespace: "Records".to_owned(),
+            name: "load".to_owned(),
+            arguments: Vec::new(),
+            codecs: vec![PluginCodec {
+                ty: item.clone(),
+                decodes: true,
+                row_mapper: true,
+            }],
+            return_type: Type::Array(Box::new(item)),
+            is_async: true,
+            is_throwing: true,
+        };
+
+        let generated = expression(&call);
+        assert!(generated.contains("RecordsPlugin.shared.load"));
+        assert!(generated.contains("rowFailure"));
+        assert!(generated.contains("row.text(nexaColumn0, \"title\")"));
+        assert!(!generated.contains("SQLite"));
     }
 
     #[test]
@@ -948,6 +1449,7 @@ mod tests {
                 arguments: Vec::new(),
                 return_type: Type::Numeric(NumericType::Int32),
                 is_async: true,
+                is_throwing: false,
                 is_constructor: false,
             }))
         };
@@ -1074,6 +1576,51 @@ mod tests {
             }),
             "nexaIso8601ToMillis(\"2026-09-27T09:41:02.123Z\")"
         );
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::AddCalendarDays,
+                arguments: vec![
+                    Expr::Number {
+                        raw: "1700000000000".to_owned(),
+                        ty: NumericType::Int64,
+                    },
+                    Expr::Number {
+                        raw: "2".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                ],
+                return_type: Type::Numeric(NumericType::Int64),
+                is_async: false,
+            }),
+            "nexaAddCalendarDays(1700000000000, 2)"
+        );
+        for (method, expected) in [
+            (
+                TimeMethod::LocalizedDate,
+                "DateFormatter.localizedString(from: Date(timeIntervalSince1970: Double(1700000000000) / 1000.0), dateStyle: .short, timeStyle: .none)",
+            ),
+            (
+                TimeMethod::LocalizedTime,
+                "DateFormatter.localizedString(from: Date(timeIntervalSince1970: Double(1700000000000) / 1000.0), dateStyle: .none, timeStyle: .short)",
+            ),
+            (
+                TimeMethod::LocalizedDateTime,
+                "DateFormatter.localizedString(from: Date(timeIntervalSince1970: Double(1700000000000) / 1000.0), dateStyle: .short, timeStyle: .short)",
+            ),
+        ] {
+            assert_eq!(
+                expression(&Expr::TimeCall {
+                    method,
+                    arguments: vec![Expr::Number {
+                        raw: "1700000000000".to_owned(),
+                        ty: NumericType::Int64,
+                    }],
+                    return_type: Type::String,
+                    is_async: false,
+                }),
+                expected
+            );
+        }
     }
 
     #[test]
@@ -1098,6 +1645,43 @@ mod tests {
         assert_eq!(
             expression(&Expr::Await(Box::new(call))),
             "(await nexa_player.prepare(\"clip.mp4\"))"
+        );
+    }
+
+    #[test]
+    fn string_membership_uses_native_case_insensitive_search() {
+        let search = Expr::Contains {
+            value: Box::new(Expr::String("meeting".to_owned())),
+            collection: Box::new(Expr::String("Team Meeting".to_owned())),
+            collection_type: Type::String,
+        };
+
+        assert_eq!(
+            expression(&search),
+            "\"Team Meeting\".localizedCaseInsensitiveContains(\"meeting\")"
+        );
+    }
+
+    #[test]
+    fn sorted_by_uses_a_native_comparator_without_rebuilding_the_source_array() {
+        let sorted = Expr::CollectionTransform {
+            operation: CollectionTransform::SortedBy,
+            collection: Box::new(Expr::State(
+                "values".to_owned(),
+                Type::Array(Box::new(Type::Numeric(NumericType::Int32))),
+            )),
+            initial: None,
+            closure: Box::new(Expr::Closure {
+                parameters: vec!["value".to_owned()],
+                body: Box::new(Expr::State(
+                    "value".to_owned(),
+                    Type::Numeric(NumericType::Int32),
+                )),
+            }),
+        };
+        assert_eq!(
+            expression(&sorted),
+            "nexa_values.sorted { nexaLeft, nexaRight in nexaLeft < nexaRight }"
         );
     }
 }

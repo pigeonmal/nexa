@@ -258,6 +258,11 @@
         "android": "covered"
       },
       {
+        "name": "Class",
+        "ios": "partial",
+        "android": "partial"
+      },
+      {
         "name": "Bytes",
         "ios": "covered",
         "android": "covered"
@@ -271,6 +276,11 @@
         "name": "TypeParam",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "Signal",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Expr": [
@@ -281,6 +291,11 @@
       },
       {
         "name": "Interpolation",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LocalizedText",
         "ios": "covered",
         "android": "covered"
       },
@@ -300,6 +315,11 @@
         "android": "covered"
       },
       {
+        "name": "This",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "AnimatedState",
         "ios": "covered",
         "android": "covered"
@@ -311,6 +331,16 @@
       },
       {
         "name": "PluginEnumValue",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "PluginEnumConstructor",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "PluginEnumOptionalConstructor",
         "ios": "covered",
         "android": "covered"
       },
@@ -547,12 +577,27 @@
         "android": "covered"
       },
       {
+        "name": "FlatMap",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Filter",
         "ios": "covered",
         "android": "covered"
       },
       {
         "name": "Reduce",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SortedBy",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "GroupedBy",
         "ios": "covered",
         "android": "covered"
       }
@@ -585,6 +630,11 @@
       },
       {
         "name": "Slice",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Take",
         "ios": "covered",
         "android": "covered"
       }
@@ -650,6 +700,16 @@
     ],
     "Node": [
       {
+        "name": "Appearance",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "DatePicker",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "StatusBar",
         "ios": "covered",
         "android": "covered"
@@ -690,7 +750,27 @@
         "android": "covered"
       },
       {
+        "name": "Form",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FormSection",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Toolbar",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Text",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ContentUnavailable",
         "ios": "covered",
         "android": "covered"
       },
@@ -760,6 +840,11 @@
         "android": "covered"
       },
       {
+        "name": "NavigationSplitView",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "NavigationLink",
         "ios": "covered",
         "android": "covered"
@@ -795,6 +880,11 @@
         "android": "covered"
       },
       {
+        "name": "ConfirmationDialog",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "SegmentedControl",
         "ios": "covered",
         "android": "covered"
@@ -811,6 +901,11 @@
       },
       {
         "name": "AppBottomBar",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "PagePager",
         "ios": "covered",
         "android": "covered"
       },
@@ -967,6 +1062,18 @@
         "android": "covered"
       }
     ],
+    "TextInputFont": [
+      {
+        "name": "Body",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Title3",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "ReturnKeyType": [
       {
         "name": "Done",
@@ -1031,6 +1138,11 @@
       },
       {
         "name": "RemoteUrl",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LocalFile",
         "ios": "covered",
         "android": "covered"
       }
@@ -1106,6 +1218,23 @@
         "android": "covered"
       }
     ],
+    "TextAlignment": [
+      {
+        "name": "Leading",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Center",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Trailing",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "ColorValue": [
       {
         "name": "Static",
@@ -1114,6 +1243,18 @@
       },
       {
         "name": "Adaptive",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ColorExpression": [
+      {
+        "name": "Static",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Dynamic",
         "ios": "covered",
         "android": "covered"
       }
@@ -1140,9 +1281,92 @@
         "android": "covered"
       }
     ],
+    "ButtonShape": [
+      {
+        "name": "Capsule",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Circle",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Rounded",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ButtonSize": [
+      {
+        "name": "Small",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Regular",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Large",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ButtonStyle": [
+      {
+        "name": "BorderedProminent",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Bordered",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Borderless",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Plain",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "GlassShape": [
+      {
+        "name": "Capsule",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Circle",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Rounded",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "Action": [
       {
         "name": "Expression",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Let",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Return",
         "ios": "covered",
         "android": "covered"
       },
@@ -1241,6 +1465,16 @@
         "android": "covered"
       },
       {
+        "name": "ArrayMove",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ArrayMoveSubset",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "ArrayRemoveAt",
         "ios": "covered",
         "android": "covered"
@@ -1283,6 +1517,16 @@
         "android": "covered"
       },
       {
+        "name": "ClassField",
+        "ios": "partial",
+        "android": "partial"
+      },
+      {
+        "name": "ClassStaticField",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "PluginField",
         "ios": "covered",
         "android": "covered"
@@ -1309,6 +1553,28 @@
       },
       {
         "name": "CollectionIsEmpty",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "StringTrimmed",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SignalValue",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ToolbarPlacement": [
+      {
+        "name": "Leading",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Trailing",
         "ios": "covered",
         "android": "covered"
       }
@@ -1372,6 +1638,36 @@
         "name": "Iso8601ToMillis",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "StartOfDay",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "AddCalendarDays",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LocalizedDate",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LocalizedTime",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LocalizedDateTime",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Format",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "LogMethod": [
@@ -1413,109 +1709,24 @@
         "android": "covered"
       }
     ],
-    "SystemIcon": [
+    "WidgetFamily": [
       {
-        "name": "Home",
+        "name": "Small",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Search",
+        "name": "Medium",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Inbox",
+        "name": "Large",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Profile",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Heart",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "HeartFilled",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Comment",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "CommentFilled",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Bookmark",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "BookmarkFilled",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Share",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Music",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Back",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Screen",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Layers",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Plus",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Close",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Checkmark",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Send",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Volume",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "VolumeMuted",
+        "name": "ExtraLarge",
         "ios": "covered",
         "android": "covered"
       }

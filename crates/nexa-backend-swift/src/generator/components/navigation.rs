@@ -3,11 +3,14 @@ use nexa_codegen::names::navigation_case_name;
 use nexa_ir::{Expr, Module, Node, ScreenId, Type};
 
 use crate::generator::engine::expressions::expression;
-use crate::generator::engine::expressions::text_expression;
 use crate::generator::engine::types::swift_type;
-use crate::generator::{components::render_children, utils::indent};
 use crate::generator::{
-    features::Features, render_immutable_state, render_native_object_state, status_bar,
+    components::render_children,
+    utils::{indent, swift_string},
+};
+use crate::generator::{
+    features::Features, render_immutable_state, render_native_object_state,
+    render_native_object_state_uninitialized, render_state_initializers_in_init, status_bar,
 };
 
 use super::lifecycle;
@@ -44,10 +47,23 @@ pub(crate) fn render_link(
     }
 }
 
-pub(crate) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
-    out.line_at(depth, format_args!("Button({}) {{", text_expression(label)));
+pub(crate) fn render_back(
+    label: &nexa_ir::Expr,
+    comment: Option<&str>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    out.line_at(depth, format_args!("Button {{"));
     indent(out, depth + 1);
     out.push_str("nexaDismiss()\n");
+    out.line_at(depth, format_args!("}} label: {{"));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "{}",
+            crate::generator::expressions::localized_text_view(label, comment)
+        ),
+    );
     indent(out, depth);
     out.push('}');
 }
@@ -95,7 +111,7 @@ pub(crate) fn render_navigation_stack(
             ));
         }
         indent(out, depth + 4);
-        out.push_str(&screen_call(
+        let destination = screen_call(
             module,
             screen.id,
             &screen
@@ -105,6 +121,10 @@ pub(crate) fn render_navigation_stack(
                 .collect::<Vec<_>>(),
             features,
             "routeIdentity",
+        );
+        out.push_str(&format!(
+            "{destination}\n.navigationTitle({})\n.nexaLargeTitleDisplayMode()\n.toolbar(.hidden, for: .tabBar)",
+            swift_string(&screen.name)
         ));
         out.push('\n');
     }
@@ -207,13 +227,7 @@ pub(crate) fn render_screen_view(
     out: &mut SourceWriter,
 ) {
     out.push('\n');
-    let focus_bindings = features
-        .facts
-        .focus_bindings
-        .screens
-        .get(&screen.name)
-        .cloned()
-        .unwrap_or_default();
+    let focus_bindings = crate::generator::screen_focus_bindings(screen, features);
     out.push_str(&format!(
         "private struct {}: View {{\n",
         screen_view_name(screen.id)
@@ -225,7 +239,12 @@ pub(crate) fn render_screen_view(
         out.line_at(
             1,
             format_args!(
-                "@Binding private var {}: {}",
+                "{} private var {}: {}",
+                if focus_bindings.contains(&state.name) {
+                    "@FocusState.Binding"
+                } else {
+                    "@Binding"
+                },
                 nexa_codegen::names::state_name(&state.name),
                 swift_type(&state.ty)
             ),
@@ -256,9 +275,26 @@ pub(crate) fn render_screen_view(
             ),
         );
     }
+    let has_signals = screen
+        .states
+        .iter()
+        .any(|state| matches!(state.ty, nexa_ir::Type::Signal(_)));
     for state in &screen.states {
         if state.is_native_class_constructor_binding() {
-            render_native_object_state(state, 1, out);
+            if has_signals {
+                render_native_object_state_uninitialized(state, 1, out);
+            } else {
+                render_native_object_state(state, 1, out);
+            }
+        } else if matches!(state.ty, nexa_ir::Type::Signal(_)) {
+            out.line_at(
+                1,
+                format_args!(
+                    "@StateObject private var {}: {}",
+                    nexa_codegen::names::state_name(&state.name),
+                    swift_type(&state.ty)
+                ),
+            );
         } else if state.mutable && !focus_bindings.contains(&state.name) {
             out.line_at(
                 1,
@@ -272,6 +308,9 @@ pub(crate) fn render_screen_view(
         }
     }
     for binding in &focus_bindings {
+        if module.states.iter().any(|state| state.name == *binding) {
+            continue;
+        }
         out.line_at(
             1,
             format_args!(
@@ -306,9 +345,13 @@ pub(crate) fn render_screen_view(
     init_parameters.extend(module.states.iter().filter_map(|state| {
         if screen_state_is_passed_as_binding(state, &focus_bindings) {
             Some(format!(
-                "{}: Binding<{}>",
+                "{}: {}",
                 nexa_codegen::names::state_name(&state.name),
-                swift_type(&state.ty)
+                if focus_bindings.contains(&state.name) {
+                    "FocusState<Bool>.Binding".to_owned()
+                } else {
+                    format!("Binding<{}>", swift_type(&state.ty))
+                }
             ))
         } else if state.is_native_class_constructor_binding()
             && !state.mutable
@@ -324,7 +367,7 @@ pub(crate) fn render_screen_view(
         }
     }));
     out.push_str(&init_parameters.join(", "));
-    if init_parameters.is_empty() {
+    if init_parameters.is_empty() && !has_signals {
         out.push_str(") {}\n\n");
     } else {
         out.push_str(") {\n");
@@ -344,12 +387,33 @@ pub(crate) fn render_screen_view(
                 out.push_str(&format!("        self.{name} = {name}\n"));
             }
         }
+        if has_signals {
+            let mut writer = nexa_codegen::SourceWriter::new();
+            render_state_initializers_in_init(&screen.states, 2, &mut writer);
+            out.push_str(&writer.finish());
+        }
         out.push_str("    }\n\n");
     }
     out.push_str("    var body: some View {\n");
     render_immutable_state(&module.states, 2, out);
     render_immutable_state(&screen.states, 2, out);
-    render_children(&screen.body, module, features, 2, out);
+    out.push_str("        Group {\n");
+    let content = screen
+        .body
+        .iter()
+        .filter(|node| !matches!(node, Node::Toolbar { .. }))
+        .cloned()
+        .collect::<Vec<_>>();
+    render_children(&content, module, features, 3, out);
+    out.push_str("\n        }\n");
+    for toolbar in screen
+        .body
+        .iter()
+        .filter(|node| matches!(node, Node::Toolbar { .. }))
+    {
+        super::bottom_bar::render_navigation_toolbar(toolbar, module, features, 2, out);
+        out.push('\n');
+    }
     lifecycle::render_on_appear(screen.on_appear.as_deref(), screen.on_appear_async, 2, out);
     lifecycle::render_on_disappear(
         screen.on_disappear.as_deref(),
@@ -358,7 +422,9 @@ pub(crate) fn render_screen_view(
         out,
     );
     status_bar::render(screen.status_bar.or(module.status_bar), 2, out);
-    out.push_str("\n    }\n}\n");
+    out.push_str("\n    }\n");
+    super::bottom_bar::render_bottom_bar_helpers(&screen.body, module, features, out);
+    out.push_str("}\n");
 }
 
 fn screen_view_name(screen: ScreenId) -> String {
@@ -380,19 +446,18 @@ fn screen_call(
     route_identity: &str,
 ) -> String {
     let destination = &module.screens[screen.0];
-    let focus_bindings = features
-        .facts
-        .focus_bindings
-        .screens
-        .get(&destination.name)
-        .cloned()
-        .unwrap_or_default();
+    let focus_bindings = crate::generator::screen_focus_bindings(destination, features);
+    let app_focus_bindings = crate::generator::app_focus_bindings(module, features);
     let mut values = Vec::new();
     values.extend(arguments.iter().map(expression));
     for state in &module.states {
         let name = nexa_codegen::names::state_name(&state.name);
         if screen_state_is_passed_as_binding(state, &focus_bindings) {
-            let binding = if state.is_native_class_constructor_binding() {
+            let binding = if focus_bindings.contains(&state.name) {
+                format!("${name}")
+            } else if app_focus_bindings.contains(&state.name)
+                || state.is_native_class_constructor_binding()
+            {
                 format!("Binding(get: {{ {name} }}, set: {{ {name} = $0 }})")
             } else {
                 format!("${name}")
@@ -414,10 +479,9 @@ fn screen_call(
 
 fn screen_state_is_passed_as_binding(
     state: &State,
-    focus_bindings: &std::collections::BTreeSet<String>,
+    _focus_bindings: &std::collections::BTreeSet<String>,
 ) -> bool {
-    !focus_bindings.contains(&state.name)
-        && (state.mutable
-            || (state.is_native_class_instance_binding()
-                && !state.is_native_class_constructor_binding()))
+    state.mutable
+        || (state.is_native_class_instance_binding()
+            && !state.is_native_class_constructor_binding())
 }

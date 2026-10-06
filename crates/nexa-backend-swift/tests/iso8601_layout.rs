@@ -18,6 +18,7 @@ use nexa_ir::{Expr, Module, Node, NumericType, TimeMethod, Type};
 /// A module whose body reads the clock, so the clock support is emitted.
 fn module() -> Module {
     Module {
+        widgets: Vec::new(),
         app_name: "ClockApp".to_owned(),
         plugins: Vec::new(),
         plugin_assets: Vec::new(),
@@ -25,6 +26,7 @@ fn module() -> Module {
         structs: Vec::new(),
         functions: Vec::new(),
         background_tasks: Vec::new(),
+        globals: Vec::new(),
         states: Vec::new(),
         screens: Vec::new(),
         components: Vec::new(),

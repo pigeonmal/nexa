@@ -266,8 +266,14 @@ private final class NexaFastListTableView: UITableView {
     }
 }
 
+// <nexa:sticky-header-generics:begin>
 @available(iOS 16.0, *)
 private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepresentable {
+// <nexa:sticky-header-generics:end>
+// <nexa:sticky-header-generics-none:begin>
+@available(iOS 16.0, *)
+private struct NexaFastList<RowContent: View>: UIViewRepresentable {
+// <nexa:sticky-header-generics-none:end>
     let rowCount: Int
     let rowHeight: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
@@ -1249,9 +1255,12 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             "coordinator-init-parameter",
             "coordinator-init-assignment",
             "delegate-methods",
+            "generics",
         ] {
             runtime = remove_marked_section(&mut runtime, "sticky-header", section);
         }
+    } else {
+        runtime = remove_marked_section(&mut runtime, "sticky-header", "generics-none");
     }
     if !uses_scroll_events {
         for section in [
@@ -1299,6 +1308,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         "coordinator-init-parameter",
         "coordinator-init-assignment",
         "delegate-methods",
+        "generics",
+        "generics-none",
     ] {
         runtime = strip_markers(&mut runtime, "sticky-header", section);
     }

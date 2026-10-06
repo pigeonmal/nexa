@@ -5,10 +5,12 @@
 //! connected native development renderer can replace the complete module and
 //! preserve compatible values across later revisions.
 
+use std::collections::BTreeMap;
+
 use nexa_ir::{Module, Node};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 25;
+pub const DEV_IR_FORMAT_VERSION: u16 = 38;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevModule {
@@ -16,6 +18,8 @@ pub struct DevModule {
     pub revision: String,
     pub module: Module,
     pub identities: Vec<StableIdentity>,
+    #[serde(default)]
+    pub translations: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
 }
 
 /// A set of path-level edits to a DevModule's typed `Module` JSON.
@@ -28,6 +32,8 @@ pub struct DevModulePatch {
     pub operations: Vec<JsonPatchOperation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identities: Option<Vec<StableIdentity>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translations: Option<BTreeMap<String, BTreeMap<String, serde_json::Value>>>,
 }
 
 /// One operation in the JSON-pointer subset used for development module
@@ -79,6 +85,8 @@ pub fn diff(previous: &DevModule, next: &DevModule) -> Option<DevModulePatch> {
         revision: next.revision.clone(),
         operations,
         identities: (previous.identities != next.identities).then(|| next.identities.clone()),
+        translations: (previous.translations != next.translations)
+            .then(|| next.translations.clone()),
     })
 }
 
@@ -158,6 +166,14 @@ pub enum IdentityKind {
 /// readable identities. Identity paths use declaration names and per-kind
 /// sibling positions, never vector offsets for declarations such as screens.
 pub fn lower(module: &Module, revision: impl Into<String>) -> DevModule {
+    lower_with_translations(module, revision, BTreeMap::new())
+}
+
+pub fn lower_with_translations(
+    module: &Module,
+    revision: impl Into<String>,
+    translations: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+) -> DevModule {
     let mut identities = Vec::new();
     for state in &module.states {
         identities.push(StableIdentity {
@@ -210,6 +226,7 @@ pub fn lower(module: &Module, revision: impl Into<String>) -> DevModule {
         revision: revision.into(),
         module: module.clone(),
         identities,
+        translations,
     }
 }
 
@@ -241,6 +258,7 @@ fn node_kind(node: &Node) -> &'static str {
     match node {
         Node::StatusBar { .. } => "StatusBar",
         Node::Direction { .. } => "Direction",
+        Node::Appearance { .. } => "Appearance",
         Node::OnAppear { .. } => "OnAppear",
         Node::OnDisappear { .. } => "OnDisappear",
         Node::OnActive { .. } => "OnActive",
@@ -251,7 +269,11 @@ fn node_kind(node: &Node) -> &'static str {
             nexa_ir::LayoutKind::Row => "Row",
             nexa_ir::LayoutKind::Stack => "Stack",
         },
+        Node::Form { .. } => "Form",
+        Node::FormSection { .. } => "FormSection",
+        Node::Toolbar { .. } => "Toolbar",
         Node::Text { .. } => "Text",
+        Node::ContentUnavailable { .. } => "ContentUnavailable",
         Node::Button { .. } => "Button",
         Node::TextInput { .. } => "TextInput",
         Node::Switch { .. } => "Switch",
@@ -260,11 +282,13 @@ fn node_kind(node: &Node) -> &'static str {
         Node::ProgressRing { .. } => "ProgressRing",
         Node::SegmentedControl { .. } => "SegmentedControl",
         Node::Picker { .. } => "Picker",
+        Node::DatePicker { .. } => "DatePicker",
         Node::Image { .. } => "Image",
         Node::SystemIcon { .. } => "SystemIcon",
         Node::LinearGradient { .. } => "LinearGradient",
         Node::Pressable { .. } => "Pressable",
         Node::NavigationStack { .. } => "NavigationStack",
+        Node::NavigationSplitView { .. } => "NavigationSplitView",
         Node::NavigationLink { .. } => "NavigationLink",
         Node::NavigationBack { .. } => "NavigationBack",
         Node::Link { .. } => "Link",
@@ -272,8 +296,10 @@ fn node_kind(node: &Node) -> &'static str {
         Node::KeyboardAware { .. } => "KeyboardAware",
         Node::BottomSheet { .. } => "BottomSheet",
         Node::Dialog { .. } => "Dialog",
+        Node::ConfirmationDialog { .. } => "ConfirmationDialog",
         Node::RefreshControl { .. } => "RefreshControl",
         Node::AppBottomBar { .. } => "AppBottomBar",
+        Node::PagePager { .. } => "PagePager",
         Node::FastList { .. } => "FastList",
         Node::If { .. } => "If",
         Node::When { .. } => "When",
@@ -287,15 +313,36 @@ fn node_kind(node: &Node) -> &'static str {
 
 fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
     match node {
-        Node::Layout { children, .. }
-        | Node::Pressable { children, .. }
+        Node::Appearance { children, .. }
+        | Node::Layout { children, .. }
+        | Node::Form { children }
+        | Node::FormSection { children, .. }
+        | Node::Toolbar { children, .. }
         | Node::NavigationLink { children, .. }
         | Node::Link { children, .. }
         | Node::Accessibility { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::Dialog { children, .. }
+        | Node::ConfirmationDialog { children, .. }
         | Node::RefreshControl { children, .. } => vec![("body".to_owned(), children)],
+        Node::NavigationSplitView {
+            sidebar, detail, ..
+        } => vec![
+            ("sidebar".to_owned(), sidebar),
+            ("detail".to_owned(), detail),
+        ],
+        Node::Pressable {
+            children,
+            context_menu,
+            ..
+        } => {
+            let mut groups: Vec<(String, &[Node])> = vec![("body".to_owned(), children.as_slice())];
+            if !context_menu.is_empty() {
+                groups.push(("contextMenu".to_owned(), context_menu.as_slice()));
+            }
+            groups
+        }
         Node::FastList { plan } => {
             let mut groups = vec![("body".to_owned(), plan.children())];
             if let Some(nodes) = plan.sticky_header() {
@@ -303,6 +350,9 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
             }
             if let Some(nodes) = plan.section_header() {
                 groups.push(("sectionHeader".to_owned(), nodes));
+            }
+            if let Some(nodes) = plan.swipe_actions() {
+                groups.push(("swipeActions".to_owned(), nodes));
             }
             groups
         }
@@ -331,6 +381,11 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
         Node::AppBottomBar { tabs, .. } => tabs
             .iter()
             .map(|tab| (format!("tab:{}", tab.index), tab.children.as_slice()))
+            .collect(),
+        Node::PagePager { pages, .. } => pages
+            .iter()
+            .enumerate()
+            .map(|(index, page)| (format!("page:{index}"), page.as_slice()))
             .collect(),
         Node::ComponentCall {
             children: Some(children),

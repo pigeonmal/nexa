@@ -119,7 +119,11 @@ pub fn render_android_adapters(
                         return_type: BridgeType::Scalar(BridgeScalar::Int64),
                         is_async: false,
                         type_parameters: Vec::new(),
+                        row_type_parameters: Vec::new(),
+                        row_value_type: None,
                         throws: None,
+                        row_error_type: None,
+                        row_error_case: None,
                     },
                     &create_name,
                 );
@@ -203,7 +207,7 @@ pub fn render_android_adapters(
     kotlin_output.text(format_args!(
         "\ninternal object {class_name} {{\n    init {{ System.loadLibrary(\"nexa_plugins\") }}\n"
     ));
-    kotlin_output.push_str(&native_declarations);
+    kotlin_output.push_str(native_declarations.as_str());
     kotlin_output.push_str("}\n\n");
 
     render_android_error_factory(&mut kotlin_output, plan, plugin_index);
@@ -230,18 +234,18 @@ pub fn render_android_adapters(
         kotlin_output.push_str("}\n\n");
     }
 
-    if !kotlin_event_bridges.is_empty() {
+    if !kotlin_event_bridges.as_str().is_empty() {
         kotlin_output.push_str(&format!(
             "private object NexaPlugin{plugin_index}_CppEventDispatcher {{\n    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())\n    fun post(operation: () -> Unit) {{ mainHandler.post(operation) }}\n}}\n\n"
         ));
-        kotlin_output.push_str(&kotlin_event_bridges);
+        kotlin_output.push_str(kotlin_event_bridges.as_str());
     }
-    kotlin_output.push_str(&kotlin_implementations);
+    kotlin_output.push_str(kotlin_implementations.as_str());
     let mut jni_output = SourceWriter::new();
     jni_output.push_str(&render_android_jni_prelude(plugin_id));
     render_android_jni_error_converters(&mut jni_output, plan, package, plugin_index);
     render_android_jni_named_value_helpers(&mut jni_output, plan, package);
-    jni_output.push_str(&jni);
+    jni_output.push_str(jni.as_str());
     Ok((kotlin_output.finish(), jni_output.finish()))
 }
 

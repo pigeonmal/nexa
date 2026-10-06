@@ -1,0 +1,28 @@
+app AdaptiveWorkspace {
+    state showDetail: Bool = false
+
+    body {
+        NavigationSplitView(detailVisible: showDetail) {
+            Sidebar {
+                Column(spacing: 12, padding: 16) {
+                    Text("Workspace")
+                    Button("Inbox") {
+                        showDetail = true
+                    }
+                    Button("Projects") {
+                        showDetail = true
+                    }
+                }
+            }
+            Detail {
+                Column(spacing: 12, padding: 24) {
+                    Text("Selected workspace")
+                    Text("This detail pane uses the available window width.")
+                    Button("Back to navigation") {
+                        showDetail = false
+                    }
+                }
+            }
+        }
+    }
+}

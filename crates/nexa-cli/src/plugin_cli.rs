@@ -9,9 +9,10 @@
 //! differ from the template.
 
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use nexa_codegen::plugin::{bindings, bindings_cpp, bridge_plan::BridgePlan};
@@ -400,6 +401,22 @@ fn resolve_package(path: &Path) -> Result<ResolvedPackage, String> {
 fn resolve_directory(root: &Path) -> Result<ResolvedPackage, String> {
     let manifest_path = root.join("plugin.config.nx");
     let manifest = manifest::parse_file(&manifest_path)?;
+    if let Some(compiler) = &manifest.compiler
+        && let Some(program) = compiler.analyzer.first()
+        && (program.contains('/') || program.contains('\\') || program.starts_with('.'))
+    {
+        let package_root =
+            fs::canonicalize(root).map_err(|error| format!("{}: {error}", root.display()))?;
+        let analyzer_path = package_root.join(program);
+        let canonical_analyzer = fs::canonicalize(&analyzer_path)
+            .map_err(|error| format!("{}: {error}", analyzer_path.display()))?;
+        if !canonical_analyzer.starts_with(&package_root) || !canonical_analyzer.is_file() {
+            return Err(format!(
+                "{}: compiler analyzer must be a file inside the plugin package",
+                analyzer_path.display()
+            ));
+        }
+    }
     let idl_path = root.join(manifest.native.as_deref().unwrap_or("native.nxid"));
     let idl = if manifest.native.is_some() {
         nexa_plugin_idl::parse_file(&idl_path)?
@@ -587,6 +604,7 @@ fn source_notes(package: &ResolvedPackage) -> Result<Vec<String>, String> {
     let mut notes = Vec::new();
     for (label, sources) in [
         ("ios", &manifest.ios.sources),
+        ("ios extension", &manifest.ios.extension_sources),
         ("android", &manifest.android.sources),
     ] {
         if sources.is_empty() {
@@ -697,15 +715,35 @@ fn typecheck_swift(package: &ResolvedPackage) -> Option<String> {
 }
 
 fn typecheck_kotlin(package: &ResolvedPackage) -> Option<String> {
-    let scratch = std::env::temp_dir().join(format!("nexa-plugin-kotlin-{}", std::process::id()));
-    fs::create_dir_all(&scratch).ok()?;
+    static NEXT_SCRATCH_ID: AtomicU64 = AtomicU64::new(0);
+    let scratch = loop {
+        let candidate = env::temp_dir().join(format!(
+            "nexa-plugin-kotlin-{}-{}",
+            std::process::id(),
+            NEXT_SCRATCH_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::create_dir(&candidate) {
+            Ok(()) => break candidate,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return None,
+        }
+    };
     let contract = scratch.join("Contract.kt");
     let plan = contracts(package)
         .ok()?
         .into_iter()
         .find(|(label, _)| label == "kotlin")?
         .1;
-    fs::write(&contract, bindings::kotlin(&plan, "dev.nexa.plugin")).ok()?;
+    let mut source_files = Vec::new();
+    for source in &package.manifest.as_ref()?.android.sources {
+        collect_files(&package.root, source, &mut source_files);
+    }
+    let implementation_package = source_files
+        .iter()
+        .filter_map(|file| fs::read_to_string(file).ok())
+        .find_map(|contents| kotlin_package(&contents))
+        .unwrap_or_else(|| "dev.nexa.plugin".to_owned());
+    fs::write(&contract, bindings::kotlin(&plan, &implementation_package)).ok()?;
     let mut files = vec![contract];
     // A generic method's contract names the value-codec runtime, so the same
     // runtime the app will generate has to be part of this compile too.
@@ -720,11 +758,59 @@ fn typecheck_kotlin(package: &ResolvedPackage) -> Option<String> {
         fs::write(&runtime, nexa_codegen::value::kotlin_runtime_source()).ok()?;
         files.push(runtime);
     }
-    for source in &package.manifest.as_ref()?.android.sources {
-        collect_files(&package.root, source, &mut files);
+    let sdk_jar = match android_platform_jar() {
+        Some(jar) => jar,
+        None => {
+            let _ = fs::remove_dir_all(&scratch);
+            return Some(
+                "android type-check skipped (Android SDK platform android.jar not found)"
+                    .to_owned(),
+            );
+        }
+    };
+    let needs_coroutines = source_files
+        .iter()
+        .filter_map(|file| fs::read_to_string(file).ok())
+        .any(|contents| contents.contains("kotlinx.coroutines"));
+    let coroutines = if needs_coroutines {
+        match coroutines_jar() {
+            Some(jar) => Some(jar),
+            None => {
+                let _ = fs::remove_dir_all(&scratch);
+                return Some("android type-check skipped (kotlinx-coroutines dependency not found in Gradle cache)".to_owned());
+            }
+        }
+    } else {
+        None
+    };
+    let needs_runtime_stub = source_files
+        .iter()
+        .filter_map(|file| fs::read_to_string(file).ok())
+        .any(|contents| contents.contains("dev.nexa.core.NexaRuntimeCore"));
+    if needs_runtime_stub {
+        let runtime_source = scratch.join("NexaRuntimeCore.kt");
+        fs::write(
+            &runtime_source,
+            nexa_codegen::value::kotlin_core_runtime_source(),
+        )
+        .ok()?;
+        files.push(runtime_source);
     }
-    let output = Command::new("kotlinc")
+    files.extend(source_files);
+
+    let Some(kotlinc) = kotlinc_path() else {
+        let _ = fs::remove_dir_all(&scratch);
+        return None;
+    };
+    let mut classpath = vec![sdk_jar];
+    if let Some(coroutines) = coroutines {
+        classpath.push(coroutines);
+    }
+    let classpath = env::join_paths(classpath).ok()?;
+    let output = Command::new(kotlinc)
         .arg("-nowarn")
+        .arg("-classpath")
+        .arg(classpath)
         .args(&files)
         .arg("-d")
         .arg(scratch.join("out.jar"))
@@ -739,6 +825,123 @@ fn typecheck_kotlin(package: &ResolvedPackage) -> Option<String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
+}
+
+fn kotlin_package(contents: &str) -> Option<String> {
+    contents.lines().find_map(|line| {
+        let package = line.trim().strip_prefix("package ")?.trim();
+        (!package.is_empty()).then(|| package.to_owned())
+    })
+}
+
+fn kotlinc_path() -> Option<PathBuf> {
+    if let Some(path) = env::var_os("KOTLINC")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+    {
+        return Some(path);
+    }
+    if command_available("kotlinc", &["-version"])
+        && let Some(path) = find_on_path("kotlinc")
+    {
+        return Some(path);
+    }
+    if let Some(kotlin_home) = env::var_os("KOTLIN_HOME").map(PathBuf::from) {
+        let candidate = kotlin_home.join("bin/kotlinc");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    let android_studio = env::var_os("ANDROID_STUDIO_HOME")
+        .map(PathBuf::from)
+        .map(|path| path.join("plugins/Kotlin/kotlinc/bin/kotlinc"));
+    android_studio.filter(|path| path.is_file()).or_else(|| {
+        let path = PathBuf::from(
+            "/Applications/Android Studio.app/Contents/plugins/Kotlin/kotlinc/bin/kotlinc",
+        );
+        path.is_file().then_some(path)
+    })
+}
+
+fn find_on_path(executable: &str) -> Option<PathBuf> {
+    env::split_paths(&env::var_os("PATH")?)
+        .map(|directory| directory.join(executable))
+        .find(|candidate| candidate.is_file())
+}
+
+fn command_available(executable: &str, args: &[&str]) -> bool {
+    Command::new(executable)
+        .args(args)
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+fn android_platform_jar() -> Option<PathBuf> {
+    let mut sdk_roots = Vec::new();
+    for variable in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+        if let Some(path) = env::var_os(variable).map(PathBuf::from) {
+            sdk_roots.push(path);
+        }
+    }
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        sdk_roots.push(home.join("Library/Android/sdk"));
+        sdk_roots.push(home.join("Android/Sdk"));
+    }
+    let mut platforms = sdk_roots
+        .into_iter()
+        .flat_map(|root| {
+            fs::read_dir(root.join("platforms"))
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .map(|entry| entry.path().join("android.jar"))
+                .filter(|path| path.is_file())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    platforms.sort_by_key(|path| android_api_level(path));
+    platforms.pop()
+}
+
+fn android_api_level(path: &Path) -> (u32, u32) {
+    let platform = path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    let version = platform.strip_prefix("android-").unwrap_or("");
+    let mut parts = version
+        .split('.')
+        .filter_map(|part| part.parse::<u32>().ok());
+    (parts.next().unwrap_or(0), parts.next().unwrap_or(0))
+}
+
+fn coroutines_jar() -> Option<PathBuf> {
+    let gradle_home = env::var_os("GRADLE_USER_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".gradle")))?;
+    let module = gradle_home
+        .join("caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-core-jvm");
+    let mut jars = fs::read_dir(module)
+        .ok()?
+        .filter_map(Result::ok)
+        .flat_map(|version| {
+            fs::read_dir(version.path())
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+        })
+        .flat_map(|hash| {
+            fs::read_dir(hash.path())
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+        })
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "jar"))
+        .collect::<Vec<_>>();
+    jars.sort();
+    jars.pop()
 }
 
 fn sdk_path() -> Option<String> {

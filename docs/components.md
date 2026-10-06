@@ -53,6 +53,28 @@ app StackExample {
 ```
 - **Properties**: `alignment: Start | Center | End`, along with the same sizing, visual effect, and background options as `Column`.
 
+### `Form` and `Section`
+Use `Form` for a native, scrollable settings screen. Its `Section` children map to SwiftUI form sections on iOS and grouped Material settings content on Android. Sections can have an optional localized title and footer.
+
+```nexa
+app SettingsExample {
+    state enabled: Bool = true
+
+    body {
+        Form {
+            Section {
+                Switch(value: enabled, label: "Notifications")
+            }
+            Section(title: "About", footer: "Version 1.0") {
+                Text("Example app")
+            }
+        }
+    }
+}
+```
+
+Place `Section(title: String?, footer: String?)` inside a `Form` for native grouped behavior.
+
 ---
 
 ### `FastList`
@@ -78,8 +100,8 @@ app FastListExample {
 }
 ```
 - **Sources**: `FastList(collection, ...)`, `FastList(count: Int32, ...)`, or `FastList(sections: Array<Array<T>>, ...)`.
-- **Options**: `axis: Vertical | Horizontal | Grid(columns)`, where `columns` is a positive integer literal; positive literal `rowHeight`, scalar `key`, mutable `Int32` `scrollPosition`, `reverseLayout: true`, and `pageSnap: true`. `pageSnap` is limited to flat vertical lists: each virtualized row fills the list viewport and native scrolling settles on page boundaries, with a maximum of one page per fling. Its `scrollPosition`, `onScroll`, and `onEndReached` updates are reported after a page settles. It cannot be combined with `rowHeight`, `reverseLayout`, sectioned sources, or `stickyHeader`. A `RefreshControl` can wrap a paged list and keeps the platform-native pull-to-refresh interaction. Reverse layout keeps the last logical item at the bottom, maps row bindings to source indexes, and follows new items while the user remains at the latest item; it cannot be combined with sectioned sources, `stickyHeader`, or `RefreshControl`.
-- **Modifiers**: `.stickyHeader { ... }`, `.sectionHeader { ... }`, `.onEndReached { ... }`, `.onScroll { ... }`.
+- **Options**: `axis: Vertical | Horizontal | Grid(columns)`, where `columns` is a positive integer literal; positive literal `rowHeight`, scalar `key`, mutable `Int32` `scrollPosition`, `reverseLayout: true`, `pageSnap: true`, and `native: true`. Native mode emits SwiftUI `List` for flat and sectioned iOS lists, and the standard Compose lazy list on Android; it excludes custom scroll behavior and reverse or paged layouts. Native lists accept `.swipeActions` for trailing row actions. Omit `native` when using FastList's custom virtualization options. `pageSnap` is limited to flat vertical lists: each virtualized row fills the list viewport and native scrolling settles on page boundaries, with a maximum of one page per fling. Its `scrollPosition`, `onScroll`, and `onEndReached` updates are reported after a page settles. It cannot be combined with `rowHeight`, `reverseLayout`, sectioned sources, or `stickyHeader`. A `RefreshControl` can wrap a paged list and keeps the platform-native pull-to-refresh interaction. Reverse layout keeps the last logical item at the bottom, maps row bindings to source indexes, and follows new items while the user remains at the latest item; it cannot be combined with sectioned sources, `stickyHeader`, or `RefreshControl`.
+- **Modifiers**: `.stickyHeader { ... }`, `.sectionHeader { ... }`, `.onEndReached { ... }`, `.onScroll { ... }`, `.swipeActions { ... }` for native trailing row actions, and `.onMove(enabled: canMove) { from, to -> ... }` for flat array-backed native lists (`enabled` defaults to `true`). The indexes are zero-based `Int32` positions in the displayed rows. Use `backing.moveSubset(from, to, visibleRows)` when `visibleRows` is a stable-order filtered subset of the backing array; this reorders visible entries while leaving hidden entries in their current slots. Do not pass a separately sorted projection. SwiftUI uses `List.onMove` and `.moveDisabled`; Compose detects a long-press drag only while enabled. Generated code, headless actions, and DevRuntime support the same mutation.
 
 ---
 
@@ -89,12 +111,12 @@ Renders formatted text with typography, color, and wrapping controls.
 ```nexa
 app TextExample {
     body {
-        Text("Hello Nexa", color: "#333333", fontSize: 18, fontWeight: Bold, lineLimit: 2, selectable: true)
+        Text("Hello Nexa", color: "#333333", fontSize: 18, fontWeight: Bold, lineLimit: 2, strikethrough: true, selectable: true)
             .fontSize(18).bold().padding(12)
     }
 }
 ```
-- **Properties**: `value` (positional), `color`, `fontSize`, `fontWeight`, `padding`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `selectable`.
+- **Properties**: `value` (positional), `color`, `alignment: Leading | Center | Trailing` (multiline text alignment), `fontSize`, `fontWeight`, `padding`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `selectable`.
 - **Chained styles**: `.fontSize(value)`, `.bold()`, `.padding(value)`, `.opacity(value)`, `.scale(value)`, `.rotation(degrees)`, `.shadow(radius:, x:, y:, color:)`, `.blur(radius)`, `.clip(shape: Rounded(radius))`, and `.zIndex(value)`. These apply to `Text`, `Column`, `Row`, and `Stack`.
 
 Visual modifier values are compile-time numeric literals. Opacity must be between `0` and `1`; blur, shadow radius, and rounded clip radius must be non-negative. Rotation and shadow offsets may be negative. `zIndex` is a signed `Int32`.
@@ -107,6 +129,24 @@ Column {
 .shadow(radius: 8, x: 0, y: 4, color: "#00000040")
 .clip(shape: Rounded(12))
 ```
+
+---
+
+### `ContentUnavailable`
+Shows a native-style empty or unavailable state with a shared system icon. The `title`, `description`, and optional translator `comment` are localized through Nexa's built-in localization system.
+
+```nexa
+ContentUnavailable(
+    title: "Inbox is empty",
+    icon: "inbox",
+    description: "Tasks you add will appear here."
+)
+```
+
+- **Properties**: required `title: String`, `icon: String` from the shared system icon catalog, and `description: String`; optional `comment: String` for translators.
+- **iOS**: Uses SwiftUI `ContentUnavailableView` on iOS 17 and later, with a native SwiftUI fallback on earlier supported versions.
+- **Android**: Uses a centered Jetpack Compose Material 3 icon and text layout.
+- Use this component in the content area when a list, search, or feature has no results. It fills the available space in its parent.
 
 ---
 
@@ -146,13 +186,13 @@ app ButtonExample {
     state saves: Int32 = 0
 
     body {
-        Button("Save Record", icon: "checkmark", loading: false, disabled: false) {
+        Button("Save Record", icon: "check", loading: false, disabled: false) {
             saves = saves + 1
         }
     }
 }
 ```
-- **Properties**: `label` (positional), `icon: String?`, `loading: Bool?`, `disabled: Bool?`, and a trailing action block.
+- **Properties**: `label` (positional), `icon: String?` from the shared system icon catalog, `loading: Bool?`, `disabled: Bool?`, `style`, `size`, `shape`, and `tint`. A tint can be a hexadecimal color or a `String` state holding a hexadecimal color. The trailing action block handles the press. Use `Icon(sfsymbol:)` or `Icon(materialsymbol:)` for platform-specific icons outside the button.
 
 ---
 
@@ -184,7 +224,8 @@ app TextInputExample {
     }
 }
 ```
-- **Properties**: `value`, `placeholder`, `keyboardType` (`Text`, `Number`, `Email`, `Phone`, `Url`; `keyboard` remains an alias), `isSecure` (`secure` remains an alias), `autofill` (`Username`, `Password`, `OneTimeCode`), `returnKeyType` (`Done`, `Search`, `Send`, `Next`), `multiline`, `autocorrect`, `capitalization` (`None`, `Characters`, `Words`, `Sentences`), `focused`, and positive literal `maxLength`. The optional trailing action block handles the selected return key for single-line fields. `Keyboard.dismiss()` hides the software keyboard.
+- **Properties**: `value`, `placeholder`, `keyboardType` (`Text`, `Number`, `Email`, `Phone`, `Url`; `keyboard` remains an alias), `isSecure` (`secure` remains an alias), `autofill` (`Username`, `Password`, `OneTimeCode`), `returnKeyType` (`Done`, `Search`, `Send`, `Next`), `multiline`, `autocorrect`, `capitalization` (`None`, `Characters`, `Words`, `Sentences`), `focused`, positive literal `maxLength`, `font` (`Body` or `Title3`), and optional positive `minLines` / `maxLines` for multiline fields. The optional trailing action block handles the selected return key for single-line fields. `Keyboard.dismiss()` hides the software keyboard.
+- `searchable: true` adds a search affordance and search keyboard action to a `TextInput`. For a navigation search field, bind the query on the `Tab` declaration instead; iOS uses SwiftUI `.searchable`, while Android uses a native Material text field.
 
 ---
 
@@ -253,7 +294,7 @@ app FilterTabs {
 - Option labels should be distinct; the selected value is the matching label.
 
 ### `Picker`
-Native menu-style single-choice control for a set of string options. `selected` is a mutable `String` state bound to the active option.
+Native menu-style single-choice control for a set of string options. `selected` is a mutable `String` state bound to the active option. Optional `label` and `icon` arguments provide its native row label; the icon name is shared between iOS and Android.
 
 ```nexa
 app SizePicker {
@@ -261,13 +302,25 @@ app SizePicker {
     state selectedSize: String = "Medium"
 
     body {
-        Picker(items: sizes, selected: selectedSize)
+        Picker(items: sizes, selected: selectedSize, label: "Size", icon: "star")
         Text(selectedSize)
     }
 }
 ```
-- **Properties**: `items: Array<String>`, `selected: String` (mutable state binding).
+- **Properties**: `items: Array<String>`, `selected: String` (mutable state binding), optional `label: String`, and optional `icon: shared system icon name`.
 - Option labels should be distinct; the selected value should match one of the labels.
+
+### `DatePicker`
+Native calendar date picker with an optional time picker. `timestamp` binds an
+`Int64` containing milliseconds since the Unix epoch, and `hasTime` binds a
+mutable `Bool`.
+
+```nexa
+state dueAt: Int64 = Time.now()
+state includesTime: Bool = false
+
+DatePicker(timestamp: dueAt, hasTime: includesTime)
+```
 
 ---
 
@@ -292,6 +345,10 @@ app PressableExample {
             taps = taps + 2
         }.onLongPress(durationMs: 700) {
             taps = 0
+        }.contextMenu {
+            Button("Reset") {
+                taps = 0
+            }
         }.onDrag { translationX, translationY, velocityX, velocityY ->
             dragOffset = translationX
         }.onPinch { scaleFactor ->
@@ -301,16 +358,17 @@ app PressableExample {
 }
 ```
 - **Properties**: `disabled: Bool`, optional `haptic: Light | Medium | Heavy`, and `fillMaxSize: Bool` (defaults to `false`). Set `fillMaxSize: true` when the pressable's hit area should expand to its parent's available size.
-- **Modifiers**: `.onTap { ... }` (or legacy `.onPress { ... }`), `.onDoubleTap { ... }`, `.onLongPress(durationMs: 700) { ... }`, `.onDrag { translationX, translationY, velocityX, velocityY -> ... }`, and `.onPinch { scaleFactor -> ... }`.
+- **Modifiers**: `.onTap { ... }`, `.onDoubleTap { ... }`, `.onLongPress(durationMs: 700) { ... }`, `.contextMenu { Button(...) { ... } }` for native long-press menu actions, `.onDrag { translationX, translationY, velocityX, velocityY -> ... }`, and `.onPinch { scaleFactor -> ... }`.
 - Android pressables and Material controls do not draw a ripple by default; tap actions and haptics still work.
 - Long-press duration defaults to 500 ms. Runtime values are clamped to at least 1 ms for consistent platform behavior.
+- Context menus are native SwiftUI context menus on iOS and Material dropdown menus opened by long-press on Android. Their contents currently accept `Button` actions.
 - Drag translations use points on iOS and dp on Android; velocities use those same units per second.
 - `scaleFactor` is the multiplicative scale delta for the current gesture update. Multiply the current zoom by it; Android and iOS report the same incremental semantics.
 
 ---
 
 ### `Image`
-Renders local bundle assets or remote network images with scaling and placeholders.
+Renders local bundle assets, HTTPS images, or app-local image files with scaling and placeholders.
 
 ```nexa
 app ImageExample {
@@ -318,11 +376,12 @@ app ImageExample {
         Column {
             Image(asset: "logo", description: "App Logo", scale: Fit)
             Image(url: "https://example.com/pic.png", description: "Avatar", scale: Fill, placeholder: "avatar_ph")
+            Image(file: photoUri, description: "Saved photo", maxHeight: 200)
         }
     }
 }
 ```
-- **Properties**: `asset: String` OR `url: String`, `description: String`, `scale: Fit | Fill`, `placeholder: String`.
+- **Properties**: exactly one of `asset: String`, `url: String` (HTTPS only), or `file: String` (local file URI); `description: String`, `scale: Fit | Fill`, optional remote `placeholder: String`, and optional positive `maxHeight`.
 
 Put app-owned image files directly in `assets/images/` and reference each file by its lowercase filename without an extension. For example, `assets/images/hero_banner.png` is `Image(asset: "hero_banner", ...)`. Nexa copies these files into the iOS asset catalog and Android `drawable-nodpi` resources when it generates the native projects. Supported formats are PNG, JPG/JPEG, and WebP. Asset names must start with a lowercase letter and contain only lowercase letters, digits, and underscores.
 
@@ -336,13 +395,17 @@ Image(asset: "product", description: "Product")
 This maps to SwiftUI matched geometry on iOS and Compose shared transitions on Android. It also works in `nexa dev` hot reload; the development host already includes the native transition support.
 
 ### `Icon`
-Renders the platform's native system icon: SF Symbols on iOS and the matching Compose Material icon on Android.
+Renders a native system icon: an SF Symbol on iOS and a Compose Material icon on Android. `system` uses a shared semantic name; `sfsymbol` and `materialsymbol` are escape hatches for platform-specific names.
 
 ```nexa
-Icon(system: "heart.fill", description: "Like", size: 30, tint: "#FFFFFF")
+Icon(system: "favorite_filled", description: "Like", size: 30, tint: "#FFFFFF")
+Icon(sfsymbol: "person.crop.circle.fill", description: "Profile", size: 30, tint: "#FFFFFF")
+Icon(materialsymbol: "outlined:account_circle", description: "Profile", size: 30, tint: "#FFFFFF")
 ```
 
-`system` accepts these cross-platform SF Symbol names: `house.fill`, `magnifyingglass`, `tray`, `person`, `heart`, `heart.fill`, `bubble.right`, `bubble.right.fill`, `bookmark`, `bookmark.fill`, `arrowshape.turn.up.right`, `music.note`, `chevron.left`, `tv`, `rectangle.on.rectangle`, `plus`, `xmark`, `checkmark`, `paperplane`, `speaker.wave.2.fill`, and `speaker.slash.fill`. Unsupported names are compile errors. `description` is exposed to accessibility, `size` is a positive point/dp value up to 512, and `tint` is a static hexadecimal color.
+`system` accepts only the portable semantic names listed in the [shared system icon catalog](system-icons.md). Use `sfsymbol` or `materialsymbol` for platform-specific names. Unknown shared names are compile errors.
+
+Use `sfsymbol` for an iOS-only SF Symbol and `materialsymbol` for an Android-only Compose icon. Material names default to the `Filled` family; prefix with `outlined:`, `rounded:`, `sharp:`, `twoTone:`, `autoMirroredFilled:`, or `autoMirroredOutlined:` to select a family. `description` is exposed to accessibility, `size` is a positive point/dp value up to 512, and `tint` accepts a hexadecimal color or a `String` state holding a hexadecimal color.
 
 ### `LinearGradient`
 Draws a native linear gradient with two static colors. Use it as a child of a `Stack` to shade content without intercepting taps.
@@ -367,10 +430,10 @@ app TabExample {
 
     body {
         AppBottomBar(selected: currentTab) {
-            Tab(index: 0, label: "Home", icon: "house") {
+            Tab(index: 0, label: "Home", icon: "home", comment: "Primary navigation destination") {
                 Column { Text("Home") }
             }
-            Tab(index: 1, label: "Search", icon: "magnifyingglass") {
+            Tab(index: 1, label: "Search", icon: "search") {
                 Column { Text("Search") }
             }
             Tab(index: 2, label: "Profile", icon: "person", badge: "3") {
@@ -380,9 +443,60 @@ app TabExample {
     }
 }
 ```
-- **Properties**: `selected: Int32` (state binding).
-- **Tab Declarations**: `Tab(index: Int32, label: String, icon: String?, badge: String?) { ... }`.
-- Compiles to native `TabView` on iOS and `NavigationBar` on Android.
+- **Properties**: `selected: Int32` (state binding) and optional `tint`, which accepts a hexadecimal color or a `String` state holding one.
+- **Tab Declarations**: `Tab(index: Int32, label: String, icon: String?, badge: String?, role: "search"?, comment: String?, title: String?, largeTitle: Bool?, searchable: String?, searchPrompt: String?) { ... }`. The label, optional navigation title, and search prompt are localized source strings; `comment` provides translator context. `largeTitle: true` opts into iOS's native large title mode, including `.inlineLarge` on iOS 26+ and the large navigation bar title on earlier supported releases. `searchable` accepts a mutable `String` state and requires `role: "search"`; iOS attaches a native SwiftUI search field to the destination, and Android renders a Material text field above the destination content. On iOS 18 and later, the native sidebar-adaptable style presents the tab bar on iPhone and adapts it to iPad; earlier iOS versions use the native `TabView` tab bar.
+- Compiles to native SwiftUI `TabView` on iOS and Material 3 `NavigationSuiteScaffold` on Android, which adapts between bottom navigation and wider-window rail/drawer layouts. Per-tab Android content uses saveable state so switching destinations preserves supported screen and navigation state. The tab label is used only in the navigation component; each destination owns its screen content and title.
+- `role: "search"` opts an iOS tab into SwiftUI's native search-tab presentation and activation. Android renders it as a regular adaptive navigation destination.
+
+### `ConfirmationDialog`
+Native confirmation choices bound to mutable Boolean state. SwiftUI uses `.confirmationDialog`; Android uses a Material alert dialog.
+
+```nexa
+ConfirmationDialog(isPresented: showingPriority, title: "Select Priority") {
+    Button("High") { priority = "High" }
+    Button("Normal") { priority = "Normal" }
+    Button("Cancel") { showingPriority = false }
+}
+```
+
+- **Properties**: `isPresented: Bool` (state binding), `title: String`, and optional translator `comment`.
+- **Children**: one or more native `Button` actions.
+
+### `PagePager`
+Swipeable, app-authored pages with a page indicator. Use this for onboarding and other linear page flows; use `AppBottomBar` for destination navigation.
+
+```nexa
+app OnboardingPages {
+    state currentPage: Int32 = 0
+
+    body {
+        PagePager(selected: currentPage) {
+            Tab(index: 0) {
+                Column { Text("Welcome") }
+            }
+            Tab(index: 1) {
+                Column { Text("You're all set") }
+            }
+        }
+    }
+}
+```
+
+- **Properties**: `selected: Int32` (mutable state binding).
+- **Pages**: `Tab(index: Int32) { ... }`; indexes must be unique, non-negative, and contiguous from zero. The tab body owns its page content. Swipe gestures update `selected`, and changing `selected` animates to that page.
+- iOS uses SwiftUI `TabView` with the native page indicator. Android uses Compose `HorizontalPager` with page dots. `PagePager` does not display a bottom navigation bar or tab labels.
+- See [`examples/onboarding.nx`](../examples/onboarding.nx) for a complete welcome, notification-permission, and completion flow. Its visible copy is written directly as text literals.
+
+### `Toolbar`
+Places actions in the native navigation toolbar on iOS and in a top action row on Android.
+
+```nexa
+Toolbar(placement: Trailing) {
+    Button("", icon: "add", accessibilityLabel: "Add") { }
+}
+```
+- **Properties**: `placement` is `Leading` or `Trailing` and defaults to `Trailing`.
+- The toolbar is hosted by the nearest navigation screen. iOS uses SwiftUI `ToolbarItemGroup`.
 
 ---
 
@@ -414,6 +528,61 @@ app NavigationExample {
 - **`NavigationStack(root: ScreenName)`**: Container hosting the stack.
 - **`NavigationLink(destination: ScreenName, when: Bool?)`**: Push transition.
 - **`NavigationBack(label: String?)`**: Back button.
+
+### `NavigationSplitView`
+Adaptive master-detail navigation for iPhone, iPad, Android tablets, and foldables. iOS uses native SwiftUI `NavigationSplitView`, which adapts its columns to the current window. Android shows both columns when the current Compose window is at least 840 dp wide and switches between sidebar and detail on compact windows; unfolding a foldable updates the layout from the available width. The system Back action returns to the sidebar.
+
+```nexa
+app MailExample {
+    state showDetail: Bool = false
+
+    body {
+        NavigationSplitView(detailVisible: showDetail) {
+            Sidebar {
+                Text("Messages")
+                Button(label: "Open message") {
+                    showDetail = true
+                }
+            }
+            Detail {
+                Text("Message detail")
+            }
+        }
+    }
+}
+```
+- **`detailVisible: Bool`**: Mutable state that identifies the compact-width column; selection controls remain app-authored.
+
+Use this layout when the same content should become a two-pane workspace on a tablet or an unfolded foldable, and a single-column navigation flow on a phone. The layout responds to window width, so it also adapts when the device rotates or a foldable changes posture. See [`adaptive_workspace.nx`](../examples/adaptive_workspace.nx) for a complete example.
+- **`Sidebar { ... }`** and **`Detail { ... }`**: Exactly one node block for each pane.
+
+### Responsive layouts
+
+Use `Layout.isRegularWidth`, `Layout.isCompactWidth`, `Layout.isRegularHeight`, and `Layout.isCompactHeight` when the composition itself should change with the available window size. These values update as the window resizes or rotates, so they work for phones, tablets, desktop-sized windows, and folded or unfolded foldables. Prefer adapting to available width over checking a physical device type: a phone in landscape may have less room than a tablet in split screen.
+
+```nexa
+app ResponsiveContent {
+    body {
+        if Layout.isRegularWidth {
+            Row(spacing: 24, padding: 24) {
+                Column(width: 280) {
+                    Text("Navigation")
+                }
+                Column {
+                    Text("Main content")
+                }
+            }
+        } else {
+            Column(spacing: 16, padding: 16) {
+                Text("Navigation")
+                Text("Main content")
+            }
+        }
+    }
+}
+```
+
+On iOS these predicates follow SwiftUI horizontal and vertical size classes. On Android, Nexa evaluates the current Compose window width and height in dp against the 600 dp compact/regular boundary. Use `NavigationSplitView` when you need standard master-detail navigation; use the predicates for app-specific responsive composition.
 
 ---
 
@@ -455,23 +624,27 @@ app BottomSheetExample {
     }
 }
 ```
-- **Properties**: `isPresented: Bool` (state binding), `partial: Bool`.
+- **Properties**: `isPresented: Bool` (state binding), `partial: Bool`, and optional `title: String`.
+- A titled partial sheet uses an inline SwiftUI navigation title, native sheet detents and drag indicator on iOS; Android shows a Material title row. `Toolbar` children in the sheet become iOS toolbar actions and Android action rows.
 
 ### `Dialog`
-Native modal alert controlled by mutable Boolean state. The title and message accept `String` expressions, and the child block contains the dialog buttons.
+Native modal alert controlled by mutable Boolean state. The title and message accept `String` expressions. Children may contain button actions and, optionally, one single-line `TextInput` for native text-entry alerts. Nexa emits an iOS alert text field and an Android Material alert field; multiline, secure, searchable, or submit-action text fields are rejected in this context.
 
 ```nexa
 app DialogExample {
     state showConfirmation: Bool = false
     state itemCount: Int32 = 1
+    state comment: String = ""
 
     body {
         Button("Delete") { showConfirmation = true }
         Dialog(
             isPresented: showConfirmation,
             title: "Delete item?",
-            message: "This action cannot be undone."
+            message: ""
         ) {
+            TextInput(value: comment, placeholder: "Comment")
+            Button("Save") { showConfirmation = false }
             Button("Cancel") { showConfirmation = false }
             Button("Delete") {
                 itemCount = 0
@@ -482,7 +655,7 @@ app DialogExample {
 }
 ```
 - **Properties**: `isPresented: Bool` (state binding), `title: String`, `message: String`.
-- **Children**: native button content. Buttons close the dialog by setting its binding to `false`.
+- **Children**: native button actions and at most one plain, single-line `TextInput`. Buttons close the dialog by setting its binding to `false`.
 
 ---
 
@@ -522,7 +695,7 @@ app KeyboardExample {
         KeyboardAware(dismiss: Interactive) {
             Column {
                 TextInput(value: username, placeholder: "Username")
-                TextInput(value: password, placeholder: "Password", secure: true)
+                TextInput(value: password, placeholder: "Password", isSecure: true)
             }
         }
     }
@@ -531,6 +704,18 @@ app KeyboardExample {
 - **Properties**: `dismiss: Interactive | Never`.
 
 ---
+
+### `Appearance`
+
+Wraps content in a native appearance override. `mode` accepts `"system"`, `"light"`, or `"dark"`; a `String` state can change it at runtime. `system` follows the device setting. On iOS this uses SwiftUI's preferred color scheme; Android supplies the matching Material 3 color scheme.
+
+```nexa
+state appearance: String = "system"
+
+Appearance(mode: appearance) {
+    Text("The app follows the selected appearance")
+}
+```
 
 ### `StatusBar`
 Configures system status bar styling per screen.
@@ -573,9 +758,9 @@ app AccessibilityExample {
     }
 }
 ```
-- **Properties**: optional `accessibilityLabel: String`, `accessibilityHint: String`, and `accessibilityRole: None | Button | Link | Header | Image`.
-- `accessibilityLabel` is required whenever any accessibility option is provided. Labels and hints accept typed `String` expressions; literal values must be non-empty.
-- Swift emits native accessibility modifiers. Android emits Compose semantics, including hint text and heading semantics for `Header`.
+- **Properties**: optional `accessibilityLabel: String`, `accessibilityHint: String`, `accessibilityValue: String`, and `accessibilityRole: None | Button | Link | Header | Image`.
+- `accessibilityLabel` is required whenever any accessibility option is provided. Labels, hints, and values accept typed `String` expressions; literal labels and hints must be non-empty. Nexa emits accessibility values separately where the native API supports them.
+- Swift emits native accessibility modifiers. Android includes hints in the Compose content description because the framework's pinned stable Compose version has no general hint semantic; hints are not exposed as the control's state. Both platforms emit heading semantics for `Header`.
 
 ---
 

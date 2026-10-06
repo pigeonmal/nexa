@@ -147,6 +147,7 @@ pub(crate) fn bridge_type_name(ty: &BridgeType) -> &str {
         BridgeType::Named { name, .. } | BridgeType::TypeParameter(name) => name,
         BridgeType::Array(_) => "Array",
         BridgeType::Set(_) => "Set",
+        BridgeType::Signal(_) => "Signal",
         BridgeType::Map(..) => "Map",
         BridgeType::Pair(..) => "Pair",
         BridgeType::Triple(..) => "Triple",
@@ -160,7 +161,9 @@ pub(crate) fn bridge_type_name(ty: &BridgeType) -> &str {
 /// `Optional` contributes no arguments here either).
 pub(crate) fn bridge_type_arguments(ty: &BridgeType) -> Vec<&BridgeType> {
     match ty {
-        BridgeType::Array(element) | BridgeType::Set(element) => vec![element],
+        BridgeType::Array(element) | BridgeType::Set(element) | BridgeType::Signal(element) => {
+            vec![element]
+        }
         BridgeType::Map(key, value) | BridgeType::Pair(key, value) => vec![key, value],
         BridgeType::Triple(first, second, third) => vec![first, second, third],
         BridgeType::Result { success, .. } => vec![success],
@@ -179,6 +182,7 @@ pub(crate) fn bridge_type_is_generic(ty: &BridgeType) -> bool {
         ty,
         BridgeType::Array(_)
             | BridgeType::Set(_)
+            | BridgeType::Signal(_)
             | BridgeType::Map(..)
             | BridgeType::Pair(..)
             | BridgeType::Triple(..)
@@ -816,6 +820,7 @@ fn cpp_type_base(ty: &BridgeType) -> String {
         .to_owned(),
         BridgeType::Array(element) => format!("std::vector<{}>", cpp_type(element)),
         BridgeType::Set(element) => format!("std::set<{}>", cpp_type(element)),
+        BridgeType::Signal(element) => format!("NexaSignal<{}>", cpp_type(element)),
         BridgeType::Map(key, value) => format!("std::map<{}, {}>", cpp_type(key), cpp_type(value)),
         BridgeType::Pair(first, second) => {
             format!("std::pair<{}, {}>", cpp_type(first), cpp_type(second))

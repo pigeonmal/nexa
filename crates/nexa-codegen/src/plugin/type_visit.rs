@@ -105,7 +105,9 @@ pub fn walk_type(ty: &BridgeType, order: Order, visit: &mut impl FnMut(&BridgeTy
         visit(unwrapped);
     }
     match unwrapped {
-        BridgeType::Array(element) | BridgeType::Set(element) => walk_type(element, order, visit),
+        BridgeType::Array(element)
+        | BridgeType::Set(element)
+        | BridgeType::Signal(element) => walk_type(element, order, visit),
         BridgeType::Map(key, value) | BridgeType::Pair(key, value) => {
             walk_type(key, order, visit);
             walk_type(value, order, visit);

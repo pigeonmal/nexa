@@ -7,19 +7,23 @@ use nexa_diagnostics::{CompileError, CompileWarning};
 use nexa_ir::walk::any_node;
 use nexa_ir::{
     Action, BackgroundTask, DirectionConfig, Function, FunctionLocal, FunctionParameter, Module,
-    Node, Screen, ScreenId, State, StatusBarConfig, Type,
+    Node, Screen, ScreenId, State, StatusBarConfig, Type, Widget, WidgetFamily,
 };
 use nexa_syntax::ast;
 
 use self::{
-    components::{contains_content, lower_actions_with_aliases, lower_nodes},
+    components::{
+        contains_content, lower_actions_with_aliases, lower_nodes, validate_typed_error_recovery,
+    },
     context::{ExprContext, ScreenSignature, ScreenSignatures, SemanticContext, TypeRegistries},
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
-        collect_plugin_components, collect_plugin_signatures, lower_expr, parse_type,
-        record_native_alias, references_state, resolve_declaration_type, resolve_struct_type,
-        resolve_value_type, validate_task_handle_state,
+        collect_plugin_components, collect_plugin_signatures, functions_with_error_handling,
+        infer_expr_type, lower_expr, lower_for_iterable, lower_map_iterable, parse_return_type,
+        parse_type, plugin_error_variant, record_native_alias, references_mutable_state,
+        resolve_declaration_type, resolve_struct_type, resolve_value_type, type_name,
+        validate_task_handle_state,
     },
     themes::lower_theme,
 };
@@ -42,6 +46,326 @@ fn with_screen_source(error: CompileError, source_file: Option<&str>) -> Compile
     }
 }
 
+fn expression_uses_async(expression: &nexa_ir::Expr) -> bool {
+    let mut found = false;
+    nexa_ir::walk::walk_expression(expression, &mut |nested| {
+        found |= matches!(nested, nexa_ir::Expr::Await(_) | nexa_ir::Expr::TryAwait(_));
+    });
+    found
+}
+
+fn expression_uses_throwing_await(expression: &nexa_ir::Expr) -> bool {
+    let mut found = false;
+    nexa_ir::walk::walk_expression(expression, &mut |nested| {
+        found |= matches!(nested, nexa_ir::Expr::TryAwait(_));
+    });
+    found
+}
+
+
+fn expression_references_state(expression: &nexa_ir::Expr, name: &str) -> bool {
+    let mut found = false;
+    nexa_ir::walk::walk_expression(expression, &mut |nested| {
+        found |= matches!(nested, nexa_ir::Expr::State(state, _) if state == name)
+            || matches!(nested, nexa_ir::Expr::AnimatedState(state, _) if state == name);
+    });
+    found
+}
+
+#[cfg(test)]
+mod widget_capability_tests {
+    use nexa_diagnostics::Span;
+    use nexa_ir::{AccessibilityRole, Expr, Node, TextStyle};
+
+    use super::validate_widget_body;
+
+    #[test]
+    fn widget_subset_accepts_static_content_primitives() {
+        assert!(validate_widget_body(&[Node::Spacer], Span::default()).is_ok());
+    }
+
+    #[test]
+    fn widget_subset_accepts_accessibility_labels() {
+        let labelled = Node::Accessibility {
+            label: Expr::String("Task title".to_owned()),
+            hint: None,
+            value: None,
+            role: AccessibilityRole::None,
+            children: vec![Node::Text {
+                value: Expr::String("Task title".to_owned()),
+                style: TextStyle::default(),
+            }],
+        };
+        assert!(validate_widget_body(&[labelled], Span::default()).is_ok());
+    }
+
+    #[test]
+    fn widget_subset_rejects_platform_specific_accessibility_and_styles() {
+        let role = Node::Accessibility {
+            label: Expr::String("Task".to_owned()),
+            hint: None,
+            value: None,
+            role: AccessibilityRole::Button,
+            children: vec![Node::Spacer],
+        };
+        let error = validate_widget_body(&[role], Span::default())
+            .expect_err("button role must have the same Glance semantics");
+        assert!(error.message.contains("without a hint or role"));
+
+        let styled_text = Node::Text {
+            value: Expr::String("Task".to_owned()),
+            style: TextStyle {
+                padding: Some(4.0),
+                ..TextStyle::default()
+            },
+        };
+        let error = validate_widget_body(&[styled_text], Span::default())
+            .expect_err("platform-specific text styling must be rejected by the compiler");
+        assert!(error.message.contains("Text supports"));
+    }
+
+    #[test]
+    fn widget_subset_rejects_stateful_or_unhandled_nodes() {
+        let error = validate_widget_body(&[Node::Content], Span::default())
+            .expect_err("unhandled content must not reach a backend");
+        assert!(error.message.contains("app-only or stateful component"));
+
+        let dynamic_link = Node::Link {
+            url: Expr::Bool(true),
+            children: Vec::new(),
+        };
+        let error = validate_widget_body(&[dynamic_link], Span::default())
+            .expect_err("widget links require a static string URL");
+        assert!(error.message.contains("static string URL"));
+    }
+}
+
+/// Keep the widget IR inside the intersection that both native widget hosts
+/// can render. Backends must not silently drop ordinary app controls.
+fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<(), CompileError> {
+    fn unsupported(name: &str, span: nexa_diagnostics::Span) -> CompileError {
+        CompileError::new(
+            span,
+            format!(
+                "widget content does not support `{name}`; use Text, Spacer, Divider, Column, Row, Stack, FastList, If, SystemIcon, accessibility labels, or a static Link"
+            ),
+        )
+    }
+
+    fn visit(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<(), CompileError> {
+        for node in nodes {
+            match node {
+                Node::Text { style, .. } => {
+                    if style.padding.is_some()
+                        || style.opacity.is_some()
+                        || style.effects.has_modifiers()
+                        || style.line_height.is_some()
+                        || style.letter_spacing.is_some()
+                        || style.strikethrough
+                        || style.selectable
+                    {
+                        return Err(CompileError::new(
+                            span,
+                            "widget Text supports font size, weight, color, alignment, and line limit only",
+                        ));
+                    }
+                }
+                Node::Spacer | Node::Divider { .. } => {}
+                Node::SystemIcon { icon, .. } => {
+                    if icon.android_widget_drawable().is_none() {
+                        return Err(CompileError::new(
+                            span,
+                            format!("system icon `{icon:?}` has no Android widget equivalent"),
+                        ));
+                    }
+                }
+                Node::Layout {
+                    style, children, ..
+                } => {
+                    if style.min_width.is_some()
+                        || style.max_width.is_some()
+                        || style.min_height.is_some()
+                        || style.max_height.is_some()
+                        || style.border_color.is_some()
+                        || style.border_width.is_some()
+                        || style.opacity.is_some()
+                        || style.effects.has_modifiers()
+                        || style.animation.is_some()
+                    {
+                        return Err(CompileError::new(
+                            span,
+                            "widget layout supports alignment, padding, width, height, background, and corner radius only",
+                        ));
+                    }
+                    visit(children, span)?;
+                }
+                Node::Accessibility {
+                    hint,
+                    role,
+                    children,
+                    ..
+                } => {
+                    if hint.is_some() || !matches!(role, nexa_ir::AccessibilityRole::None) {
+                        return Err(CompileError::new(
+                            span,
+                            "widget accessibility supports a label without a hint or role",
+                        ));
+                    }
+                    visit(children, span)?;
+                }
+                Node::If {
+                    then_body,
+                    else_body,
+                    transition,
+                    ..
+                } => {
+                    if transition.is_some() {
+                        return Err(CompileError::new(
+                            span,
+                            "widget `If` does not support animated transitions",
+                        ));
+                    }
+                    visit(then_body, span)?;
+                    if let Some(else_body) = else_body {
+                        visit(else_body, span)?;
+                    }
+                }
+                Node::Link { url, children } => {
+                    if !matches!(url, nexa_ir::Expr::String(_)) {
+                        return Err(CompileError::new(
+                            span,
+                            "widget `Link` requires a static string URL",
+                        ));
+                    }
+                    visit(children, span)?;
+                }
+                Node::FastList { plan } => {
+                    let common = match plan {
+                        nexa_ir::ListPlan::Count { common, .. }
+                        | nexa_ir::ListPlan::Items { common, .. } => common,
+                        nexa_ir::ListPlan::Sections { .. } => {
+                            return Err(CompileError::new(
+                                span,
+                                "widget `FastList` currently supports count and item sources, not sectioned lists",
+                            ));
+                        }
+                    };
+                    if common.axis != nexa_ir::ListAxis::Vertical {
+                        return Err(CompileError::new(
+                            span,
+                            "widget `FastList` supports vertical layout only",
+                        ));
+                    }
+                    if common.item_extent.is_some() || common.key.is_some() {
+                        return Err(CompileError::new(
+                            span,
+                            "widget `FastList` does not support a custom row extent or row key yet",
+                        ));
+                    }
+                    if common.native
+                        || common.reverse_layout
+                        || common.page_snap
+                        || common.scroll_position.is_some()
+                        || common.on_end_reached.is_some()
+                        || common.on_scroll.is_some()
+                        || common.on_move.is_some()
+                        || common.swipe_actions.is_some()
+                        || common.sticky_header.is_some()
+                        || common.refresh.is_some()
+                    {
+                        return Err(CompileError::new(
+                            span,
+                            "widget `FastList` supports only a vertical list with pure row content; scrolling, refresh, reorder, swipe, sticky header, and native-list options are unavailable",
+                        ));
+                    }
+                    visit(&common.children, span)?;
+                }
+                Node::ComponentCall { name, .. } => {
+                    return Err(unsupported(&format!("custom component `{name}`"), span));
+                }
+                Node::NativeComponentCall { name, .. } => {
+                    return Err(unsupported(
+                        &format!("native plugin component `{name}`"),
+                        span,
+                    ));
+                }
+                Node::NavigationStack { .. }
+                | Node::NavigationSplitView { .. }
+                | Node::NavigationLink { .. }
+                | Node::NavigationBack { .. } => return Err(unsupported("navigation", span)),
+                Node::OnAppear { .. }
+                | Node::OnDisappear { .. }
+                | Node::OnActive { .. }
+                | Node::OnInactive { .. }
+                | Node::OnBackground { .. } => {
+                    return Err(unsupported("lifecycle callbacks", span));
+                }
+                Node::Appearance { .. } | Node::Form { .. } | Node::FormSection { .. } => {
+                    return Err(unsupported("platform-specific container", span));
+                }
+                Node::Button { .. }
+                | Node::TextInput { .. }
+                | Node::Switch { .. }
+                | Node::Slider { .. }
+                | Node::ProgressBar { .. }
+                | Node::ProgressRing { .. }
+                | Node::SegmentedControl { .. }
+                | Node::Picker { .. }
+                | Node::DatePicker { .. }
+                | Node::Image { .. }
+                | Node::ContentUnavailable { .. }
+                | Node::LinearGradient { .. }
+                | Node::Pressable { .. }
+                | Node::KeyboardAware { .. }
+                | Node::BottomSheet { .. }
+                | Node::Dialog { .. }
+                | Node::ConfirmationDialog { .. }
+                | Node::RefreshControl { .. }
+                | Node::AppBottomBar { .. }
+                | Node::PagePager { .. }
+                | Node::Toolbar { .. }
+                | Node::When { .. }
+                | Node::StatusBar { .. }
+                | Node::Direction { .. }
+                | Node::Content => {
+                    return Err(unsupported("app-only or stateful component", span));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    visit(nodes, span)
+}
+
+fn resolve_class_member_type(
+    syntax: &ast::TypeSyntax,
+    structs: &StructTypes,
+    plugins: &[ast::PluginDecl],
+    allow_void: bool,
+) -> Result<Type, CompileError> {
+    let parsed = if allow_void {
+        parse_return_type(syntax)?
+    } else {
+        parse_type(syntax)?
+    };
+    if let Type::Enum(path) = &parsed
+        && let Some((namespace, native_name)) = path.split_once('.')
+        && let Some(plugin) = plugins.iter().find(|plugin| plugin.namespace == namespace)
+        && let Some(idl) = plugin.idl.as_ref()
+        && idl.interfaces.iter().any(|interface| {
+            interface.name == native_name
+                && matches!(interface.kind, nexa_plugin_idl::InterfaceKind::NativeClass)
+        })
+    {
+        return Ok(Type::Plugin {
+            namespace: namespace.to_owned(),
+            name: native_name.to_owned(),
+        });
+    }
+    Ok(resolve_struct_type(&parsed, structs))
+}
+
 pub fn lower_with_warnings(
     app: ast::App,
     target: Target,
@@ -49,11 +373,12 @@ pub fn lower_with_warnings(
     lower_with_warnings_in_mode(app, target, false)
 }
 
-pub(super) fn lower_with_warnings_for_dev_runtime(
+pub(super) fn lower_with_project_targets(
     app: ast::App,
     target: Target,
+    dev_runtime: bool,
 ) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
-    lower_with_warnings_in_mode(app, target, true)
+    lower_with_warnings_in_mode(app, target, dev_runtime)
 }
 
 fn lower_with_warnings_in_mode(
@@ -64,13 +389,54 @@ fn lower_with_warnings_in_mode(
     let warnings = warnings::analyze(&app, target);
     let themes = lower_theme(app.theme.as_ref())?;
     let enum_declarations = lower_enum_declarations(&app.enums)?;
-    let (struct_declarations, struct_types) = lower_struct_declarations(&app.structs)?;
+    let (struct_declarations, mut struct_types) = lower_struct_declarations(&app.structs)?;
+    let mut class_types = HashMap::with_capacity(app.classes.len());
+    for declaration in &app.classes {
+        if class_types.contains_key(&declaration.name)
+            || struct_types.contains_key(&declaration.name)
+        {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("type `{}` is already declared", declaration.name),
+            ));
+        }
+        class_types.insert(
+            declaration.name.clone(),
+            Type::Class {
+                name: declaration.name.clone(),
+                fields: Vec::new(),
+                constructor_parameter_count: declaration.constructor_parameters.len(),
+            },
+        );
+    }
+    for declaration in &app.classes {
+        let fields = declaration
+            .constructor_parameters
+            .iter()
+            .map(|parameter| {
+                Ok((
+                    parameter.name.clone(),
+                    resolve_class_member_type(&parameter.ty, &struct_types, &app.plugins, false)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, CompileError>>()?;
+        class_types.insert(
+            declaration.name.clone(),
+            Type::Class {
+                name: declaration.name.clone(),
+                fields,
+                constructor_parameter_count: declaration.constructor_parameters.len(),
+            },
+        );
+    }
+    struct_types.extend(class_types.clone());
     let mut enum_symbols = enum_symbols(&enum_declarations);
     enum_symbols.extend(plugin_enum_symbols(&app.plugins));
     let mut enum_names = enum_declarations
         .iter()
         .map(|declaration| declaration.name.as_str())
         .collect::<std::collections::HashSet<_>>();
+    enum_names.extend(app.classes.iter().map(|class| class.name.as_str()));
     enum_names.insert("JsonError");
     for case in [
         "invalidJson",
@@ -130,6 +496,184 @@ fn lower_with_warnings_in_mode(
             ));
         }
         function_signatures.insert(name, signature);
+    }
+    for declaration in &app.classes {
+        let Some(Type::Class {
+            name,
+            mut fields,
+            constructor_parameter_count,
+        }) = class_types.get(&declaration.name).cloned()
+        else {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("class type `{}` was not resolved", declaration.name),
+            ));
+        };
+        let constructor_symbols = fields
+            .iter()
+            .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
+            .collect::<HashMap<_, _>>();
+        for field in &declaration.fields {
+            let ty = match &field.ty {
+                Some(ty) => resolve_class_member_type(ty, &struct_types, &app.plugins, false)?,
+                None => infer_expr_type(&field.initial, &constructor_symbols, &function_signatures)
+                    .ok_or_else(|| CompileError::new(field.span, format!("cannot infer the type of class property `{}`; add a type annotation", field.name)))?,
+            };
+            fields.push((field.name.clone(), ty));
+        }
+        class_types.insert(
+            declaration.name.clone(),
+            Type::Class {
+                name,
+                fields,
+                constructor_parameter_count,
+            },
+        );
+    }
+    struct_types.extend(class_types.clone());
+    let mut class_method_declarations = Vec::new();
+    for declaration in &app.classes {
+        let Some(receiver) = class_types.get(&declaration.name).cloned() else {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("class type `{}` was not resolved", declaration.name),
+            ));
+        };
+        let Type::Class { .. } = &receiver else {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("invalid class type for `{}`", declaration.name),
+            ));
+        };
+        let parameters = declaration
+            .constructor_parameters
+            .iter()
+            .map(|parameter| {
+                Ok((
+                    parameter.name.clone(),
+                    resolve_class_member_type(&parameter.ty, &struct_types, &app.plugins, false)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, CompileError>>()?;
+        if function_signatures.contains_key(&declaration.name) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("class `{}` conflicts with a function", declaration.name),
+            ));
+        }
+        function_signatures.insert(
+            declaration.name.clone(),
+            FunctionSignature {
+                parameters: parameters.clone(),
+                type_parameters: Vec::new(),
+                return_type: receiver.clone(),
+                is_async: false,
+                is_throwing: false,
+                receiver: None,
+                is_constructor: true,
+                is_mutable_property: false,
+                error_handling_allowed: false,
+                error_type: None,
+            },
+        );
+        let mut method_names = HashSet::new();
+        for method in &declaration.methods {
+            if !method_names.insert(method.name.as_str()) {
+                return Err(CompileError::new(
+                    method.span,
+                    format!(
+                        "class method `{}` is overloaded or declared more than once",
+                        method.name
+                    ),
+                ));
+            }
+            let key = format!("{}.{}", declaration.name, method.name);
+            if function_signatures.contains_key(&key) {
+                return Err(CompileError::new(
+                    method.span,
+                    format!("method `{key}` conflicts with an existing declaration"),
+                ));
+            }
+            let method_parameters = method
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    Ok((
+                        parameter.name.clone(),
+                        resolve_class_member_type(
+                            &parameter.ty,
+                            &struct_types,
+                            &app.plugins,
+                            false,
+                        )?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, CompileError>>()?;
+            let return_type =
+                resolve_class_member_type(&method.return_type, &struct_types, &app.plugins, true)?;
+            function_signatures.insert(
+                key.clone(),
+                FunctionSignature {
+                    parameters: method_parameters,
+                    type_parameters: Vec::new(),
+                    return_type,
+                    is_async: method.is_async,
+                    is_throwing: false,
+                    receiver: Some(receiver.clone()),
+                    is_constructor: false,
+                    is_mutable_property: false,
+                    error_handling_allowed: false,
+                    error_type: None,
+                },
+            );
+            let mut lowered_method = method.clone();
+            lowered_method.name = key;
+            class_method_declarations.push(lowered_method);
+        }
+        for method in &declaration.static_methods {
+            let key = format!("{}.{}", declaration.name, method.name);
+            if function_signatures.contains_key(&key) {
+                return Err(CompileError::new(
+                    method.span,
+                    format!("class method `{key}` conflicts with an existing declaration"),
+                ));
+            }
+            let method_parameters = method
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    Ok((
+                        parameter.name.clone(),
+                        resolve_class_member_type(
+                            &parameter.ty,
+                            &struct_types,
+                            &app.plugins,
+                            false,
+                        )?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, CompileError>>()?;
+            let return_type =
+                resolve_class_member_type(&method.return_type, &struct_types, &app.plugins, true)?;
+            function_signatures.insert(
+                key.clone(),
+                FunctionSignature {
+                    parameters: method_parameters,
+                    type_parameters: Vec::new(),
+                    return_type,
+                    is_async: method.is_async,
+                    is_throwing: false,
+                    receiver: None,
+                    is_constructor: false,
+                    is_mutable_property: false,
+                    error_handling_allowed: false,
+                    error_type: None,
+                },
+            );
+            let mut lowered_method = method.clone();
+            lowered_method.name = key;
+            class_method_declarations.push(lowered_method);
+        }
     }
     for declaration in &struct_declarations {
         if function_signatures.contains_key(&declaration.name) {
@@ -233,6 +777,16 @@ fn lower_with_warnings_in_mode(
             },
         );
     }
+    let mut component_global_symbols = enum_symbols.clone();
+    for global in &app.globals {
+        let ty = resolve_declaration_type(
+            global,
+            &component_global_symbols,
+            &function_signatures,
+            &struct_types,
+        )?;
+        component_global_symbols.insert(global.name.clone(), (ty, false));
+    }
     let (components, component_signatures) = lower_components(
         std::mem::take(&mut app.components),
         custom_components::ComponentLoweringContext {
@@ -242,6 +796,7 @@ fn lower_with_warnings_in_mode(
             structs: &struct_types,
             enums: &owned_enum_names,
             enum_symbols: &enum_symbols,
+            global_symbols: &component_global_symbols,
             external_signatures: &native_component_signatures,
             target,
             allow_nullable_generic_plugin_reads,
@@ -255,16 +810,6 @@ fn lower_with_warnings_in_mode(
         &app.enums,
         &components,
     )?;
-    let functions = lower_functions(
-        std::mem::take(&mut app.functions),
-        &function_signatures,
-        &struct_types,
-        &owned_enum_names,
-        &enum_symbols,
-        allow_nullable_generic_plugin_reads,
-    )?;
-    tests::bind_test_functions(&mut test_suite, &functions);
-
     let background_tasks = app
         .background_tasks
         .into_iter()
@@ -305,10 +850,17 @@ fn lower_with_warnings_in_mode(
         })
         .collect::<Result<Vec<_>, CompileError>>()?;
 
+    let global_names = app
+        .globals
+        .iter()
+        .map(|global| global.name.clone())
+        .collect::<HashSet<_>>();
+    let mut declarations = app.globals;
+    declarations.extend(app.states);
     let mut symbols = enum_symbols.clone();
-    let mut states = Vec::with_capacity(app.states.len());
+    let mut states = Vec::with_capacity(declarations.len());
     let mut native_aliases = HashMap::new();
-    for declaration in app.states {
+    for declaration in declarations {
         if symbols.contains_key(&declaration.name) {
             return Err(CompileError::new(
                 declaration.span,
@@ -329,33 +881,142 @@ fn lower_with_warnings_in_mode(
             matches!(&declaration.initial, ast::Expr::Null(_)),
             declaration.span,
         )?;
-        let initial = lower_expr(
-            &declaration.initial,
-            Some(&ty),
-            &ExprContext::with_types(
-                &symbols,
-                &function_signatures,
-                false,
-                &struct_types,
-                &owned_enum_names,
-            )
-            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
-        )?;
-        if declaration.mutable && references_state(&declaration.initial) {
+        let state_context = ExprContext::with_types(
+            &symbols,
+            &function_signatures,
+            false,
+            &struct_types,
+            &owned_enum_names,
+        )
+        .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads);
+        let initial = lower_expr(&declaration.initial, Some(&ty), &state_context)?;
+        let mutable = declaration.mutable;
+        if mutable && references_mutable_state(&declaration.initial, &symbols) {
             return Err(CompileError::new(
                 declaration.initial.span(),
-                "mutable state initializers cannot refer to other state values yet",
+                "mutable state initializers cannot refer to mutable state values",
             ));
         }
         record_native_alias(&declaration.name, &ty, &initial, &mut native_aliases);
-        symbols.insert(declaration.name.clone(), (ty.clone(), declaration.mutable));
+        symbols.insert(declaration.name.clone(), (ty.clone(), mutable));
         states.push(State {
             name: declaration.name,
             ty,
             initial,
-            mutable: declaration.mutable,
+            mutable,
         });
     }
+    // Class `static let` declarations are immutable module-lifetime values. Keep
+    // them in the same compact IR binding representation as globals while
+    // retaining a qualified storage name for native class/companion emission.
+    for class in &app.classes {
+        for field in &class.static_fields {
+            let qualified_name = format!("{}::{}", class.name, field.name);
+            if symbols.contains_key(&qualified_name)
+                || function_signatures.contains_key(&qualified_name)
+            {
+                return Err(CompileError::new(
+                    field.span,
+                    format!("class property `{}` is already declared", field.name),
+                ));
+            }
+            let ty = match &field.ty {
+                Some(ty) => resolve_class_member_type(ty, &struct_types, &app.plugins, false)?,
+                None => infer_expr_type(&field.initial, &symbols, &function_signatures).ok_or_else(|| CompileError::new(
+                    field.span,
+                    format!("cannot infer the type of static class property `{}`; add a type annotation", field.name),
+                ))?,
+            };
+            let initial = lower_expr(
+                &field.initial,
+                Some(&ty),
+                &ExprContext::with_types(
+                    &symbols,
+                    &function_signatures,
+                    false,
+                    &struct_types,
+                    &owned_enum_names,
+                )
+                .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
+            )?;
+            symbols.insert(qualified_name.clone(), (ty.clone(), false));
+            states.push(State {
+                name: qualified_name,
+                ty,
+                initial,
+                mutable: false,
+            });
+        }
+    }
+    let global_symbols = states
+        .iter()
+        .filter(|state| global_names.contains(&state.name) || state.name.contains("::"))
+        .map(|state| (state.name.clone(), (state.ty.clone(), false)))
+        .collect::<HashMap<_, _>>();
+    let mut function_declarations = std::mem::take(&mut app.functions);
+    function_declarations.extend(class_method_declarations);
+    let mut class_initializers = HashMap::with_capacity(app.classes.len());
+    for declaration in &app.classes {
+        let mut initializers = Vec::with_capacity(declaration.fields.len());
+        let mut symbols = HashMap::new();
+        if let Some(Type::Class {
+            fields,
+            constructor_parameter_count,
+            ..
+        }) = class_types.get(&declaration.name)
+        {
+            for (name, ty) in fields.iter().take(*constructor_parameter_count) {
+                symbols.insert(name.clone(), (ty.clone(), false));
+            }
+            for field in &declaration.fields {
+                let Some((_, ty)) = fields.iter().find(|(name, _)| name == &field.name) else {
+                    return Err(CompileError::new(
+                        field.span,
+                        format!("class property `{}` has no resolved type", field.name),
+                    ));
+                };
+                let initial = lower_expr(
+                    &field.initial,
+                    Some(ty),
+                    &ExprContext::with_types(
+                        &symbols,
+                        &function_signatures,
+                        false,
+                        &struct_types,
+                        &owned_enum_names,
+                    )
+                    .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
+                )?;
+                initializers.push(FunctionLocal {
+                    name: field.name.clone(),
+                    ty: ty.clone(),
+                    initial,
+                });
+            }
+        }
+        class_initializers.insert(declaration.name.clone(), initializers);
+    }
+    let mut functions = lower_functions(
+        function_declarations,
+        FunctionLoweringContext {
+            signatures: &function_signatures,
+            structs: &struct_types,
+            enums: &owned_enum_names,
+            enum_symbols: &enum_symbols,
+            global_symbols: &global_symbols,
+            class_initializers: &class_initializers,
+            allow_nullable_generic_plugin_reads,
+        },
+    )?;
+    for function in &mut functions {
+        if function.receiver.is_some()
+            && let Some((class_name, _)) = function.name.split_once('.')
+            && let Some(receiver) = class_types.get(class_name)
+        {
+            function.receiver = Some(receiver.clone());
+        }
+    }
+    tests::bind_test_functions(&mut test_suite, &functions);
     let mut all_state_names = states
         .iter()
         .map(|state| state.name.clone())
@@ -432,34 +1093,32 @@ fn lower_with_warnings_in_mode(
                 matches!(&declaration.initial, ast::Expr::Null(_)),
                 declaration.span,
             ));
-            let initial = screen_try!(lower_expr(
-                &declaration.initial,
-                Some(&ty),
-                &ExprContext::with_types(
-                    &screen_symbols,
-                    &function_signatures,
-                    false,
-                    &struct_types,
-                    &owned_enum_names,
-                )
-                .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
-            ));
-            if declaration.mutable && references_state(&declaration.initial) {
+            let state_context = ExprContext::with_types(
+                &screen_symbols,
+                &function_signatures,
+                false,
+                &struct_types,
+                &owned_enum_names,
+            )
+            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads);
+            let initial = screen_try!(lower_expr(&declaration.initial, Some(&ty), &state_context,));
+            let mutable = declaration.mutable;
+            if mutable && references_mutable_state(&declaration.initial, &screen_symbols) {
                 return Err(with_screen_source(
                     CompileError::new(
                         declaration.initial.span(),
-                        "mutable screen state initializers cannot refer to other state values yet",
+                        "mutable screen state initializers cannot refer to mutable state values",
                     ),
                     screen_source_file,
                 ));
             }
             record_native_alias(&declaration.name, &ty, &initial, &mut screen_native_aliases);
-            screen_symbols.insert(declaration.name.clone(), (ty.clone(), declaration.mutable));
+            screen_symbols.insert(declaration.name.clone(), (ty.clone(), mutable));
             screen_states.push(State {
                 name: declaration.name,
                 ty,
                 initial,
-                mutable: declaration.mutable,
+                mutable,
             });
         }
         let cx = SemanticContext::new(
@@ -529,6 +1188,346 @@ fn lower_with_warnings_in_mode(
         });
     }
 
+    let mut widget_names = HashSet::with_capacity(app.widgets.len());
+    let mut widgets = Vec::with_capacity(app.widgets.len());
+    for widget in app.widgets {
+        let source_file = widget.source_file.as_deref();
+        let entry_type = infer_expr_type(&widget.entry_provider, &symbols, &function_signatures)
+            .ok_or_else(|| {
+                with_screen_source(
+                    CompileError::new(
+                        widget.entry_provider.span(),
+                        "cannot infer widget entry provider return type",
+                    ),
+                    source_file,
+                )
+            })?;
+        let Type::Struct { .. } = &entry_type else {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.entry_provider.span(),
+                    "widget entry provider must return a declared struct type",
+                ),
+                source_file,
+            ));
+        };
+        if !widget_names.insert(widget.name.clone()) {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.span,
+                    format!("widget `{}` is already declared", widget.name),
+                ),
+                source_file,
+            ));
+        }
+        if (widget.configuration_title.is_some() || widget.configuration_description.is_some())
+            && widget.configuration.is_none()
+        {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.span,
+                    "widget configuration title and description require `configuration`",
+                ),
+                source_file,
+            ));
+        }
+        let mut seen_families = HashSet::new();
+        let families = widget.families.iter().map(|family| {
+            if !seen_families.insert(family.as_str()) {
+                return Err(CompileError::new(widget.span, format!("widget family `{family}` is listed more than once")));
+            }
+            match family.as_str() {
+                "Small" => Ok(WidgetFamily::Small),
+                "Medium" => Ok(WidgetFamily::Medium),
+                "Large" => Ok(WidgetFamily::Large),
+                "ExtraLarge" => Ok(WidgetFamily::ExtraLarge),
+                _ => Err(CompileError::new(widget.span, format!("unknown widget family `{family}`; expected Small, Medium, Large, or ExtraLarge"))),
+            }
+        }).collect::<Result<Vec<_>, _>>().map_err(|error| with_screen_source(error, source_file))?;
+        if families.is_empty() {
+            return Err(with_screen_source(
+                CompileError::new(widget.span, "widget requires at least one supported family"),
+                source_file,
+            ));
+        }
+        let refresh_seconds = match &widget.refresh_seconds {
+            ast::Expr::Number(raw, _) => raw.parse::<u32>().ok().filter(|seconds| *seconds > 0),
+            _ => None,
+        }
+        .ok_or_else(|| {
+            with_screen_source(
+                CompileError::new(
+                    widget.refresh_seconds.span(),
+                    "`refreshSeconds` must be a positive integer literal",
+                ),
+                source_file,
+            )
+        })?;
+        let mut widget_symbols = enum_symbols
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect::<HashMap<_, _>>();
+        widget_symbols.extend(global_symbols.clone());
+        if enum_symbols.contains_key("__enum::WidgetFamily") {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.span,
+                    "`WidgetFamily` is reserved for Nexa widget size selection",
+                ),
+                source_file,
+            ));
+        }
+        if widget_symbols.contains_key("entry") {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.span,
+                    "widget content uses the reserved `entry` binding",
+                ),
+                source_file,
+            ));
+        }
+        if widget_symbols.contains_key("family") {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.span,
+                    "widget content uses the reserved `family` binding",
+                ),
+                source_file,
+            ));
+        }
+        let configuration = if let Some(default) = &widget.configuration {
+            if widget_symbols.contains_key("configuration") {
+                return Err(with_screen_source(
+                    CompileError::new(
+                        widget.span,
+                        "widget content uses the reserved `configuration` binding",
+                    ),
+                    source_file,
+                ));
+            }
+            let ty = infer_expr_type(default, &widget_symbols, &function_signatures).ok_or_else(|| {
+                with_screen_source(
+                    CompileError::new(
+                        default.span(),
+                        "cannot infer the widget configuration type; provide a declared struct value",
+                    ),
+                    source_file,
+                )
+            })?;
+            let Type::Struct { fields, .. } = &ty else {
+                return Err(with_screen_source(
+                    CompileError::new(
+                        default.span(),
+                        "widget configuration must be a declared struct with selectable enum fields",
+                    ),
+                    source_file,
+                ));
+            };
+            if fields.is_empty() {
+                return Err(with_screen_source(
+                    CompileError::new(
+                        default.span(),
+                        "widget configuration must contain at least one field",
+                    ),
+                    source_file,
+                ));
+            }
+            for (field_name, field_type) in fields {
+                if !matches!(field_type, Type::Enum(enum_name) if !enum_name.contains('.')) {
+                    return Err(with_screen_source(
+                        CompileError::new(
+                            default.span(),
+                            format!(
+                                "widget configuration field `{field_name}` must use a declared enum type"
+                            ),
+                        ),
+                        source_file,
+                    ));
+                }
+            }
+            let default_value = lower_expr(
+                default,
+                Some(&ty),
+                &ExprContext::with_types(
+                    &widget_symbols,
+                    &function_signatures,
+                    false,
+                    &struct_types,
+                    &owned_enum_names,
+                )
+                .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
+            )
+            .map_err(|error| with_screen_source(error, source_file))?;
+            widget_symbols.insert("configuration".to_owned(), (ty.clone(), false));
+            Some(nexa_ir::WidgetConfiguration {
+                ty,
+                default: default_value,
+            })
+        } else {
+            None
+        };
+        let family_type = Type::Enum("WidgetFamily".to_owned());
+        widget_symbols.insert("family".to_owned(), (family_type.clone(), false));
+        for family in ["Small", "Medium", "Large", "ExtraLarge"] {
+            widget_symbols.insert(
+                format!("WidgetFamily.{family}"),
+                (family_type.clone(), false),
+            );
+        }
+        widget_symbols.insert("entry".to_owned(), (entry_type.clone(), false));
+        let mut provider_symbols = enum_symbols
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect::<HashMap<_, _>>();
+        provider_symbols.extend(global_symbols.clone());
+        if let Some(configuration) = &configuration {
+            provider_symbols.insert(
+                "configuration".to_owned(),
+                (configuration.ty.clone(), false),
+            );
+        }
+        provider_symbols.insert("family".to_owned(), (family_type.clone(), false));
+        for family in ["Small", "Medium", "Large", "ExtraLarge"] {
+            provider_symbols.insert(
+                format!("WidgetFamily.{family}"),
+                (family_type.clone(), false),
+            );
+        }
+        let widget_context = SemanticContext::new(
+            &widget_symbols,
+            &screen_signatures,
+            &themes,
+            &component_signatures,
+            &function_signatures,
+            &native_aliases,
+            &struct_types,
+            &owned_enum_names,
+            target,
+            allow_nullable_generic_plugin_reads,
+        )
+        .with_navigation(false, false);
+        let body = lower_nodes(widget.body, &widget_context)
+            .map_err(|error| with_screen_source(error, source_file))?;
+        validate_widget_body(&body, widget.span)
+            .map_err(|error| with_screen_source(error, source_file))?;
+        if body.iter().any(contains_content) {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.span,
+                    "Content() is only available inside a custom component declaration",
+                ),
+                source_file,
+            ));
+        }
+        let provider_functions = functions_with_error_handling(&function_signatures, true);
+        let entry_provider = lower_expr(
+            &widget.entry_provider,
+            Some(&entry_type),
+            &ExprContext::with_types(
+                &provider_symbols,
+                &provider_functions,
+                true,
+                &struct_types,
+                &owned_enum_names,
+            )
+            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
+        )
+        .map_err(|error| with_screen_source(error, source_file))?;
+        let entry_provider_async = expression_uses_async(&entry_provider);
+        let entry_provider_throws = expression_uses_throwing_await(&entry_provider);
+        if entry_provider_async && widget.placeholder_provider.is_none() {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.entry_provider.span(),
+                    "an async widget entry requires a synchronous `placeholder` value",
+                ),
+                source_file,
+            ));
+        }
+        if entry_provider_async && expression_references_state(&entry_provider, "family") {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.entry_provider.span(),
+                    "async widget entries cannot depend on `family`; load family-independent data and select rows in the widget body",
+                ),
+                source_file,
+            ));
+        }
+        if entry_provider_throws && widget.placeholder_provider.is_none() {
+            return Err(with_screen_source(
+                CompileError::new(
+                    widget.entry_provider.span(),
+                    "a throwing widget entry requires a synchronous `placeholder` fallback",
+                ),
+                source_file,
+            ));
+        }
+        let placeholder_provider = if let Some(placeholder) = &widget.placeholder_provider {
+            let placeholder_type =
+                infer_expr_type(placeholder, &provider_symbols, &function_signatures).ok_or_else(
+                    || {
+                        with_screen_source(
+                            CompileError::new(
+                                placeholder.span(),
+                                "cannot infer widget placeholder return type",
+                            ),
+                            source_file,
+                        )
+                    },
+                )?;
+            if placeholder_type != entry_type {
+                return Err(with_screen_source(
+                    CompileError::new(
+                        placeholder.span(),
+                        "widget `placeholder` must return the same struct type as `entry`",
+                    ),
+                    source_file,
+                ));
+            }
+            let lowered = lower_expr(
+                placeholder,
+                Some(&entry_type),
+                &ExprContext::with_types(
+                    &provider_symbols,
+                    &function_signatures,
+                    false,
+                    &struct_types,
+                    &owned_enum_names,
+                )
+                .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
+            )
+            .map_err(|error| with_screen_source(error, source_file))?;
+            if expression_references_state(&lowered, "family") {
+                return Err(with_screen_source(
+                    CompileError::new(
+                        placeholder.span(),
+                        "widget `placeholder` cannot depend on `family`; it must be available synchronously on every platform",
+                    ),
+                    source_file,
+                ));
+            }
+            Some(lowered)
+        } else {
+            None
+        };
+        widgets.push(Widget {
+            name: widget.name,
+            display_name: widget.display_name,
+            description: widget.description,
+            configuration_title: widget.configuration_title,
+            configuration_description: widget.configuration_description,
+            configuration,
+            entry_provider,
+            placeholder_provider,
+            entry_provider_async,
+            entry_provider_throws,
+            entry_type,
+            families,
+            refresh_seconds,
+            body,
+        });
+    }
+
     let cx = SemanticContext::new(
         &symbols,
         &screen_signatures,
@@ -558,7 +1557,7 @@ fn lower_with_warnings_in_mode(
         extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Inactive)?;
     let (on_background, body) =
         extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Background)?;
-    let components = retain_reachable(components, &body, &screens);
+    let components = retain_reachable(components, &body, &screens, &widgets);
     let plugins = app
         .plugins
         .iter()
@@ -587,6 +1586,12 @@ fn lower_with_warnings_in_mode(
             })
         })
         .collect();
+    let global_states = states
+        .iter()
+        .filter(|state| global_names.contains(&state.name) || state.name.contains("::"))
+        .cloned()
+        .collect();
+    states.retain(|state| !global_names.contains(&state.name) && !state.name.contains("::"));
     let mut module = Module {
         app_name: app.name,
         plugins,
@@ -596,7 +1601,9 @@ fn lower_with_warnings_in_mode(
         functions,
         background_tasks,
         states,
+        globals: global_states,
         screens,
+        widgets,
         components,
         body,
         status_bar,
@@ -831,6 +1838,21 @@ fn validate_module_callback_disposal(
             functions,
             &scope,
         );
+        for (actions, kind) in [
+            (component.on_appear.as_deref(), CallbackKind::Lifecycle),
+            (component.on_disappear.as_deref(), CallbackKind::OnDisappear),
+        ] {
+            if let Some(actions) = actions {
+                push_callback_accesses(
+                    &mut accesses,
+                    actions,
+                    &identities,
+                    functions,
+                    kind,
+                    &scope,
+                );
+            }
+        }
         validate_callback_disposal_accesses(&accesses, &labels, &HashMap::new())?;
     }
 
@@ -1056,9 +2078,10 @@ fn module_uses_json_error(module: &Module) -> bool {
     fn type_uses_json_error(ty: &Type) -> bool {
         match ty {
             Type::Enum(name) => name == "JsonError",
-            Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
-                type_uses_json_error(inner)
-            }
+            Type::Optional(inner)
+            | Type::Array(inner)
+            | Type::Set(inner)
+            | Type::Signal(inner) => type_uses_json_error(inner),
             Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
                 type_uses_json_error(key) || type_uses_json_error(value)
             }
@@ -1070,6 +2093,7 @@ fn module_uses_json_error(module: &Module) -> bool {
             Type::Struct { fields, .. } => fields
                 .iter()
                 .any(|(_, field_type)| type_uses_json_error(field_type)),
+            Type::Class { fields, .. } => fields.iter().any(|(_, ty)| type_uses_json_error(ty)),
             Type::Void
             | Type::String
             | Type::Bytes
@@ -1164,6 +2188,11 @@ fn module_uses_json_error(module: &Module) -> bool {
             expression_uses_json_error(&local.initial, &mut found);
         }
         expression_uses_json_error(&function.body, &mut found);
+        if let Some(actions) = &function.body_actions {
+            nexa_ir::walk::walk_actions(actions, &mut |expression| {
+                expression_uses_json_error(expression, &mut found)
+            });
+        }
     }
     for task in &module.background_tasks {
         nexa_ir::walk::walk_actions(&task.actions, &mut |expression| {
@@ -1415,6 +2444,9 @@ fn resolve_struct_members(
         Type::Set(inner) => Ok(Type::Set(Box::new(resolve_struct_members(
             inner, raw, cache, active, span,
         )?))),
+        Type::Signal(inner) => Ok(Type::Signal(Box::new(resolve_struct_members(
+            inner, raw, cache, active, span,
+        )?))),
         Type::Map(key, value) => Ok(Type::Map(
             Box::new(resolve_struct_members(key, raw, cache, active, span)?),
             Box::new(resolve_struct_members(value, raw, cache, active, span)?),
@@ -1470,7 +2502,11 @@ fn plugin_enum_symbols(plugins: &[ast::PluginDecl]) -> HashMap<String, (nexa_ir:
                 namespace: plugin.namespace.clone(),
                 name: declaration.name.clone(),
             };
-            for case in &declaration.cases {
+            for case in declaration
+                .cases
+                .iter()
+                .filter(|case| case.parameters.is_empty())
+            {
                 symbols.insert(
                     format!("{}.{}.{}", plugin.namespace, declaration.name, case.name),
                     (ty.clone(), false),
@@ -1487,13 +2523,19 @@ fn validate_declared_types(
     struct_types: &StructTypes,
 ) -> Result<(), CompileError> {
     let mut native_class_types = HashSet::new();
+    let mut plugin_types = HashSet::new();
     for plugin in &app.plugins {
         let Some(idl) = plugin.idl.as_ref() else {
             continue;
         };
+        for declaration in &idl.types {
+            plugin_types.insert(format!("{}.{}", plugin.namespace, declaration.name));
+        }
         for interface in &idl.interfaces {
             if interface.kind == nexa_plugin_idl::InterfaceKind::NativeClass {
-                native_class_types.insert(format!("{}.{}", plugin.namespace, interface.name));
+                let qualified_name = format!("{}.{}", plugin.namespace, interface.name);
+                native_class_types.insert(qualified_name.clone());
+                plugin_types.insert(qualified_name);
                 if interface.name == plugin.namespace {
                     native_class_types.insert(interface.name.clone());
                 }
@@ -1504,7 +2546,7 @@ fn validate_declared_types(
     for declaration in &app.structs {
         for field in &declaration.fields {
             let ty = resolve_struct_type(&parse_type(&field.ty)?, struct_types);
-            validate_type_names(&ty, enum_names, field.ty.span())
+            validate_type_names(&ty, enum_names, &plugin_types, field.ty.span())
                 .map_err(|error| in_source_file(error, declaration.source_file.as_deref()))?;
         }
     }
@@ -1513,6 +2555,7 @@ fn validate_declared_types(
             validate_type_names(
                 &resolve_struct_type(&parse_type(ty)?, struct_types),
                 enum_names,
+                &plugin_types,
                 ty.span(),
             )?;
         }
@@ -1522,12 +2565,14 @@ fn validate_declared_types(
             validate_type_names(
                 &resolve_struct_type(&parse_type(&parameter.ty)?, struct_types),
                 enum_names,
+                &plugin_types,
                 parameter.ty.span(),
             )?;
         }
         validate_type_names(
-            &resolve_struct_type(&parse_type(&declaration.return_type)?, struct_types),
+            &resolve_struct_type(&parse_return_type(&declaration.return_type)?, struct_types),
             enum_names,
+            &plugin_types,
             declaration.return_type.span(),
         )?;
         for statement in &declaration.body {
@@ -1535,6 +2580,7 @@ fn validate_declared_types(
                 validate_type_names(
                     &resolve_struct_type(&parse_type(ty)?, struct_types),
                     enum_names,
+                    &plugin_types,
                     ty.span(),
                 )?;
             }
@@ -1546,6 +2592,7 @@ fn validate_declared_types(
                 &resolve_struct_type(&parse_type(&parameter.ty)?, struct_types),
                 enum_names,
                 &native_class_types,
+                &plugin_types,
                 parameter.ty.span(),
             )?;
         }
@@ -1554,6 +2601,7 @@ fn validate_declared_types(
                 validate_type_names(
                     &resolve_struct_type(&parse_type(ty)?, struct_types),
                     enum_names,
+                    &plugin_types,
                     ty.span(),
                 )?;
             }
@@ -1566,29 +2614,51 @@ fn validate_component_type_names(
     ty: &Type,
     enum_names: &std::collections::HashSet<&str>,
     native_class_types: &HashSet<String>,
+    plugin_types: &HashSet<String>,
     span: nexa_diagnostics::Span,
 ) -> Result<(), CompileError> {
     match ty {
         Type::Enum(name) if native_class_types.contains(name) => Ok(()),
-        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
-            validate_component_type_names(inner, enum_names, native_class_types, span)
+        Type::Plugin { namespace, name }
+            if plugin_types.contains(&format!("{namespace}.{name}")) =>
+        {
+            Ok(())
+        }
+        Type::Optional(inner)
+        | Type::Array(inner)
+        | Type::Set(inner)
+        | Type::Signal(inner) => {
+            validate_component_type_names(inner, enum_names, native_class_types, plugin_types, span)
         }
         Type::Map(key, value) | Type::Pair(key, value) => {
-            validate_component_type_names(key, enum_names, native_class_types, span)?;
-            validate_component_type_names(value, enum_names, native_class_types, span)
+            validate_component_type_names(key, enum_names, native_class_types, plugin_types, span)?;
+            validate_component_type_names(value, enum_names, native_class_types, plugin_types, span)
         }
         Type::Triple(first, second, third) => {
-            validate_component_type_names(first, enum_names, native_class_types, span)?;
-            validate_component_type_names(second, enum_names, native_class_types, span)?;
-            validate_component_type_names(third, enum_names, native_class_types, span)
+            validate_component_type_names(
+                first,
+                enum_names,
+                native_class_types,
+                plugin_types,
+                span,
+            )?;
+            validate_component_type_names(
+                second,
+                enum_names,
+                native_class_types,
+                plugin_types,
+                span,
+            )?;
+            validate_component_type_names(third, enum_names, native_class_types, plugin_types, span)
         }
-        _ => validate_type_names(ty, enum_names, span),
+        _ => validate_type_names(ty, enum_names, plugin_types, span),
     }
 }
 
 fn validate_type_names(
     ty: &Type,
     enum_names: &std::collections::HashSet<&str>,
+    plugin_types: &HashSet<String>,
     span: nexa_diagnostics::Span,
 ) -> Result<(), CompileError> {
     match ty {
@@ -1596,21 +2666,35 @@ fn validate_type_names(
         Type::Enum(name) if !enum_names.contains(name.as_str()) && !is_builtin_enum_name(name) => {
             Err(CompileError::new(span, format!("unknown type `{name}`")))
         }
-        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
-            validate_type_names(inner, enum_names, span)
+        Type::Plugin { namespace, name }
+            if !plugin_types.contains(&format!("{namespace}.{name}")) =>
+        {
+            Err(CompileError::new(
+                span,
+                format!("unknown plugin type `{namespace}.{name}`"),
+            ))
+        }
+        Type::Optional(inner)
+        | Type::Array(inner)
+        | Type::Set(inner)
+        | Type::Signal(inner) => {
+            validate_type_names(inner, enum_names, plugin_types, span)
         }
         Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
-            validate_type_names(key, enum_names, span)?;
-            validate_type_names(value, enum_names, span)
+            validate_type_names(key, enum_names, plugin_types, span)?;
+            validate_type_names(value, enum_names, plugin_types, span)
         }
         Type::Triple(first, second, third) => {
-            validate_type_names(first, enum_names, span)?;
-            validate_type_names(second, enum_names, span)?;
-            validate_type_names(third, enum_names, span)
+            validate_type_names(first, enum_names, plugin_types, span)?;
+            validate_type_names(second, enum_names, plugin_types, span)?;
+            validate_type_names(third, enum_names, plugin_types, span)
         }
         Type::Struct { fields, .. } => fields
             .iter()
-            .try_for_each(|(_, field)| validate_type_names(field, enum_names, span)),
+            .try_for_each(|(_, field)| validate_type_names(field, enum_names, plugin_types, span)),
+        Type::Class { fields, .. } => fields
+            .iter()
+            .try_for_each(|(_, field)| validate_type_names(field, enum_names, plugin_types, span)),
         Type::Void
         | Type::String
         | Type::Bytes
@@ -1627,27 +2711,100 @@ fn is_builtin_enum_name(name: &str) -> bool {
     matches!(name, "Permission" | "PermissionStatus" | "JsonError")
 }
 
+struct FunctionLoweringContext<'a> {
+    signatures: &'a FunctionSignatures,
+    structs: &'a StructTypes,
+    enums: &'a HashSet<String>,
+    enum_symbols: &'a HashMap<String, (Type, bool)>,
+    global_symbols: &'a HashMap<String, (Type, bool)>,
+    class_initializers: &'a HashMap<String, Vec<FunctionLocal>>,
+    allow_nullable_generic_plugin_reads: bool,
+}
+
 fn lower_functions(
     declarations: Vec<ast::FunctionDecl>,
-    signatures: &FunctionSignatures,
-    structs: &StructTypes,
-    enums: &HashSet<String>,
-    enum_symbols: &HashMap<String, (Type, bool)>,
-    allow_nullable_generic_plugin_reads: bool,
+    context: FunctionLoweringContext<'_>,
 ) -> Result<Vec<Function>, CompileError> {
+    let FunctionLoweringContext {
+        signatures,
+        structs,
+        enums,
+        enum_symbols,
+        global_symbols,
+        class_initializers,
+        allow_nullable_generic_plugin_reads,
+    } = context;
     declarations
         .into_iter()
         .map(|declaration| {
-            let signature = signatures
-                .get(&declaration.name)
-                .expect("collected signature");
+            let signature = signatures.get(&declaration.name).ok_or_else(|| {
+                CompileError::new(
+                    declaration.span,
+                    format!("function signature for `{}` was not collected", declaration.name),
+                )
+            })?;
             let symbols = signature
                 .parameters
                 .iter()
                 .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
                 .collect::<HashMap<_, _>>();
             let mut symbols = symbols;
+            if let Some(receiver @ Type::Class { fields, .. }) = signature.receiver.as_ref() {
+                symbols.insert("this".to_owned(), (receiver.clone(), false));
+                for (name, ty) in fields {
+                    symbols.entry(name.clone()).or_insert_with(|| (ty.clone(), false));
+                }
+            }
             symbols.extend(enum_symbols.iter().map(|(name, value)| (name.clone(), value.clone())));
+            symbols.extend(global_symbols.iter().map(|(name, value)| (name.clone(), value.clone())));
+            if !has_simple_function_body(&declaration.body) {
+                let (body_actions, returns) = lower_function_statements(
+                    declaration.body.clone(),
+                    &symbols,
+                    signatures,
+                    &signature.return_type,
+                    signature.is_async,
+                    structs,
+                    enums,
+                    allow_nullable_generic_plugin_reads,
+                    declaration.span,
+                    0,
+                )?;
+                if !returns && signature.return_type != Type::Void {
+                    return Err(CompileError::new(
+                        declaration.span,
+                        format!(
+                            "function `{}` must return a value of type `{}` on every path",
+                            declaration.name,
+                            type_name(&signature.return_type)
+                        ),
+                    ));
+                }
+                return Ok(Function {
+                    class_initializers: signature
+                        .receiver
+                        .as_ref()
+                        .and_then(|_| declaration.name.split_once('.'))
+                        .and_then(|(class, _)| class_initializers.get(class).cloned())
+                        .unwrap_or_default(),
+                    name: declaration.name,
+                    receiver: signature.receiver.clone(),
+                    is_async: signature.is_async,
+                    is_throwing: signature.is_throwing,
+                    parameters: signature
+                        .parameters
+                        .iter()
+                        .map(|(name, ty)| FunctionParameter {
+                            name: name.clone(),
+                            ty: ty.clone(),
+                        })
+                        .collect(),
+                    locals: Vec::new(),
+                    return_type: signature.return_type.clone(),
+                    body: nexa_ir::Expr::Bool(false),
+                    body_actions: Some(body_actions),
+                });
+            }
             let mut locals = Vec::new();
             let mut return_value = None;
             for statement in declaration.body {
@@ -1762,8 +2919,16 @@ fn lower_functions(
                     .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
             )?;
             Ok(Function {
+                class_initializers: signature
+                    .receiver
+                    .as_ref()
+                    .and_then(|_| declaration.name.split_once('.'))
+                    .and_then(|(class, _)| class_initializers.get(class).cloned())
+                    .unwrap_or_default(),
                 name: declaration.name,
+                receiver: signature.receiver.clone(),
                 is_async: signature.is_async,
+                is_throwing: signature.is_throwing,
                 parameters: signature
                     .parameters
                     .iter()
@@ -1775,9 +2940,516 @@ fn lower_functions(
                 locals,
                 return_type: signature.return_type.clone(),
                 body,
+                body_actions: None,
             })
         })
         .collect()
+}
+
+fn has_simple_function_body(statements: &[ast::Stmt]) -> bool {
+    let Some(ast::Stmt::Return { .. }) = statements.last() else {
+        return false;
+    };
+    statements[..statements.len() - 1]
+        .iter()
+        .all(|statement| matches!(statement, ast::Stmt::Let { .. }))
+}
+
+fn function_expression_context<'a>(
+    symbols: &'a HashMap<String, (Type, bool)>,
+    functions: &'a FunctionSignatures,
+    structs: &'a StructTypes,
+    enums: &'a HashSet<String>,
+    allow_await: bool,
+    allow_nullable_generic_plugin_reads: bool,
+) -> ExprContext<'a> {
+    ExprContext::with_types(symbols, functions, allow_await, structs, enums)
+        .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_function_statements(
+    statements: Vec<ast::Stmt>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    return_type: &Type,
+    allow_await: bool,
+    structs: &StructTypes,
+    enums: &HashSet<String>,
+    allow_nullable_generic_plugin_reads: bool,
+    function_span: nexa_diagnostics::Span,
+    loop_depth: usize,
+) -> Result<(Vec<Action>, bool), CompileError> {
+    let mut symbols = symbols.clone();
+    let mut lowered = Vec::with_capacity(statements.len());
+    let mut definitely_returns = false;
+    for statement in statements {
+        if definitely_returns {
+            return Err(CompileError::new(
+                function_span,
+                "unreachable statement after a function body that always returns",
+            ));
+        }
+        match statement {
+            ast::Stmt::Let {
+                name,
+                ty,
+                initial,
+                span,
+            } => {
+                if symbols.contains_key(&name) {
+                    return Err(CompileError::new(
+                        span,
+                        format!("local constant `{name}` is already declared"),
+                    ));
+                }
+                let local_type =
+                    resolve_value_type(&name, ty.as_ref(), &initial, &symbols, functions, structs)?;
+                let value = lower_expr(
+                    &initial,
+                    Some(&local_type),
+                    &function_expression_context(
+                        &symbols,
+                        functions,
+                        structs,
+                        enums,
+                        allow_await,
+                        allow_nullable_generic_plugin_reads,
+                    ),
+                )?;
+                symbols.insert(name.clone(), (local_type.clone(), false));
+                lowered.push(Action::Let {
+                    name,
+                    ty: local_type,
+                    value,
+                });
+            }
+            ast::Stmt::Expression { expression, .. } => {
+                let value = lower_expr(
+                    &expression,
+                    None,
+                    &function_expression_context(
+                        &symbols,
+                        functions,
+                        structs,
+                        enums,
+                        allow_await,
+                        allow_nullable_generic_plugin_reads,
+                    ),
+                )?;
+                lowered.push(Action::Expression(value));
+            }
+            ast::Stmt::CollectionMutation {
+                name,
+                method,
+                type_arguments,
+                arguments,
+                span,
+            } => {
+                let Some((receiver_type, _)) = symbols.get(&name) else {
+                    return Err(CompileError::new(
+                        span,
+                        format!("unknown value `{name}` in function body"),
+                    ));
+                };
+                if !matches!(receiver_type, Type::Plugin { .. } | Type::Class { .. }) {
+                    return Err(CompileError::new(
+                        span,
+                        "collection mutation statements are only supported for class or plugin method calls in functions",
+                    ));
+                }
+                let call = ast::Expr::MethodCall {
+                    base: Box::new(ast::Expr::Name(name, span)),
+                    name: method,
+                    type_arguments,
+                    arguments,
+                    named_arguments: std::collections::BTreeMap::new(),
+                    span,
+                };
+                let value = lower_expr(
+                    &call,
+                    None,
+                    &function_expression_context(
+                        &symbols,
+                        functions,
+                        structs,
+                        enums,
+                        allow_await,
+                        allow_nullable_generic_plugin_reads,
+                    ),
+                )?;
+                lowered.push(Action::Expression(value));
+            }
+            ast::Stmt::Return { value, .. } => {
+                let value = lower_expr(
+                    &value,
+                    Some(return_type),
+                    &function_expression_context(
+                        &symbols,
+                        functions,
+                        structs,
+                        enums,
+                        allow_await,
+                        allow_nullable_generic_plugin_reads,
+                    ),
+                )?;
+                lowered.push(Action::Return { value });
+                definitely_returns = true;
+            }
+            ast::Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                let condition = lower_expr(
+                    &condition,
+                    Some(&Type::Bool),
+                    &function_expression_context(
+                        &symbols,
+                        functions,
+                        structs,
+                        enums,
+                        allow_await,
+                        allow_nullable_generic_plugin_reads,
+                    ),
+                )?;
+                let (then_branch, then_returns) = lower_function_statements(
+                    then_branch,
+                    &symbols,
+                    functions,
+                    return_type,
+                    allow_await,
+                    structs,
+                    enums,
+                    allow_nullable_generic_plugin_reads,
+                    function_span,
+                    loop_depth,
+                )?;
+                let (else_branch, else_returns) = else_branch
+                    .map(|branch| {
+                        lower_function_statements(
+                            branch,
+                            &symbols,
+                            functions,
+                            return_type,
+                            allow_await,
+                            structs,
+                            enums,
+                            allow_nullable_generic_plugin_reads,
+                            function_span,
+                            loop_depth,
+                        )
+                    })
+                    .transpose()?
+                    .map_or((None, false), |(branch, returns)| (Some(branch), returns));
+                definitely_returns = then_returns && else_returns;
+                lowered.push(Action::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                });
+            }
+            ast::Stmt::For {
+                name,
+                iterable,
+                body,
+                span,
+            } => {
+                if symbols.contains_key(&name) {
+                    return Err(CompileError::new(
+                        span,
+                        format!("loop binding `{name}` shadows an existing binding"),
+                    ));
+                }
+                let (iterable, element_type) = lower_for_iterable(
+                    &iterable,
+                    &symbols,
+                    functions,
+                    allow_await,
+                    TypeRegistries {
+                        structs,
+                        enums,
+                        allow_nullable_generic_plugin_reads,
+                    },
+                    span,
+                )?;
+                let mut loop_symbols = symbols.clone();
+                loop_symbols.insert(name.clone(), (element_type, false));
+                let (body, _) = lower_function_statements(
+                    body,
+                    &loop_symbols,
+                    functions,
+                    return_type,
+                    allow_await,
+                    structs,
+                    enums,
+                    allow_nullable_generic_plugin_reads,
+                    function_span,
+                    loop_depth + 1,
+                )?;
+                lowered.push(Action::For {
+                    name,
+                    iterable,
+                    body,
+                });
+            }
+            ast::Stmt::ForMap {
+                key_name,
+                value_name,
+                iterable,
+                body,
+                span,
+            } => {
+                if key_name == value_name
+                    || symbols.contains_key(&key_name)
+                    || symbols.contains_key(&value_name)
+                {
+                    return Err(CompileError::new(
+                        span,
+                        "map loop bindings must be distinct and cannot shadow an existing binding",
+                    ));
+                }
+                let (iterable, key_type, value_type) = lower_map_iterable(
+                    &iterable,
+                    &symbols,
+                    functions,
+                    allow_await,
+                    TypeRegistries {
+                        structs,
+                        enums,
+                        allow_nullable_generic_plugin_reads,
+                    },
+                    span,
+                )?;
+                let mut loop_symbols = symbols.clone();
+                loop_symbols.insert(key_name.clone(), (key_type, false));
+                loop_symbols.insert(value_name.clone(), (value_type, false));
+                let (body, _) = lower_function_statements(
+                    body,
+                    &loop_symbols,
+                    functions,
+                    return_type,
+                    allow_await,
+                    structs,
+                    enums,
+                    allow_nullable_generic_plugin_reads,
+                    function_span,
+                    loop_depth + 1,
+                )?;
+                lowered.push(Action::ForMap {
+                    key_name,
+                    value_name,
+                    iterable,
+                    body,
+                });
+            }
+            ast::Stmt::While {
+                condition,
+                body,
+                span: _,
+            } => {
+                let condition = lower_expr(
+                    &condition,
+                    Some(&Type::Bool),
+                    &function_expression_context(
+                        &symbols,
+                        functions,
+                        structs,
+                        enums,
+                        allow_await,
+                        allow_nullable_generic_plugin_reads,
+                    ),
+                )?;
+                let (body, _) = lower_function_statements(
+                    body,
+                    &symbols,
+                    functions,
+                    return_type,
+                    allow_await,
+                    structs,
+                    enums,
+                    allow_nullable_generic_plugin_reads,
+                    function_span,
+                    loop_depth + 1,
+                )?;
+                lowered.push(Action::While { condition, body });
+            }
+            ast::Stmt::Break { span } => {
+                if loop_depth == 0 {
+                    return Err(CompileError::new(
+                        span,
+                        "`break` is only allowed inside a loop",
+                    ));
+                }
+                lowered.push(Action::Break);
+            }
+            ast::Stmt::Continue { span } => {
+                if loop_depth == 0 {
+                    return Err(CompileError::new(
+                        span,
+                        "`continue` is only allowed inside a loop",
+                    ));
+                }
+                lowered.push(Action::Continue);
+            }
+            ast::Stmt::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+                span,
+            } => {
+                let handled_functions = functions_with_error_handling(functions, true);
+                let (body, body_returns) = lower_function_statements(
+                    body,
+                    &symbols,
+                    &handled_functions,
+                    return_type,
+                    allow_await,
+                    structs,
+                    enums,
+                    allow_nullable_generic_plugin_reads,
+                    function_span,
+                    loop_depth,
+                )?;
+                let mut lowered_catches = Vec::with_capacity(error_catches.len());
+                let mut catches_return = true;
+                for arm in error_catches {
+                    let variant = plugin_error_variant(
+                        functions,
+                        &arm.namespace,
+                        &arm.error_name,
+                        &arm.variant,
+                    )
+                    .ok_or_else(|| {
+                        CompileError::new(
+                            arm.span,
+                            format!(
+                                "unknown plugin error variant `{}.{}.{}`",
+                                arm.namespace, arm.error_name, arm.variant
+                            ),
+                        )
+                    })?;
+                    if variant.parameters.len() != arm.bindings.len() {
+                        return Err(CompileError::new(
+                            arm.span,
+                            format!(
+                                "error variant `{}.{}` provides {} payload value(s), but the catch case binds {}",
+                                arm.error_name,
+                                arm.variant,
+                                variant.parameters.len(),
+                                arm.bindings.len()
+                            ),
+                        ));
+                    }
+                    let mut arm_symbols = symbols.clone();
+                    let parameters = variant
+                        .parameters
+                        .iter()
+                        .zip(&arm.bindings)
+                        .map(|((payload_name, payload_type), binding)| {
+                            (binding.clone(), payload_name.clone(), payload_type.clone())
+                        })
+                        .collect::<Vec<_>>();
+                    for (binding, _, ty) in &parameters {
+                        if arm_symbols
+                            .insert(binding.clone(), (ty.clone(), false))
+                            .is_some()
+                        {
+                            return Err(CompileError::new(
+                                arm.span,
+                                format!(
+                                    "catch payload `{binding}` conflicts with an existing value"
+                                ),
+                            ));
+                        }
+                    }
+                    let (actions, returns) = lower_function_statements(
+                        arm.body,
+                        &arm_symbols,
+                        functions,
+                        return_type,
+                        allow_await,
+                        structs,
+                        enums,
+                        allow_nullable_generic_plugin_reads,
+                        function_span,
+                        loop_depth,
+                    )?;
+                    catches_return &= returns;
+                    lowered_catches.push(nexa_ir::ErrorCatchArm {
+                        namespace: arm.namespace,
+                        error_type: arm.error_name,
+                        variant: arm.variant,
+                        parameters,
+                        body: actions,
+                    });
+                }
+                let (catch_body, catch_returns) = catch_body
+                    .map(|branch| {
+                        lower_function_statements(
+                            branch,
+                            &symbols,
+                            functions,
+                            return_type,
+                            allow_await,
+                            structs,
+                            enums,
+                            allow_nullable_generic_plugin_reads,
+                            function_span,
+                            loop_depth,
+                        )
+                    })
+                    .transpose()?
+                    .map_or((None, true), |(branch, returns)| (Some(branch), returns));
+                validate_typed_error_recovery(
+                    &body,
+                    &lowered_catches,
+                    catch_body.is_some(),
+                    functions,
+                    span,
+                )?;
+                definitely_returns = body_returns && catches_return && catch_returns;
+                lowered.push(Action::TryCatch {
+                    body,
+                    error_catches: lowered_catches,
+                    catch_body,
+                });
+            }
+            unsupported => {
+                return Err(CompileError::new(
+                    function_span,
+                    format!(
+                        "function bodies currently support `let`, expression, `return`, `if`, and `try/catch`; found unsupported `{}`",
+                        function_statement_name(&unsupported)
+                    ),
+                ));
+            }
+        }
+    }
+    Ok((lowered, definitely_returns))
+}
+
+fn function_statement_name(statement: &ast::Stmt) -> &'static str {
+    match statement {
+        ast::Stmt::Expression { .. } => "expression",
+        ast::Stmt::Let { .. } => "let",
+        ast::Stmt::Assign { .. } => "assignment",
+        ast::Stmt::NativePropertyAssign { .. } => "native property assignment",
+        ast::Stmt::NativeEventSubscribe { .. } => "native event subscription",
+        ast::Stmt::CollectionMutation { .. } => "collection mutation",
+        ast::Stmt::TaskLaunch { .. } => "task launch",
+        ast::Stmt::TaskCancel { .. } => "task cancellation",
+        ast::Stmt::WithAnimation { .. } => "animation block",
+        ast::Stmt::If { .. } => "if",
+        ast::Stmt::For { .. } => "for loop",
+        ast::Stmt::ForMap { .. } => "map loop",
+        ast::Stmt::While { .. } => "while loop",
+        ast::Stmt::TryCatch { .. } => "try/catch",
+        ast::Stmt::Break { .. } => "break",
+        ast::Stmt::Continue { .. } => "continue",
+        ast::Stmt::Return { .. } => "return",
+    }
 }
 
 fn has_navigation_root(nodes: &[ast::Node], target: Target) -> bool {
@@ -2127,6 +3799,7 @@ mod callback_disposal_tests {
 
     fn fixture(states: Vec<State>, callback_use: &str) -> (Module, FunctionSignatures) {
         let module = Module {
+            widgets: Vec::new(),
             app_name: "Test".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -2134,6 +3807,7 @@ mod callback_disposal_tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states,
             screens: Vec::new(),
             components: Vec::new(),
@@ -2142,6 +3816,11 @@ mod callback_disposal_tests {
                 icon: None,
                 loading: None,
                 disabled: None,
+                style: None,
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
                 actions: vec![Action::Expression(player_call("dispose", "player"))],
             }],
             status_bar: None,
@@ -2191,6 +3870,7 @@ mod callback_disposal_tests {
             arguments: Vec::new(),
             return_type: player_type(),
             is_async: false,
+            is_throwing: false,
             is_constructor: true,
         }
     }
@@ -2262,6 +3942,7 @@ mod callback_disposal_tests {
     #[test]
     fn native_component_event_actions_are_included_in_callback_analysis() {
         let mut module = Module {
+            widgets: Vec::new(),
             app_name: "Test".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -2269,6 +3950,7 @@ mod callback_disposal_tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![state("player", constructor())],
             screens: Vec::new(),
             components: Vec::new(),
@@ -2306,6 +3988,7 @@ mod callback_disposal_tests {
     #[test]
     fn native_component_arguments_keep_instances_alive_until_view_disappearance() {
         let mut module = Module {
+            widgets: Vec::new(),
             app_name: "Test".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -2313,6 +3996,7 @@ mod callback_disposal_tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: vec![state("player", constructor())],
             screens: Vec::new(),
             components: Vec::new(),
@@ -2322,6 +4006,11 @@ mod callback_disposal_tests {
                     icon: None,
                     loading: None,
                     disabled: None,
+                    style: None,
+                    size: None,
+                    shape: None,
+                    tint: None,
+                    glass: false,
                     actions: vec![Action::Expression(player_call("dispose", "player"))],
                 },
                 Node::ComponentCall {
@@ -2394,6 +4083,11 @@ mod callback_disposal_tests {
                     icon: None,
                     loading: None,
                     disabled: None,
+                    style: None,
+                    size: None,
+                    shape: None,
+                    tint: None,
+                    glass: false,
                     actions: vec![Action::Expression(player_call("play", "sharedPlayer"))],
                 }],
                 None,
@@ -2422,6 +4116,11 @@ mod callback_disposal_tests {
                 icon: None,
                 loading: None,
                 disabled: None,
+                style: None,
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
                 actions: vec![Action::Expression(player_call("play", "screenPlayer"))],
             }],
             Some(vec![Action::Expression(player_call(

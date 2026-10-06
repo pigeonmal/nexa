@@ -1,0 +1,176 @@
+import "../storage/TodoDatabase.nx"
+import "../storage/TodoPersistence.nx"
+
+enum TodoWidgetFilter {
+    today,
+    upcoming
+}
+
+struct TodoWidgetConfiguration {
+    filter: TodoWidgetFilter
+}
+
+struct TodoWidgetTask {
+    title: String,
+    taskDescription: String,
+    priorityName: String,
+    priorityColor: String,
+    dateString: String
+}
+
+// Only the task columns that the widget renders are read from SQLite.
+struct TodoWidgetTaskRecord {
+    title: String,
+    taskDescription: String,
+    dueTimestamp: Int64?,
+    hasTime: Bool,
+    priority: String
+}
+
+struct TodoWidgetEntry {
+    filter: TodoWidgetFilter,
+    title: String,
+    emptyText: String,
+    themeColor: String,
+    tasks: Array<TodoWidgetTask>
+}
+
+fn makeTodoWidgetTask(task: TodoWidgetTaskRecord, startOfToday: Int64) -> TodoWidgetTask {
+    let due: Int64 = task.dueTimestamp ?? 0
+    let dueDate: Int64 = Time.startOfDay(due)
+    let dueTime: String = task.hasTime
+        ? (dueDate == startOfToday
+            ? Time.localizedTime(due)
+            : (dueDate == Time.addCalendarDays(startOfToday, 1)
+                ? "Tomorrow" + ", " + Time.localizedTime(due)
+                : Time.localizedDateTime(due)))
+        : (dueDate == startOfToday
+            ? "Today"
+            : (dueDate == Time.addCalendarDays(startOfToday, 1)
+                ? "Tomorrow"
+                : Time.localizedDate(due)))
+    let priorityColor: String = task.priority == "Highest" ? "#FF3B30"
+        : (task.priority == "High" ? "#FF9500"
+        : (task.priority == "Normal" ? "#FFCC00"
+        : (task.priority == "Low" ? "#34C759" : "#8E8E93")))
+    let priorityName: String = task.priority == "Highest" ? "Highest"
+        : (task.priority == "High" ? "High"
+        : (task.priority == "Normal" ? "Normal"
+        : (task.priority == "Low" ? "Low" : "None")))
+    return TodoWidgetTask(task.title, task.taskDescription, priorityName, priorityColor, dueTime)
+}
+
+class TodoWidgetData {
+    static async fn load(configuration: TodoWidgetConfiguration) -> TodoWidgetEntry {
+        let now: Int64 = Time.now()
+        let startOfToday: Int64 = Time.startOfDay(now)
+        let startOfTomorrow: Int64 = Time.addCalendarDays(startOfToday, 1)
+        let title = configuration.filter == TodoWidgetFilter.today
+            ? "Today"
+            : "Upcoming"
+        let emptyText = configuration.filter == TodoWidgetFilter.today
+            ? "No today tasks"
+            : "No upcoming tasks"
+        if !(await todoPersistence.initialize()) {
+            return TodoWidgetEntry(configuration.filter, title, emptyText, themeTint("Alizarin Red"), [])
+        }
+        try {
+            let themeColor = themeTint(await todoPersistence.loadTheme())
+            let records: Array<TodoWidgetTaskRecord> = await todoDatabase.query(
+                "SELECT title, taskDescription, dueTimestamp, hasTime, priority FROM tasks WHERE isCompleted = ? AND isDeleted = ? AND dueTimestamp IS NOT NULL AND dueTimestamp >= ? AND (? = 1 OR dueTimestamp < ?) ORDER BY dueTimestamp, sortOrder, id LIMIT 12",
+                [false, false, startOfToday, configuration.filter == TodoWidgetFilter.upcoming, startOfTomorrow]
+            )
+            let tasks: Array<TodoWidgetTask> = records.map { task -> makeTodoWidgetTask(task, startOfToday) }
+            return TodoWidgetEntry(configuration.filter, title, emptyText, themeColor, tasks)
+        } catch {
+            else { return TodoWidgetEntry(configuration.filter, title, emptyText, themeTint("Alizarin Red"), []) }
+        }
+    }
+
+    static fn visibleTasks(tasks: Array<TodoWidgetTask>, limit: Int32) -> Array<TodoWidgetTask> {
+        return tasks.take(limit)
+    }
+
+    static fn visibleTaskCount(tasks: Array<TodoWidgetTask>, limit: Int32) -> Int32 {
+        return tasks.count < limit ? tasks.count : limit
+    }
+}
+
+widget Tasks(
+    displayName: "Tasks",
+    description: "A quick view of your tasks",
+    configurationTitle: "Task Filter",
+    configurationDescription: "Choose which tasks to display",
+    configuration: TodoWidgetConfiguration(TodoWidgetFilter.today),
+    placeholder: TodoWidgetEntry(
+        TodoWidgetFilter.today,
+        "Today",
+        "No today tasks",
+        "#E74C3C",
+        [
+            TodoWidgetTask("Sample task", "", "High", "#FF9500", "10:00 AM"),
+            TodoWidgetTask("Another task", "", "Highest", "#FF3B30", "2:00 PM")
+        ]
+    ),
+    entry: await TodoWidgetData.load(configuration),
+    families: [Small, Medium, Large, ExtraLarge],
+    refreshSeconds: 1800
+) {
+    Column(spacing: 6, padding: 14, alignment: Start) {
+        Row(spacing: 6, alignment: Center, accessibilityLabel: entry.title + ", \(TodoWidgetData.visibleTaskCount(entry.tasks, family == WidgetFamily.Small ? 3 : (family == WidgetFamily.Medium ? 4 : (family == WidgetFamily.Large ? 8 : 12)))) " + "tasks") {
+            if configuration.filter == TodoWidgetFilter.today {
+                Icon(system: "calendar_circle", size: 17, tint: entry.themeColor, description: "")
+            } else {
+                Icon(system: "calendar_time", size: 17, tint: entry.themeColor, description: "")
+            }
+            Text(entry.title, fontSize: 16, fontWeight: Bold)
+            Spacer()
+            Text("\(TodoWidgetData.visibleTaskCount(entry.tasks, family == WidgetFamily.Small ? 3 : (family == WidgetFamily.Medium ? 4 : (family == WidgetFamily.Large ? 8 : 12))))", fontSize: 12, color: "#8E8E93")
+        }
+
+        if entry.tasks.isEmpty {
+            Spacer()
+            Row(alignment: Center) {
+                Spacer()
+                Column(spacing: 4, alignment: Center) {
+                    Icon(system: "check_circle", size: 22, tint: "#8E8E93", description: "")
+                    Text(entry.emptyText, fontSize: 12, color: "#8E8E93")
+                }
+                Spacer()
+            }
+            Spacer()
+        } else {
+            FastList(TodoWidgetData.visibleTasks(entry.tasks, family == WidgetFamily.Small ? 3 : (family == WidgetFamily.Medium ? 4 : (family == WidgetFamily.Large ? 8 : 12)))) { task, index in
+                if family == WidgetFamily.Small || family == WidgetFamily.Medium {
+                    Row(spacing: 6, alignment: Center, accessibilityLabel: task.title + ", " + task.priorityName + " " + "priority", accessibilityValue: family == WidgetFamily.Medium ? task.dateString : "") {
+                        Icon(system: "circle_filled", size: 8, tint: task.priorityColor, description: "")
+                        Text(task.title, fontSize: 12, lineLimit: 1)
+                        Spacer()
+                        if family == WidgetFamily.Medium && task.dateString != "" {
+                            Text(task.dateString, fontSize: 10, color: "#8E8E93", lineLimit: 1)
+                        }
+                    }
+                } else {
+                    Row(spacing: 6, alignment: Center, accessibilityLabel: task.title + ", " + task.priorityName + " " + "priority", accessibilityValue: task.taskDescription + (task.taskDescription != "" && task.dateString != "" ? ", " : "") + task.dateString) {
+                        Icon(system: "circle_filled", size: 8, tint: task.priorityColor, description: "")
+                        Column(spacing: 1, alignment: Start) {
+                            Text(task.title, fontSize: 12, lineLimit: 1)
+                            if task.taskDescription != "" {
+                                Text(task.taskDescription, fontSize: 10, color: "#8E8E93", lineLimit: 1)
+                            }
+                        }
+                        Spacer()
+                        if task.dateString != "" {
+                            Text(task.dateString, fontSize: 10, color: "#8E8E93", lineLimit: 1)
+                        }
+                    }
+                    if (family == WidgetFamily.Large || family == WidgetFamily.ExtraLarge)
+                        && index < entry.tasks.count - 1 {
+                        Divider(color: "#8E8E93", thickness: 0.5)
+                    }
+                }
+            }
+            Spacer()
+        }
+    }
+}

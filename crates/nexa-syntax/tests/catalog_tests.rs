@@ -114,13 +114,15 @@ fn dot_modifiers_match_parser_accepted_names() {
             "blur",
             "bold",
             "clip",
+            "contextMenu",
             "fontSize",
+            "onChange",
             "onDoubleTap",
             "onDrag",
             "onEndReached",
             "onLongPress",
+            "onMove",
             "onPinch",
-            "onPress",
             "onRefresh",
             "onScroll",
             "onTap",
@@ -132,6 +134,7 @@ fn dot_modifiers_match_parser_accepted_names() {
             "shadow",
             "sharedElement",
             "stickyHeader",
+            "swipeActions",
             "zIndex"
         ]
     );
@@ -227,7 +230,8 @@ fn fast_list_source_grammar_is_catalogued() {
             "rowHeight",
             "scrollPosition",
             "reverseLayout",
-            "pageSnap"
+            "pageSnap",
+            "native"
         ]
     );
     assert_eq!(catalog::FASTLIST_SOURCE_KEYS, ["count", "sections"]);

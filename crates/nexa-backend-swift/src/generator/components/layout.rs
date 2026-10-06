@@ -1,4 +1,5 @@
 use nexa_codegen::SourceWriter;
+use nexa_ir::Expr;
 use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Node, ViewStyle};
 
 use crate::generator::{
@@ -59,6 +60,40 @@ pub(crate) fn render_layout(
     indent(out, depth);
     out.push('}');
     append_style(out, depth, style);
+}
+
+pub(crate) fn render_form_section(
+    title: Option<&Expr>,
+    footer: Option<&Expr>,
+    comment: Option<&str>,
+    children: &[Node],
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    out.line_at(depth, format_args!("Section {{"));
+    for (index, child) in children.iter().enumerate() {
+        render_node(child, scope.module, scope.features, depth + 1, out);
+        if index + 1 < children.len() {
+            out.push('\n');
+        }
+    }
+    out.push('\n');
+    indent(out, depth);
+    out.push('}');
+    if let Some(title) = title {
+        out.push_str(&format!(
+            " header: {{ {} }}",
+            crate::generator::expressions::localized_text_view(title, comment)
+        ));
+    }
+    if let Some(footer) = footer {
+        out.push_str(&format!(
+            " footer: {{ {} }}",
+            crate::generator::expressions::localized_text_view(footer, comment)
+        ));
+    }
+    out.push('\n');
 }
 
 fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle) {
@@ -188,6 +223,26 @@ pub(crate) fn append_visual_effects(
     }
     if let Some(z_index) = effects.z_index {
         append_modifier(out, depth, &format!("zIndex({z_index})"));
+    }
+    if let Some(glass) = &effects.glass {
+        let shape_str = match glass.shape {
+            nexa_ir::GlassShape::Circle => ".circle",
+            nexa_ir::GlassShape::Capsule => ".capsule",
+            nexa_ir::GlassShape::Rounded(r) => &format!(".rounded({})", r),
+        };
+        if let Some(glass_tint) = &glass.tint {
+            append_modifier(
+                out,
+                depth,
+                &format!(
+                    "nexaGlass(tint: {}, shape: {})",
+                    colors::expression(*glass_tint),
+                    shape_str
+                ),
+            );
+        } else {
+            append_modifier(out, depth, &format!("nexaGlass(shape: {})", shape_str));
+        }
     }
 }
 

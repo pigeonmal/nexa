@@ -1,0 +1,648 @@
+{
+  "format": 1,
+  "sourceLanguage": "en",
+  "strings": {
+    "": {
+      "source": "",
+      "translations": {}
+    },
+    "\n\n---\nApp: ToDoList v1.0.0 (1)\nDevice: {deviceInfo}": {
+      "source": "\n\n---\nApp: ToDoList v1.0.0 (1)\nDevice: {deviceInfo}",
+      "arguments": [
+        "deviceInfo"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {
+        "ro": "\n\n---\nAplicație: ToDoList v1.0.0 (1)\nDispozitiv: {deviceInfo}"
+      }
+    },
+    " ": {
+      "source": " ",
+      "translations": {}
+    },
+    ", ": {
+      "source": ", ",
+      "translations": {}
+    },
+    ", {value1} ": {
+      "source": ", {value1} ",
+      "arguments": [
+        "value1"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "A quick view of your tasks": {
+      "source": "A quick view of your tasks",
+      "translations": {}
+    },
+    "A simple, beautiful way to manage your tasks and stay organized.": {
+      "source": "A simple, beautiful way to manage your tasks and stay organized.",
+      "translations": {
+        "ro": "Un mod simplu și frumos de a-ți gestiona sarcinile și de a rămâne organizat."
+      }
+    },
+    "Accept detected date": {
+      "source": "Accept detected date",
+      "translations": {
+        "ro": "Acceptă data detectată"
+      }
+    },
+    "Add Reminder": {
+      "source": "Add Reminder",
+      "translations": {
+        "ro": "Adaugă Memento"
+      }
+    },
+    "Add a comment below": {
+      "source": "Add a comment below",
+      "translations": {
+        "ro": "Adaugă un comentariu mai jos"
+      }
+    },
+    "Add comment...": {
+      "source": "Add comment...",
+      "translations": {
+        "ro": "Adaugă comentariu..."
+      }
+    },
+    "Add new task": {
+      "source": "Add new task",
+      "translations": {
+        "ro": "Adaugă o sarcină nouă"
+      }
+    },
+    "Add reminder": {
+      "source": "Add reminder",
+      "translations": {
+        "ro": "Adaugă un memento"
+      }
+    },
+    "All clear ahead": {
+      "source": "All clear ahead",
+      "translations": {
+        "ro": "Drum liber în față"
+      }
+    },
+    "Allow notifications to schedule reminders": {
+      "source": "Allow notifications to schedule reminders",
+      "translations": {
+        "ro": "Permite notificările pentru a programa mementouri"
+      }
+    },
+    "Automatic\nReminders": {
+      "source": "Automatic\nReminders",
+      "translations": {
+        "ro": "Reamintiri\nAutomate"
+      }
+    },
+    "Back": {
+      "source": "Back",
+      "translations": {
+        "ro": "Înapoi"
+      }
+    },
+    "Cancel": {
+      "source": "Cancel",
+      "translations": {
+        "ro": "Anulare"
+      }
+    },
+    "Choose a future date and time": {
+      "source": "Choose a future date and time",
+      "translations": {
+        "ro": "Alege o dată și o oră viitoare"
+      }
+    },
+    "Choose which tasks to display": {
+      "source": "Choose which tasks to display",
+      "translations": {}
+    },
+    "Clear": {
+      "source": "Clear",
+      "translations": {
+        "ro": "Șterge"
+      }
+    },
+    "Comment": {
+      "source": "Comment",
+      "translations": {
+        "ro": "Comentariu"
+      }
+    },
+    "Comment image": {
+      "source": "Comment image",
+      "translations": {
+        "ro": "Imagine comentariu"
+      }
+    },
+    "Comments": {
+      "source": "Comments",
+      "translations": {
+        "ro": "Comentarii"
+      }
+    },
+    "Completed": {
+      "source": "Completed",
+      "translations": {
+        "ro": "Finalizat"
+      }
+    },
+    "Completed tasks will show up here.": {
+      "source": "Completed tasks will show up here.",
+      "translations": {
+        "ro": "Sarcinile finalizate vor apărea aici."
+      }
+    },
+    "Continue": {
+      "source": "Continue",
+      "translations": {
+        "ro": "Continuă"
+      }
+    },
+    "Could not save reminder": {
+      "source": "Could not save reminder",
+      "translations": {
+        "ro": "Mementoul nu a putut fi salvat"
+      }
+    },
+    "Could not schedule reminder": {
+      "source": "Could not schedule reminder",
+      "translations": {
+        "ro": "Mementoul nu a putut fi programat"
+      }
+    },
+    "Dark": {
+      "source": "Dark",
+      "translations": {
+        "ro": "Întunecată"
+      }
+    },
+    "Delete": {
+      "source": "Delete",
+      "translations": {
+        "ro": "Șterge"
+      }
+    },
+    "Description": {
+      "source": "Description",
+      "translations": {
+        "ro": "Descriere"
+      }
+    },
+    "Dismiss detected date": {
+      "source": "Dismiss detected date",
+      "translations": {
+        "ro": "Respinge data detectată"
+      }
+    },
+    "Done": {
+      "source": "Done",
+      "translations": {
+        "ro": "Gata"
+      }
+    },
+    "Double tap to edit comment": {
+      "source": "Double tap to edit comment",
+      "translations": {
+        "ro": "Atingeți de două ori pentru a edita comentariul"
+      }
+    },
+    "Double tap to edit task": {
+      "source": "Double tap to edit task",
+      "translations": {
+        "ro": "Atingeți de două ori pentru a edita sarcina"
+      }
+    },
+    "Double tap to toggle": {
+      "source": "Double tap to toggle",
+      "translations": {
+        "ro": "Atingeți de două ori pentru a comuta"
+      }
+    },
+    "Double tap to view full size": {
+      "source": "Double tap to view full size",
+      "translations": {
+        "ro": "Atingeți de două ori pentru a vizualiza la dimensiune completă"
+      }
+    },
+    "Edit": {
+      "source": "Edit",
+      "translations": {
+        "ro": "Editare"
+      }
+    },
+    "Edit Comment": {
+      "source": "Edit Comment",
+      "translations": {
+        "ro": "Editează comentariul"
+      }
+    },
+    "Edit Task": {
+      "source": "Edit Task",
+      "translations": {
+        "ro": "Editare Sarcină"
+      }
+    },
+    "Enable Notifications": {
+      "source": "Enable Notifications",
+      "translations": {
+        "ro": "Activează Notificări"
+      }
+    },
+    "Enable notifications to get reminded about your tasks and never miss a deadline.": {
+      "source": "Enable notifications to get reminded about your tasks and never miss a deadline.",
+      "translations": {
+        "ro": "Activează notificările pentru a fi reamintit despre sarcinile tale și a nu rata niciodată o scadență."
+      }
+    },
+    "Enjoy your free day or plan something new.": {
+      "source": "Enjoy your free day or plan something new.",
+      "translations": {
+        "ro": "Bucură-te de ziua ta liberă sau plănuiește ceva nou."
+      }
+    },
+    "Filter": {
+      "source": "Filter",
+      "translations": {}
+    },
+    "Get Started": {
+      "source": "Get Started",
+      "translations": {
+        "ro": "Începeți"
+      }
+    },
+    "High": {
+      "source": "High",
+      "translations": {}
+    },
+    "Highest": {
+      "source": "Highest",
+      "translations": {}
+    },
+    "Inbox": {
+      "source": "Inbox",
+      "translations": {
+        "ro": "Inbox"
+      }
+    },
+    "Inbox is empty": {
+      "source": "Inbox is empty",
+      "translations": {
+        "ro": "Inbox-ul este gol"
+      }
+    },
+    "Light": {
+      "source": "Light",
+      "translations": {
+        "ro": "Luminoasă"
+      }
+    },
+    "Low": {
+      "source": "Low",
+      "translations": {}
+    },
+    "Mark Complete": {
+      "source": "Mark Complete",
+      "translations": {
+        "ro": "Marcați ca Completat"
+      }
+    },
+    "Mark Incomplete": {
+      "source": "Mark Incomplete",
+      "translations": {
+        "ro": "Marchează ca incomplet"
+      }
+    },
+    "New Task": {
+      "source": "New Task",
+      "translations": {
+        "ro": "Sarcină nouă"
+      }
+    },
+    "Next Week": {
+      "source": "Next Week",
+      "translations": {
+        "ro": "Săptămâna Viitoare"
+      }
+    },
+    "No Results": {
+      "source": "No Results",
+      "translations": {
+        "ro": "Niciun rezultat"
+      }
+    },
+    "No comments": {
+      "source": "No comments",
+      "translations": {
+        "ro": "Niciun comentariu"
+      }
+    },
+    "No completed tasks": {
+      "source": "No completed tasks",
+      "translations": {
+        "ro": "Nicio sarcină completată"
+      }
+    },
+    "No reminders": {
+      "source": "No reminders",
+      "translations": {
+        "ro": "Niciun memento"
+      }
+    },
+    "No tasks match \"{searchQuery}\"": {
+      "source": "No tasks match \"{searchQuery}\"",
+      "arguments": [
+        "searchQuery"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {
+        "ro": "Nicio sarcină nu corespunde cu „{searchQuery}”"
+      }
+    },
+    "No upcoming tasks scheduled yet.": {
+      "source": "No upcoming tasks scheduled yet.",
+      "translations": {
+        "ro": "Nicio sarcină programată în viitor deocamdată."
+      }
+    },
+    "None": {
+      "source": "None",
+      "translations": {}
+    },
+    "Normal": {
+      "source": "Normal",
+      "translations": {}
+    },
+    "Not completed": {
+      "source": "Not completed",
+      "translations": {
+        "ro": "Nefinalizat"
+      }
+    },
+    "Not selected": {
+      "source": "Not selected",
+      "translations": {}
+    },
+    "Note (optional)": {
+      "source": "Note (optional)",
+      "translations": {
+        "ro": "Notă (opțional)"
+      }
+    },
+    "Nothing due today": {
+      "source": "Nothing due today",
+      "translations": {
+        "ro": "Nimic de plătit astazi"
+      }
+    },
+    "Open Links In App": {
+      "source": "Open Links In App",
+      "translations": {
+        "ro": "Deschide Link-urile în Aplicație"
+      }
+    },
+    "Pick Date": {
+      "source": "Pick Date",
+      "translations": {
+        "ro": "Alege Data"
+      }
+    },
+    "Priority": {
+      "source": "Priority",
+      "translations": {
+        "ro": "Prioritate"
+      }
+    },
+    "Privacy Policy": {
+      "source": "Privacy Policy",
+      "translations": {
+        "ro": "Politica de confidențialitate"
+      }
+    },
+    "Reminder": {
+      "source": "Reminder",
+      "translations": {
+        "ro": "Minder"
+      }
+    },
+    "Reminders": {
+      "source": "Reminders",
+      "translations": {
+        "ro": "Reamintitori"
+      }
+    },
+    "Save": {
+      "source": "Save",
+      "translations": {
+        "ro": "Salvează"
+      }
+    },
+    "Save task": {
+      "source": "Save task",
+      "translations": {
+        "ro": "Salvează sarcina"
+      }
+    },
+    "Search": {
+      "source": "Search",
+      "translations": {
+        "ro": "Căutare"
+      }
+    },
+    "Search Tasks": {
+      "source": "Search Tasks",
+      "translations": {
+        "ro": "Cautare Sarcini"
+      }
+    },
+    "Search across all your tasks": {
+      "source": "Search across all your tasks",
+      "translations": {
+        "ro": "Caută în toate sarcinile tale"
+      }
+    },
+    "Search tasks...": {
+      "source": "Search tasks...",
+      "translations": {
+        "ro": "Căutați sarcini..."
+      }
+    },
+    "Select Priority": {
+      "source": "Select Priority",
+      "translations": {}
+    },
+    "Selected": {
+      "source": "Selected",
+      "translations": {}
+    },
+    "Send Feedback": {
+      "source": "Send Feedback",
+      "translations": {
+        "ro": "Trimite feedback"
+      }
+    },
+    "Send comment": {
+      "source": "Send comment",
+      "translations": {
+        "ro": "Trimite comentariul"
+      }
+    },
+    "Settings": {
+      "source": "Settings",
+      "translations": {
+        "ro": "Setări"
+      }
+    },
+    "Show Onboarding": {
+      "source": "Show Onboarding",
+      "translations": {
+        "ro": "Afișează introducerea"
+      }
+    },
+    "Skip": {
+      "source": "Skip",
+      "translations": {
+        "ro": "Omite"
+      }
+    },
+    "Sort": {
+      "source": "Sort",
+      "translations": {
+        "ro": "Sortează"
+      }
+    },
+    "Source Code": {
+      "source": "Source Code",
+      "translations": {
+        "ro": "Cod Sursă"
+      }
+    },
+    "Start Page": {
+      "source": "Start Page",
+      "translations": {
+        "ro": "Pagina de Start"
+      }
+    },
+    "Start adding tasks and take control of your day.": {
+      "source": "Start adding tasks and take control of your day.",
+      "translations": {
+        "ro": "Începeți să adăugați sarcini și preluați controlul zilei dvs."
+      }
+    },
+    "Stay on Track": {
+      "source": "Stay on Track",
+      "translations": {
+        "ro": "Rămâi pe curs"
+      }
+    },
+    "System": {
+      "source": "System",
+      "translations": {
+        "ro": "Sistem"
+      }
+    },
+    "Tap + to add a reminder": {
+      "source": "Tap + to add a reminder",
+      "translations": {
+        "ro": "Atinge + pentru a adăuga o reamintire"
+      }
+    },
+    "Task Filter": {
+      "source": "Task Filter",
+      "translations": {}
+    },
+    "Task name": {
+      "source": "Task name",
+      "translations": {
+        "ro": "Nume sarcină"
+      }
+    },
+    "Task reminder": {
+      "source": "Task reminder",
+      "translations": {
+        "ro": "Notificare sarcină"
+      }
+    },
+    "Tasks": {
+      "source": "Tasks",
+      "translations": {}
+    },
+    "Tasks you add will appear here.": {
+      "source": "Tasks you add will appear here.",
+      "translations": {
+        "ro": "Sarcinile pe care le adaugi vor apărea aici."
+      }
+    },
+    "Terms of Service": {
+      "source": "Terms of Service",
+      "translations": {
+        "ro": "Termeni și Condiții de Serviciu"
+      }
+    },
+    "Theme": {
+      "source": "Theme",
+      "translations": {
+        "ro": "Temă"
+      }
+    },
+    "ToDoList v1.0.0 (1)": {
+      "source": "ToDoList v1.0.0 (1)",
+      "translations": {}
+    },
+    "Today": {
+      "source": "Today",
+      "translations": {
+        "ro": "Astazi"
+      }
+    },
+    "Tomorrow": {
+      "source": "Tomorrow",
+      "translations": {
+        "ro": "Mâine"
+      }
+    },
+    "Upcoming": {
+      "source": "Upcoming",
+      "translations": {
+        "ro": "Viitor"
+      }
+    },
+    "Welcome to ToDoList": {
+      "source": "Welcome to ToDoList",
+      "translations": {
+        "ro": "Bine ați venit la ToDoList"
+      }
+    },
+    "You're All Set!": {
+      "source": "You're All Set!",
+      "translations": {
+        "ro": "Ești gata!"
+      }
+    },
+    "priority": {
+      "source": "priority",
+      "translations": {}
+    },
+    "tasks": {
+      "source": "tasks",
+      "translations": {}
+    },
+    "{value1}": {
+      "source": "{value1}",
+      "arguments": [
+        "value1"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    }
+  }
+}

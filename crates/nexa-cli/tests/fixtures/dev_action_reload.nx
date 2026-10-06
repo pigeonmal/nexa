@@ -26,7 +26,7 @@ app ActionReloadSmoke {
             Text("Presses: $taps")
             Pressable(disabled: false, haptic: Light) {
                 Text("Press me")
-            }.onPress {
+            }.onTap {
                 taps = taps + 1
             }
         }

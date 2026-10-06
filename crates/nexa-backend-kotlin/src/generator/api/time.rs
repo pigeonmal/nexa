@@ -9,16 +9,52 @@
 //! `SimpleDateFormat` carries locale and calendar settings that would make the
 //! output differ between devices. A hand-rolled civil-date conversion is a fixed
 //! layout - `yyyy-MM-ddTHH:mm:ss.SSSZ` in UTC - identical to the Swift side, so
-//! a timestamp written on one platform reads on the other.
+//! a timestamp written on one platform reads on the other. Calendar-relative
+//! operations use the current time zone so local-day arithmetic remains
+//! daylight-saving-aware.
 
 use nexa_codegen::SourceWriter;
 
-/// Emits the clock helpers an app needs to read, format, parse, and sleep.
+/// Emits the clock and calendar helpers an app reaches from its typed IR.
 pub(crate) fn render(out: &mut SourceWriter) {
     out.push_str(TIME_RUNTIME);
 }
 
 const TIME_RUNTIME: &str = r#"// Core clock.
+
+/** Reuses native formatters per thread and locale for fast list-cell date output. */
+private val nexaDateFormatters = ThreadLocal.withInitial { HashMap<String, java.text.SimpleDateFormat>() }
+
+internal fun nexaFormatDate(milliseconds: Long, pattern: String): String {
+    val locale = java.util.Locale.getDefault()
+    val timeZone = java.util.TimeZone.getDefault()
+    val key = "${locale.toLanguageTag()}|${timeZone.id}|$pattern"
+    val formatters = nexaDateFormatters.get()!!
+    val formatter = formatters[key] ?: java.text.SimpleDateFormat(pattern, locale).apply {
+        this.timeZone = timeZone
+    }.also {
+        if (formatters.size >= 32) formatters.clear()
+        formatters[key] = it
+    }
+    return formatter.format(java.util.Date(milliseconds))
+}
+
+/** The local calendar-day key for a wall-clock timestamp. */
+internal fun nexaStartOfDay(milliseconds: Long): Long =
+    java.util.Calendar.getInstance().apply {
+        timeInMillis = milliseconds
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+/** Advances by local calendar days and retains wall-clock time across daylight-saving changes. */
+internal fun nexaAddCalendarDays(milliseconds: Long, days: Int): Long =
+    java.util.Calendar.getInstance().apply {
+        timeInMillis = milliseconds
+        add(java.util.Calendar.DAY_OF_MONTH, days)
+    }.timeInMillis
 
 /** Days from the Unix epoch to the civil date 0000-03-01, which is where the civil-date conversion counts from. */
 private const val NEXA_EPOCH_DAYS = 719_468L

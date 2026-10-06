@@ -1,0 +1,72 @@
+app OnboardingExample {
+    state hasCompletedOnboarding: Bool = (Storage.getString(key: "onboarding.completed") ?? "false") == "true"
+    state currentPage: Int32 = 0
+    state notificationTask: TaskHandle? = null
+
+    body {
+        if hasCompletedOnboarding {
+            Column(spacing: 12, padding: 24) {
+                Text("Your workspace is ready")
+            }
+        } else {
+            PagePager(selected: currentPage) {
+                // Welcome
+                Tab(index: 0) {
+                    Column(spacing: 32, padding: 16, alignment: Center) {
+                        Spacer()
+                        Icon(system: "checklist", size: 80, tint: "#007AFF", description: "")
+                        Column(spacing: 12, alignment: Center) {
+                            Text("Welcome to ToDoList", alignment: Center, fontSize: 32, fontWeight: Bold)
+                            Text("A simple, beautiful way to manage your tasks and stay organized.", alignment: Center, fontSize: 17, color: "#8E8E93")
+                        }
+                        Spacer()
+                        Button("Continue", style: BorderedProminent, size: Large) {
+                            currentPage = 1
+                        }
+                    }
+                }
+
+                // Notifications
+                Tab(index: 1) {
+                    Column(spacing: 32, padding: 16, alignment: Center) {
+                        Spacer()
+                        Icon(system: "notifications_active", size: 80, tint: "#007AFF", description: "")
+                        Column(spacing: 12, alignment: Center) {
+                            Text("Stay on Track", alignment: Center, fontSize: 32, fontWeight: Bold)
+                            Text("Enable notifications to get reminded about your tasks and never miss a deadline.", alignment: Center, fontSize: 17, color: "#8E8E93")
+                        }
+                        Spacer()
+                        Column(spacing: 12) {
+                            Button("Enable Notifications", style: BorderedProminent, size: Large) {
+                                Task.launch(handle: notificationTask, executor: TaskExecutor.Main) {
+                                    await Permissions.request(permission: Notifications)
+                                    currentPage = 2
+                                }
+                            }
+                            Button("Skip", style: Borderless) {
+                                currentPage = 2
+                            }
+                        }
+                    }
+                }
+
+                // Complete
+                Tab(index: 2) {
+                    Column(spacing: 32, padding: 16, alignment: Center) {
+                        Spacer()
+                        Icon(system: "check_circle", size: 80, tint: "#007AFF", description: "")
+                        Column(spacing: 12, alignment: Center) {
+                            Text("You're All Set!", alignment: Center, fontSize: 32, fontWeight: Bold)
+                            Text("Start adding tasks and take control of your day.", alignment: Center, fontSize: 17, color: "#8E8E93")
+                        }
+                        Spacer()
+                        Button("Get Started", style: BorderedProminent, size: Large) {
+                            Storage.setString(key: "onboarding.completed", value: "true")
+                            hasCompletedOnboarding = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

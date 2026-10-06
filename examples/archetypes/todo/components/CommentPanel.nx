@@ -1,0 +1,130 @@
+plugin "dev.nexa.media-picker" as MediaPicker
+import "../storage/CommentPersistence.nx"
+
+fn activeTaskComments(source: Array<CommentItem>, taskID: Int32) -> Array<CommentItem> {
+    return source.filter { comment -> comment.taskID == taskID && !comment.isDeleted }
+}
+
+fn deleteComment(source: Array<CommentItem>, id: Int32) -> Array<CommentItem> {
+    return source.map { comment ->
+        if comment.id == id {
+            CommentItem(comment.id, comment.taskID, comment.content, comment.imageUri, comment.createdAt, true)
+        } else { comment }
+    }
+}
+
+component CommentPanel(taskID: Int32) {
+    state comments: Array<CommentItem> = []
+    state nextCommentID: Int32 = 1
+    state newComment: String = ""
+    state commentStatus: String = ""
+    state editingCommentID: Int32 = -1
+    state editingCommentText: String = ""
+    state showEditDialog: Bool = false
+    state fullImageUri: String = ""
+    state showFullImage: Bool = false
+
+    body {
+        OnAppear async {
+            comments = await commentPersistence.loadItems()
+            nextCommentID = await commentPersistence.loadNextID()
+        }
+
+        if taskID >= 0 {
+            Column(spacing: 10, padding: 12) {
+                if activeTaskComments(comments, taskID).isEmpty {
+                    ContentUnavailable(title: "No comments", icon: "comment_left", description: "Add a comment below")
+                } else {
+                    FastList(activeTaskComments(comments, taskID).sortedBy { comment -> comment.createdAt }, native: true) { comment, index in
+                        Column(spacing: 6, padding: 8) {
+                            Text(Time.format(comment.createdAt, "d MMM, HH:mm"), fontSize: 12, color: "#8E8E93")
+                            if comment.imageUri != "" {
+                                Pressable(accessibilityLabel: "Comment image", accessibilityHint: "Double tap to view full size", accessibilityRole: Button) {
+                                    Image(file: comment.imageUri, description: "", scale: Fit, maxHeight: 200)
+                                }
+                                .onTap {
+                                    fullImageUri = comment.imageUri
+                                    showFullImage = true
+                                }
+                            } else {
+                                Pressable(accessibilityLabel: comment.content, accessibilityHint: "Double tap to edit comment", accessibilityRole: Button) {
+                                    Text(comment.content)
+                                }
+                                .onTap {
+                                    editingCommentID = comment.id
+                                    editingCommentText = comment.content
+                                    showEditDialog = true
+                                }
+                            }
+                        }
+                    }.swipeActions {
+                        Button("Delete", icon: "delete", style: Borderless) {
+                            comments = deleteComment(comments, comment.id)
+                            Task.launch(executor: TaskExecutor.Main) {
+                                await commentPersistence.saveComment(comments, comment.id)
+                            }
+                        }
+                    }
+                }
+
+                Dialog(isPresented: showEditDialog, title: "Edit Comment", message: "") {
+                    TextInput(value: editingCommentText, placeholder: "Comment")
+                    Button("Save") {
+                        if editingCommentID >= 0 {
+                            comments = comments.map { comment ->
+                                if comment.id == editingCommentID {
+                                    CommentItem(comment.id, comment.taskID, editingCommentText, comment.imageUri, comment.createdAt, comment.isDeleted)
+                                } else { comment }
+                            }
+                            Task.launch(executor: TaskExecutor.Main) {
+                                await commentPersistence.saveComment(comments, editingCommentID)
+                            }
+                        }
+                        showEditDialog = false
+                        editingCommentID = -1
+                    }
+                    Button("Cancel") {
+                        showEditDialog = false
+                        editingCommentID = -1
+                    }
+                }
+
+                Divider(color: "#8E8E93", thickness: 1)
+                Row(spacing: 12, padding: 8) {
+                    MediaPicker.MediaPickerControl(isVideo: false) {
+                        Icon(system: "image", size: 24, tint: "#8E8E93", description: "Add photo")
+                    }
+                    .onPicked { uri ->
+                        comments.append(CommentItem(nextCommentID, taskID, "Image", uri, Time.now(), false))
+                        nextCommentID += 1
+                        Task.launch(executor: TaskExecutor.Main) {
+                            await commentPersistence.saveComment(comments, nextCommentID - 1)
+                        }
+                        commentStatus = "Photo attached"
+                    }
+                    .onFailed { message -> commentStatus = message }
+                    TextInput(value: newComment, placeholder: "Add comment...")
+                    Button("", icon: "submit", accessibilityLabel: "Send comment", disabled: newComment.trimmed == "") {
+                        let normalizedComment = newComment.trimmed
+                        if normalizedComment != "" {
+                            comments.append(CommentItem(nextCommentID, taskID, normalizedComment, "", Time.now(), false))
+                            nextCommentID += 1
+                            Task.launch(executor: TaskExecutor.Main) {
+                                await commentPersistence.saveComment(comments, nextCommentID - 1)
+                            }
+                            newComment = ""
+                        }
+                    }
+                }
+                Text(commentStatus, fontSize: 12, color: "#8E8E93")
+
+                BottomSheet(isPresented: showFullImage, partial: false) {
+                    Column(spacing: 12, padding: 16) {
+                        Image(file: fullImageUri, description: "Full size comment image", scale: Fit)
+                        Button("Done", style: Borderless) { showFullImage = false }
+                    }
+                }
+            }
+        }
+    }
+}

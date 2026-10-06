@@ -9,7 +9,7 @@ app PressableDrag {
 
             Pressable() {
                 Text("Drag me")
-            }.onPress {
+            }.onTap {
                 offsetX = 0.0
                 velocityX = 0.0
             }.onDrag { translationX, translationY, dragVelocityX, dragVelocityY ->

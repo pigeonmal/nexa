@@ -75,7 +75,10 @@ pub(crate) fn task_handles(states: &[State]) -> Vec<String> {
 /// Renders the `onChange(of: scenePhase)` modifier that dispatches the app's
 /// active / inactive / background hooks to a single SwiftUI observation point.
 pub(crate) fn render_scene_phase(module: &Module, depth: usize, out: &mut SourceWriter) {
-    if module.on_active.is_none() && module.on_inactive.is_none() && module.on_background.is_none()
+    if module.on_active.is_none()
+        && module.on_inactive.is_none()
+        && module.on_background.is_none()
+        && module.widgets.is_empty()
     {
         return;
     }
@@ -96,10 +99,19 @@ pub(crate) fn render_scene_phase(module: &Module, depth: usize, out: &mut Source
             Some(actions) if !actions.is_empty() => {
                 controls::render_actions(actions, depth + 4, out);
             }
+            _ if phase == "background" && !module.widgets.is_empty() => {}
             _ => {
                 utils::indent(out, depth + 4);
                 out.push_str("break\n");
             }
+        }
+        if phase == "background" && !module.widgets.is_empty() {
+            out.line_at(depth + 4, format_args!("if #available(iOS 14.0, *) {{"));
+            out.line_at(
+                depth + 5,
+                format_args!("WidgetCenter.shared.reloadAllTimelines()"),
+            );
+            out.line_at(depth + 4, format_args!("}}"));
         }
     }
     utils::indent(out, depth + 3);

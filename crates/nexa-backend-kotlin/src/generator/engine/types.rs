@@ -58,5 +58,7 @@ pub(crate) fn kotlin_type(ty: &Type) -> String {
         Type::TaskHandle => "kotlinx.coroutines.Job".to_owned(),
         Type::NetworkResponse => "NexaNetworkResponse".to_owned(),
         Type::Struct { name, .. } => struct_name(name),
+        Type::Class { name, .. } => struct_name(name),
+        Type::Signal(inner) => format!("NexaSignal<{}>", kotlin_type(inner)),
     }
 }

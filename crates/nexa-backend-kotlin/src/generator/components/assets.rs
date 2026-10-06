@@ -9,10 +9,7 @@ use crate::generator::engine::imports::ImportSet;
 use nexa_codegen::SourceWriter;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    let uses_assets = features.uses_asset
-        || features.uses_tab_icon
-        || features.uses_button_icon
-        || features.uses_placeholder;
+    let uses_assets = features.uses_asset || features.uses_placeholder;
     imports.add(uses_assets, "androidx.compose.runtime.remember");
     imports.add(uses_assets, "androidx.compose.ui.graphics.Color");
     imports.add(

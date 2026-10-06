@@ -20,6 +20,14 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_asset || features.uses_remote_image,
         "androidx.compose.ui.layout.ContentScale",
     );
+    imports.add(
+        features.uses_asset || features.uses_remote_image,
+        "androidx.compose.ui.Modifier",
+    );
+    imports.add(
+        features.uses_asset || features.uses_remote_image,
+        "androidx.compose.foundation.layout.heightIn",
+    );
     imports.add(features.uses_remote_image, "coil3.ImageLoader");
     imports.add(features.uses_remote_image, "coil3.network.NetworkClient");
     imports.add(features.uses_remote_image, "coil3.network.NetworkFetcher");
@@ -33,11 +41,13 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_remote_image, "okio.Buffer");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_image(
     source: &ImageSource,
     description: &str,
     scale: ImageScale,
     placeholder: Option<&str>,
+    max_height: Option<f32>,
     shared_element: Option<&nexa_ir::Expr>,
     depth: usize,
     out: &mut SourceWriter,
@@ -52,14 +62,17 @@ pub(crate) fn render_image(
     } else {
         kotlin_string(description)
     };
-    let shared_modifier = shared_element.map(|id| {
-        format!(
-            "{}    modifier = nexaSharedElementModifier({}),\n",
-            "    ".repeat(depth),
-            expression(id)
-        )
-    });
-    let shared_modifier = shared_modifier.as_deref().unwrap_or("");
+    let mut modifier = shared_element.map_or_else(
+        || "Modifier".to_owned(),
+        |id| format!("nexaSharedElementModifier({})", expression(id)),
+    );
+    if let Some(max_height) = max_height {
+        modifier.push_str(&format!(
+            ".heightIn(max = {}.dp)",
+            crate::generator::engine::utils::number(max_height)
+        ));
+    }
+    let modifier_argument = format!("{}    modifier = {modifier},\n", "    ".repeat(depth));
     match source {
         ImageSource::Asset(asset) => {
             out.push_str(&format!(
@@ -68,7 +81,7 @@ pub(crate) fn render_image(
                 kotlin_string(asset),
                 "    ".repeat(depth),
                 "    ".repeat(depth),
-                shared_modifier,
+                modifier_argument,
                 "    ".repeat(depth),
             ));
         }
@@ -99,8 +112,20 @@ pub(crate) fn render_image(
             out.push_str(&format!(
                 "{}    contentScale = {content_scale},\n{}{})",
                 "    ".repeat(depth),
-                shared_modifier,
+                modifier_argument,
                 "    ".repeat(depth)
+            ));
+        }
+        ImageSource::LocalFile(file) => {
+            out.push_str(&format!(
+                "AsyncImage(\n{}    model = {},\n{}    imageLoader = nexaImageLoader(),\n{}    contentDescription = {description},\n{}    contentScale = {content_scale},\n{}{})",
+                "    ".repeat(depth),
+                expression(file),
+                "    ".repeat(depth),
+                "    ".repeat(depth),
+                "    ".repeat(depth),
+                modifier_argument,
+                "    ".repeat(depth),
             ));
         }
     }

@@ -9,10 +9,45 @@ use nexa_ir::{
 use nexa_compiler::{Target, compile, compile_file_with_warnings_for_target};
 use nexa_testkit::TestProject;
 
+fn source_text(expression: &Expr) -> Option<&str> {
+    match expression {
+        Expr::String(value) => Some(value),
+        Expr::LocalizedText { value, .. } => source_text(value),
+        _ => None,
+    }
+}
+
+#[test]
+fn string_trimmed_is_a_typed_member_property() {
+    let module = compile(
+        r#"
+        app TrimInput {
+            state name: String = "  Nexa  "
+            body { Text(name.trimmed) }
+        }
+        "#,
+    )
+    .expect("String.trimmed should compile as a property");
+
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::Text {
+            value: Expr::Member {
+                name,
+                kind: MemberKind::StringTrimmed,
+                base_type: Type::String,
+                field_type: Type::String,
+                ..
+            },
+            ..
+        }) if name == "trimmed"
+    ));
+}
+
 #[test]
 fn fast_list_reverse_layout_is_typed_for_flat_vertical_lists() {
     let module = compile(
-        r#"
+        r##"
         app ReverseList {
             body {
                 FastList(count: 3, reverseLayout: true) { index in
@@ -20,7 +55,7 @@ fn fast_list_reverse_layout_is_typed_for_flat_vertical_lists() {
                 }
             }
         }
-        "#,
+        "##,
     )
     .expect("a flat vertical FastList may use reverseLayout");
 
@@ -146,6 +181,135 @@ fn fast_list_member_keys_lower_in_the_row_binding_scope() {
         panic!("expected the collection-backed FastList plan");
     };
     assert!(matches!(common.key.as_ref(), Some(Expr::Member { .. })));
+}
+
+#[test]
+fn flat_map_flattens_typed_arrays_in_collection_closures() {
+    let module = compile(
+        r#"
+        struct Record {
+            id: String,
+            title: String,
+        }
+
+        app SearchResults {
+            let sections: Array<Array<Record>> = [
+                [Record("first", "First")],
+                [Record("second", "Second")],
+            ]
+            let results: Array<Record> = sections.flatMap { rows -> rows }
+
+            body {
+                FastList(results, key: .id, native: true) { record, index in
+                    Text(record.title)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("flatMap should flatten each typed array result");
+
+    let Some(Node::FastList {
+        plan: ListPlan::Items { element_type, .. },
+    }) = module.body.first()
+    else {
+        panic!("expected the flattened results list");
+    };
+    assert!(matches!(element_type, Type::Struct { name, .. } if name == "Record"));
+
+    let invalid = compile(
+        r#"
+        app InvalidFlatMap {
+            let values: Array<Int32> = [1, 2].flatMap { value -> value }
+            body { Text(values.count) }
+        }
+        "#,
+    )
+    .expect_err("flatMap closures must return arrays");
+    let _ = invalid;
+}
+
+#[test]
+fn native_fast_list_mode_is_typed_and_rejects_custom_scroll_behavior() {
+    let module = compile(
+        r#"
+        struct Record {
+            id: String,
+            title: String,
+        }
+
+        app NativeRecordList {
+            let records: Array<Record> = [Record("one", "One")]
+
+            body {
+                FastList(records, key: .id, native: true) { record, index in
+                    Text(record.title)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("flat vertical lists may opt into native platform styling");
+
+    let Some(Node::FastList {
+        plan: ListPlan::Items { common, .. },
+    }) = module.body.first()
+    else {
+        panic!("expected the collection-backed FastList plan");
+    };
+    assert!(common.native);
+    let list_facts = nexa_ir::facts::ModuleFacts::analyze(&module).ui.lists;
+    assert!(list_facts.any);
+    assert!(!list_facts.virtualized);
+
+    let sectioned = compile(
+        r#"
+        struct Record {
+            id: String,
+            title: String,
+        }
+
+        app NativeSectionedRecordList {
+            let records: Array<Record> = [Record("one", "One")]
+            let sections: Array<Array<Record>> = records.groupedBy { record -> record.title }
+
+            body {
+                FastList(sections: sections, native: true) { record, index, section in
+                    Text(record.title)
+                }.sectionHeader {
+                    Text(sectionItems[0].title)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("sectioned vertical lists may opt into native platform styling");
+    let Some(Node::FastList {
+        plan: ListPlan::Sections { common, .. },
+    }) = sectioned.body.first()
+    else {
+        panic!("expected a sectioned FastList plan");
+    };
+    assert!(common.native);
+    assert!(common.section_header.is_some());
+
+    let unsupported = compile(
+        r#"
+        app InvalidNativeList {
+            body {
+                FastList(count: 3, native: true, pageSnap: true) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("native lists do not accept custom page snapping");
+    assert!(
+        unsupported
+            .to_string()
+            .contains("native` requires a vertical list")
+    );
 }
 
 #[test]
@@ -413,6 +577,44 @@ fn currency_formatting_lowers_to_a_typed_core_call() {
 }
 
 #[test]
+fn core_apis_accept_positional_and_mixed_arguments() {
+    let module = compile(
+        r#"
+        app PositionalCoreApis {
+            state saved: String? = Storage.getString("theme")
+            state price: String = Number.formatCurrency(12.5, "EUR")
+
+            body {
+                Text(saved)
+                Text(price)
+                Button("Save") { Storage.setString("theme", value: "dark") }
+                Button("Delete") { Storage.delete("theme") }
+            }
+        }
+        "#,
+    )
+    .expect("core APIs should accept positional and trailing named arguments");
+
+    assert!(matches!(
+        &module.states[0].initial,
+        Expr::NativeCall { namespace, name, arguments, .. }
+            if namespace == "Storage" && name == "getString"
+                && matches!(arguments.as_slice(), [(key, Expr::String(value))]
+                    if key == "key" && value == "theme")
+    ));
+    assert!(matches!(
+        &module.states[1].initial,
+        Expr::NativeCall { namespace, name, arguments, .. }
+            if namespace == "Number" && name == "formatCurrency"
+                && matches!(arguments.as_slice(), [
+                    (amount, Expr::Number { raw, .. }),
+                    (currency, Expr::String(code))
+                ] if amount == "amount" && raw == "12.5"
+                    && currency == "currencyCode" && code == "EUR")
+    ));
+}
+
+#[test]
 fn json_parse_and_stringify_lower_with_concrete_value_codecs() {
     let module = compile(
         r#"
@@ -490,6 +692,49 @@ fn json_parse_and_stringify_lower_with_concrete_value_codecs() {
             .any(|declaration| declaration.name == "JsonError")
     );
     assert!(nexa_ir::capabilities::analyze(&module).uses_json_api);
+}
+
+#[test]
+fn json_apis_accept_positional_values() {
+    let module = compile(
+        r#"
+        struct Profile { name: String }
+        app PositionalJson {
+            state decoded: Result<Profile, JsonError> = Json.parse<Profile>("{}")
+
+            body {
+                Text(Json.stringify(Profile("Ada")))
+                Button("Parse") { decoded = Json.parse<Profile>("{}") }
+            }
+        }
+        "#,
+    )
+    .expect("JSON core APIs should accept simple positional values");
+
+    assert!(matches!(
+        &module.states[0].initial,
+        Expr::NativeCall { namespace, name, arguments, .. }
+            if namespace == "Json" && name == "parse"
+                && arguments.len() == 1 && arguments[0].0 == "raw"
+    ));
+    let Node::Text { value, .. } = &module.body[0] else {
+        panic!("expected encoded profile text");
+    };
+    assert!(matches!(
+        value,
+        Expr::NativeCall { namespace, name, arguments, .. }
+            if namespace == "Json" && name == "stringify"
+                && arguments.len() == 1 && arguments[0].0 == "value"
+    ));
+    let Node::Button { actions, .. } = &module.body[1] else {
+        panic!("expected Parse button");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [Action::Assign { value: Expr::NativeCall { namespace, name, arguments, .. }, .. }]
+            if namespace == "Json" && name == "parse"
+                && arguments.len() == 1 && arguments[0].0 == "raw"
+    ));
 }
 
 #[test]
@@ -707,6 +952,204 @@ fn app_storage_calls_lower_to_typed_synchronous_core_calls() {
 }
 
 #[test]
+fn page_pager_keeps_the_bound_selection_in_ir() {
+    let module = compile(
+        r#"
+        app Onboarding {
+            state page: Int32 = 0
+            body {
+                PagePager(selected: page) {
+                    Tab(index: 0) { Text("Welcome") }
+                    Tab(index: 1) { Text("Complete") }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("page style is a typed AppBottomBar presentation");
+
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::PagePager { pages, .. }) if pages.len() == 2
+    ));
+}
+
+#[test]
+fn app_bottom_bar_and_controls_accept_runtime_hex_color_state() {
+    let module = compile(
+        r##"
+        app ThemedTabs {
+            state page: Int32 = 0
+            state accent: String = "#D63031"
+            body {
+                AppBottomBar(selected: page, tint: accent) {
+                    Tab(index: 0, label: "Home") {
+                        Button("Add", tint: accent) { }
+                        Icon(system: "add", description: "Add", size: 24, tint: accent)
+                    }
+                }
+            }
+        }
+        "##,
+    )
+    .expect("runtime hexadecimal string state should feed native tints");
+
+    let Some(Node::AppBottomBar {
+        tint: Some(nexa_ir::ColorExpression::Dynamic(Expr::State(name, Type::String))),
+        tabs,
+        ..
+    }) = module.body.first()
+    else {
+        panic!("expected a dynamic AppBottomBar tint");
+    };
+    assert_eq!(name, "accent");
+    assert!(matches!(
+        tabs[0].children.as_slice(),
+        [
+            Node::Button {
+                tint: Some(nexa_ir::ColorExpression::Dynamic(Expr::State(button_name, Type::String))),
+                ..
+            },
+            Node::SystemIcon {
+                tint: nexa_ir::ColorExpression::Dynamic(Expr::State(icon_name, Type::String)),
+                ..
+            }
+        ] if button_name == "accent" && icon_name == "accent"
+    ));
+}
+
+#[test]
+fn icon_component_supports_shared_and_platform_specific_symbols() {
+    let module = compile(
+        r##"
+        app IconExample {
+            body {
+                Icon(system: "favorite_filled", description: "Like", size: 24, tint: "#FFFFFF")
+                Icon(sfsymbol: "person.crop.circle.fill", description: "Profile", size: 24, tint: "#FFFFFF")
+                Icon(materialsymbol: "outlined:account_circle", description: "Profile", size: 24, tint: "#FFFFFF")
+            }
+        }
+        "##,
+    )
+    .expect("shared and platform-specific system icon selectors should type-check");
+
+    assert!(matches!(
+        module.body.as_slice(),
+        [
+            Node::SystemIcon { icon: nexa_ir::SystemIcon::Shared(name), .. },
+            Node::SystemIcon { icon: nexa_ir::SystemIcon::SfSymbol(sf), .. },
+            Node::SystemIcon { icon: nexa_ir::SystemIcon::MaterialSymbol(material), .. },
+        ] if name == "favorite_filled"
+            && sf == "person.crop.circle.fill"
+            && material == "outlined:account_circle"
+    ));
+}
+
+#[test]
+fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
+    let module = compile(
+        r#"
+        app EmptyState {
+            body {
+                ContentUnavailable(
+                    title: "Inbox is empty",
+                    icon: "inbox",
+                    description: "Tasks you add will appear here."
+                )
+            }
+        }
+        "#,
+    )
+    .expect("ContentUnavailable should accept simple localized text and shared icons");
+
+    let Some(Node::ContentUnavailable {
+        title,
+        icon: nexa_ir::SystemIcon::Shared(icon),
+        description,
+    }) = module.body.first()
+    else {
+        panic!("expected a typed ContentUnavailable node");
+    };
+    assert_eq!(source_text(title), Some("Inbox is empty"));
+    assert_eq!(icon, "inbox");
+    assert_eq!(
+        source_text(description),
+        Some("Tasks you add will appear here.")
+    );
+
+    let invalid_icon = compile(
+        r#"
+        app InvalidEmptyState {
+            body {
+                ContentUnavailable(title: "Empty", icon: "not_a_shared_icon", description: "Try again")
+            }
+        }
+        "#,
+    )
+    .expect_err("ContentUnavailable icons must resolve through the shared icon catalog");
+    assert!(
+        invalid_icon
+            .to_string()
+            .contains("unknown shared system icon")
+    );
+}
+
+#[test]
+fn appearance_is_a_generic_typed_wrapper_and_rejects_invalid_static_modes() {
+    let module = compile(
+        r#"
+        app AppearanceExample {
+            state mode: String = "system"
+            body {
+                Appearance(mode: mode) {
+                    Text("Hello")
+                }
+            }
+        }
+        "#,
+    )
+    .expect("appearance should accept a runtime String mode");
+
+    assert!(matches!(
+        module.body.as_slice(),
+        [Node::Appearance {
+            mode: Expr::State(name, Type::String),
+            children,
+        }] if name == "mode" && matches!(children.as_slice(), [Node::Text { .. }])
+    ));
+
+    let error = compile(
+        r#"app InvalidAppearance { body { Appearance(mode: "sepia") { Text("Hello") } } }"#,
+    )
+    .expect_err("unknown static appearance modes should be rejected");
+    assert!(error.message.contains("system`, `light`, or `dark"));
+}
+
+#[test]
+fn toolbar_lowers_placement_and_native_action_content() {
+    let module = compile(
+        r#"
+        app ToolbarExample {
+            body {
+                Toolbar(placement: Trailing) {
+                    Button("Add", icon: "add") { }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("toolbar actions lower to a typed native toolbar node");
+
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::Toolbar {
+            placement: nexa_ir::ToolbarPlacement::Trailing,
+            children,
+        }) if matches!(children.first(), Some(Node::Button { .. }))
+    ));
+}
+
+#[test]
 fn network_online_property_lowers_to_a_typed_synchronous_core_call() {
     let module = compile(
         r#"
@@ -891,28 +1334,19 @@ fn haptics_reject_unknown_feedback_style() {
 }
 
 #[test]
-fn text_input_rejects_conflicting_legacy_and_canonical_option_names() {
+fn text_input_rejects_unsupported_option_names() {
     let error = compile(
         r#"
         app InvalidKeyboardOptions {
             state text: String = ""
             body {
-                TextInput(
-                    value: text,
-                    placeholder: "Text",
-                    keyboard: Email,
-                    keyboardType: Number,
-                ) { }
+                TextInput(value: text, placeholder: "Text", keyboard: Email) { }
             }
         }
         "#,
     )
-    .expect_err("two aliases for one keyboard option must not be ambiguous");
-    assert!(
-        error
-            .to_string()
-            .contains("both `keyboard` and `keyboardType`")
-    );
+    .expect_err("TextInput options must use canonical names");
+    assert!(error.to_string().contains("unknown option `keyboard`"));
 }
 
 #[test]
@@ -1168,8 +1602,8 @@ fn chained_text_styles_lower_to_native_text_style_fields() {
 
     assert!(matches!(
         &module.body[0],
-        Node::Text { value: Expr::String(value), style }
-            if value == "Hi"
+        Node::Text { value, style, .. }
+            if source_text(value) == Some("Hi")
                 && style.font_size == Some(18.0)
                 && style.font_weight == Some(nexa_ir::FontWeight::Bold)
                 && style.padding == Some(12.0)
@@ -1413,7 +1847,7 @@ fn pressable_drag_bindings_are_typed_and_validated() {
             body {
                 Pressable() {
                     Text("Drag")
-                }.onPress {
+                }.onTap {
                     total = 0.0
                 }.onDrag { translationX, translationY, velocityX, velocityY ->
                     total = velocityX
@@ -1448,7 +1882,7 @@ fn pressable_drag_bindings_are_typed_and_validated() {
         ("x, x, vx, vy", "binds `x` more than once"),
     ] {
         let source = format!(
-            "app Invalid {{ body {{ Pressable() {{ Text(\"Drag\") }}.onPress {{ }}.onDrag {{ {parameters} -> }} }} }}"
+            "app Invalid {{ body {{ Pressable() {{ Text(\"Drag\") }}.onTap {{ }}.onDrag {{ {parameters} -> }} }} }}"
         );
         let error = compile(&source).expect_err("invalid drag bindings should be rejected");
         assert!(error.to_string().contains(expected), "{error}");
@@ -1458,7 +1892,7 @@ fn pressable_drag_bindings_are_typed_and_validated() {
         r#"app Invalid {
             state x: Float64 = 0.0
             body {
-                Pressable() { Text("Drag") }.onPress { }.onDrag { x, y, vx, vy -> }
+                Pressable() { Text("Drag") }.onTap { }.onDrag { x, y, vx, vy -> }
             }
         }"#,
     )
@@ -1467,6 +1901,49 @@ fn pressable_drag_bindings_are_typed_and_validated() {
         shadow_error
             .to_string()
             .contains("shadows an existing value")
+    );
+}
+
+#[test]
+fn pressable_context_menu_lowers_native_button_actions() {
+    let module = compile(
+        r#"app ContextMenu {
+            body {
+                Pressable() { Text("Row") }
+                    .onTap { }
+                    .contextMenu {
+                        Button("Edit") { }
+                        Button("Delete", icon: "delete") { }
+                    }
+            }
+        }"#,
+    )
+    .expect("context menu buttons should lower as typed native button nodes");
+
+    let Node::Pressable { context_menu, .. } = &module.body[0] else {
+        panic!("expected Pressable");
+    };
+    assert_eq!(context_menu.len(), 2);
+    assert!(
+        context_menu
+            .iter()
+            .all(|node| matches!(node, Node::Button { .. }))
+    );
+
+    let error = compile(
+        r#"app InvalidContextMenu {
+            body {
+                Pressable() { Text("Row") }
+                    .onTap { }
+                    .contextMenu { Text("Not an action") }
+            }
+        }"#,
+    )
+    .expect_err("context menus should reject non-action nodes");
+    assert!(
+        error
+            .message
+            .contains("requires at least one Button action")
     );
 }
 
@@ -1491,7 +1968,7 @@ fn pressable_pinch_bindings_are_typed_and_validated() {
             state zoom: Float64 = 1.0
             body {
                 Pressable() { Text("Pinch") }
-                    .onPress { }
+                    .onTap { }
                     .onPinch { scaleFactor -> zoom = zoom * scaleFactor }
             }
         }"#,
@@ -1524,7 +2001,7 @@ fn pressable_pinch_bindings_are_typed_and_validated() {
         ("scaleFactor, extra ->", "requires one binding"),
     ] {
         let source = format!(
-            "app Invalid {{ state zoom: Float64 = 0.0 body {{ Pressable() {{ Text(\"Pinch\") }}.onPress {{ }}.onPinch {{ {handler} }} }} }}"
+            "app Invalid {{ state zoom: Float64 = 0.0 body {{ Pressable() {{ Text(\"Pinch\") }}.onTap {{ }}.onPinch {{ {handler} }} }} }}"
         );
         let error = compile(&source).expect_err("invalid pinch bindings should be rejected");
         assert!(error.to_string().contains(expected), "{error}");
@@ -1534,7 +2011,7 @@ fn pressable_pinch_bindings_are_typed_and_validated() {
         r#"app Invalid {
             state scaleFactor: Float64 = 1.0
             body {
-                Pressable() { Text("Pinch") }.onPress { }.onPinch { scaleFactor -> }
+                Pressable() { Text("Pinch") }.onTap { }.onPinch { scaleFactor -> }
             }
         }"#,
     )
@@ -1561,7 +2038,7 @@ fn pressable_pinch_example_compiles_for_both_targets() {
 }
 
 #[test]
-fn pressable_long_press_duration_is_typed_and_tap_has_a_canonical_alias() {
+fn pressable_long_press_duration_is_typed_and_tap_uses_its_canonical_name() {
     let module = compile(
         r#"app LongPress {
             state holds: Int32 = 0
@@ -1602,12 +2079,16 @@ fn pressable_long_press_duration_is_typed_and_tap_has_a_canonical_alias() {
     let duplicate_tap = compile(
         r#"app Invalid {
             body {
-                Pressable() { Text("Tap") }.onTap { }.onPress { }
+                Pressable() { Text("Tap") }.onTap { }.onTap { }
             }
         }"#,
     )
     .expect_err("a Pressable cannot install the same tap callback twice");
-    assert!(duplicate_tap.to_string().contains("only one tap handler"));
+    assert!(
+        duplicate_tap
+            .to_string()
+            .contains("only one `.onTap` modifier")
+    );
 }
 
 #[test]
@@ -1640,7 +2121,7 @@ fn accessibility_options_lower_on_builtins_and_custom_components() {
 
         app AccessibilityOptions {
             body {
-                Text("Continue", accessibilityLabel: "Continue action", accessibilityHint: "Opens the next screen", accessibilityRole: Button)
+                Text("Continue", accessibilityLabel: "Continue action", accessibilityHint: "Opens the next screen", accessibilityValue: "Ready", accessibilityRole: Button)
                 Image(asset: "brand", description: "Brand", accessibilityLabel: "Brand mark", accessibilityRole: Image)
                 Caption(title: "Profile", accessibilityLabel: "Profile heading", accessibilityRole: Header)
             }
@@ -1651,19 +2132,20 @@ fn accessibility_options_lower_on_builtins_and_custom_components() {
 
     let [
         Node::Accessibility {
-            label: Expr::String(label),
-            hint: Some(Expr::String(hint)),
+            label,
+            hint: Some(hint),
+            value: Some(accessibility_value),
             role: AccessibilityRole::Button,
             children: text_children,
         },
         Node::Accessibility {
-            label: Expr::String(image_label),
+            label: image_label,
             role: AccessibilityRole::Image,
             children: image_children,
             ..
         },
         Node::Accessibility {
-            label: Expr::String(custom_label),
+            label: custom_label,
             role: AccessibilityRole::Header,
             children: custom_children,
             ..
@@ -1672,10 +2154,11 @@ fn accessibility_options_lower_on_builtins_and_custom_components() {
     else {
         panic!("accessibility parameters should become typed annotations on each component");
     };
-    assert_eq!(label, "Continue action");
-    assert_eq!(hint, "Opens the next screen");
-    assert_eq!(image_label, "Brand mark");
-    assert_eq!(custom_label, "Profile heading");
+    assert_eq!(source_text(label), Some("Continue action"));
+    assert_eq!(source_text(hint), Some("Opens the next screen"));
+    assert_eq!(source_text(accessibility_value), Some("Ready"));
+    assert_eq!(source_text(image_label), Some("Brand mark"));
+    assert_eq!(source_text(custom_label), Some("Profile heading"));
     assert!(matches!(text_children.as_slice(), [Node::Text { .. }]));
     assert!(matches!(image_children.as_slice(), [Node::Image { .. }]));
     assert!(
@@ -1734,6 +2217,28 @@ fn image_shared_element_modifier_lowers_a_typed_string_identifier() {
             shared_element: Some(Expr::String(id)),
             ..
         }] if id == "product-hero"
+    ));
+}
+
+#[test]
+fn image_max_height_lowers_to_a_bounded_native_dimension() {
+    let module = compile(
+        r#"
+        app CommentPhoto {
+            body {
+                Image(file: "file:///photo.jpg", description: "Comment image", maxHeight: 200)
+            }
+        }
+        "#,
+    )
+    .expect("a bounded comment image should compile");
+
+    assert!(matches!(
+        module.body.as_slice(),
+        [Node::Image {
+            max_height: Some(height),
+            ..
+        }] if (*height - 200.0).abs() < f32::EPSILON
     ));
 }
 
@@ -1838,6 +2343,7 @@ fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
         Node::SegmentedControl {
             items: Expr::State(name, Type::Array(element)),
             state,
+            ..
         } if name == "filters" && **element == Type::String && state == "selectedFilter"
     ));
 
@@ -1876,6 +2382,8 @@ fn picker_lowers_a_string_array_and_mutable_string_binding() {
         Node::Picker {
             items: Expr::State(name, Type::Array(element)),
             state,
+            label: None,
+            ..
         } if name == "sizes" && **element == Type::String && state == "selectedSize"
     ));
 
@@ -1900,9 +2408,11 @@ fn dialog_lowers_typed_text_and_actions_for_mutable_state() {
         app DeleteConfirmation {
             state isPresented: Bool = false
             state deleted: Bool = false
+            state comment: String = ""
 
             body {
-                Dialog(isPresented: isPresented, title: "Delete item?", message: "This cannot be undone.") {
+                Dialog(isPresented: isPresented, title: "Delete item?", message: "") {
+                    TextInput(value: comment, placeholder: "Comment")
                     Button("Cancel") { isPresented = false }
                     Button("Delete") {
                         deleted = true
@@ -1919,15 +2429,35 @@ fn dialog_lowers_typed_text_and_actions_for_mutable_state() {
         &module.body[0],
         Node::Dialog {
             state,
-            title: Expr::String(title),
-            message: Expr::String(message),
+            title,
+            message,
             children,
+            ..
         } if state == "isPresented"
-            && title == "Delete item?"
-            && message == "This cannot be undone."
-            && children.len() == 2
-            && children.iter().all(|node| matches!(node, Node::Button { .. }))
+            && source_text(title) == Some("Delete item?")
+            && source_text(message) == Some("")
+            && children.len() == 3
+            && matches!(children.first(), Some(Node::TextInput { state, .. }) if state == "comment")
+            && children[1..].iter().all(|node| matches!(node, Node::Button { .. }))
     ));
+
+    let invalid = compile(
+        r#"
+        app InvalidDialogInput {
+            state isPresented: Bool = false
+            state first: String = ""
+            state second: String = ""
+            body {
+                Dialog(isPresented: isPresented, title: "Edit", message: "") {
+                    TextInput(value: first, placeholder: "First")
+                    TextInput(value: second, placeholder: "Second")
+                    Button("Save") { isPresented = false }
+                }
+            }
+        }
+        "#,
+    );
+    assert!(invalid.is_err(), "dialog supports only one text field");
 
     let invalid = compile(
         r#"

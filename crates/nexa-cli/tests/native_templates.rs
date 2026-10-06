@@ -3,6 +3,12 @@
 mod config;
 use config::ProjectConfig;
 
+struct NativeWidgetSource {
+    relative_path: String,
+    #[allow(dead_code)]
+    contents: String,
+}
+
 #[allow(dead_code)]
 #[path = "../src/project/plugin_package.rs"]
 mod plugin_package;
@@ -45,6 +51,29 @@ fn android_wrapper_is_pinned_and_checksum_verified() {
         templates::ANDROID_GRADLEW_BAT
             .contains("-jar \"%APP_HOME%\\gradle\\wrapper\\gradle-wrapper.jar\"")
     );
+}
+
+#[test]
+fn ios_localization_catalog_is_a_compiled_bundle_resource() {
+    let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+    let project = templates::ios_project_file_with_localization_config(
+        "Demo",
+        false,
+        false,
+        true,
+        false,
+        &["NexaGenerated.swift".to_owned()],
+        &[],
+        &[],
+        &[],
+        &[],
+        &config,
+    )
+    .expect("localized iOS project should render");
+
+    assert!(project.contains("text.json.xcstrings"));
+    assert!(project.contains("Localizable.xcstrings"));
+    assert!(project.contains("PBXResourcesBuildPhase"));
 }
 
 #[test]
@@ -529,6 +558,7 @@ mod template_generation {
                     "2.3.0".to_owned(),
                 ),
                 products: vec!["MediaKit".to_owned(), "MediaUI".to_owned()],
+                extension_products: Vec::new(),
             });
         let mut maps_plugin = plugin("Maps");
         maps_plugin.artifacts.ios_frameworks = vec!["MapKit".to_owned()];
@@ -541,6 +571,7 @@ mod template_generation {
                     "1.0.0".to_owned(),
                 ),
                 products: vec!["MapsKit".to_owned()],
+                extension_products: Vec::new(),
             });
         let plugins = [media_plugin, maps_plugin];
 
@@ -753,6 +784,34 @@ mod template_generation {
     }
 
     #[test]
+    fn orientation_policy_can_lock_every_device_or_only_phone_layouts() {
+        let mut config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+        config.orientation = "portrait".to_owned();
+        let portrait =
+            ios_info_plist_with_orientation("Demo", &config, &[], false, false, &[]).unwrap();
+        assert!(portrait.contains("UIInterfaceOrientationPortrait</string></array>"));
+        assert!(!portrait.contains("UIInterfaceOrientationLandscapeLeft"));
+        let manifest =
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[]).unwrap();
+        assert!(manifest.contains("android:screenOrientation=\"portrait\""));
+
+        config.orientation = "portrait-phones".to_owned();
+        let phone_only =
+            ios_info_plist_with_orientation("Demo", &config, &[], false, false, &[]).unwrap();
+        assert!(phone_only.contains("UISupportedInterfaceOrientations~ipad"));
+        assert!(phone_only.contains("UIInterfaceOrientationLandscapeLeft"));
+        let manifest =
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[]).unwrap();
+        assert!(manifest.contains("android:screenOrientation=\"fullUser\""));
+        assert!(
+            manifest.contains("dev.nexa.orientationPolicy\" android:value=\"portrait-phones\"")
+        );
+        assert!(manifest.contains(
+            "android:configChanges=\"orientation|screenSize|smallestScreenSize|screenLayout\""
+        ));
+    }
+
+    #[test]
     fn android_host_uses_api_23_by_default_in_dev_and_release() {
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
         for dev_runtime in [false, true] {
@@ -870,6 +929,7 @@ mod template_generation {
                     "2.3.0".to_owned(),
                 ),
                 products: vec!["MediaKit".to_owned()],
+                extension_products: Vec::new(),
             });
         media_plugin
             .artifacts
@@ -1055,6 +1115,7 @@ mod template_generation {
                 .expect("Android manifest should generate");
         assert!(manifest.contains("android.permission.CAMERA"));
         assert!(manifest.contains("android.permission.RECORD_AUDIO"));
+        assert!(manifest.contains("android:theme=\"@style/NexaAppTheme\""));
     }
 
     #[test]
@@ -1116,7 +1177,7 @@ mod template_generation {
         ));
 
         let app_source =
-            templates::ios_app_source("Demo", "DemoRoot()", &[], &[notifications.clone()])
+            templates::ios_app_source("Demo", "DemoRoot()", &[], &[notifications.clone()], false)
                 .expect("iOS app delegate should integrate");
         assert!(app_source.contains(
             "@UIApplicationDelegateAdaptor(NotificationsAppDelegate.self) private var nexaApplicationDelegate"
@@ -1438,6 +1499,83 @@ mod template_generation {
         let error = ProjectConfig::parse_file(&path, &[], "Architecture")
             .expect_err("unsupported iOS architecture should fail");
         assert!(error.contains("unsupported iOS architecture"));
+    }
+
+    fn create_android_icon_set(root: &std::path::Path, name: &str) {
+        let directory = root.join(name);
+        fs::create_dir_all(&directory).expect("create Android icon set");
+        fs::write(directory.join("icon.png"), b"icon").expect("write legacy icon placeholder");
+        fs::write(directory.join("foreground.xml"), "<vector />")
+            .expect("write foreground placeholder");
+        fs::write(directory.join("background.xml"), "<shape />")
+            .expect("write background placeholder");
+    }
+
+    #[test]
+    fn android_alternate_icons_require_a_default_icon_and_icon_sets() {
+        let home = nexa_testkit::TempDir::new("nexa-android-alternate-icons");
+        let assets = home.path().join("icons");
+        fs::create_dir_all(&assets).expect("create icon assets directory");
+        create_android_icon_set(&assets, "Blue");
+        let path = home.path().join("nexa.config.nx");
+
+        fs::write(
+            &path,
+            r#"config { android { alternateIcons: ["icons/Blue"] } }"#,
+        )
+        .expect("write missing-default config");
+        let error = ProjectConfig::parse_file(&path, &[], "Icons")
+            .expect_err("alternate icons require a default launcher icon");
+        assert!(error.contains("require a default Android `icon` or shared `assets.icon`"));
+
+        create_android_icon_set(&assets, "Default");
+        fs::write(
+            &path,
+            r#"config { android { icon: "icons/Default", alternateIcons: ["icons/Blue"] } }"#,
+        )
+        .expect("write valid icon-set config");
+        ProjectConfig::parse_file(&path, &[], "Icons")
+            .expect("default and alternate icon sets should parse");
+
+        fs::write(assets.join("Flat.png"), b"icon").expect("write flat icon placeholder");
+        fs::write(
+            &path,
+            r#"config { android { icon: "icons/Default", alternateIcons: ["icons/Flat.png"] } }"#,
+        )
+        .expect("write flat alternate config");
+        let error = ProjectConfig::parse_file(&path, &[], "Icons")
+            .expect_err("Android alternate icons must be adaptive icon sets");
+        assert!(error.contains("invalid Android alternate icon asset"));
+    }
+
+    #[test]
+    fn android_alternate_icon_resource_names_reject_collisions_and_reserved_names() {
+        let home = nexa_testkit::TempDir::new("nexa-android-icon-resource-names");
+        let assets = home.path().join("icons");
+        fs::create_dir_all(&assets).expect("create icon assets directory");
+        create_android_icon_set(&assets, "Default");
+        create_android_icon_set(&assets, "Blue");
+        create_android_icon_set(&assets, "blue");
+        create_android_icon_set(&assets, "ic_launcher");
+        let path = home.path().join("nexa.config.nx");
+
+        fs::write(
+            &path,
+            r#"config { android { icon: "icons/Default", alternateIcons: ["icons/Blue", "icons/blue"] } }"#,
+        )
+        .expect("write colliding icon config");
+        let error = ProjectConfig::parse_file(&path, &[], "Icons")
+            .expect_err("case-insensitive Android resource names must be unique");
+        assert!(error.contains("resource names are case-insensitive"));
+
+        fs::write(
+            &path,
+            r#"config { android { icon: "icons/Default", alternateIcons: ["icons/ic_launcher"] } }"#,
+        )
+        .expect("write reserved icon config");
+        let error = ProjectConfig::parse_file(&path, &[], "Icons")
+            .expect_err("default launcher resource names are reserved");
+        assert!(error.contains("reserved for the default launcher icon"));
     }
 
     #[test]

@@ -12,18 +12,21 @@ use super::RenderScope;
 struct SectionedPieces<'a> {
     collection: &'a Expr,
     element_type: &'a nexa_ir::Type,
+    native: bool,
     item_extent: Option<f32>,
     section: &'a str,
     index: &'a str,
     item: &'a str,
     key: Option<&'a Expr>,
     children: &'a [Node],
+    swipe_actions: Option<&'a [Node]>,
     section_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
 }
 
 struct OpenListConfig<'a> {
     axis: ListAxis,
+    native: bool,
     row_count: String,
     key: String,
     item_extent: Option<f32>,
@@ -55,12 +58,14 @@ pub(crate) fn render_virtualized_list(
                 SectionedPieces {
                     collection,
                     element_type,
+                    native: common.native,
                     item_extent: common.item_extent,
                     section,
                     index: &common.index,
                     item,
                     key: common.key.as_ref(),
                     children: &common.children,
+                    swipe_actions: common.swipe_actions.as_deref(),
                     section_header: common.section_header.as_deref(),
                     refresh: common.refresh.as_ref(),
                 },
@@ -84,6 +89,7 @@ pub(crate) fn render_virtualized_list(
             open_list(
                 OpenListConfig {
                     axis: common.axis,
+                    native: common.native,
                     row_count: format!("max(0, Int({}))", expression(count)),
                     key,
                     item_extent: common.item_extent,
@@ -113,7 +119,15 @@ pub(crate) fn render_virtualized_list(
             item,
             common,
         } => {
-            let collection = expression(collection);
+            let collection_expression = expression(collection);
+            let collection = format!("nexa_list_values_{}", out.next_id());
+            out.line_at(
+                depth,
+                format_args!(
+                    "let {collection}: [{}] = {collection_expression}",
+                    swift_type(element_type)
+                ),
+            );
             let key = common
                 .key
                 .as_ref()
@@ -133,6 +147,7 @@ pub(crate) fn render_virtualized_list(
             open_list(
                 OpenListConfig {
                     axis: common.axis,
+                    native: common.native,
                     row_count: format!("{collection}.count"),
                     key,
                     item_extent: common.item_extent,
@@ -165,8 +180,58 @@ pub(crate) fn render_virtualized_list(
             );
         }
     }
-    render_children(plan.children(), module, features, depth + 1, out);
+    let native = match plan {
+        ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.native,
+        ListPlan::Sections { .. } => false,
+    };
+    render_children(
+        plan.children(),
+        module,
+        features,
+        depth + if native { 2 } else { 1 },
+        out,
+    );
+    if let Some(actions) = plan.swipe_actions() {
+        out.push('\n');
+        indent(out, depth + 2);
+        out.push_str(".swipeActions(edge: .trailing) {\n");
+        render_children(actions, module, features, depth + 3, out);
+        out.push('\n');
+        indent(out, depth + 2);
+        out.push('}');
+    }
     out.push('\n');
+    if native {
+        if let Some(on_move) = plan.on_move() {
+            indent(out, depth + 1);
+            out.push_str("}.onMove { source, destination in\n");
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "let {}: Int32 = Int32(source.first ?? 0)",
+                    state_name(&on_move.from)
+                ),
+            );
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "let {}: Int32 = Int32(destination > (source.first ?? 0) ? destination - 1 : destination)",
+                    state_name(&on_move.to)
+                ),
+            );
+            render_actions(&on_move.actions, depth + 2, out);
+            out.push('\n');
+            indent(out, depth + 1);
+            out.push_str("}\n");
+            out.line_at(
+                depth + 1,
+                format_args!(".moveDisabled(!({}))", expression(&on_move.enabled)),
+            );
+        } else {
+            indent(out, depth + 1);
+            out.push_str("}\n");
+        }
+    }
     indent(out, depth);
     out.push('}');
 }
@@ -180,16 +245,121 @@ fn render_sectioned_list(
     let SectionedPieces {
         collection,
         element_type,
+        native,
         item_extent,
         section,
         index,
         item,
         key,
         children,
+        swipe_actions,
         section_header,
         refresh,
     } = pieces;
-    let collection = expression(collection);
+    let collection_expression = expression(collection);
+    let collection = format!("nexa_list_sections_{}", out.next_id());
+    out.line_at(
+        depth,
+        format_args!(
+            "let {collection}: [[{}]] = {collection_expression}",
+            swift_type(element_type)
+        ),
+    );
+    if native {
+        indent(out, depth);
+        out.push_str("List {\n");
+        out.line_at(
+            depth + 1,
+            format_args!("ForEach({collection}.indices, id: \\.self) {{ sectionPosition in"),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "let {}: [{}] = {collection}[sectionPosition]",
+                state_name("sectionItems"),
+                swift_type(element_type)
+            ),
+        );
+        out.line_at(depth + 2, format_args!("Section {{"));
+        out.line_at(
+            depth + 3,
+            format_args!(
+                "ForEach({}.indices, id: \\.self) {{ itemPosition in",
+                state_name("sectionItems")
+            ),
+        );
+        out.line_at(
+            depth + 4,
+            format_args!(
+                "let {}: Int32 = Int32(clamping: sectionPosition)",
+                state_name(section)
+            ),
+        );
+        out.line_at(
+            depth + 4,
+            format_args!(
+                "let {}: Int32 = Int32(clamping: itemPosition)",
+                state_name(index)
+            ),
+        );
+        out.line_at(
+            depth + 4,
+            format_args!(
+                "let {}: {} = {}[itemPosition]",
+                state_name(item),
+                swift_type(element_type),
+                state_name("sectionItems")
+            ),
+        );
+        out.line_at(depth + 4, format_args!("VStack(spacing: 0) {{"));
+        render_children(children, scope.module, scope.features, depth + 5, out);
+        out.push('\n');
+        indent(out, depth + 4);
+        out.push('}');
+        if let Some(actions) = swipe_actions {
+            out.push_str(".swipeActions(edge: .trailing) {\n");
+            render_children(actions, scope.module, scope.features, depth + 5, out);
+            out.push('\n');
+            indent(out, depth + 4);
+            out.push('}');
+        }
+        out.push('\n');
+        indent(out, depth + 3);
+        out.push_str("}\n");
+        indent(out, depth + 2);
+        if let Some(header) = section_header {
+            out.push_str("} header: {\n");
+            out.line_at(
+                depth + 3,
+                format_args!(
+                    "let {}: [{}] = {collection}[sectionPosition]",
+                    state_name("sectionItems"),
+                    swift_type(element_type)
+                ),
+            );
+            out.line_at(
+                depth + 3,
+                format_args!(
+                    "let {}: Int32 = Int32(clamping: sectionPosition)",
+                    state_name(section)
+                ),
+            );
+            out.line_at(depth + 3, format_args!("VStack(spacing: 0) {{"));
+            render_children(header, scope.module, scope.features, depth + 4, out);
+            out.push('\n');
+            indent(out, depth + 3);
+            out.push_str("}\n");
+            indent(out, depth + 2);
+            out.push_str("}\n");
+        } else {
+            out.push_str("}\n");
+        }
+        indent(out, depth + 1);
+        out.push_str("}\n");
+        indent(out, depth);
+        out.push('}');
+        return;
+    }
     indent(out, depth);
     if section_header.is_some() {
         out.push_str("NexaFastSectionedList(\n");
@@ -235,6 +405,14 @@ fn render_sectioned_list(
     if let Some(header) = section_header {
         indent(out, depth + 1);
         out.push_str("headerContent: { sectionPosition in\n");
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "let {}: [{}] = {collection}[sectionPosition]",
+                state_name("sectionItems"),
+                swift_type(element_type)
+            ),
+        );
         indent(out, depth + 2);
         out.push_str("VStack(spacing: 0) {\n");
         out.line_at(
@@ -288,7 +466,7 @@ fn list_constructor(
     row_count: String,
     key: &str,
     item_extent: Option<f32>,
-    has_sticky_header: bool,
+    _has_sticky_header: bool,
     reverse_layout: bool,
     page_snap: bool,
 ) -> String {
@@ -297,11 +475,6 @@ fn list_constructor(
         .unwrap_or_else(|| "nil".to_owned());
     match axis {
         ListAxis::Vertical => {
-            let type_arguments = if has_sticky_header {
-                ""
-            } else {
-                "<_, EmptyView>"
-            };
             let reverse = if reverse_layout {
                 ", reverseLayout: true"
             } else {
@@ -309,7 +482,7 @@ fn list_constructor(
             };
             let page_snap = if page_snap { ", pageSnap: true" } else { "" };
             format!(
-                "NexaFastList{type_arguments}(rowCount: {row_count}, rowHeight: {extent}{key}{reverse}{page_snap})"
+                "NexaFastList(rowCount: {row_count}, rowHeight: {extent}{key}{reverse}{page_snap})"
             )
         }
         ListAxis::Horizontal => {
@@ -331,6 +504,7 @@ fn open_list(
 ) {
     let OpenListConfig {
         axis,
+        native,
         row_count,
         key,
         item_extent,
@@ -342,6 +516,14 @@ fn open_list(
         sticky_header,
         refresh,
     } = config;
+    if native {
+        out.line_at(depth, format_args!("List {{"));
+        out.line_at(
+            depth + 1,
+            format_args!("ForEach(0..<({row_count}), id: \\.self) {{ (listPosition: Int) in"),
+        );
+        return;
+    }
     if on_end_reached.is_some()
         || on_scroll.is_some()
         || scroll_position.is_some()

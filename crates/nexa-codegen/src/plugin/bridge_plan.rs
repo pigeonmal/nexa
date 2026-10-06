@@ -13,7 +13,7 @@
 //! with a descriptive error instead.
 
 use nexa_plugin_idl::{
-    Interface, InterfaceKind, Literal, Method, NamedType, NamedTypeKind, PluginIdl,
+    Interface, InterfaceKind, Literal, Method, NamedType, NamedTypeKind, PluginIdl, TypeRef,
 };
 
 /// Scalar value kinds shared by every bridge target.
@@ -74,6 +74,7 @@ pub enum BridgeType {
     TypeParameter(String),
     Array(Box<BridgeType>),
     Set(Box<BridgeType>),
+    Signal(Box<BridgeType>),
     Map(Box<BridgeType>, Box<BridgeType>),
     Pair(Box<BridgeType>, Box<BridgeType>),
     Triple(Box<BridgeType>, Box<BridgeType>, Box<BridgeType>),
@@ -136,10 +137,20 @@ pub struct BridgeMethod {
     pub is_async: bool,
     /// Declared value type parameters, in declaration order.
     pub type_parameters: Vec<String>,
+    /// Type parameters constrained to app row structs. These use a generated
+    /// column-name mapper instead of the binary value codec.
+    pub row_type_parameters: Vec<String>,
+    /// Plugin cell type accepted by the generated row mapper, inferred from
+    /// the method's single `Array<Enum>` parameter.
+    pub row_value_type: Option<BridgeType>,
     pub parameters: Vec<BridgeParameter>,
     pub return_type: BridgeType,
     /// Declared error type name for `throws` methods.
     pub throws: Option<String>,
+    /// Resolved error type name for `Row` methods (from throws, Result, or plugin error type).
+    pub row_error_type: Option<String>,
+    /// Declared error variant used when Dev row metadata cannot be decoded.
+    pub row_error_case: Option<String>,
 }
 
 impl BridgeMethod {
@@ -166,7 +177,10 @@ impl BridgeMethod {
 pub fn contains_type_parameter(ty: &BridgeType) -> bool {
     match ty {
         BridgeType::TypeParameter(_) => true,
-        BridgeType::Array(element) | BridgeType::Set(element) | BridgeType::Optional(element) => {
+        BridgeType::Array(element)
+        | BridgeType::Set(element)
+        | BridgeType::Signal(element)
+        | BridgeType::Optional(element) => {
             contains_type_parameter(element)
         }
         BridgeType::Map(key, value) => {
@@ -321,6 +335,23 @@ fn validate(idl: &PluginIdl, target: Target) -> Result<BridgePlan, String> {
 /// emitting. Like value support, these are checked once during validation
 /// so rendering stays total.
 fn check_target_structure(plan: &BridgePlan, target: Target) -> Result<(), String> {
+    if matches!(
+        target,
+        Target::Contract | Target::SwiftCpp | Target::Android
+    ) {
+        for ty in plan
+            .types
+            .iter()
+            .filter(|ty| ty.kind == BridgeTypeKind::Enum)
+        {
+            if ty.cases.iter().any(|case| !case.parameters.is_empty()) {
+                return Err(format!(
+                    "the C++ bridge does not support payload-bearing enum `{}`; use the direct Swift/Kotlin bridge",
+                    ty.name
+                ));
+            }
+        }
+    }
     // A method type parameter is bound per call site and carried by a value
     // codec the host compiler generates, so the C++ surface - the pure
     // contract and both host adapters - has no spelling for it.
@@ -510,6 +541,76 @@ impl<'a> Resolver<'a> {
             .as_ref()
             .map(|throws| self.error_reference(throws, &method.name))
             .transpose()?;
+        let (row_error_type, row_error_case) = if method.row_type_parameters.is_empty() {
+            if method.row_error_case.is_some() {
+                return Err(format!(
+                    "method `{}` declares `rowFailure` without a `Row` type parameter",
+                    method.name
+                ));
+            }
+            (None, None)
+        } else {
+            let failure = throws
+                .as_deref()
+                .or(match &return_type {
+                    BridgeType::Result { failure, .. } => Some(failure.as_str()),
+                    _ => None,
+                })
+                .or_else(|| {
+                    if self.errors.len() == 1 {
+                        self.errors.iter().copied().next()
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "method `{}` with a `Row` type parameter must declare an error type",
+                        method.name
+                    )
+                })?;
+            let case_name = method.row_error_case.as_deref().ok_or_else(|| {
+                format!(
+                    "method `{}` with a `Row` type parameter must declare `rowFailure <case>`",
+                    method.name
+                )
+            })?;
+            let failure_type = self.types.get(failure).ok_or_else(|| {
+                format!(
+                    "error type `{failure}` in method `{}` is not declared",
+                    method.name
+                )
+            })?;
+            if failure_type.kind != NamedTypeKind::Error {
+                return Err(format!(
+                    "row mapping error type `{failure}` in method `{}` must be declared with `error`",
+                    method.name
+                ));
+            }
+            let failure_case = failure_type
+                .cases
+                .iter()
+                .find(|case| case.name == case_name)
+                .ok_or_else(|| {
+                    format!("row mapping error case `{case_name}` is not declared by `{failure}`")
+                })?;
+            if !matches!(failure_case.parameters.as_slice(), [parameter] if parameter.ty.name == "String" && parameter.ty.arguments.is_empty() && !parameter.ty.optional)
+            {
+                return Err(format!(
+                    "row mapping error case `{failure}.{case_name}` must have one String payload"
+                ));
+            }
+            (Some(failure.to_owned()), Some(case_name.to_owned()))
+        };
+        if !method.row_type_parameters.is_empty()
+            && method.throws.is_none()
+            && !matches!(&return_type, BridgeType::Result { .. } | BridgeType::Signal(_))
+        {
+            return Err(format!(
+                "method `{}` with a `Row` type parameter must declare a typed error for missing or mismatched columns",
+                method.name
+            ));
+        }
         if let BridgeType::Result { failure, .. } = &return_type
             && !self.errors.contains(failure.as_str())
         {
@@ -530,9 +631,91 @@ impl<'a> Resolver<'a> {
             name: method.name.clone(),
             is_async: method.is_async,
             type_parameters: scope.clone(),
+            row_type_parameters: method.row_type_parameters.clone(),
+            row_value_type: if method.row_type_parameters.is_empty() {
+                None
+            } else {
+                let is_array_return = matches!(&return_type, BridgeType::Array(inner) if matches!(inner.as_ref(), BridgeType::TypeParameter(name) if method.row_type_parameters.contains(name)));
+                let is_signal_return = matches!(&return_type, BridgeType::Signal(inner) if matches!(inner.as_ref(), BridgeType::Array(item) if matches!(item.as_ref(), BridgeType::TypeParameter(name) if method.row_type_parameters.contains(name))));
+                if method.row_type_parameters.len() != 1 || (!is_array_return && !is_signal_return) {
+                    return Err(format!(
+                        "method `{}` with a `Row` type parameter must return `Array<T>` or `Signal<Array<T>>` for that parameter",
+                        method.name
+                    ));
+                }
+                let row_parameters = method
+                    .parameters
+                    .iter()
+                    .filter_map(|parameter| match &parameter.ty {
+                        TypeRef {
+                            name,
+                            arguments,
+                            optional: false,
+                        } if name == "Array" && arguments.len() == 1 => Some(&arguments[0]),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                if row_parameters.len() != 1 {
+                    return Err(format!(
+                        "method `{}` with a `Row` type parameter must take exactly one array of plugin-defined cell values",
+                        method.name
+                    ));
+                }
+                let row_value_type = self.resolve(
+                    row_parameters[0],
+                    "row mapper values",
+                    Position::Value,
+                    scope,
+                )?;
+                if !matches!(
+                    row_value_type,
+                    BridgeType::Named {
+                        kind: BridgeNamedKind::Enum,
+                        ..
+                    }
+                ) {
+                    return Err(format!(
+                        "method `{}` row values must use one declared enum type",
+                        method.name
+                    ));
+                }
+                let BridgeType::Named {
+                    name: cell_name, ..
+                } = &row_value_type
+                else {
+                    return Err(format!(
+                        "method `{}` row values must use one declared enum type",
+                        method.name
+                    ));
+                };
+                let cell_type = self
+                    .types
+                    .get(cell_name.as_str())
+                    .ok_or_else(|| format!("row cell enum `{cell_name}` is not declared"))?;
+                let null_cases = cell_type
+                    .cases
+                    .iter()
+                    .filter(|case| case.parameters.is_empty())
+                    .count();
+                let scalar_payload_cases = cell_type.cases.iter().all(|case| {
+                    matches!(case.parameters.as_slice(), [parameter]
+                        if !parameter.ty.optional
+                            && parameter.ty.arguments.is_empty()
+                            && matches!(parameter.ty.name.as_str(), "Bool" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt8" | "UInt16" | "UInt32" | "UInt64" | "Float32" | "Float64" | "String" | "Bytes"))
+                        || case.parameters.is_empty()
+                });
+                if null_cases != 1 || !scalar_payload_cases {
+                    return Err(format!(
+                        "row cell enum `{cell_name}` must have one null case and scalar payloads on every other case"
+                    ));
+                }
+                Some(row_value_type)
+            },
             parameters: self.parameters(&method.parameters, scope)?,
             return_type,
             throws,
+            row_error_type,
+            row_error_case,
         })
     }
 
@@ -600,6 +783,15 @@ impl<'a> Resolver<'a> {
             "Set" => {
                 let element = self.generic_argument(ty, context, 1)?.remove(0);
                 BridgeType::Set(Box::new(self.resolve(
+                    &element,
+                    context,
+                    Position::Value,
+                    scope,
+                )?))
+            }
+            "Signal" => {
+                let element = self.generic_argument(ty, context, 1)?.remove(0);
+                BridgeType::Signal(Box::new(self.resolve(
                     &element,
                     context,
                     Position::Value,
@@ -879,9 +1071,10 @@ fn check_nested_value(plan: &BridgePlan, ty: &BridgeType, target: Target) -> Res
         return Err(target_nested_error(target, ty));
     }
     match ty {
-        BridgeType::Array(element) | BridgeType::Set(element) | BridgeType::Optional(element) => {
-            check_nested_value(plan, element, target)
-        }
+        BridgeType::Array(element)
+        | BridgeType::Set(element)
+        | BridgeType::Signal(element)
+        | BridgeType::Optional(element) => check_nested_value(plan, element, target),
         BridgeType::Map(key, value) => {
             check_nested_value(plan, key, target)?;
             check_nested_value(plan, value, target)
@@ -977,6 +1170,7 @@ fn bridge_bare_name(ty: &BridgeType) -> &str {
         BridgeType::TypeParameter(name) => name,
         BridgeType::Array(_) => "Array",
         BridgeType::Set(_) => "Set",
+        BridgeType::Signal(_) => "Signal",
         BridgeType::Map(..) => "Map",
         BridgeType::Pair(..) => "Pair",
         BridgeType::Triple(..) => "Triple",
@@ -1025,7 +1219,10 @@ fn swift_cpp_supported(ty: &BridgeType) -> bool {
             BridgeType::Scalar(_) | BridgeType::Named { .. } => swift_cpp_supported(inner),
             _ => false,
         },
-        BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => false,
+        BridgeType::Pair(..)
+        | BridgeType::Triple(..)
+        | BridgeType::Result { .. }
+        | BridgeType::Signal(..) => false,
     }
 }
 
@@ -1161,6 +1358,7 @@ fn android_requires_named(ty: &BridgeType) -> bool {
     match ty {
         BridgeType::Array(_)
         | BridgeType::Set(_)
+        | BridgeType::Signal(_)
         | BridgeType::Map(..)
         | BridgeType::Pair(..)
         | BridgeType::Triple(..)
@@ -1218,9 +1416,10 @@ fn android_contains_named(plan: &BridgePlan, ty: &BridgeType) -> bool {
         return true;
     }
     match ty {
-        BridgeType::Array(element) | BridgeType::Set(element) | BridgeType::Optional(element) => {
-            android_contains_named(plan, element)
-        }
+        BridgeType::Array(element)
+        | BridgeType::Set(element)
+        | BridgeType::Signal(element)
+        | BridgeType::Optional(element) => android_contains_named(plan, element),
         BridgeType::Map(key, value) | BridgeType::Pair(key, value) => {
             android_contains_named(plan, key) || android_contains_named(plan, value)
         }
@@ -1300,7 +1499,10 @@ fn android_cpp_type_supported(plan: &BridgePlan, ty: &BridgeType) -> bool {
             _ => false,
         },
         BridgeType::Scalar(_) | BridgeType::Named { .. } | BridgeType::TypeParameter(_) => true,
-        BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => false,
+        BridgeType::Pair(..)
+        | BridgeType::Triple(..)
+        | BridgeType::Result { .. }
+        | BridgeType::Signal(..) => false,
     }
 }
 

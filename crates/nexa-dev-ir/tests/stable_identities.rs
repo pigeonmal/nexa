@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use nexa_dev_ir::{IdentityKind, lower};
 use nexa_ir::{
     Action, Component, ComponentParameter, DirectionConfig, DirectionStyle, Expr, Module, Node,
@@ -6,6 +8,7 @@ use nexa_ir::{
 
 fn module(body: Vec<Node>, state_type: Type) -> Module {
     Module {
+        widgets: Vec::new(),
         app_name: "Demo".to_owned(),
         plugins: Vec::new(),
         plugin_assets: Vec::new(),
@@ -13,6 +16,7 @@ fn module(body: Vec<Node>, state_type: Type) -> Module {
         structs: Vec::new(),
         functions: Vec::new(),
         background_tasks: Vec::new(),
+        globals: Vec::new(),
         states: vec![State {
             name: "count".to_owned(),
             ty: state_type,
@@ -64,6 +68,7 @@ fn double_tap_pressable(value: &str) -> Node {
             ty: NumericType::Int32,
         },
         long_press_actions: Vec::new(),
+        context_menu: Vec::new(),
         drag_parameters: Vec::new(),
         drag_actions: Vec::new(),
         pinch_parameter: None,
@@ -84,6 +89,7 @@ fn pinch_pressable(value: &str) -> Node {
             ty: NumericType::Int32,
         },
         long_press_actions: Vec::new(),
+        context_menu: Vec::new(),
         drag_parameters: Vec::new(),
         drag_actions: Vec::new(),
         pinch_parameter: Some("scaleFactor".to_owned()),
@@ -116,6 +122,7 @@ fn long_pressable(duration_ms: &str) -> Node {
                 ty: NumericType::Int32,
             },
         }],
+        context_menu: Vec::new(),
         drag_parameters: Vec::new(),
         drag_actions: Vec::new(),
         pinch_parameter: None,
@@ -142,6 +149,7 @@ fn double_tap_action_changes_are_carried_by_a_hot_reload_patch() {
 
     let payload = serde_json::to_value(&updated.module).expect("Dev IR serializes");
     assert!(payload["body"][0]["Pressable"]["double_tap_actions"].is_array());
+    assert!(payload["body"][0]["Pressable"]["context_menu"].is_array());
     assert_eq!(payload["body"][0]["Pressable"]["fill_max_size"], true);
 
     let patch = nexa_dev_ir::diff(&original, &updated).expect("changed action is patchable");
@@ -253,6 +261,9 @@ fn component(name: &str) -> Component {
         }],
         states: Vec::new(),
         body: vec![text("Component body"), Node::Content],
+        on_appear: None,
+        on_appear_async: false,
+        on_disappear: None,
     }
 }
 
@@ -290,6 +301,11 @@ fn inserting_a_different_sibling_kind_preserves_existing_node_identity() {
                     icon: None,
                     loading: None,
                     disabled: None,
+                    style: None,
+                    size: None,
+                    shape: None,
+                    tint: None,
+                    glass: false,
                     actions: Vec::new(),
                 },
                 text("Keep"),
@@ -352,6 +368,31 @@ fn diff_replaces_an_array_when_its_shape_changes() {
     assert_eq!(patch.operations.len(), 1);
     assert_eq!(patch.operations[0].path, "/body");
     assert!(patch.operations[0].value.is_some());
+}
+
+#[test]
+fn translation_edits_are_sent_as_patch_data_without_module_changes() {
+    let module = module(vec![text("Save")], Type::Numeric(NumericType::Int32));
+    let before = nexa_dev_ir::lower_with_translations(
+        &module,
+        "before",
+        BTreeMap::from([(
+            "fr".to_owned(),
+            BTreeMap::from([("Save".to_owned(), serde_json::json!("Enregistrer"))]),
+        )]),
+    );
+    let after = nexa_dev_ir::lower_with_translations(
+        &module,
+        "after",
+        BTreeMap::from([(
+            "fr".to_owned(),
+            BTreeMap::from([("Save".to_owned(), serde_json::json!("Sauvegarder"))]),
+        )]),
+    );
+
+    let patch = nexa_dev_ir::diff(&before, &after).expect("translation edit should be patchable");
+    assert!(patch.operations.is_empty());
+    assert_eq!(patch.translations, Some(after.translations));
 }
 
 #[test]

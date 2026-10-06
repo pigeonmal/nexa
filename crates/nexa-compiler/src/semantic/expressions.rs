@@ -320,7 +320,19 @@ pub(super) fn collect_plugin_signatures(
                     key,
                     FunctionSignature {
                         parameters,
-                        type_parameters: method.type_parameters.clone(),
+                        type_parameters: method
+                            .type_parameters
+                            .iter()
+                            .map(|parameter| {
+                                if method.struct_type_parameters.contains(parameter) {
+                                    format!("{parameter}:Struct")
+                                } else if method.row_type_parameters.contains(parameter) {
+                                    format!("{parameter}:Row")
+                                } else {
+                                    parameter.clone()
+                                }
+                            })
+                            .collect(),
                         return_type,
                         is_async: method.is_async,
                         is_throwing: method.return_type.name == "Result" || method.throws.is_some(),
@@ -485,6 +497,52 @@ pub(super) fn collect_plugin_signatures(
                 );
             }
         }
+        // Payload enum cases are value constructors, not native calls. Their
+        // signatures let contextual lowering adapt ordinary Nexa values to a
+        // plugin's native representation without exposing constructors in app code.
+        for declaration in idl
+            .types
+            .iter()
+            .filter(|declaration| declaration.kind == nexa_plugin_idl::NamedTypeKind::Enum)
+        {
+            let enum_type = Type::Plugin {
+                namespace: plugin.namespace.clone(),
+                name: declaration.name.clone(),
+            };
+            for case in &declaration.cases {
+                let key = format!("{}.{}.{}", plugin.namespace, declaration.name, case.name);
+                if signatures.contains_key(&key) {
+                    return Err(CompileError::new(
+                        plugin.span,
+                        format!("plugin enum constructor `{key}` is declared more than once"),
+                    ));
+                }
+                let parameters = case
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        plugin_type(&plugin.namespace, &parameter.ty, false, &[])
+                            .map(|ty| (parameter.name.clone(), ty))
+                            .map_err(|message| CompileError::new(plugin.span, message))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                signatures.insert(
+                    key,
+                    FunctionSignature {
+                        parameters,
+                        type_parameters: Vec::new(),
+                        return_type: enum_type.clone(),
+                        is_async: false,
+                        is_throwing: false,
+                        receiver: Some(enum_type.clone()),
+                        is_constructor: true,
+                        is_mutable_property: false,
+                        error_handling_allowed: false,
+                        error_type: None,
+                    },
+                );
+            }
+        }
     }
     Ok(signatures)
 }
@@ -522,6 +580,12 @@ fn plugin_type(
             scope,
         )?)),
         "Set" if ty.arguments.len() == 1 => Type::Set(Box::new(plugin_type(
+            namespace,
+            &ty.arguments[0],
+            false,
+            scope,
+        )?)),
+        "Signal" if ty.arguments.len() == 1 => Type::Signal(Box::new(plugin_type(
             namespace,
             &ty.arguments[0],
             false,
@@ -639,7 +703,10 @@ pub(super) fn collect_function_signatures(
             FunctionSignature {
                 parameters,
                 type_parameters: Vec::new(),
-                return_type: resolve_struct_type(&parse_type(&declaration.return_type)?, structs),
+                return_type: resolve_struct_type(
+                    &parse_return_type(&declaration.return_type)?,
+                    structs,
+                ),
                 is_async: declaration.is_async,
                 is_throwing: false,
                 receiver: None,
@@ -653,73 +720,120 @@ pub(super) fn collect_function_signatures(
     Ok(signatures)
 }
 
-pub(super) fn references_state(expr: &ast::Expr) -> bool {
+pub(super) fn references_mutable_state(
+    expr: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+) -> bool {
+    references_state_matching(expr, &|name| {
+        symbols.get(name).is_some_and(|(_, is_mutable)| *is_mutable)
+    })
+}
+
+fn references_state_matching(expr: &ast::Expr, matches_name: &impl Fn(&str) -> bool) -> bool {
     match expr {
-        ast::Expr::Name(_, _) => true,
+        ast::Expr::Name(name, _) => matches_name(name),
         ast::Expr::EnumCase { .. } => false,
         ast::Expr::Add(left, right, _)
         | ast::Expr::Arithmetic(left, _, right, _)
-        | ast::Expr::Binary(left, _, right, _) => references_state(left) || references_state(right),
-        ast::Expr::Negate(value, _) | ast::Expr::Not(value, _) => references_state(value),
-        ast::Expr::Array(items, _) => items.iter().any(references_state),
-        ast::Expr::Map(entries, _) => entries
-            .iter()
-            .any(|(key, value)| references_state(key) || references_state(value)),
-        ast::Expr::Pair(first, second, _) => references_state(first) || references_state(second),
-        ast::Expr::Triple(first, second, third, _) => {
-            references_state(first) || references_state(second) || references_state(third)
+        | ast::Expr::Binary(left, _, right, _) => {
+            references_state_matching(left, matches_name)
+                || references_state_matching(right, matches_name)
         }
-        ast::Expr::Call(_, _, arguments, _) => arguments.iter().any(references_state),
-        ast::Expr::CallNamed { arguments, .. } => arguments.values().any(references_state),
+        ast::Expr::Negate(value, _) | ast::Expr::Not(value, _) => {
+            references_state_matching(value, matches_name)
+        }
+        ast::Expr::Array(items, _) => items
+            .iter()
+            .any(|item| references_state_matching(item, matches_name)),
+        ast::Expr::Map(entries, _) => entries.iter().any(|(key, value)| {
+            references_state_matching(key, matches_name)
+                || references_state_matching(value, matches_name)
+        }),
+        ast::Expr::Pair(first, second, _) => {
+            references_state_matching(first, matches_name)
+                || references_state_matching(second, matches_name)
+        }
+        ast::Expr::Triple(first, second, third, _) => {
+            references_state_matching(first, matches_name)
+                || references_state_matching(second, matches_name)
+                || references_state_matching(third, matches_name)
+        }
+        ast::Expr::Call(_, _, arguments, _) => arguments
+            .iter()
+            .any(|argument| references_state_matching(argument, matches_name)),
+        ast::Expr::CallNamed { arguments, .. } => arguments
+            .values()
+            .any(|argument| references_state_matching(argument, matches_name)),
         ast::Expr::MethodCall {
             base,
             arguments,
             named_arguments,
             ..
         } => {
-            references_state(base)
-                || arguments.iter().any(references_state)
-                || named_arguments.values().any(references_state)
+            references_state_matching(base, matches_name)
+                || arguments
+                    .iter()
+                    .any(|argument| references_state_matching(argument, matches_name))
+                || named_arguments
+                    .values()
+                    .any(|argument| references_state_matching(argument, matches_name))
         }
-        ast::Expr::Closure { body, .. } => references_state(body),
+        ast::Expr::Closure { body, .. } => references_state_matching(body, matches_name),
         ast::Expr::QualifiedCall {
             arguments,
             named_arguments,
             ..
         } => {
-            arguments.iter().any(references_state) || named_arguments.values().any(references_state)
+            arguments
+                .iter()
+                .any(|argument| references_state_matching(argument, matches_name))
+                || named_arguments
+                    .values()
+                    .any(|argument| references_state_matching(argument, matches_name))
         }
         ast::Expr::Index {
             collection, index, ..
-        } => references_state(collection) || references_state(index),
+        } => {
+            references_state_matching(collection, matches_name)
+                || references_state_matching(index, matches_name)
+        }
         ast::Expr::Member { base, .. } => match base.as_ref() {
             ast::Expr::Name(name, _) if name.chars().next().is_some_and(char::is_uppercase) => {
                 false
             }
-            _ => references_state(base),
+            _ => references_state_matching(base, matches_name),
         },
         ast::Expr::Range {
             start, end, step, ..
         } => {
-            references_state(start)
-                || references_state(end)
-                || step.as_deref().is_some_and(references_state)
+            references_state_matching(start, matches_name)
+                || references_state_matching(end, matches_name)
+                || step
+                    .as_deref()
+                    .is_some_and(|value| references_state_matching(value, matches_name))
         }
-        ast::Expr::Coalesce(left, right, _) => references_state(left) || references_state(right),
+        ast::Expr::Coalesce(left, right, _) => {
+            references_state_matching(left, matches_name)
+                || references_state_matching(right, matches_name)
+        }
         ast::Expr::Conditional {
             condition,
             then_value,
             else_value,
             ..
         } => {
-            references_state(condition)
-                || references_state(then_value)
-                || references_state(else_value)
+            references_state_matching(condition, matches_name)
+                || references_state_matching(then_value, matches_name)
+                || references_state_matching(else_value, matches_name)
         }
-        ast::Expr::Await(value, _) | ast::Expr::Try { expr: value, .. } => references_state(value),
+        ast::Expr::Await(value, _) | ast::Expr::Try { expr: value, .. } => {
+            references_state_matching(value, matches_name)
+        }
         ast::Expr::Interpolation(parts, _) => parts.iter().any(|part| match part {
-            ast::StringPart::Name(_) => true,
-            ast::StringPart::Expression(expression) => references_state(expression),
+            ast::StringPart::Name(name) => matches_name(name),
+            ast::StringPart::Expression(expression) => {
+                references_state_matching(expression, matches_name)
+            }
             ast::StringPart::Literal(_) => false,
         }),
         ast::Expr::String(_, _)
@@ -753,6 +867,114 @@ pub(super) fn record_native_alias(
     aliases.insert(name.to_owned(), root);
 }
 
+/// Contextual conversion for payload-bearing plugin enums. A plugin can expose
+/// a compact native value enum while application code writes ordinary typed
+/// values and literals.
+fn lower_contextual_plugin_enum(
+    expression: &ast::Expr,
+    expected: &Type,
+    ctx: &ExprContext<'_>,
+) -> Result<Option<Expr>, CompileError> {
+    let Type::Plugin { namespace, name } = expected else {
+        return Ok(None);
+    };
+    let prefix = format!("{namespace}.{name}.");
+    if matches!(expression, ast::Expr::Null(_)) {
+        let case = ctx
+            .symbols
+            .iter()
+            .filter(|(key, (ty, _))| key.starts_with(&prefix) && ty == expected)
+            .map(|(key, _)| key.rsplit('.').next().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>();
+        if let [case_name] = case.as_slice() {
+            return Ok(Some(Expr::PluginEnumValue {
+                namespace: namespace.clone(),
+                enum_name: name.clone(),
+                case_name: case_name.clone(),
+            }));
+        }
+        return Ok(None);
+    }
+    let Some(actual_type) = infer_expr_type(expression, ctx.symbols, ctx.functions) else {
+        return Ok(None);
+    };
+    if let Type::Optional(payload_type) = &actual_type {
+        let mut matching = ctx
+            .functions
+            .iter()
+            .filter(|(key, signature)| {
+                key.starts_with(&prefix)
+                    && signature.is_constructor
+                    && signature.receiver.as_ref() == Some(expected)
+                    && signature.parameters.len() == 1
+                    && &signature.parameters[0].1 == payload_type.as_ref()
+            })
+            .collect::<Vec<_>>();
+        let null_cases = ctx
+            .functions
+            .iter()
+            .filter(|(key, signature)| {
+                key.starts_with(&prefix)
+                    && signature.is_constructor
+                    && signature.receiver.as_ref() == Some(expected)
+                    && signature.parameters.is_empty()
+            })
+            .collect::<Vec<_>>();
+        if matching.len() != 1 || null_cases.len() != 1 {
+            return Ok(None);
+        }
+        let Some((key, signature)) = matching.pop() else {
+            return Ok(None);
+        };
+        let Some((payload_name, _)) = signature.parameters.first() else {
+            return Ok(None);
+        };
+        let Some((null_key, _)) = null_cases.first() else {
+            return Ok(None);
+        };
+        let value = lower_expr(expression, Some(&actual_type), ctx)?;
+        return Ok(Some(Expr::PluginEnumOptionalConstructor {
+            namespace: namespace.clone(),
+            enum_name: name.clone(),
+            case_name: key.rsplit('.').next().unwrap_or_default().to_owned(),
+            null_case_name: null_key.rsplit('.').next().unwrap_or_default().to_owned(),
+            payload_name: payload_name.clone(),
+            value: Box::new(value),
+            return_type: expected.clone(),
+        }));
+    }
+    let mut matching = ctx
+        .functions
+        .iter()
+        .filter(|(key, signature)| {
+            key.starts_with(&prefix)
+                && signature.is_constructor
+                && signature.receiver.as_ref() == Some(expected)
+                && signature.parameters.len() == 1
+                && signature.parameters[0].1 == actual_type
+        })
+        .collect::<Vec<_>>();
+    if matching.len() != 1 {
+        return Ok(None);
+    }
+    let Some((key, signature)) = matching.pop() else {
+        return Ok(None);
+    };
+    let case_name = key.rsplit('.').next().unwrap_or_default().to_owned();
+    let Some((payload_name, payload_type)) = signature.parameters.first() else {
+        return Ok(None);
+    };
+    let argument = lower_expr(expression, Some(payload_type), ctx)?;
+    Ok(Some(Expr::PluginEnumConstructor {
+        namespace: namespace.clone(),
+        enum_name: name.clone(),
+        case_name,
+        payload_names: vec![payload_name.clone()],
+        arguments: vec![argument],
+        return_type: expected.clone(),
+    }))
+}
+
 pub(super) fn lower_expr(
     expr: &ast::Expr,
     expected: Option<&Type>,
@@ -774,6 +996,11 @@ pub(super) fn lower_expr(
         }
         _ => expected,
     };
+    if let Some(expected @ Type::Plugin { .. }) = expected
+        && let Some(value) = lower_contextual_plugin_enum(expr, expected, ctx)?
+    {
+        return Ok(value);
+    }
     match expr {
         ast::Expr::String(value, _) => {
             require_expected(expected, &Type::String, expr.span())?;
@@ -957,7 +1184,11 @@ pub(super) fn lower_expr(
                 return Err(CompileError::new(*span, format!("unknown state `{name}`")));
             };
             require_expected(expected, ty, *span)?;
-            Ok(Expr::State(name.clone(), ty.clone()))
+            if name == "this" && matches!(ty, Type::Class { .. }) {
+                Ok(Expr::This(ty.clone()))
+            } else {
+                Ok(Expr::State(name.clone(), ty.clone()))
+            }
         }
         ast::Expr::EnumCase {
             enum_name,
@@ -1156,9 +1387,43 @@ pub(super) fn lower_expr(
             named_arguments,
             span,
         } => {
+            if let Some((namespace, enum_name)) = qualified_plugin_enum_path(base)
+                && ctx
+                    .functions
+                    .contains_key(&format!("{namespace}.{enum_name}.{name}"))
+            {
+                return lower_plugin_call(
+                    namespace,
+                    &format!("{enum_name}.{name}"),
+                    CallArguments {
+                        type_arguments,
+                        arguments,
+                        named_arguments,
+                        span: *span,
+                        expected,
+                        ctx,
+                        awaited: false,
+                    },
+                );
+            }
+            if let Some(Type::Class { .. }) = infer_expr_type(base, ctx.symbols, ctx.functions) {
+                return lower_plugin_method_call(
+                    base,
+                    name,
+                    CallArguments {
+                        type_arguments,
+                        arguments,
+                        named_arguments,
+                        span: *span,
+                        expected,
+                        ctx,
+                        awaited: false,
+                    },
+                );
+            }
             if matches!(
                 infer_expr_type(base, ctx.symbols, ctx.functions),
-                Some(Type::Plugin { .. })
+                Some(Type::Plugin { .. } | Type::Class { .. })
             ) {
                 lower_plugin_method_call(
                     base,
@@ -1296,6 +1561,49 @@ pub(super) fn lower_expr(
             span,
         } => {
             if !*optional
+                && let ast::Expr::Name(class_name, _) = base.as_ref()
+                && let Some((field_type, _)) = ctx.symbols.get(&format!("{class_name}::{name}"))
+            {
+                let Type::Class {
+                    name: class_type_name,
+                    fields,
+                    constructor_parameter_count,
+                } = infer_expr_type(base, ctx.symbols, ctx.functions).unwrap_or_else(|| {
+                    Type::Class {
+                        name: class_name.clone(),
+                        fields: Vec::new(),
+                        constructor_parameter_count: 0,
+                    }
+                })
+                else {
+                    return Err(CompileError::new(
+                        *span,
+                        format!("`{class_name}` is not a class"),
+                    ));
+                };
+                let class_type = Type::Class {
+                    name: class_type_name,
+                    fields,
+                    constructor_parameter_count,
+                };
+                require_expected(expected, field_type, *span)?;
+                return Ok(Expr::Member {
+                    base: Box::new(Expr::State(class_name.clone(), class_type.clone())),
+                    name: name.clone(),
+                    optional: false,
+                    base_type: class_type,
+                    field_type: field_type.clone(),
+                    kind: MemberKind::ClassStaticField(name.clone()),
+                });
+            }
+            if !*optional
+                && let ast::Expr::Name(class_name, _) = base.as_ref()
+                && let Some((ty, _)) = ctx.symbols.get(&format!("{class_name}::{name}"))
+            {
+                require_expected(expected, ty, *span)?;
+                return Ok(Expr::State(format!("{class_name}::{name}"), ty.clone()));
+            }
+            if !*optional
                 && let Some((namespace, enum_name)) = qualified_plugin_enum_path(base)
                 && let Some((ty @ Type::Plugin { .. }, _)) =
                     ctx.symbols.get(&format!("{namespace}.{enum_name}.{name}"))
@@ -1370,7 +1678,10 @@ pub(super) fn lower_expr(
                         format!("`{}` has no member `{name}`", type_name(inner)),
                     ));
                 };
-                (base_type.clone(), Type::Optional(Box::new(field_type)))
+                // Safe member access follows Swift/Kotlin optional-chain
+                // semantics: an already-optional member stays one optional
+                // level instead of becoming a nested optional type.
+                (base_type.clone(), optional_type(field_type))
             } else {
                 if matches!(base_type, Type::Optional(_)) {
                     return Err(CompileError::new(
@@ -1406,6 +1717,7 @@ pub(super) fn lower_expr(
                 }
                 (Type::Triple(_, _, _), "third") => MemberKind::TupleIndex(TuplePosition::Third),
                 (Type::Struct { .. }, field) => MemberKind::StructField(field.to_owned()),
+                (Type::Class { .. }, field) => MemberKind::ClassField(field.to_owned()),
                 (Type::Plugin { .. }, field) => MemberKind::PluginField(field.to_owned()),
                 (Type::NetworkResponse, "statusCode") => MemberKind::NetworkStatusCode,
                 (Type::NetworkResponse, "headers") => MemberKind::NetworkHeaders,
@@ -1416,6 +1728,8 @@ pub(super) fn lower_expr(
                 (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "isEmpty") => {
                     MemberKind::CollectionIsEmpty
                 }
+                (Type::String, "trimmed") => MemberKind::StringTrimmed,
+                (Type::Signal(_), "value") => MemberKind::SignalValue,
                 _ => {
                     return Err(CompileError::new(
                         *span,
@@ -1520,7 +1834,7 @@ pub(super) fn lower_expr(
                     span: call_span,
                 } if matches!(
                     infer_expr_type(base, ctx.symbols, ctx.functions),
-                    Some(Type::Plugin { .. })
+                    Some(Type::Plugin { .. } | Type::Class { .. })
                 ) =>
                 {
                     lower_plugin_method_call(
@@ -1598,13 +1912,16 @@ fn lower_collection_transform(
 ) -> Result<Expr, CompileError> {
     let operation = match name {
         "map" => CollectionTransform::Map,
+        "flatMap" => CollectionTransform::FlatMap,
         "filter" => CollectionTransform::Filter,
         "reduce" => CollectionTransform::Reduce,
+        "sortedBy" => CollectionTransform::SortedBy,
+        "groupedBy" => CollectionTransform::GroupedBy,
         _ => {
             return Err(CompileError::new(
                 span,
                 format!(
-                    "unknown collection method `{name}`; supported methods are `map`, `filter`, and `reduce`"
+                    "unknown collection method `{name}`; supported methods are `map`, `flatMap`, `filter`, `reduce`, `sortedBy`, and `groupedBy`"
                 ),
             ));
         }
@@ -1622,7 +1939,11 @@ fn lower_collection_transform(
         ));
     };
     let (initial, closure) = match operation {
-        CollectionTransform::Map | CollectionTransform::Filter => {
+        CollectionTransform::Map
+        | CollectionTransform::FlatMap
+        | CollectionTransform::Filter
+        | CollectionTransform::SortedBy
+        | CollectionTransform::GroupedBy => {
             if arguments.len() != 1 {
                 return Err(CompileError::new(
                     span,
@@ -1696,10 +2017,17 @@ fn lower_collection_transform(
             Type::Array(element) => Some(element.as_ref().clone()),
             _ => None,
         }),
+        CollectionTransform::FlatMap => expected.and_then(|ty| match ty {
+            Type::Array(element) => Some(Type::Array(element.clone())),
+            _ => None,
+        }),
         CollectionTransform::Reduce => expected.cloned(),
+        CollectionTransform::SortedBy => None,
+        CollectionTransform::GroupedBy => None,
     };
-    let inferred_body_type =
-        infer_expr_type(body, &scoped_symbols, ctx.functions).or(body_expected.clone());
+    let inferred_body_type = body_expected
+        .clone()
+        .or_else(|| infer_expr_type(body, &scoped_symbols, ctx.functions));
     let lowered_body = lower_expr(
         body,
         body_expected.as_ref().or(inferred_body_type.as_ref()),
@@ -1718,10 +2046,37 @@ fn lower_collection_transform(
             "`filter` closures must return Bool",
         ));
     }
+    if operation == CollectionTransform::SortedBy
+        && !matches!(&body_type, Type::String | Type::Numeric(_))
+    {
+        return Err(CompileError::new(
+            *closure_span,
+            "`sortedBy` keys must be String or a numeric type",
+        ));
+    }
+    if operation == CollectionTransform::GroupedBy
+        && !matches!(&body_type, Type::String | Type::Numeric(_))
+    {
+        return Err(CompileError::new(
+            *closure_span,
+            "`groupedBy` keys must be String or a numeric type",
+        ));
+    }
+    if operation == CollectionTransform::FlatMap && !matches!(&body_type, Type::Array(_)) {
+        return Err(CompileError::new(
+            *closure_span,
+            "`flatMap` closures must return an Array<T>",
+        ));
+    }
     let result_type = match operation {
         CollectionTransform::Map => Type::Array(Box::new(body_type)),
+        CollectionTransform::FlatMap => body_type,
         CollectionTransform::Filter => Type::Array(Box::new(element_type.as_ref().clone())),
         CollectionTransform::Reduce => body_type,
+        CollectionTransform::SortedBy => Type::Array(Box::new(element_type.as_ref().clone())),
+        CollectionTransform::GroupedBy => Type::Array(Box::new(Type::Array(Box::new(
+            element_type.as_ref().clone(),
+        )))),
     };
     require_expected(expected, &result_type, span)?;
     let lowered_base = lower_expr(base, Some(&base_type), ctx)?;
@@ -1739,7 +2094,7 @@ fn lower_collection_transform(
 fn is_collection_utility(name: &str) -> bool {
     matches!(
         name,
-        "random" | "first" | "last" | "shuffled" | "reverse" | "slice"
+        "random" | "first" | "last" | "shuffled" | "reverse" | "slice" | "take"
     )
 }
 
@@ -1758,6 +2113,7 @@ fn lower_collection_utility(
         "shuffled" => CollectionUtilityKind::Shuffled,
         "reverse" => CollectionUtilityKind::Reverse,
         "slice" => CollectionUtilityKind::Slice,
+        "take" => CollectionUtilityKind::Take,
         _ => {
             return Err(CompileError::new(
                 span,
@@ -1785,6 +2141,17 @@ fn lower_collection_utility(
                 ));
             }
             (None, None, false)
+        }
+        CollectionUtilityKind::Take => {
+            if arguments.len() != 1 {
+                return Err(CompileError::new(span, "`take` expects one item count"));
+            }
+            let int32 = Type::Numeric(NumericType::Int32);
+            (
+                None,
+                Some(Box::new(lower_expr(&arguments[0], Some(&int32), ctx)?)),
+                false,
+            )
         }
         CollectionUtilityKind::Slice => {
             let [
@@ -1844,6 +2211,7 @@ fn infer_collection_utility_type(
         "shuffled" => CollectionUtilityKind::Shuffled,
         "reverse" => CollectionUtilityKind::Reverse,
         "slice" => CollectionUtilityKind::Slice,
+        "take" => CollectionUtilityKind::Take,
         _ => return None,
     };
     let Type::Array(element_type) = infer_expr_type(base, symbols, functions)? else {
@@ -1867,6 +2235,7 @@ fn infer_collection_utility_type(
         {
             Some(Type::Array(element_type))
         }
+        CollectionUtilityKind::Take if arguments.len() == 1 => Some(Type::Array(element_type)),
         _ => None,
     }
 }
@@ -1879,7 +2248,8 @@ fn collection_utility_result_type(operation: CollectionUtilityKind, element_type
         }
         CollectionUtilityKind::Shuffled
         | CollectionUtilityKind::Reverse
-        | CollectionUtilityKind::Slice => Type::Array(Box::new(element_type.clone())),
+        | CollectionUtilityKind::Slice
+        | CollectionUtilityKind::Take => Type::Array(Box::new(element_type.clone())),
     }
 }
 
@@ -1892,15 +2262,24 @@ fn infer_collection_transform_type(
 ) -> Option<Type> {
     let operation = match name {
         "map" => CollectionTransform::Map,
+        "flatMap" => CollectionTransform::FlatMap,
         "filter" => CollectionTransform::Filter,
         "reduce" => CollectionTransform::Reduce,
+        "sortedBy" => CollectionTransform::SortedBy,
+        "groupedBy" => CollectionTransform::GroupedBy,
         _ => return None,
     };
     let Type::Array(element_type) = infer_expr_type(base, symbols, functions)? else {
         return None;
     };
     let (initial, closure) = match operation {
-        CollectionTransform::Map | CollectionTransform::Filter if arguments.len() == 1 => {
+        CollectionTransform::Map
+        | CollectionTransform::FlatMap
+        | CollectionTransform::Filter
+        | CollectionTransform::SortedBy
+        | CollectionTransform::GroupedBy
+            if arguments.len() == 1 =>
+        {
             (None, &arguments[0])
         }
         CollectionTransform::Reduce if arguments.len() == 2 => (Some(&arguments[0]), &arguments[1]),
@@ -1927,8 +2306,15 @@ fn infer_collection_transform_type(
     let body_type = infer_expr_type(body, &scoped_symbols, functions)?;
     match operation {
         CollectionTransform::Map => Some(Type::Array(Box::new(body_type))),
+        CollectionTransform::FlatMap if matches!(&body_type, Type::Array(_)) => Some(body_type),
         CollectionTransform::Filter if body_type == Type::Bool => Some(Type::Array(element_type)),
         CollectionTransform::Reduce => Some(body_type),
+        CollectionTransform::SortedBy if matches!(&body_type, Type::String | Type::Numeric(_)) => {
+            Some(Type::Array(element_type))
+        }
+        CollectionTransform::GroupedBy if matches!(&body_type, Type::String | Type::Numeric(_)) => {
+            Some(Type::Array(Box::new(Type::Array(element_type))))
+        }
         _ => None,
     }
 }
@@ -2033,10 +2419,14 @@ fn lower_call(
         arguments: lowered,
         return_type: signature.return_type.clone(),
         is_async: signature.is_async,
+        is_throwing: signature.is_throwing,
         is_constructor: signature.is_constructor
             || matches!(
                 &signature.return_type,
                 Type::Struct {
+                    name: struct_name,
+                    ..
+                } | Type::Class {
                     name: struct_name,
                     ..
                 } if struct_name == name
@@ -2115,6 +2505,96 @@ struct CallArguments<'a, 'ctx> {
     awaited: bool,
 }
 
+/// Lower first-party locale APIs. UI copy is normally localized directly from
+/// text literals; `Locale.localized` exposes the same source-text catalog to
+/// values passed to native APIs such as notifications and mail composers.
+fn lower_locale_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, CompileError> {
+    let CallArguments {
+        arguments,
+        named_arguments,
+        span,
+        expected,
+        ctx,
+        awaited,
+        ..
+    } = call;
+    if awaited {
+        return Err(CompileError::new(span, "Locale APIs are synchronous"));
+    }
+
+    if name == "localized" {
+        require_expected(expected, &Type::String, span)?;
+        if !named_arguments.is_empty() || arguments.len() != 1 {
+            return Err(CompileError::new(
+                span,
+                "Locale.localized accepts one source-text argument",
+            ));
+        }
+        let value = lower_expr(&arguments[0], Some(&Type::String), ctx)?;
+        let Some(key) = nexa_ir::localization::source_key(&value) else {
+            return Err(CompileError::new(
+                span,
+                "Locale.localized requires source text or a source-text interpolation",
+            ));
+        };
+        return Ok(Expr::LocalizedText {
+            key,
+            value: Box::new(value),
+            comment: None,
+        });
+    }
+
+    if name != "displayName" {
+        return Err(CompileError::new(
+            span,
+            format!("unknown locale API `Locale.{name}`"),
+        ));
+    }
+    require_expected(expected, &Type::Optional(Box::new(Type::String)), span)?;
+    if arguments.len() > 1 {
+        return Err(CompileError::new(
+            span,
+            "Locale.displayName accepts one language code",
+        ));
+    }
+    if named_arguments
+        .keys()
+        .any(|argument| argument != "languageCode")
+    {
+        let unknown = named_arguments
+            .keys()
+            .find(|argument| argument.as_str() != "languageCode")
+            .map(String::as_str)
+            .unwrap_or("unknown");
+        return Err(CompileError::new(
+            span,
+            format!("unknown option `{unknown}` for `Locale.{name}`"),
+        ));
+    }
+    if !arguments.is_empty() && named_arguments.contains_key("languageCode") {
+        return Err(CompileError::new(
+            span,
+            "`languageCode` was provided both positionally and by name",
+        ));
+    }
+    let expression = arguments
+        .first()
+        .or_else(|| named_arguments.get("languageCode"))
+        .ok_or_else(|| CompileError::new(span, "Locale.displayName requires `languageCode`"))?;
+    let lowered = lower_expr(expression, Some(&Type::String), ctx)?;
+
+    Ok(Expr::NativeCall {
+        receiver: None,
+        namespace: "Locale".to_owned(),
+        name: name.to_owned(),
+        arguments: vec![("languageCode".to_owned(), lowered)],
+        codecs: Vec::new(),
+        return_type: Type::Optional(Box::new(Type::String)),
+        is_async: false,
+        is_throwing: false,
+    })
+}
+
 fn lower_native_call(
     namespace: &str,
     name: &str,
@@ -2130,17 +2610,21 @@ fn lower_native_call(
         ..
     } = call;
     let qualified_name = format!("{namespace}.{name}");
+    if matches!(ctx.structs.get(namespace), Some(Type::Class { .. }))
+        && let Some(signature) = ctx.functions.get(&qualified_name)
+        && signature.receiver.is_none()
+        && !signature.is_constructor
+    {
+        return lower_user_class_static_call(&qualified_name, call, signature);
+    }
     if !is_core_native_namespace(namespace) && ctx.functions.contains_key(&qualified_name) {
         return lower_plugin_call(namespace, name, call);
     }
     if namespace == "Json" {
         return lower_json_call(name, call);
     }
-    if !arguments.is_empty() {
-        return Err(CompileError::new(
-            span,
-            "built-in native API calls require named arguments",
-        ));
+    if namespace == "Locale" && matches!(name, "displayName" | "localized") {
+        return lower_locale_call(name, call);
     }
     // One named argument a built-in native API call accepts: its parameter
     // name, the parameter's type, and the argument the call site supplied.
@@ -2233,6 +2717,37 @@ fn lower_native_call(
             false,
             vec![("text", Type::String, None)],
         ),
+        "Time.startOfDay" => (
+            Type::Numeric(NumericType::Int64),
+            false,
+            vec![("timestamp", Type::Numeric(NumericType::Int64), None)],
+        ),
+        "Time.addCalendarDays" => (
+            Type::Numeric(NumericType::Int64),
+            false,
+            vec![
+                ("timestamp", Type::Numeric(NumericType::Int64), None),
+                ("days", Type::Numeric(NumericType::Int32), None),
+            ],
+        ),
+        "Time.localizedDate" | "Time.localizedTime" | "Time.localizedDateTime" => (
+            Type::String,
+            false,
+            vec![("timestamp", Type::Numeric(NumericType::Int64), None)],
+        ),
+        "Time.format" => (
+            Type::String,
+            false,
+            vec![
+                ("timestamp", Type::Numeric(NumericType::Int64), None),
+                ("pattern", Type::String, None),
+            ],
+        ),
+        "AppIcon.set" => (
+            Type::Bool,
+            true,
+            vec![("name", Type::Optional(Box::new(Type::String)), None)],
+        ),
         "Number.formatCurrency" => (
             Type::String,
             false,
@@ -2241,6 +2756,8 @@ fn lower_native_call(
                 ("currencyCode", Type::String, None),
             ],
         ),
+        "Locale.currentLanguageCode" => (Type::String, false, Vec::new()),
+        "Locale.preferredLanguageCodes" => (Type::Array(Box::new(Type::String)), false, Vec::new()),
         "Crypto.sha256" | "Crypto.sha512" => {
             (Type::String, false, vec![("text", Type::String, None)])
         }
@@ -2317,11 +2834,33 @@ fn lower_native_call(
     }
     require_expected(expected, &return_type, span)?;
 
+    // Native APIs accept positional arguments in their documented parameter
+    // order, followed by named arguments for clarity or optional parameters.
+    // Binding here keeps the generated IR identical for both call styles.
+    if arguments.len() > specs.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "`{qualified_name}` accepts at most {} positional arguments",
+                specs.len()
+            ),
+        ));
+    }
+    let mut supplied = named_arguments.clone();
+    for (index, argument) in arguments.iter().enumerate() {
+        let parameter = specs[index].0;
+        if supplied
+            .insert(parameter.to_owned(), argument.clone())
+            .is_some()
+        {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("`{parameter}` was provided more than once to `{qualified_name}`"),
+            ));
+        }
+    }
     let known = specs.iter().map(|(name, ..)| *name).collect::<HashSet<_>>();
-    if let Some(unknown) = named_arguments
-        .keys()
-        .find(|name| !known.contains(name.as_str()))
-    {
+    if let Some(unknown) = supplied.keys().find(|name| !known.contains(name.as_str())) {
         return Err(CompileError::new(
             span,
             format!("unknown option `{unknown}` for `{qualified_name}`"),
@@ -2329,7 +2868,7 @@ fn lower_native_call(
     }
     let mut lowered = Vec::with_capacity(specs.len());
     for (argument_name, argument_type, default) in specs {
-        let argument = named_arguments
+        let argument = supplied
             .get(argument_name)
             .or(default.as_ref())
             .ok_or_else(|| {
@@ -2377,6 +2916,101 @@ fn lower_native_call(
         lowered.push((argument_name.to_owned(), lowered_argument));
     }
     native_plan(&qualified_name, lowered, span)
+}
+
+fn lower_user_class_static_call(
+    qualified_name: &str,
+    call: CallArguments<'_, '_>,
+    signature: &FunctionSignature,
+) -> Result<Expr, CompileError> {
+    let CallArguments {
+        type_arguments,
+        arguments,
+        named_arguments,
+        span,
+        expected,
+        ctx,
+        awaited,
+    } = call;
+    if !type_arguments.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "type arguments are not supported for class static functions",
+        ));
+    }
+    if arguments.len() > signature.parameters.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "class static function `{qualified_name}` accepts at most {} positional argument(s)",
+                signature.parameters.len()
+            ),
+        ));
+    }
+    let mut supplied = vec![None; signature.parameters.len()];
+    for (index, argument) in arguments.iter().enumerate() {
+        supplied[index] = Some(argument);
+    }
+    for (name, argument) in named_arguments {
+        let Some(index) = signature
+            .parameters
+            .iter()
+            .position(|(parameter, _)| parameter == name)
+        else {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("unknown argument `{name}` for `{qualified_name}`"),
+            ));
+        };
+        if supplied[index].replace(argument).is_some() {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("argument `{name}` was provided more than once to `{qualified_name}`"),
+            ));
+        }
+    }
+    let ordered = supplied
+        .into_iter()
+        .zip(&signature.parameters)
+        .map(|(argument, (name, _))| {
+            argument.ok_or_else(|| {
+                CompileError::new(span, format!("`{qualified_name}` requires `{name}`"))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if awaited && !signature.is_async {
+        return Err(CompileError::new(
+            span,
+            format!("class static function `{qualified_name}` is not async and cannot be awaited"),
+        ));
+    }
+    if signature.is_async && !awaited {
+        return Err(CompileError::new(
+            span,
+            format!("async class static function `{qualified_name}` must be awaited"),
+        ));
+    }
+    if awaited && !ctx.allow_await {
+        return Err(CompileError::new(
+            span,
+            "`await` is only allowed in an async function or `OnAppear async` block",
+        ));
+    }
+    require_expected(expected, &signature.return_type, span)?;
+    let lowered_arguments = signature
+        .parameters
+        .iter()
+        .zip(ordered)
+        .map(|((_, ty), argument)| lower_expr(argument, Some(ty), ctx))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Expr::Call {
+        name: qualified_name.to_owned(),
+        arguments: lowered_arguments,
+        return_type: signature.return_type.clone(),
+        is_async: signature.is_async,
+        is_throwing: signature.is_throwing,
+        is_constructor: false,
+    })
 }
 
 /// Builds the validated IR plan for a core native call. Every required
@@ -2537,6 +3171,52 @@ fn native_plan(
             return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
             is_async: false,
         }),
+        "Time.startOfDay" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::StartOfDay,
+            arguments: vec![take("timestamp")?],
+            return_type: Type::Numeric(NumericType::Int64),
+            is_async: false,
+        }),
+        "Time.addCalendarDays" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::AddCalendarDays,
+            arguments: vec![take("timestamp")?, take("days")?],
+            return_type: Type::Numeric(NumericType::Int64),
+            is_async: false,
+        }),
+        "Time.localizedDate" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::LocalizedDate,
+            arguments: vec![take("timestamp")?],
+            return_type: Type::String,
+            is_async: false,
+        }),
+        "Time.localizedTime" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::LocalizedTime,
+            arguments: vec![take("timestamp")?],
+            return_type: Type::String,
+            is_async: false,
+        }),
+        "Time.localizedDateTime" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::LocalizedDateTime,
+            arguments: vec![take("timestamp")?],
+            return_type: Type::String,
+            is_async: false,
+        }),
+        "Time.format" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Format,
+            arguments: vec![take("timestamp")?, take("pattern")?],
+            return_type: Type::String,
+            is_async: false,
+        }),
+        "AppIcon.set" => Ok(Expr::NativeCall {
+            receiver: None,
+            namespace: "AppIcon".to_owned(),
+            name: "set".to_owned(),
+            arguments: vec![("name".to_owned(), take("name")?)],
+            codecs: Vec::new(),
+            return_type: Type::Bool,
+            is_async: true,
+            is_throwing: false,
+        }),
         "Number.formatCurrency" => Ok(Expr::NativeCall {
             receiver: None,
             namespace: "Number".to_owned(),
@@ -2550,6 +3230,25 @@ fn native_plan(
             is_async: false,
             is_throwing: false,
         }),
+        "Locale.currentLanguageCode" | "Locale.preferredLanguageCodes" => {
+            let Some((namespace, name)) = qualified_name.split_once('.') else {
+                return Err(CompileError::new(span, "invalid built-in locale API"));
+            };
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: namespace.to_owned(),
+                name: name.to_owned(),
+                arguments: Vec::new(),
+                codecs: Vec::new(),
+                return_type: if name == "currentLanguageCode" {
+                    Type::String
+                } else {
+                    Type::Array(Box::new(Type::String))
+                },
+                is_async: false,
+                is_throwing: false,
+            })
+        }
         "Crypto.sha256" | "Crypto.sha512" | "Crypto.hmacSha256" | "Crypto.randomBytes" => {
             let Some((namespace, name)) = qualified_name.split_once('.') else {
                 return Err(CompileError::new(span, "invalid built-in crypto API"));
@@ -2740,12 +3439,6 @@ fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Comp
             format!("native call `Json.{name}` is not async and cannot be awaited"),
         ));
     }
-    if !arguments.is_empty() {
-        return Err(CompileError::new(
-            span,
-            "built-in native API calls require named arguments",
-        ));
-    }
     match name {
         "parse" => {
             let raw_type = Type::String;
@@ -2801,15 +3494,24 @@ fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Comp
                 Box::new(Type::Enum("JsonError".to_owned())),
             );
             require_expected(expected, &return_type, span)?;
-            let raw = named_arguments.get("raw").ok_or_else(|| {
-                CompileError::new(span, "`Json.parse` requires the `raw` argument")
-            })?;
+            if arguments.len() > 1 || named_arguments.contains_key("raw") && !arguments.is_empty() {
+                return Err(CompileError::new(
+                    span,
+                    "`Json.parse` accepts one positional input or `raw:`, not both",
+                ));
+            }
             if named_arguments.keys().any(|key| key != "raw") {
                 return Err(CompileError::new(
                     span,
                     "`Json.parse` accepts only the `raw` argument",
                 ));
             }
+            let raw = arguments
+                .first()
+                .or_else(|| named_arguments.get("raw"))
+                .ok_or_else(|| {
+                    CompileError::new(span, "`Json.parse` requires the `raw` argument")
+                })?;
             let lowered = lower_expr(raw, Some(&raw_type), ctx)?;
             Ok(Expr::NativeCall {
                 receiver: None,
@@ -2819,6 +3521,7 @@ fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Comp
                 codecs: vec![PluginCodec {
                     ty: value_type,
                     decodes: true,
+                    row_mapper: false,
                 }],
                 return_type,
                 is_async: false,
@@ -2832,15 +3535,25 @@ fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Comp
                     "`Json.stringify` accepts at most one type argument",
                 ));
             }
-            let value = named_arguments.get("value").ok_or_else(|| {
-                CompileError::new(span, "`Json.stringify` requires the `value` argument")
-            })?;
+            if arguments.len() > 1 || named_arguments.contains_key("value") && !arguments.is_empty()
+            {
+                return Err(CompileError::new(
+                    span,
+                    "`Json.stringify` accepts one positional value or `value:`, not both",
+                ));
+            }
             if named_arguments.keys().any(|key| key != "value") {
                 return Err(CompileError::new(
                     span,
                     "`Json.stringify` accepts only the `value` argument",
                 ));
             }
+            let value = arguments
+                .first()
+                .or_else(|| named_arguments.get("value"))
+                .ok_or_else(|| {
+                    CompileError::new(span, "`Json.stringify` requires the `value` argument")
+                })?;
             let inferred = infer_expr_type(value, ctx.symbols, ctx.functions)
                 .map(|ty| resolve_struct_type(&ty, ctx.structs));
             let explicit = type_arguments
@@ -2878,6 +3591,7 @@ fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Comp
                 codecs: vec![PluginCodec {
                     ty: value_type,
                     decodes: false,
+                    row_mapper: false,
                 }],
                 return_type: Type::String,
                 is_async: false,
@@ -2929,7 +3643,7 @@ fn validate_json_value_type(
             validate_json_value_type(second, enum_names, span)?;
             validate_json_value_type(third, enum_names, span)
         }
-        Type::Struct { fields, .. } => fields
+        Type::Struct { fields, .. } | Type::Class { fields, .. } => fields
             .iter()
             .try_for_each(|(_, field)| validate_json_value_type(field, enum_names, span)),
         Type::Void => Err(unsupported("`Void` is not a JSON value type")),
@@ -2945,6 +3659,7 @@ fn validate_json_value_type(
         Type::NetworkResponse => Err(unsupported(
             "`NetworkResponse` cannot be represented directly as a JSON value; decode its body string instead",
         )),
+        Type::Signal(_) => Err(unsupported("signals cannot be represented as JSON values")),
     }
 }
 
@@ -2986,7 +3701,47 @@ fn lower_plugin_call(
             "`await` is only allowed in an async function or `OnAppear async` block",
         ));
     }
-    let argument_types = arguments
+    if arguments.len() > signature.parameters.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "plugin method `{qualified_name}` accepts at most {} positional argument(s)",
+                signature.parameters.len()
+            ),
+        ));
+    }
+    let mut supplied = vec![None; signature.parameters.len()];
+    for (index, argument) in arguments.iter().enumerate() {
+        supplied[index] = Some(argument);
+    }
+    for (parameter, argument) in named_arguments {
+        let Some(index) = signature
+            .parameters
+            .iter()
+            .position(|(name, _)| name == parameter)
+        else {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("unknown argument `{parameter}` for `{qualified_name}`"),
+            ));
+        };
+        if supplied[index].replace(argument).is_some() {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("argument `{parameter}` was provided more than once to `{qualified_name}`"),
+            ));
+        }
+    }
+    let ordered_arguments = supplied
+        .into_iter()
+        .zip(&signature.parameters)
+        .map(|(argument, (parameter, _))| {
+            argument.ok_or_else(|| {
+                CompileError::new(span, format!("`{qualified_name}` requires `{parameter}`"))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let argument_types = ordered_arguments
         .iter()
         .map(|argument| infer_expr_type(argument, ctx.symbols, ctx.functions))
         .collect::<Vec<_>>();
@@ -3014,24 +3769,10 @@ fn lower_plugin_call(
     if !expected.is_some_and(crate::semantic::generics::mentions_type_parameter) {
         require_expected(expected, &return_type, span)?;
     }
-    if !named_arguments.is_empty() {
-        return Err(CompileError::new(
-            span,
-            "Nexa plugin calls use positional arguments in declaration order",
-        ));
-    }
-    if arguments.len() != parameter_types.len() {
-        return Err(CompileError::new(
-            span,
-            format!(
-                "plugin method `{qualified_name}` expects {} argument(s), found {}",
-                parameter_types.len(),
-                arguments.len()
-            ),
-        ));
-    }
     let mut lowered = Vec::with_capacity(parameter_types.len());
-    for ((argument_name, argument_type), argument) in parameter_types.iter().zip(arguments.iter()) {
+    for ((argument_name, argument_type), argument) in
+        parameter_types.iter().zip(ordered_arguments.iter())
+    {
         lowered.push((
             argument_name.clone(),
             lower_expr(argument, Some(argument_type), ctx)?,
@@ -3047,11 +3788,22 @@ fn lower_plugin_call(
                 format!("plugin constructor `{qualified_name}` has an invalid return type"),
             ));
         };
+        if signature.receiver.as_ref() == Some(&signature.return_type) {
+            return Ok(Expr::PluginEnumConstructor {
+                namespace: namespace.to_owned(),
+                enum_name: class_name.clone(),
+                case_name: name.rsplit('.').next().unwrap_or(name).to_owned(),
+                payload_names: lowered.iter().map(|(name, _)| name.clone()).collect(),
+                arguments: lowered.into_iter().map(|(_, argument)| argument).collect(),
+                return_type: signature.return_type.clone(),
+            });
+        }
         return Ok(Expr::Call {
             name: class_name.clone(),
             arguments: lowered.into_iter().map(|(_, argument)| argument).collect(),
             return_type: signature.return_type.clone(),
             is_async: false,
+            is_throwing: false,
             is_constructor: true,
         });
     }
@@ -3087,21 +3839,21 @@ fn lower_plugin_method_call(
             "native object method calls require a native class instance",
         ));
     };
-    let Type::Plugin {
-        namespace,
-        name: class,
-    } = &base_type
-    else {
-        return Err(CompileError::new(
-            span,
-            "native object method calls require a native class instance",
-        ));
+    let (namespace, class) = match &base_type {
+        Type::Plugin { namespace, name } => (namespace.clone(), name.clone()),
+        Type::Class { name, .. } => (format!("__NexaUserClass:{name}"), name.clone()),
+        _ => {
+            return Err(CompileError::new(
+                span,
+                "native object method calls require a native class instance",
+            ));
+        }
     };
     let qualified_name = format!("{class}.{name}");
     let Some(signature) = ctx.functions.get(&qualified_name) else {
         return Err(CompileError::new(
             span,
-            format!("unknown native class method `{class}.{name}`"),
+            format!("unknown class method `{class}.{name}`"),
         ));
     };
     reject_unhandled_plugin_errors(&qualified_name, signature, span)?;
@@ -3111,32 +3863,56 @@ fn lower_plugin_method_call(
             format!("method `{name}` is not available on `{class}`"),
         ));
     }
-    if !named_arguments.is_empty() {
-        return Err(CompileError::new(
-            span,
-            "Nexa plugin calls use positional arguments in declaration order",
-        ));
-    }
-    if arguments.len() != signature.parameters.len() {
+    if arguments.len() > signature.parameters.len() {
         return Err(CompileError::new(
             span,
             format!(
-                "native class method `{class}.{name}` expects {} argument(s), found {}",
-                signature.parameters.len(),
-                arguments.len()
+                "class method `{class}.{name}` accepts at most {} positional argument(s)",
+                signature.parameters.len()
             ),
         ));
     }
+    let mut supplied = vec![None; signature.parameters.len()];
+    for (index, argument) in arguments.iter().enumerate() {
+        supplied[index] = Some(argument);
+    }
+    for (parameter, argument) in named_arguments {
+        let Some(index) = signature
+            .parameters
+            .iter()
+            .position(|(name, _)| name == parameter)
+        else {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("unknown argument `{parameter}` for `{class}.{name}`"),
+            ));
+        };
+        if supplied[index].replace(argument).is_some() {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("argument `{parameter}` was provided more than once to `{class}.{name}`"),
+            ));
+        }
+    }
+    let ordered_arguments = supplied
+        .into_iter()
+        .zip(&signature.parameters)
+        .map(|(argument, (parameter, _))| {
+            argument.ok_or_else(|| {
+                CompileError::new(span, format!("`{class}.{name}` requires `{parameter}`"))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     if signature.is_async && !awaited {
         return Err(CompileError::new(
             span,
-            format!("async native class method `{class}.{name}` must be awaited"),
+            format!("async class method `{class}.{name}` must be awaited"),
         ));
     }
     if awaited && !signature.is_async {
         return Err(CompileError::new(
             span,
-            format!("native class method `{class}.{name}` is not async and cannot be awaited"),
+            format!("class method `{class}.{name}` is not async and cannot be awaited"),
         ));
     }
     if awaited && !ctx.allow_await {
@@ -3145,7 +3921,7 @@ fn lower_plugin_method_call(
             "`await` is only allowed in an async function or `OnAppear async` block",
         ));
     }
-    let argument_types = arguments
+    let argument_types = ordered_arguments
         .iter()
         .map(|argument| infer_expr_type(argument, ctx.symbols, ctx.functions))
         .collect::<Vec<_>>();
@@ -3176,7 +3952,7 @@ fn lower_plugin_method_call(
     let receiver = lower_expr(base, Some(&base_type), ctx)?;
     let lowered = parameter_types
         .iter()
-        .zip(arguments.iter())
+        .zip(ordered_arguments)
         .map(|((_, ty), argument)| lower_expr(argument, Some(ty), ctx))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Expr::NativeCall {
@@ -3342,16 +4118,25 @@ fn lower_binary(
         let Some(collection_type) = infer_expr_type(right, ctx.symbols, ctx.functions) else {
             return Err(CompileError::new(
                 span,
-                "the right side of `in` must be an Array<T>, Set<T>, or Map<K, V>",
+                "the right side of `in` must be a String, Array<T>, Set<T>, or Map<K, V>",
             ));
         };
+        if collection_type == Type::String {
+            let value = lower_expr(left, Some(&Type::String), ctx)?;
+            let collection = lower_expr(right, Some(&Type::String), ctx)?;
+            return Ok(Expr::Contains {
+                value: Box::new(value),
+                collection: Box::new(collection),
+                collection_type,
+            });
+        }
         let element_type = match &collection_type {
             Type::Array(element) | Type::Set(element) => element.as_ref(),
             Type::Map(key, _) => key.as_ref(),
             _ => {
                 return Err(CompileError::new(
                     span,
-                    "the right side of `in` must be an Array<T>, Set<T>, or Map<K, V>",
+                    "the right side of `in` must be a String, Array<T>, Set<T>, or Map<K, V>",
                 ));
             }
         };
@@ -3483,6 +4268,8 @@ fn is_equatable_type(ty: &Type, symbols: &HashMap<String, (Type, bool)>) -> bool
                     .iter()
                     .all(|(_, field)| is_equatable_type(field, symbols))
         }
+        Type::Class { .. } => false,
+        Type::Signal(_) => false,
         Type::Void | Type::Bytes | Type::TaskHandle | Type::NetworkResponse => false,
     }
 }
@@ -3561,9 +4348,15 @@ pub(super) fn infer_expr_type(
             ("Storage", "setString" | "delete" | "clear") => Some(Type::Void),
             ("Haptics", "impact" | "notification" | "selection") => Some(Type::Void),
             ("Screen", "lockOrientation") => Some(Type::Void),
-            ("Time", "now") | ("Time", "monotonic") => Some(Type::Numeric(NumericType::Int64)),
+            ("Time", "now")
+            | ("Time", "monotonic")
+            | ("Time", "startOfDay")
+            | ("Time", "addCalendarDays") => Some(Type::Numeric(NumericType::Int64)),
             ("Time", "sleep") => Some(Type::Void),
-            ("Time", "iso8601") => Some(Type::String),
+            (
+                "Time",
+                "iso8601" | "format" | "localizedDate" | "localizedTime" | "localizedDateTime",
+            ) => Some(Type::String),
             ("Time", "iso8601ToMillis") => {
                 Some(Type::Optional(Box::new(Type::Numeric(NumericType::Int64))))
             }
@@ -3598,6 +4391,12 @@ pub(super) fn infer_expr_type(
             ..
         } => {
             if !*optional
+                && let ast::Expr::Name(class_name, _) = base.as_ref()
+                && let Some((ty, _)) = symbols.get(&format!("{class_name}::{name}"))
+            {
+                return Some(ty.clone());
+            }
+            if !*optional
                 && let Some((namespace, enum_name)) = qualified_plugin_enum_path(base)
                 && let Some((ty, _)) = symbols.get(&format!("{namespace}.{enum_name}.{name}"))
             {
@@ -3625,8 +4424,7 @@ pub(super) fn infer_expr_type(
                     let Type::Optional(inner) = base_type else {
                         return None;
                     };
-                    member_field_type_with_plugins(&inner, name, functions)
-                        .map(|field| Type::Optional(Box::new(field)))
+                    member_field_type_with_plugins(&inner, name, functions).map(optional_type)
                 } else {
                     member_field_type_with_plugins(&base_type, name, functions)
                 }
@@ -3638,7 +4436,12 @@ pub(super) fn infer_expr_type(
             arguments,
             ..
         } => {
-            if let Some(Type::Plugin { name: class, .. }) =
+            if let Some((namespace, enum_name)) = qualified_plugin_enum_path(base) {
+                return functions
+                    .get(&format!("{namespace}.{enum_name}.{name}"))
+                    .map(|signature| signature.return_type.clone());
+            }
+            if let Some(Type::Plugin { name: class, .. } | Type::Class { name: class, .. }) =
                 infer_expr_type(base, symbols, functions)
             {
                 functions
@@ -3747,6 +4550,121 @@ pub(super) fn infer_expr_type(
     }
 }
 
+/// Lowers the common iterable forms accepted by `for` statements. Keeping
+/// range and collection validation here lets functions and UI actions share
+/// identical typing and native loop code generation.
+pub(super) fn lower_for_iterable(
+    iterable: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    registries: TypeRegistries<'_>,
+    span: Span,
+) -> Result<(Expr, Type), CompileError> {
+    if let ast::Expr::Range {
+        start,
+        end,
+        inclusive,
+        step,
+        ..
+    } = iterable
+    {
+        let element_type = Type::Numeric(NumericType::Int32);
+        let context = registries.expr_context(symbols, functions, allow_await);
+        let start = lower_expr(start, Some(&element_type), &context)?;
+        let end = lower_expr(end, Some(&element_type), &context)?;
+        let step = step
+            .as_deref()
+            .map(|step| lower_range_step(step, symbols, functions, allow_await, registries))
+            .transpose()?
+            .map(Box::new);
+        return Ok((
+            Expr::Range {
+                start: Box::new(start),
+                end: Box::new(end),
+                inclusive: *inclusive,
+                step,
+            },
+            element_type,
+        ));
+    }
+
+    let Some(iterable_type) = infer_expr_type(iterable, symbols, functions) else {
+        return Err(CompileError::new(
+            span,
+            "for loops require an Array<T>, Set<T>, or an Int32 range",
+        ));
+    };
+    let element_type = match &iterable_type {
+        Type::Array(element) | Type::Set(element) => element.as_ref().clone(),
+        _ => {
+            return Err(CompileError::new(
+                span,
+                "for loops require an Array<T>, Set<T>, or an Int32 range",
+            ));
+        }
+    };
+    let iterable = lower_expr(
+        iterable,
+        Some(&iterable_type),
+        &registries.expr_context(symbols, functions, allow_await),
+    )?;
+    Ok((iterable, element_type))
+}
+
+pub(super) fn lower_map_iterable(
+    iterable: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    registries: TypeRegistries<'_>,
+    span: Span,
+) -> Result<(Expr, Type, Type), CompileError> {
+    let Some(Type::Map(key_type, value_type)) = infer_expr_type(iterable, symbols, functions)
+    else {
+        return Err(CompileError::new(
+            span,
+            "map destructuring loops require a Map<K, V> iterable",
+        ));
+    };
+    let iterable_type = Type::Map(key_type.clone(), value_type.clone());
+    let iterable = lower_expr(
+        iterable,
+        Some(&iterable_type),
+        &registries.expr_context(symbols, functions, allow_await),
+    )?;
+    Ok((iterable, *key_type, *value_type))
+}
+
+fn lower_range_step(
+    step: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    registries: TypeRegistries<'_>,
+) -> Result<Expr, CompileError> {
+    let ast::Expr::Number(raw, span) = step else {
+        return Err(CompileError::new(
+            step.span(),
+            "range step must be a positive Int32 literal",
+        ));
+    };
+    let value = raw
+        .parse::<i32>()
+        .map_err(|_| CompileError::new(*span, "range step must be a positive Int32 literal"))?;
+    if value <= 0 {
+        return Err(CompileError::new(
+            *span,
+            "range step must be a positive Int32 literal",
+        ));
+    }
+    lower_expr(
+        step,
+        Some(&Type::Numeric(NumericType::Int32)),
+        &registries.expr_context(symbols, functions, allow_await),
+    )
+}
+
 fn conditional_value_type(
     then_value: &ast::Expr,
     else_value: &ast::Expr,
@@ -3811,7 +4729,7 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
         (Type::Triple(first, _, _), "first") => Some((**first).clone()),
         (Type::Triple(_, second, _), "second") => Some((**second).clone()),
         (Type::Triple(_, _, third), "third") => Some((**third).clone()),
-        (Type::Struct { fields, .. }, field_name) => fields
+        (Type::Struct { fields, .. } | Type::Class { fields, .. }, field_name) => fields
             .iter()
             .find(|(field, _)| field == field_name)
             .map(|(_, ty)| ty.clone()),
@@ -3825,6 +4743,8 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
             Some(Type::Numeric(NumericType::Int32))
         }
         (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "isEmpty") => Some(Type::Bool),
+        (Type::String, "trimmed") => Some(Type::String),
+        (Type::Signal(inner), "value") => Some((**inner).clone()),
         _ => None,
     }
 }
@@ -3849,7 +4769,7 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
         ast::TypeSyntax::Optional(inner, _) => Ok(Type::Optional(Box::new(parse_type(inner)?))),
         ast::TypeSyntax::Generic(name, arguments, span) => {
             let expected_arity = match name.as_str() {
-                "Array" | "Set" => 1,
+                "Array" | "Set" | "Signal" => 1,
                 "Map" | "Pair" | "Result" => 2,
                 "Triple" => 3,
                 _ => {
@@ -3863,6 +4783,7 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
                 let example = match name.as_str() {
                     "Array" => "Array<String>",
                     "Set" => "Set<String>",
+                    "Signal" => "Signal<Array<Note>>",
                     "Map" => "Map<String, Int32>",
                     "Pair" => "Pair<String, Int32>",
                     "Result" => "Result<String, String>",
@@ -3887,6 +4808,7 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
                     require_hashable_key(&element, *span, "Set elements")?;
                     Ok(Type::Set(Box::new(element)))
                 }
+                "Signal" => Ok(Type::Signal(Box::new(types.into_iter().next().unwrap()))),
                 "Map" => {
                     let mut types = types.into_iter();
                     let key = types.next().unwrap();
@@ -3922,12 +4844,20 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
     }
 }
 
+pub(super) fn parse_return_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError> {
+    match syntax {
+        ast::TypeSyntax::Named(name, _) if name == "Void" => Ok(Type::Void),
+        _ => parse_type(syntax),
+    }
+}
+
 pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
     match ty {
         Type::Enum(name) => structs.get(name).cloned().unwrap_or_else(|| ty.clone()),
         Type::Optional(inner) => Type::Optional(Box::new(resolve_struct_type(inner, structs))),
         Type::Array(element) => Type::Array(Box::new(resolve_struct_type(element, structs))),
         Type::Set(element) => Type::Set(Box::new(resolve_struct_type(element, structs))),
+        Type::Signal(inner) => Type::Signal(Box::new(resolve_struct_type(inner, structs))),
         Type::Map(key, value) => Type::Map(
             Box::new(resolve_struct_type(key, structs)),
             Box::new(resolve_struct_type(value, structs)),
@@ -3954,7 +4884,8 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
-        | Type::Struct { .. } => ty.clone(),
+        | Type::Struct { .. }
+        | Type::Class { .. } => ty.clone(),
     }
 }
 
@@ -3999,7 +4930,7 @@ pub(super) fn validate_task_handle_state(
 fn type_contains_task_handle(ty: &Type) -> bool {
     match ty {
         Type::TaskHandle => true,
-        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
             type_contains_task_handle(inner)
         }
         Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
@@ -4010,7 +4941,7 @@ fn type_contains_task_handle(ty: &Type) -> bool {
                 || type_contains_task_handle(second)
                 || type_contains_task_handle(third)
         }
-        Type::Struct { fields, .. } => fields
+        Type::Struct { fields, .. } | Type::Class { fields, .. } => fields
             .iter()
             .any(|(_, field)| type_contains_task_handle(field)),
         Type::Void
@@ -4071,7 +5002,7 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
             validate_type_constraints(second, span)?;
             validate_type_constraints(third, span)
         }
-        Type::Optional(inner) => validate_type_constraints(inner, span),
+        Type::Optional(inner) | Type::Signal(inner) => validate_type_constraints(inner, span),
         Type::Void
         | Type::String
         | Type::Bytes
@@ -4081,7 +5012,8 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
         | Type::Plugin { .. }
         | Type::TaskHandle
         | Type::NetworkResponse
-        | Type::Struct { .. } => Ok(()),
+        | Type::Struct { .. }
+        | Type::Class { .. } => Ok(()),
     }
 }
 
@@ -4104,6 +5036,17 @@ pub(super) fn require_hashable_key(
 }
 
 fn parse_named_type(name: &str, _span: Span) -> Result<Type, CompileError> {
+    if let Some((namespace, plugin_type)) = name.split_once('.')
+        && !namespace.is_empty()
+        && !plugin_type.is_empty()
+        && !plugin_type.contains('.')
+    {
+        return Ok(Type::Plugin {
+            namespace: namespace.to_owned(),
+            name: plugin_type.to_owned(),
+        });
+    }
+
     let ty = match name {
         "String" => Type::String,
         "Bool" => Type::Bool,
@@ -4217,7 +5160,8 @@ pub(super) fn lowered_type(expr: &Expr) -> Option<Type> {
     match expr {
         Expr::Call { return_type, .. }
         | Expr::NativeCall { return_type, .. }
-        | Expr::TimeCall { return_type, .. } => Some(return_type.clone()),
+        | Expr::TimeCall { return_type, .. }
+        | Expr::PluginEnumOptionalConstructor { return_type, .. } => Some(return_type.clone()),
         Expr::Await(value) | Expr::TryAwait(value) => lowered_type(value),
         Expr::State(_, ty) => Some(ty.clone()),
         Expr::Null(ty) => Some(ty.clone()),
@@ -4259,10 +5203,12 @@ pub(super) fn type_name(ty: &Type) -> String {
         Type::NetworkResponse => "NetworkResponse".to_owned(),
         Type::TaskHandle => "TaskHandle".to_owned(),
         Type::Struct { name, .. } => name.clone(),
+        Type::Class { name, .. } => name.clone(),
         Type::Result(value, error) => {
             format!("Result<{}, {}>", type_name(value), type_name(error))
         }
         Type::Optional(inner) => format!("{}?", type_name(inner)),
+        Type::Signal(inner) => format!("Signal<{}>", type_name(inner)),
     }
 }
 fn numeric_name(ty: NumericType) -> &'static str {
@@ -4312,12 +5258,16 @@ mod tests {
     fn plugin_decl(idl: nexa_plugin_idl::PluginIdl) -> ast::PluginDecl {
         ast::PluginDecl {
             path: "sensors".to_owned(),
+            package_id: None,
+            package_root: None,
+            compiler_analyzer: Vec::new(),
             namespace: "Sensors".to_owned(),
             span: Span::default(),
             idl: Some(idl),
             pure: false,
             assets_path: None,
             ios_sources: Vec::new(),
+            ios_extension_sources: Vec::new(),
             android_sources: Vec::new(),
             cpp_sources: Vec::new(),
             cpp_headers: Vec::new(),

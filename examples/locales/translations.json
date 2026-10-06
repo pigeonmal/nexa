@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "sourceLanguage": "en",
+  "strings": {
+    "Conditional content enters from the bottom.": {
+      "source": "Conditional content enters from the bottom.",
+      "translations": {}
+    },
+    "The layout expands with a configured spring.": {
+      "source": "The layout expands with a configured spring.",
+      "translations": {}
+    },
+    "Toggle details": {
+      "source": "Toggle details",
+      "translations": {}
+    }
+  }
+}

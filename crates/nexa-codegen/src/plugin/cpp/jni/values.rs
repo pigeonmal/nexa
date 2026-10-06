@@ -168,7 +168,10 @@ pub(crate) fn android_jni_class_descriptor(ty: &BridgeType) -> Option<String> {
         // behind one `[`. Both a primitive array and a reference array reduce
         // to that same spelling, so there is nothing to branch on.
         BridgeType::Set(element) => Some(format!("[{}", android_jni_class_descriptor(element)?)),
-        BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => None,
+        BridgeType::Pair(..)
+        | BridgeType::Triple(..)
+        | BridgeType::Result { .. }
+        | BridgeType::Signal(..) => None,
     }
 }
 pub(crate) fn android_primitive_descriptor(ty: &BridgeType) -> &'static str {
@@ -209,6 +212,7 @@ pub(crate) fn android_cpp_type(ty: &BridgeType) -> String {
         }
         BridgeType::Array(element) => format!("std::vector<{}>", android_cpp_type(element)),
         BridgeType::Set(element) => format!("std::set<{}>", android_cpp_type(element)),
+        BridgeType::Signal(element) => format!("NexaSignal<{}>", android_cpp_type(element)),
         BridgeType::Optional(inner) => format!("std::optional<{}>", android_cpp_type(inner)),
         // Validation rejects value type parameters on the C++ bridge, so this
         // arm only keeps the spelling total.
@@ -450,7 +454,10 @@ pub(crate) fn android_jni_type(ty: &BridgeType) -> String {
         }
         BridgeType::Scalar(scalar) => android_scalar_value(*scalar, false).jni.to_owned(),
         BridgeType::Named { .. } | BridgeType::TypeParameter(_) => "jobject".to_owned(),
-        BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => {
+        BridgeType::Pair(..)
+        | BridgeType::Triple(..)
+        | BridgeType::Result { .. }
+        | BridgeType::Signal(..) => {
             debug_assert!(
                 false,
                 "plan validation excludes compound value shapes from JNI positions"
@@ -536,10 +543,10 @@ pub(crate) fn android_kotlin_type(ty: &BridgeType, jni_carrier: bool) -> String 
             android_kotlin_type(second, jni_carrier),
             android_kotlin_type(third, jni_carrier)
         ),
-        BridgeType::Result { .. } => {
+        BridgeType::Result { .. } | BridgeType::Signal(_) => {
             debug_assert!(
                 false,
-                "validated Kotlin types never nest `Result`; success types are unwrapped before mapping"
+                "validated Kotlin types never nest `Result` or `Signal`; success types are unwrapped before mapping"
             );
             "Any".to_owned()
         }

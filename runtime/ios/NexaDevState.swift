@@ -2,6 +2,12 @@ import Foundation
 import CoreFoundation
 import UIKit
 
+/// Type-erased SQL row used only by the debug interpreter. Release builds map
+/// the same query directly into the declared application struct.
+struct NexaDevDynamicRow: @unchecked Sendable {
+    let fields: [String: Any]
+}
+
 /// Reactive state store and expression evaluation engine for the Nexa dev runtime.
 struct NexaDevNativeEventSubscription {
     let receiver: AnyObject
@@ -27,6 +33,10 @@ final class NexaDevStateStore: ObservableObject {
     @Published var navigationPath: [NexaDevRoute] = []
     @Published private(set) var focusedFieldKey: String?
     var values: [String: Any] = [:]
+    /// Process-lifetime immutable module bindings. These are deliberately kept
+    /// outside UI state identities so class singletons survive view updates.
+    var moduleValues: [String: Any] = [:]
+    private var moduleValueSignatures: [String: String] = [:]
     var typeSignatures: [String: String] = [:]
     var functions: [String: [String: Any]] = [:]
     var structs: [String: [[String: Any]]] = [:]
@@ -41,6 +51,107 @@ final class NexaDevStateStore: ObservableObject {
     var activeScreenParameters: [String: [String: Any]] = [:]
     var pendingPluginFailure: NexaDevPluginFailure?
     var hasInstalledModule = false
+    private var hotTranslations: [String: [String: Any]] = [:]
+
+    func installTranslations(_ raw: Any?) {
+        hotTranslations = raw as? [String: [String: Any]] ?? [:]
+        revision += 1
+    }
+
+    func localizedText(
+        key: String,
+        fallback: String,
+        sourceExpression: Any? = nil,
+        locals: [String: Any] = [:],
+        scope: String = "app"
+    ) -> String {
+        var translated: Any?
+        for preferred in Locale.preferredLanguages + [Locale.current.identifier] {
+            let language = preferred.replacingOccurrences(of: "_", with: "-")
+            if let value = hotTranslations[language]?[key] {
+                translated = value
+                break
+            }
+            let base = String(language.split(separator: "-").first ?? "")
+            if let value = hotTranslations[base]?[key] {
+                translated = value
+                break
+            }
+        }
+        guard let translated else { return fallback }
+        let arguments = localizedArguments(sourceExpression, locals: locals, scope: scope)
+        let count = arguments.first { $0.0 == "count" }.map { Int(number($0.1)) }
+        let template: String
+        if let value = translated as? String {
+            template = value
+        } else if let forms = translated as? [String: String] {
+            let language = Locale.current.language.languageCode?.identifier ?? "en"
+            let category = Self.pluralCategory(count ?? 0, language: language)
+            template = forms[category] ?? forms["other"] ?? forms.values.first ?? fallback
+        } else {
+            return fallback
+        }
+        return arguments.reduce(template) { value, argument in
+            value.replacingOccurrences(of: "{\(argument.0)}", with: stringify(argument.1))
+        }
+    }
+
+    private func localizedArguments(
+        _ sourceExpression: Any?,
+        locals: [String: Any],
+        scope: String
+    ) -> [(String, Any)] {
+        guard let tagged = sourceExpression as? [String: Any],
+              let parts = tagged["Interpolation"] as? [[String: Any]]
+        else { return [] }
+        return parts.enumerated().compactMap { index, part in
+            guard let raw = part["Value"] else { return nil }
+            let name = Self.localizedArgumentName(raw, index: index)
+            return (name, evaluate(raw, locals: locals, scope: scope))
+        }
+    }
+
+    private static func localizedArgumentName(_ raw: Any, index: Int) -> String {
+        guard let tagged = raw as? [String: Any], let (kind, payload) = tagged.first else {
+            return "value\(index + 1)"
+        }
+        if kind == "State" || kind == "AnimatedState",
+           let values = payload as? [Any], let name = values.first as? String {
+            return String(name.split(separator: "::").last ?? Substring(name))
+        }
+        if kind == "Member", let fields = payload as? [String: Any], let name = fields["name"] as? String {
+            return name
+        }
+        return "value\(index + 1)"
+    }
+
+    private static func pluralCategory(_ count: Int, language: String) -> String {
+        let n = abs(count)
+        switch language {
+        case "ar":
+            if n == 0 { return "zero" }
+            if n == 1 { return "one" }
+            if n == 2 { return "two" }
+            if (3...10).contains(n % 100) { return "few" }
+            if (11...99).contains(n % 100) { return "many" }
+            return "other"
+        case "ru", "uk", "be":
+            if n % 10 == 1 && n % 100 != 11 { return "one" }
+            if (2...4).contains(n % 10) && !(12...14).contains(n % 100) { return "few" }
+            if n % 10 == 0 || (11...14).contains(n % 100) { return "many" }
+            return "other"
+        case "pl":
+            if n == 1 { return "one" }
+            if (2...4).contains(n % 10) && !(12...14).contains(n % 100) { return "few" }
+            return "many"
+        case "cs", "sk":
+            if n == 1 { return "one" }
+            if (2...4).contains(n) { return "few" }
+            return "other"
+        case "fr", "pt": return n <= 1 ? "one" : "other"
+        default: return n == 1 ? "one" : "other"
+        }
+    }
 
     func install(module: [String: Any]) {
         let isHotReplacement = hasInstalledModule
@@ -61,6 +172,23 @@ final class NexaDevStateStore: ObservableObject {
             },
             uniquingKeysWith: { _, newest in newest }
         )
+        var nextModuleValues: [String: Any] = [:]
+        var nextModuleSignatures: [String: String] = [:]
+        for global in module["globals"] as? [[String: Any]] ?? [] {
+            guard let name = global["name"] as? String else { continue }
+            let signature = Self.canonicalJSON(global["ty"])
+            nextModuleSignatures[name] = signature
+            if moduleValueSignatures[name] == signature, let existing = moduleValues[name] {
+                nextModuleValues[name] = existing
+                moduleValues[name] = existing
+            } else if let initial = global["initial"] {
+                let initialized = evaluate(initial, locals: nextModuleValues, scope: "app")
+                nextModuleValues[name] = initialized
+                moduleValues[name] = initialized
+            }
+        }
+        moduleValues = nextModuleValues
+        moduleValueSignatures = nextModuleSignatures
         enumCases = Dictionary(
             (module["enums"] as? [[String: Any]] ?? []).compactMap { declaration in
                 guard let name = declaration["name"] as? String else { return nil }
@@ -239,6 +367,18 @@ final class NexaDevStateStore: ObservableObject {
         }
         switch kind {
         case "String": return payload as? String ?? ""
+        case "LocalizedText":
+            let fields = payload as? [String: Any] ?? [:]
+            let key = fields["key"] as? String ?? ""
+            let source = fields["value"]
+            let fallback = source.map { stringify(evaluate($0, locals: locals, scope: scope)) } ?? key
+            return localizedText(
+                key: key,
+                fallback: fallback,
+                sourceExpression: source,
+                locals: locals,
+                scope: scope
+            )
         case "Bool": return payload as? Bool ?? false
         case "Array":
             return (payload as? [Any] ?? []).map { evaluate($0, locals: locals, scope: scope) }
@@ -278,10 +418,30 @@ final class NexaDevStateStore: ObservableObject {
             }
         case "EnumValue", "PluginEnumValue":
             return (payload as? [String: Any])?["case_name"] as? String ?? ""
+        case "PluginEnumConstructor":
+            let fields = payload as? [String: Any] ?? [:]
+            let arguments = (fields["arguments"] as? [Any] ?? []).map {
+                evaluate($0, locals: locals, scope: scope)
+            }
+            return [
+                "__nexaEnum": "\(fields["namespace"] as? String ?? "").\(fields["enum_name"] as? String ?? "")",
+                "case_name": fields["case_name"] as? String ?? "",
+                "arguments": arguments,
+            ]
+        case "PluginEnumOptionalConstructor":
+            let fields = payload as? [String: Any] ?? [:]
+            let value = evaluate(fields["value"] ?? NSNull(), locals: locals, scope: scope)
+            let enumName = "\(fields["namespace"] as? String ?? "").\(fields["enum_name"] as? String ?? "")"
+            let isNull = value is NSNull
+            let caseName = fields[isNull ? "null_case_name" : "case_name"] as? String ?? ""
+            let arguments: [Any] = isNull ? [] : [value]
+            return ["__nexaEnum": enumName, "case_name": caseName, "arguments": arguments]
         case "State", "AnimatedState":
             let parts = payload as? [Any] ?? []
             guard let name = parts.first as? String else { return NSNull() }
-            return locals[name] ?? value(name, scope: scope)
+            return locals[name] ?? moduleValues[name] ?? value(name, scope: scope)
+        case "This":
+            return locals["this"] ?? NSNull()
         case "Interpolation":
             return (payload as? [Any] ?? []).map { part -> String in
                 guard let taggedPart = part as? [String: Any], let (partKind, partValue) = taggedPart.first else { return "" }
@@ -365,11 +525,34 @@ final class NexaDevStateStore: ObservableObject {
             }
             switch fields["operation"] as? String {
             case "Map": return collection.map { apply($0) }
+            case "FlatMap": return collection.flatMap { apply($0) as? [Any] ?? [] }
             case "Filter": return collection.filter { truthy(apply($0)) }
             case "Reduce":
                 var accumulator = fields["initial"].map { evaluate($0, locals: locals, scope: scope) } ?? 0
                 for item in collection { accumulator = apply(item, accumulator) }
                 return accumulator
+            case "SortedBy":
+                let keyed = collection.enumerated().map { index, item in
+                    (index: index, item: item, key: apply(item))
+                }
+                return keyed.sorted {
+                    if compareSortable($0.key, $1.key) { return true }
+                    if compareSortable($1.key, $0.key) { return false }
+                    return $0.index < $1.index
+                }.map(\.item)
+            case "GroupedBy":
+                var groupIndexes: [NexaDevHashableValue: Int] = [:]
+                var groups: [[Any]] = []
+                for item in collection {
+                    let key = NexaDevHashableValue(apply(item))
+                    if let index = groupIndexes[key] {
+                        groups[index].append(item)
+                    } else {
+                        groupIndexes[key] = groups.count
+                        groups.append([item])
+                    }
+                }
+                return groups
             default: return []
             }
         case "CollectionUtility":
@@ -406,6 +589,19 @@ final class NexaDevStateStore: ObservableObject {
             let fields = payload as? [String: Any] ?? [:]
             guard let base = fields["base"], let name = fields["name"] as? String else { return NSNull() }
             let value = evaluate(base, locals: locals, scope: scope)
+            if let memberKind = fields["kind"] as? [String: Any],
+               memberKind["ClassStaticField"] != nil,
+               let classType = fields["base_type"] as? [String: Any],
+               let classPayload = classType["Class"] as? [String: Any],
+               let className = classPayload["name"] as? String {
+                return moduleValues["\(className)::\(name)"] ?? NSNull()
+            }
+            if let instance = value as? NexaDevUserClassInstance {
+                return instance.fields[name] ?? NSNull()
+            }
+            if let row = value as? NexaDevDynamicRow {
+                return row.fields[name] ?? NSNull()
+            }
             if let memberKind = fields["kind"] as? [String: Any],
                let property = memberKind["PluginField"] as? String {
                 let result = NexaDevPluginBridge.readInstanceProperty(receiver: value, property: property)
@@ -505,6 +701,15 @@ final class NexaDevStateStore: ObservableObject {
                 }
                 return instance
             }
+            if call["is_constructor"] as? Bool == true,
+               let returnType = call["return_type"] as? [String: Any],
+               let classType = returnType["Class"] as? [String: Any],
+               classType["name"] as? String != nil {
+                let arguments = (call["arguments"] as? [Any] ?? []).map {
+                    evaluate($0, locals: locals, scope: scope)
+                }
+                return makeUserClassInstance(classType, arguments: arguments, scope: scope)
+            }
             guard let function = functions[name], activeFunctions.insert(name).inserted else { return NSNull() }
             defer { activeFunctions.remove(name) }
             let parameters = function["parameters"] as? [[String: Any]] ?? []
@@ -521,10 +726,24 @@ final class NexaDevStateStore: ObservableObject {
                 else { continue }
                 functionScope[localName] = evaluate(initial, locals: functionScope, scope: scope)
             }
+            if let actions = function["body_actions"] as? [Any] {
+                switch performFunctionActions(actions, scope: scope, locals: functionScope) {
+                case .returned(let value): return value
+                case .normal, .break, .continue: return NSNull()
+                }
+            }
             guard let body = function["body"] else { return NSNull() }
             return evaluate(body, locals: functionScope, scope: scope)
         case "NativeCall":
             guard let call = payload as? [String: Any] else { return NSNull() }
+            if let namespace = call["namespace"] as? String,
+               let className = namespace.stripPrefix("__NexaUserClass:") {
+                let receiver = call["receiver"].map { evaluate($0, locals: locals, scope: scope) } ?? NSNull()
+                let arguments = (call["arguments"] as? [[Any]] ?? []).compactMap { $0.last }.map {
+                    evaluate($0, locals: locals, scope: scope)
+                }
+                return invokeUserClassMethod(className, method: call["name"] as? String ?? "", receiver: receiver, arguments: arguments, locals: locals, scope: scope)
+            }
             return invokeNativeSync(call, locals: locals, scope: scope)
         case "PathJoin":
             guard let join = payload as? [String: Any] else { return NSNull() }
@@ -566,6 +785,30 @@ final class NexaDevStateStore: ObservableObject {
         switch kind {
         case "EnumValue", "PluginEnumValue":
             return (payload as? [String: Any])?["case_name"] as? String ?? ""
+        case "PluginEnumConstructor":
+            let fields = payload as? [String: Any] ?? [:]
+            var arguments: [Any] = []
+            for argument in fields["arguments"] as? [Any] ?? [] {
+                arguments.append(try await evaluateAsync(argument, locals: locals, scope: scope))
+            }
+            return [
+                "__nexaEnum": "\(fields["namespace"] as? String ?? "").\(fields["enum_name"] as? String ?? "")",
+                "case_name": fields["case_name"] as? String ?? "",
+                "arguments": arguments,
+            ]
+        case "PluginEnumOptionalConstructor":
+            let fields = payload as? [String: Any] ?? [:]
+            let value = try await evaluateAsync(fields["value"] ?? NSNull(), locals: locals, scope: scope)
+            let enumName = "\(fields["namespace"] as? String ?? "").\(fields["enum_name"] as? String ?? "")"
+            let isNull = value is NSNull
+            let caseName = fields[isNull ? "null_case_name" : "case_name"] as? String ?? ""
+            let arguments: [Any] = isNull ? [] : [value]
+            return ["__nexaEnum": enumName, "case_name": caseName, "arguments": arguments]
+        case "This": return locals["this"] ?? NSNull()
+        case "State", "AnimatedState":
+            let parts = payload as? [Any] ?? []
+            guard let name = parts.first as? String else { return NSNull() }
+            return locals[name] ?? moduleValues[name] ?? value(name, scope: scope)
         case "Await", "TryAwait":
             return try await evaluateAsync(payload, locals: locals, scope: scope)
         case "TimeCall":
@@ -594,6 +837,30 @@ final class NexaDevStateStore: ObservableObject {
                 guard let text = first as? String else { return NSNull() }
                 if let timestamp = NexaDevTime.iso8601ToMillis(text) { return timestamp }
                 return NSNull()
+            case "StartOfDay":
+                guard let value = (first as? NSNumber)?.int64Value else { return NSNull() }
+                return nexaDevStartOfDay(value)
+            case "AddCalendarDays":
+                guard arguments.count > 1,
+                    let timestamp = arguments[0] as? NSNumber,
+                    let days = arguments[1] as? NSNumber
+                else { return NSNull() }
+                return nexaDevAddCalendarDays(timestamp.int64Value, days.int32Value)
+            case "LocalizedDate":
+                guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
+                return nexaDevLocalizedDate(timestamp)
+            case "LocalizedTime":
+                guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
+                return nexaDevLocalizedTime(timestamp)
+            case "LocalizedDateTime":
+                guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
+                return nexaDevLocalizedDateTime(timestamp)
+            case "Format":
+                guard arguments.count > 1,
+                    let timestamp = arguments[0] as? NSNumber,
+                    let pattern = arguments[1] as? String
+                else { return NSNull() }
+                return nexaDevFormatDate(timestamp.int64Value, pattern)
             default: return NSNull()
             }
         case "LogCall":
@@ -612,6 +879,32 @@ final class NexaDevStateStore: ObservableObject {
             return try await invokeFunctionAsync(call, locals: locals, scope: scope)
         case "NativeCall":
             guard let call = payload as? [String: Any] else { return NSNull() }
+            if let namespace = call["namespace"] as? String,
+               let className = namespace.stripPrefix("__NexaUserClass:") {
+                let receiver: Any
+                if let expression = call["receiver"] {
+                    receiver = try await evaluateAsync(expression, locals: locals, scope: scope)
+                } else {
+                    receiver = NSNull()
+                }
+                var arguments: [Any] = []
+                for pair in call["arguments"] as? [[Any]] ?? [] {
+                    if let argument = pair.last {
+                        arguments.append(try await evaluateAsync(argument, locals: locals, scope: scope))
+                    }
+                }
+                if call["is_async"] as? Bool == true {
+                    return try await invokeUserClassMethodAsync(
+                        className,
+                        method: call["name"] as? String ?? "",
+                        receiver: receiver,
+                        arguments: arguments,
+                        locals: locals,
+                        scope: scope
+                    )
+                }
+                return invokeUserClassMethod(className, method: call["name"] as? String ?? "", receiver: receiver, arguments: arguments, locals: locals, scope: scope)
+            }
             return try await invokeNativeAsync(call, locals: locals, scope: scope)
         case "NetworkFetch", "NetworkDownload":
             guard let fields = payload as? [String: Any] else { return NSNull() }
@@ -705,6 +998,19 @@ final class NexaDevStateStore: ObservableObject {
             else { return NSNull() }
             let value = try await evaluateAsync(base, locals: locals, scope: scope)
             if let memberKind = member["kind"] as? [String: Any],
+               memberKind["ClassStaticField"] != nil,
+               let classType = member["base_type"] as? [String: Any],
+               let classPayload = classType["Class"] as? [String: Any],
+               let className = classPayload["name"] as? String {
+                return moduleValues["\(className)::\(name)"] ?? NSNull()
+            }
+            if let instance = value as? NexaDevUserClassInstance {
+                return instance.fields[name] ?? NSNull()
+            }
+            if let row = value as? NexaDevDynamicRow {
+                return row.fields[name] ?? NSNull()
+            }
+            if let memberKind = member["kind"] as? [String: Any],
                let property = memberKind["PluginField"] as? String {
                 let result = NexaDevPluginBridge.readInstanceProperty(receiver: value, property: property)
                 if result.0 { return result.1 }
@@ -718,6 +1024,9 @@ final class NexaDevStateStore: ObservableObject {
                 if let values = value as? [Any] { return values.isEmpty }
                 if let values = value as? [String: Any] { return values.isEmpty }
                 if let values = value as? Set<NexaDevHashableValue> { return values.isEmpty }
+            }
+            if name == "trimmed", let text = value as? String {
+                return text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             if let object = value as? [String: Any] { return object[name] ?? NSNull() }
             if let tuple = value as? [Any] {
@@ -879,6 +1188,12 @@ final class NexaDevStateStore: ObservableObject {
                 var mapped: [Any] = []
                 for item in items { mapped.append(try await apply(item)) }
                 return mapped
+            case "FlatMap":
+                var flattened: [Any] = []
+                for item in items {
+                    if let mapped = try await apply(item) as? [Any] { flattened.append(contentsOf: mapped) }
+                }
+                return flattened
             case "Filter":
                 var filtered: [Any] = []
                 for item in items {
@@ -892,6 +1207,30 @@ final class NexaDevStateStore: ObservableObject {
                 }
                 for item in items { accumulator = try await apply(item, accumulator: accumulator) }
                 return accumulator
+            case "SortedBy":
+                var keyed: [(index: Int, item: Any, key: Any)] = []
+                keyed.reserveCapacity(items.count)
+                for (index, item) in items.enumerated() {
+                    keyed.append((index, item, try await apply(item)))
+                }
+                return keyed.sorted {
+                    if compareSortable($0.key, $1.key) { return true }
+                    if compareSortable($1.key, $0.key) { return false }
+                    return $0.index < $1.index
+                }.map(\.item)
+            case "GroupedBy":
+                var groupIndexes: [NexaDevHashableValue: Int] = [:]
+                var groups: [[Any]] = []
+                for item in items {
+                    let key = NexaDevHashableValue(try await apply(item))
+                    if let index = groupIndexes[key] {
+                        groups[index].append(item)
+                    } else {
+                        groupIndexes[key] = groups.count
+                        groups.append([item])
+                    }
+                }
+                return groups
             default: return items
             }
         case "CollectionUtility":
@@ -989,6 +1328,15 @@ final class NexaDevStateStore: ObservableObject {
             }
             return instance
         }
+        if call["is_constructor"] as? Bool == true,
+           let returnType = call["return_type"] as? [String: Any],
+           let classType = returnType["Class"] as? [String: Any] {
+            var arguments: [Any] = []
+            for argument in call["arguments"] as? [Any] ?? [] {
+                arguments.append(try await evaluateAsync(argument, locals: locals, scope: scope))
+            }
+            return makeUserClassInstance(classType, arguments: arguments, scope: scope)
+        }
         guard let name = call["name"] as? String,
               let function = functions[name],
               activeFunctions.insert(name).inserted
@@ -1008,6 +1356,12 @@ final class NexaDevStateStore: ObservableObject {
             else { continue }
             functionScope[localName] = try await evaluateAsync(initial, locals: functionScope, scope: scope)
         }
+        if let actions = function["body_actions"] as? [Any] {
+            switch try await performFunctionAsync(actions, scope: scope, locals: functionScope) {
+            case .returned(let value): return value
+            case .normal, .break, .continue: return NSNull()
+            }
+        }
         guard let body = function["body"] else { return NSNull() }
         return try await evaluateAsync(body, locals: functionScope, scope: scope)
     }
@@ -1025,6 +1379,11 @@ final class NexaDevStateStore: ObservableObject {
         case "Contains": return contains(lhs, in: rhs)
         default: return false
         }
+    }
+
+    func compareSortable(_ lhs: Any, _ rhs: Any) -> Bool {
+        if let left = lhs as? String, let right = rhs as? String { return left < right }
+        return number(lhs) < number(rhs)
     }
 
     func contains(_ value: Any, in collection: Any) -> Bool {
@@ -1186,10 +1545,90 @@ func evaluateTimeCall(_ call: [String: Any]?, locals: [String: Any], scope: Stri
         guard let text = first as? String else { return NSNull() }
         guard let value = NexaDevTime.iso8601ToMillis(text) else { return NSNull() }
         return value
+    case "StartOfDay":
+        guard let value = (first as? NSNumber)?.int64Value else { return NSNull() }
+        return nexaDevStartOfDay(value)
+    case "AddCalendarDays":
+        guard arguments.count > 1,
+            let timestamp = arguments[0] as? NSNumber,
+            let days = arguments[1] as? NSNumber
+        else { return NSNull() }
+        return nexaDevAddCalendarDays(timestamp.int64Value, days.int32Value)
+    case "LocalizedDate":
+        guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
+        return nexaDevLocalizedDate(timestamp)
+    case "LocalizedTime":
+        guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
+        return nexaDevLocalizedTime(timestamp)
+    case "LocalizedDateTime":
+        guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
+        return nexaDevLocalizedDateTime(timestamp)
+    case "Format":
+        guard arguments.count > 1,
+            let timestamp = arguments[0] as? NSNumber,
+            let pattern = arguments[1] as? String
+        else { return NSNull() }
+        return nexaDevFormatDate(timestamp.int64Value, pattern)
     default:
         return NSNull()
     }
 }
+}
+
+private func nexaDevStartOfDay(_ milliseconds: Int64) -> Int64 {
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    return Int64(Calendar.current.startOfDay(for: date).timeIntervalSince1970 * 1000)
+}
+
+private func nexaDevAddCalendarDays(_ milliseconds: Int64, _ days: Int32) -> Int64 {
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    guard let advanced = Calendar.current.date(byAdding: .day, value: Int(days), to: date) else {
+        return milliseconds
+    }
+    return Int64((advanced.timeIntervalSince1970 * 1000).rounded())
+}
+
+private func nexaDevLocalizedDate(_ milliseconds: Int64) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .none)
+}
+
+private func nexaDevLocalizedTime(_ milliseconds: Int64) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
+}
+
+private func nexaDevLocalizedDateTime(_ milliseconds: Int64) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .short)
+}
+
+/// Mirrors generated `Time.format` while reusing formatters between hot-reload renders.
+private func nexaDevFormatDate(_ milliseconds: Int64, _ pattern: String) -> String {
+    let locale = Locale.current
+    let calendar = Calendar.current
+    let timeZone = TimeZone.current
+    let key = "nexa.dev.date.\(locale.identifier).\(String(describing: calendar.identifier)).\(timeZone.identifier).\(pattern)"
+    let cache = Thread.current.threadDictionary
+    let formatter: DateFormatter
+    if let cached = cache[key] as? DateFormatter {
+        formatter = cached
+    } else {
+        let cachedKeys = cache.allKeys.compactMap { cachedKey -> String? in
+            guard let key = cachedKey as? String, key.hasPrefix("nexa.dev.date.") else { return nil }
+            return key
+        }
+        if cachedKeys.count >= 32 {
+            cachedKeys.forEach { cache.removeObject(forKey: $0) }
+        }
+        formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = timeZone
+        formatter.dateFormat = pattern
+        cache[key] = formatter
+    }
+    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000))
 }
 
 /// The ISO 8601 layout the generated code implements, kept in one place so the

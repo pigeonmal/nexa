@@ -141,8 +141,10 @@ fn render_decode_body(ty: &Type, enums: &[EnumDecl], out: &mut SourceWriter) {
         Type::Void
         | Type::TypeParam(_)
         | Type::Plugin { .. }
+        | Type::Class { .. }
         | Type::TaskHandle
-        | Type::NetworkResponse => {
+        | Type::NetworkResponse
+        | Type::Signal(_) => {
             debug_assert!(false, "unsupported JSON value type reached Kotlin codegen: {ty:?}");
             out.push_str("    nexaJsonTypeMismatch()\n");
         }
@@ -308,8 +310,10 @@ fn render_encode_body(ty: &Type, out: &mut SourceWriter) {
         Type::Void
         | Type::TypeParam(_)
         | Type::Plugin { .. }
+        | Type::Class { .. }
         | Type::TaskHandle
-        | Type::NetworkResponse => {
+        | Type::NetworkResponse
+        | Type::Signal(_) => {
             debug_assert!(false, "unsupported JSON value type reached Kotlin codegen: {ty:?}");
             out.push_str("    output.append(\"null\")\n");
         }

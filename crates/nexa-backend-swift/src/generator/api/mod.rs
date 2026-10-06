@@ -3,6 +3,7 @@
 //! Each API owns the native helper it emits. The parent generator only decides
 //! whether the API is reachable from the optimized IR.
 
+pub(crate) mod app_icon;
 pub(crate) mod clipboard;
 pub(crate) mod crypto;
 pub(crate) mod json;

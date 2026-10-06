@@ -129,6 +129,11 @@ Nexa provides specialized AI agent skills located under `.agents/skills/`. Agent
 Before concluding any change, agents must run and verify:
 
 ```bash
+# Keep all verification commands on the same persistent target directory so
+# Cargo can reuse artifacts across check, clippy, and test. This workspace's
+# default target directory can be very large and slow to scan in this setup.
+export CARGO_TARGET_DIR=/tmp/nexa-verification-target
+
 # 1. Type checking across all workspace crates and targets
 cargo check --workspace --all-targets
 
@@ -138,6 +143,15 @@ cargo clippy --workspace --all-targets
 # 3. Complete test suite execution
 cargo test --workspace
 ```
+
+During implementation, run the narrowest useful command first, for example
+`cargo check -p nexa-compiler` or
+`cargo test -p nexa-compiler --test core_fast_list_move`. Run the three full
+workspace gates once at the end of a change, not after every edit. Keep Cargo's
+incremental compilation enabled and reuse the same `CARGO_TARGET_DIR` between
+commands. Do not delete `target/` or the shared verification target to speed up
+builds; removing them discards the compiled dependencies and makes the next
+verification a cold build.
 
 ### 5.1 Temporary Directories in Tests
 

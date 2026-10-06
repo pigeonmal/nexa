@@ -34,6 +34,7 @@ pub enum Kind {
     GreaterEqual,
     Question,
     QuestionQuestion,
+    At,
     Plus,
     Minus,
     Star,
@@ -136,6 +137,10 @@ impl Lexer<'_> {
                         Kind::Question
                     }
                 }
+                '@' => {
+                    self.bump();
+                    Kind::At
+                }
                 ':' => {
                     self.bump();
                     Kind::Colon
@@ -235,6 +240,9 @@ impl Lexer<'_> {
                         Kind::Percent
                     }
                 }
+                '"' if self.peek_next() == Some('"') && self.peek_third() == Some('"') => {
+                    Kind::String(self.raw_string(start)?)
+                }
                 '"' => Kind::String(self.string(start)?),
                 c if c.is_ascii_digit() => Kind::Number(self.number()),
                 c if is_ident_start(c) => Kind::Ident(self.identifier()),
@@ -287,6 +295,29 @@ impl Lexer<'_> {
         }
     }
 
+    /// Reads a triple-quoted raw string. The bytes between delimiters are
+    /// preserved verbatim for embedded text and multiline literals.
+    fn raw_string(&mut self, start: Span) -> Result<String, CompileError> {
+        self.bump();
+        self.bump();
+        self.bump();
+        let content_start = self.offset;
+        while self.peek().is_some() {
+            if self.peek() == Some('"')
+                && self.peek_next() == Some('"')
+                && self.peek_third() == Some('"')
+            {
+                let content_end = self.offset;
+                self.bump();
+                self.bump();
+                self.bump();
+                return Ok(self.source[content_start..content_end].to_owned());
+            }
+            self.bump();
+        }
+        Err(CompileError::new(start, "unterminated raw string literal"))
+    }
+
     fn number(&mut self) -> String {
         let start = self.offset;
         while self.peek().is_some_and(|c| c.is_ascii_digit()) {
@@ -330,6 +361,9 @@ impl Lexer<'_> {
     }
     fn peek_next(&self) -> Option<char> {
         self.source[self.offset..].chars().nth(1)
+    }
+    fn peek_third(&self) -> Option<char> {
+        self.source[self.offset..].chars().nth(2)
     }
     fn bump(&mut self) -> Option<char> {
         let c = self.peek()?;

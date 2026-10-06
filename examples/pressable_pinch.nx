@@ -8,7 +8,7 @@ app PressablePinch {
             Text("Pinch scale: $zoom")
             Pressable() {
                 Text("Pinch to zoom")
-            }.onPress {
+            }.onTap {
                 updates = updates + 1
             }.onDrag { translationX, translationY, velocityX, velocityY ->
                 offsetX = translationX

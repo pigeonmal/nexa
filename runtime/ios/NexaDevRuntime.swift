@@ -37,7 +37,7 @@ public struct NexaDevRuntimeRoot: View {
         }
         Group {
             ZStack(alignment: .topTrailing) {
-                VStack(spacing: 0) {
+                ZStack(alignment: .topLeading) {
                     if !runtime.diagnostics.isEmpty {
                         Text(runtime.diagnostics.joined(separator: "\n"))
                             .font(.caption.monospaced())
@@ -61,35 +61,6 @@ public struct NexaDevRuntimeRoot: View {
                 if runtime.performanceOverlayEnabled {
                     NexaDevPerformanceOverlay(fps: performance.fps, frameTimeMs: performance.frameTimeMs)
                         .padding(8)
-                }
-            }
-            .sheet(isPresented: Binding(
-                get: {
-                    guard let module = runtime.module,
-                          let sheet = devBottomSheet(in: module["body"] as? [Any] ?? [])
-                    else { return false }
-                    return runtime.store.truthy(
-                        runtime.store.value(sheet.state, scope: sheet.scope)
-                    )
-                },
-                set: { isPresented in
-                    guard !isPresented,
-                          let module = runtime.module,
-                          let sheet = devBottomSheet(in: module["body"] as? [Any] ?? [])
-                    else { return }
-                    runtime.store.setValue(sheet.state, value: false, scope: sheet.scope)
-                }
-            )) {
-                if let module = runtime.module,
-                   let sheet = devBottomSheet(in: module["body"] as? [Any] ?? []) {
-                    NexaDevNodeList(
-                        nodes: sheet.children,
-                        module: module,
-                        store: runtime.store,
-                        focusedField: $activeInput,
-                        stateScope: sheet.scope
-                    )
-                    .presentationDetents(sheet.partial ? [.medium, .large] : [.large])
                 }
             }
         }

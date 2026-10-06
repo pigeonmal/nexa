@@ -20,13 +20,17 @@ pub(crate) fn optimize(module: &mut Module) {
                 fold_expression(std::mem::replace(&mut local.initial, Expr::Bool(false)));
         }
         function.body = fold_expression(std::mem::replace(&mut function.body, Expr::Bool(false)));
+        function.body_actions = function.body_actions.take().map(optimize_actions);
         prune_unused_function_locals(function);
     }
     for task in &mut module.background_tasks {
         task.actions = optimize_actions(std::mem::take(&mut task.actions));
     }
     module.states.iter_mut().for_each(|state| {
-        state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
+        optimize_state_expressions(state);
+    });
+    module.globals.iter_mut().for_each(|state| {
+        optimize_state_expressions(state);
     });
     // Both backends wrap a multi-node app body in an implicit
     // `Column { spacing: 0 }` before rendering it, so two adjacent
@@ -55,8 +59,7 @@ pub(crate) fn optimize(module: &mut Module) {
     }
     for screen in &mut module.screens {
         for state in &mut screen.states {
-            state.initial =
-                fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
+            optimize_state_expressions(state);
         }
         screen.body = optimize_nodes(std::mem::take(&mut screen.body));
         if let Some(actions) = &mut screen.on_appear {
@@ -66,11 +69,32 @@ pub(crate) fn optimize(module: &mut Module) {
             *actions = optimize_actions(std::mem::take(actions));
         }
     }
+    for widget in &mut module.widgets {
+        widget.entry_provider = fold_expression(std::mem::replace(
+            &mut widget.entry_provider,
+            Expr::Bool(false),
+        ));
+        if let Some(placeholder) = &mut widget.placeholder_provider {
+            *placeholder = fold_expression(std::mem::replace(placeholder, Expr::Bool(false)));
+        }
+        if let Some(configuration) = &mut widget.configuration {
+            configuration.default = fold_expression(std::mem::replace(
+                &mut configuration.default,
+                Expr::Bool(false),
+            ));
+        }
+        widget.body = optimize_nodes(std::mem::take(&mut widget.body));
+    }
     for component in &mut module.components {
         component.body = optimize_nodes(std::mem::take(&mut component.body));
+        if let Some(actions) = &mut component.on_appear {
+            *actions = optimize_actions(std::mem::take(actions));
+        }
+        if let Some(actions) = &mut component.on_disappear {
+            *actions = optimize_actions(std::mem::take(actions));
+        }
         for state in &mut component.states {
-            state.initial =
-                fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
+            optimize_state_expressions(state);
         }
     }
     prune_unused_functions(module);
@@ -78,6 +102,10 @@ pub(crate) fn optimize(module: &mut Module) {
     prune_unused_structs(module);
     prune_unused_plugins(module);
     mark_animated_presentation_reads(module);
+}
+
+fn optimize_state_expressions(state: &mut nexa_ir::State) {
+    state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
 }
 
 fn mark_animated_presentation_reads(module: &mut Module) {
@@ -374,6 +402,8 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
 
 fn is_pure_expression(expression: &Expr) -> bool {
     match expression {
+        Expr::PluginEnumConstructor { arguments, .. } => arguments.iter().all(is_pure_expression),
+        Expr::PluginEnumOptionalConstructor { value, .. } => is_pure_expression(value),
         Expr::Call {
             arguments,
             is_async,
@@ -414,6 +444,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
                 && is_pure_expression(else_value)
         }
         Expr::Closure { body, .. } => is_pure_expression(body),
+        Expr::LocalizedText { value, .. } => is_pure_expression(value),
         // Byte conversions are pure like any other value-producing function;
         // only the platform I/O and network calls above are impure.
         Expr::BytesFromText { text } => is_pure_expression(text),
@@ -475,6 +506,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight
+        | Expr::This(_)
         | Expr::TimeCall {
             method:
                 nexa_ir::TimeMethod::Now
@@ -496,10 +528,23 @@ fn prune_unused_functions(module: &mut Module) {
         .map(|function| function.name.as_str())
         .collect::<HashSet<_>>();
     let mut used = HashSet::new();
+    for global in &module.globals {
+        collect_expression_function_references(&global.initial, &declared, &mut used);
+    }
     for state in &module.states {
         collect_expression_function_references(&state.initial, &declared, &mut used);
     }
     collect_node_function_references(&module.body, &declared, &mut used);
+    for widget in &module.widgets {
+        collect_expression_function_references(&widget.entry_provider, &declared, &mut used);
+        if let Some(placeholder) = &widget.placeholder_provider {
+            collect_expression_function_references(placeholder, &declared, &mut used);
+        }
+        if let Some(configuration) = &widget.configuration {
+            collect_expression_function_references(&configuration.default, &declared, &mut used);
+        }
+        collect_node_function_references(&widget.body, &declared, &mut used);
+    }
     if let Some(actions) = &module.on_appear {
         collect_action_function_references(actions, &declared, &mut used);
     }
@@ -531,6 +576,13 @@ fn prune_unused_functions(module: &mut Module) {
     }
     for component in &module.components {
         collect_node_function_references(&component.body, &declared, &mut used);
+        for actions in component
+            .on_appear
+            .iter()
+            .chain(component.on_disappear.iter())
+        {
+            collect_action_function_references(actions, &declared, &mut used);
+        }
         for state in &component.states {
             collect_expression_function_references(&state.initial, &declared, &mut used);
         }
@@ -552,7 +604,15 @@ fn prune_unused_functions(module: &mut Module) {
         for local in &function.locals {
             collect_expression_function_references(&local.initial, &declared, &mut used);
         }
+        for initializer in &function.class_initializers {
+            collect_expression_function_references(&initializer.initial, &declared, &mut used);
+        }
         collect_expression_function_references(&function.body, &declared, &mut used);
+        if let Some(actions) = &function.body_actions {
+            nexa_ir::walk::walk_actions(actions, &mut |expression| {
+                collect_expression_function_references(expression, &declared, &mut used)
+            });
+        }
         pending.extend(
             used.iter()
                 .filter(|name| !expanded.contains(*name))
@@ -575,6 +635,19 @@ impl IrVisitor for FunctionRefCollector<'_> {
             && self.declared.contains(name.as_str())
         {
             self.used.insert(name.clone());
+        }
+        if let Expr::NativeCall {
+            namespace,
+            name,
+            receiver: Some(_),
+            ..
+        } = expr
+            && let Some(class_name) = namespace.strip_prefix("__NexaUserClass:")
+        {
+            let qualified = format!("{class_name}.{name}");
+            if self.declared.contains(qualified.as_str()) {
+                self.used.insert(qualified);
+            }
         }
         nexa_ir::walk::walk_expr_children(expr, self);
     }
@@ -607,6 +680,16 @@ fn collect_action_function_references(
 fn prune_unused_states(module: &mut Module) {
     let mut used = HashSet::new();
     collect_node_state_references(&module.body, &mut used);
+    for widget in &module.widgets {
+        collect_node_state_references(&widget.body, &mut used);
+        collect_expression_state_references(&widget.entry_provider, &mut used);
+        if let Some(placeholder) = &widget.placeholder_provider {
+            collect_expression_state_references(placeholder, &mut used);
+        }
+        if let Some(configuration) = &widget.configuration {
+            collect_expression_state_references(&configuration.default, &mut used);
+        }
+    }
     if let Some(actions) = &module.on_appear {
         collect_action_state_references(actions, &mut used);
     }
@@ -651,6 +734,13 @@ fn prune_unused_states(module: &mut Module) {
     for component in &mut module.components {
         let mut used = HashSet::new();
         collect_node_state_references(&component.body, &mut used);
+        for actions in component
+            .on_appear
+            .iter()
+            .chain(component.on_disappear.iter())
+        {
+            collect_action_state_references(actions, &mut used);
+        }
         retain_referenced_states(&mut component.states, used);
     }
 }
@@ -662,6 +752,10 @@ fn prune_unused_structs(module: &mut Module) {
         .map(|declaration| (declaration.name.as_str(), declaration))
         .collect::<std::collections::HashMap<_, _>>();
     let mut used = HashSet::new();
+    for global in &module.globals {
+        collect_type_struct_names(&global.ty, &mut used);
+        collect_expression_struct_names(&global.initial, &mut used);
+    }
     for state in &module.states {
         collect_type_struct_names(&state.ty, &mut used);
         collect_expression_struct_names(&state.initial, &mut used);
@@ -675,7 +769,21 @@ fn prune_unused_structs(module: &mut Module) {
             collect_type_struct_names(&local.ty, &mut used);
             collect_expression_struct_names(&local.initial, &mut used);
         }
+        for initializer in &function.class_initializers {
+            collect_type_struct_names(&initializer.ty, &mut used);
+            collect_expression_struct_names(&initializer.initial, &mut used);
+        }
         collect_expression_struct_names(&function.body, &mut used);
+        if let Some(actions) = &function.body_actions {
+            nexa_ir::walk::walk_action_tree(actions, &mut |action| {
+                if let Action::Let { ty, .. } = action {
+                    collect_type_struct_names(ty, &mut used);
+                }
+            });
+            nexa_ir::walk::walk_actions(actions, &mut |expression| {
+                collect_expression_struct_names(expression, &mut used)
+            });
+        }
     }
     for component in &module.components {
         for parameter in &component.parameters {
@@ -685,9 +793,42 @@ fn prune_unused_structs(module: &mut Module) {
             collect_type_struct_names(&state.ty, &mut used);
             collect_expression_struct_names(&state.initial, &mut used);
         }
+        for actions in component
+            .on_appear
+            .iter()
+            .chain(component.on_disappear.iter())
+        {
+            nexa_ir::walk::walk_action_tree(actions, &mut |action| {
+                if let Action::Let { ty, .. } = action {
+                    collect_type_struct_names(ty, &mut used);
+                }
+            });
+            nexa_ir::walk::walk_actions(actions, &mut |expression| {
+                collect_expression_struct_names(expression, &mut used)
+            });
+        }
         collect_node_struct_names(&component.body, &mut used);
+        for actions in component
+            .on_appear
+            .iter()
+            .chain(component.on_disappear.iter())
+        {
+            collect_action_struct_names(actions, &mut used);
+        }
     }
     collect_node_struct_names(&module.body, &mut used);
+    for widget in &module.widgets {
+        collect_type_struct_names(&widget.entry_type, &mut used);
+        collect_expression_struct_names(&widget.entry_provider, &mut used);
+        if let Some(placeholder) = &widget.placeholder_provider {
+            collect_expression_struct_names(placeholder, &mut used);
+        }
+        if let Some(configuration) = &widget.configuration {
+            collect_type_struct_names(&configuration.ty, &mut used);
+            collect_expression_struct_names(&configuration.default, &mut used);
+        }
+        collect_node_struct_names(&widget.body, &mut used);
+    }
     for screen in &module.screens {
         for state in &screen.states {
             collect_type_struct_names(&state.ty, &mut used);
@@ -767,12 +908,31 @@ fn prune_unused_plugins(module: &mut Module) {
         } if declared.contains(namespace.as_str()) => {
             used.insert(namespace.clone());
         }
+        Expr::PluginEnumConstructor { namespace, .. }
+        | Expr::PluginEnumOptionalConstructor { namespace, .. }
+            if declared.contains(namespace.as_str()) =>
+        {
+            used.insert(namespace.clone());
+        }
         _ => {}
     };
     for state in &module.states {
         nexa_ir::walk::walk_expression(&state.initial, &mut collect);
     }
+    for global in &module.globals {
+        nexa_ir::walk::walk_expression(&global.initial, &mut collect);
+    }
     nexa_ir::walk::walk_ir(&module.body, &mut collect_node, &mut collect);
+    for widget in &module.widgets {
+        nexa_ir::walk::walk_expression(&widget.entry_provider, &mut collect);
+        if let Some(placeholder) = &widget.placeholder_provider {
+            nexa_ir::walk::walk_expression(placeholder, &mut collect);
+        }
+        if let Some(configuration) = &widget.configuration {
+            nexa_ir::walk::walk_expression(&configuration.default, &mut collect);
+        }
+        nexa_ir::walk::walk_ir(&widget.body, &mut collect_node, &mut collect);
+    }
     if let Some(actions) = &module.on_appear {
         nexa_ir::walk::walk_actions(actions, &mut collect);
     }
@@ -804,6 +964,13 @@ fn prune_unused_plugins(module: &mut Module) {
     }
     for component in &module.components {
         nexa_ir::walk::walk_ir(&component.body, &mut collect_node, &mut collect);
+        for actions in component
+            .on_appear
+            .iter()
+            .chain(component.on_disappear.iter())
+        {
+            nexa_ir::walk::walk_actions(actions, &mut collect);
+        }
         for state in &component.states {
             nexa_ir::walk::walk_expression(&state.initial, &mut collect);
         }
@@ -813,6 +980,12 @@ fn prune_unused_plugins(module: &mut Module) {
             nexa_ir::walk::walk_expression(&local.initial, &mut collect);
         }
         nexa_ir::walk::walk_expression(&function.body, &mut collect);
+        if let Some(actions) = &function.body_actions {
+            nexa_ir::walk::walk_actions(actions, &mut collect);
+        }
+        for initializer in &function.class_initializers {
+            nexa_ir::walk::walk_expression(&initializer.initial, &mut collect);
+        }
     }
     used.extend(used_by_component);
     module
@@ -822,7 +995,7 @@ fn prune_unused_plugins(module: &mut Module) {
 
 fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
     match ty {
-        nexa_ir::Type::Struct { name, fields } => {
+        nexa_ir::Type::Struct { name, fields } | nexa_ir::Type::Class { name, fields, .. } => {
             used.insert(name.clone());
             for (_, field) in fields {
                 collect_type_struct_names(field, used);
@@ -830,7 +1003,8 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
         }
         nexa_ir::Type::Optional(inner)
         | nexa_ir::Type::Array(inner)
-        | nexa_ir::Type::Set(inner) => collect_type_struct_names(inner, used),
+        | nexa_ir::Type::Set(inner)
+        | nexa_ir::Type::Signal(inner) => collect_type_struct_names(inner, used),
         nexa_ir::Type::Map(key, value)
         | nexa_ir::Type::Pair(key, value)
         | nexa_ir::Type::Result(key, value) => {
@@ -875,7 +1049,12 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::State(_, ty) | Expr::AnimatedState(_, ty) | Expr::Null(ty) => {
             collect_type_struct_names(ty, used)
         }
-        Expr::Call { return_type, .. } => collect_type_struct_names(return_type, used),
+        Expr::This(ty) => collect_type_struct_names(ty, used),
+        Expr::Call { return_type, .. }
+        | Expr::PluginEnumConstructor { return_type, .. }
+        | Expr::PluginEnumOptionalConstructor { return_type, .. } => {
+            collect_type_struct_names(return_type, used)
+        }
         Expr::NativeCall { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::TimeCall { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::Conditional { value_type, .. } => collect_type_struct_names(value_type, used),
@@ -913,7 +1092,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::CollectionUtility { element_type, .. } => {
             collect_type_struct_names(element_type, used)
         }
-        Expr::CollectionTransform { .. } | Expr::Closure { .. } => {}
+        Expr::CollectionTransform { .. } | Expr::Closure { .. } | Expr::LocalizedText { .. } => {}
         Expr::String(_)
         | Expr::Interpolation(_)
         | Expr::Bool(_)
@@ -1016,9 +1195,13 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
                 state,
                 focused,
                 actions,
+                on_change,
                 ..
             } => {
                 collect_action_bindings(actions, &mut bindings);
+                if let Some(change) = on_change {
+                    collect_action_bindings(&change.actions, &mut bindings);
+                }
                 bindings.push(state.clone());
                 if let Some(focused) = focused {
                     bindings.push(focused.clone());
@@ -1030,8 +1213,20 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             | Node::Picker { state, .. }
             | Node::BottomSheet { state, .. }
             | Node::Dialog { state, .. }
-            | Node::AppBottomBar { state, .. } => {
+            | Node::ConfirmationDialog { state, .. }
+            | Node::AppBottomBar { state, .. }
+            | Node::PagePager { state, .. } => {
                 bindings.push(state.clone());
+            }
+            Node::DatePicker {
+                timestamp_state,
+                has_time_state,
+            } => {
+                bindings.push(timestamp_state.clone());
+                bindings.push(has_time_state.clone());
+            }
+            Node::NavigationSplitView { detail_visible, .. } => {
+                bindings.push(detail_visible.clone());
             }
             Node::FastList { plan } => {
                 if let Some(scroll_position) = plan.scroll_position() {
@@ -1072,9 +1267,11 @@ impl IrVisitor for ActionBindingCollector<'_> {
             Action::Assign { name, .. } | Action::CollectionMutation { name, .. } => {
                 self.used.push(name.clone());
             }
-            Action::TaskLaunch { handle, .. } | Action::TaskCancel { handle } => {
-                self.used.push(handle.clone());
+            Action::TaskLaunch {
+                handle: Some(handle),
+                ..
             }
+            | Action::TaskCancel { handle } => self.used.push(handle.clone()),
             _ => {}
         }
         nexa_ir::walk::walk_action_children(action, self);
@@ -1102,7 +1299,11 @@ impl IrVisitor for ActionStateRefCollector<'_> {
             Action::Assign { name, .. } | Action::CollectionMutation { name, .. } => {
                 self.used.insert(name.clone());
             }
-            Action::TaskLaunch { handle, .. } | Action::TaskCancel { handle } => {
+            Action::TaskLaunch {
+                handle: Some(handle),
+                ..
+            }
+            | Action::TaskCancel { handle } => {
                 self.used.insert(handle.clone());
             }
             _ => {}
@@ -1151,6 +1352,11 @@ impl IrFolder for IrOptimizer {
                 icon,
                 loading,
                 disabled,
+                style,
+                size,
+                shape,
+                tint,
+                glass,
                 actions,
             } => Some(Node::Button {
                 label: self.fold_expr(label),
@@ -1161,6 +1367,16 @@ impl IrFolder for IrOptimizer {
                 disabled: disabled
                     .map(|disabled| self.fold_expr(disabled))
                     .filter(|disabled| !matches!(disabled, Expr::Bool(false))),
+                style,
+                size,
+                shape,
+                tint: tint.map(|tint| match tint {
+                    nexa_ir::ColorExpression::Dynamic(color) => {
+                        nexa_ir::ColorExpression::Dynamic(self.fold_expr(color))
+                    }
+                    other => other,
+                }),
+                glass,
                 actions: self.fold_actions(actions),
             }),
             Node::If {
@@ -1199,6 +1415,15 @@ impl IrFolder for IrOptimizer {
                     guard => Some(guard),
                 }),
                 children: self.fold_nodes(children),
+            }),
+            Node::NavigationSplitView {
+                detail_visible,
+                sidebar,
+                detail,
+            } => Some(Node::NavigationSplitView {
+                detail_visible,
+                sidebar: self.fold_nodes(sidebar),
+                detail: self.fold_nodes(detail),
             }),
             other => fold_node_children(other, self),
         }
@@ -1784,7 +2009,9 @@ mod tests {
                     value: Expr::String(value),
                     ..
                 } => texts.push(value.clone()),
-                Node::Layout { children, .. } => texts.extend(text_under(children)),
+                Node::Layout { children, .. } | Node::Toolbar { children, .. } => {
+                    texts.extend(text_under(children))
+                }
                 _ => {}
             }
         }
@@ -1822,6 +2049,7 @@ mod tests {
 
     fn module_with_body(body: Vec<Node>) -> Module {
         Module {
+            widgets: Vec::new(),
             app_name: "FlattenApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -1829,6 +2057,7 @@ mod tests {
             structs: Vec::new(),
             functions: Vec::new(),
             background_tasks: Vec::new(),
+            globals: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),

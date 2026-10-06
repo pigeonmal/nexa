@@ -11,12 +11,20 @@ use crate::generator::{
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_text_node, "androidx.compose.material3.Text");
     imports.add(
+        features.uses_text_node,
+        "androidx.compose.ui.text.style.TextAlign",
+    );
+    imports.add(
         features.uses_font_weight,
         "androidx.compose.ui.text.font.FontWeight",
     );
     imports.add(
         features.uses_selectable_text,
         "androidx.compose.foundation.text.selection.SelectionContainer",
+    );
+    imports.add(
+        features.uses_text_node,
+        "androidx.compose.ui.text.style.TextDecoration",
     );
 }
 
@@ -41,6 +49,14 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
             kotlin_font_weight(font_weight)
         ));
     }
+    if let Some(alignment) = style.alignment {
+        let alignment = match alignment {
+            nexa_ir::TextAlignment::Leading => "Start",
+            nexa_ir::TextAlignment::Center => "Center",
+            nexa_ir::TextAlignment::Trailing => "End",
+        };
+        out.push_str(&format!(", textAlign = TextAlign.{alignment}"));
+    }
     if let Some(line_limit) = style.line_limit {
         out.push_str(&format!(", maxLines = {line_limit}"));
     }
@@ -49,6 +65,9 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     }
     if let Some(letter_spacing) = style.letter_spacing {
         out.push_str(&format!(", letterSpacing = {}.sp", number(letter_spacing)));
+    }
+    if style.strikethrough {
+        out.push_str(", textDecoration = TextDecoration.LineThrough");
     }
     append_visual_modifier(style, out);
     out.push(')');

@@ -1,0 +1,13 @@
+[package]
+name = "nexa-plugin-compiler-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+nexa-testkit = { path = "../nexa-testkit" }
+serde_json = "1"

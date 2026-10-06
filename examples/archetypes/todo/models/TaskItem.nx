@@ -1,0 +1,14 @@
+struct TaskItem {
+    id: Int32,
+    title: String,
+    taskDescription: String,
+    dueTimestamp: Int64?,
+    hasTime: Bool,
+    priority: String,
+    isCompleted: Bool,
+    completedTimestamp: Int64?,
+    isDeleted: Bool,
+    sortOrder: Int32,
+    commentCount: Int32,
+    reminderCount: Int32
+}

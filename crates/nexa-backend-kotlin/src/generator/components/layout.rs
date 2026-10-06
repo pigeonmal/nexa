@@ -3,7 +3,7 @@ use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Node, ViewStyle};
 
 use crate::generator::{
     colors,
-    components::render_node,
+    components::{render_children, render_node},
     features::Features,
     utils::{indent, number, spaces},
 };
@@ -76,6 +76,22 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_column,
         "androidx.compose.foundation.layout.Column",
     );
+    imports.add(
+        features.uses_form,
+        "androidx.compose.foundation.layout.fillMaxSize",
+    );
+    imports.add(
+        features.uses_form,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_form,
+        "androidx.compose.foundation.rememberScrollState",
+    );
+    imports.add(
+        features.uses_form,
+        "androidx.compose.foundation.verticalScroll",
+    );
     imports.add(features.uses_row, "androidx.compose.foundation.layout.Row");
     imports.add(
         features.uses_arrangement,
@@ -93,6 +109,8 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_padding,
         "androidx.compose.foundation.layout.padding",
     );
+    imports.add(features.uses_form, "androidx.compose.ui.Modifier");
+    imports.add(features.uses_form, "androidx.compose.ui.unit.dp");
     imports.add(
         features.uses_width,
         "androidx.compose.foundation.layout.width",
@@ -220,6 +238,61 @@ pub(crate) fn render_layout(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+pub(crate) fn render_form_section(
+    title: Option<&nexa_ir::Expr>,
+    footer: Option<&nexa_ir::Expr>,
+    children: &[Node],
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    out.line_at(
+        depth,
+        format_args!("Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {{"),
+    );
+    if let Some(title) = title {
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "Text({}, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = androidx.compose.material3.MaterialTheme.typography.titleSmall)",
+                crate::generator::engine::expressions::text_expression(title)
+            ),
+        );
+    }
+    for (index, child) in children.iter().enumerate() {
+        render_node(child, scope.module, scope.features, depth + 1, out);
+        if index + 1 < children.len() || footer.is_some() {
+            out.push('\n');
+        }
+    }
+    if let Some(footer) = footer {
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "Text({}, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = androidx.compose.material3.MaterialTheme.typography.bodySmall)",
+                crate::generator::engine::expressions::text_expression(footer)
+            ),
+        );
+    }
+    out.line_at(depth, format_args!("}}"));
+}
+
+pub(crate) fn render_form(
+    children: &[Node],
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    out.line_at(
+        depth,
+        format_args!(
+            "Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {{"
+        ),
+    );
+    render_children(children, scope.module, scope.features, depth + 1, out);
+    out.line_at(depth, format_args!("}}"));
 }
 
 fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {

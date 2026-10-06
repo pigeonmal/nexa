@@ -2,7 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
     Action, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node,
-    TaskExecutor,
+    SystemIcon, TaskExecutor,
 };
 
 use crate::generator::{
@@ -13,16 +13,24 @@ use crate::generator::{
 
 use crate::generator::engine::features::Features;
 use crate::generator::engine::imports::ImportSet;
+use crate::generator::engine::types::swift_type;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_haptic, "UIKit");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_button(
     label: &nexa_ir::Expr,
-    icon: Option<&str>,
+    comment: Option<&str>,
+    icon: Option<&SystemIcon>,
     loading: Option<&nexa_ir::Expr>,
     disabled: Option<&nexa_ir::Expr>,
+    style: Option<nexa_ir::ButtonStyle>,
+    size: Option<nexa_ir::ButtonSize>,
+    shape: Option<nexa_ir::ButtonShape>,
+    tint: Option<&nexa_ir::ColorExpression>,
+    glass: bool,
     actions: &[Action],
     depth: usize,
     out: &mut SourceWriter,
@@ -44,7 +52,7 @@ pub(crate) fn render_button(
         out.push_str("ProgressView()\n");
         indent(out, depth + 1);
         out.push_str("} else {\n");
-        render_button_label(label, icon, depth + 2, out);
+        render_button_label(label, comment, icon, depth + 2, out);
         indent(out, depth + 1);
         out.push('}');
         out.push('\n');
@@ -57,65 +65,122 @@ pub(crate) fn render_button(
             out.push_str(&expression(disabled));
         }
         out.push(')');
+        render_button_modifiers(style, size, shape, tint, glass, out);
         return;
     }
     indent(out, depth);
-    if icon.is_none() {
-        out.push_str(&format!("Button({}) {{", expression(label)));
-        if actions.is_empty() {
-            out.push_str(" }");
-        } else {
-            out.push('\n');
-            render_actions(actions, depth + 1, out);
-            indent(out, depth);
-            out.push('}');
-        }
+    out.push_str("Button(action: {");
+    if actions.is_empty() {
+        out.push_str(" }) {");
     } else {
-        out.push_str("Button(action: {");
-        if actions.is_empty() {
-            out.push_str(" }) {");
-        } else {
-            out.push('\n');
-            render_actions(actions, depth + 1, out);
-            indent(out, depth);
-            out.push_str("}) {");
-        }
         out.push('\n');
-        render_button_label(label, icon, depth + 1, out);
-        out.push('\n');
+        render_actions(actions, depth + 1, out);
         indent(out, depth);
-        out.push('}');
+        out.push_str("}) {");
     }
+    out.push('\n');
+    render_button_label(label, comment, icon, depth + 1, out);
+    indent(out, depth);
+    out.push('}');
     if let Some(disabled) = disabled {
         out.push_str(&format!(".disabled({})", expression(disabled)));
+    }
+    render_button_modifiers(style, size, shape, tint, glass, out);
+}
+
+fn render_button_modifiers(
+    style: Option<nexa_ir::ButtonStyle>,
+    size: Option<nexa_ir::ButtonSize>,
+    shape: Option<nexa_ir::ButtonShape>,
+    tint: Option<&nexa_ir::ColorExpression>,
+    glass: bool,
+    out: &mut SourceWriter,
+) {
+    if let Some(style) = style {
+        match style {
+            nexa_ir::ButtonStyle::BorderedProminent => {
+                out.push_str(".buttonStyle(.borderedProminent)")
+            }
+            nexa_ir::ButtonStyle::Bordered => out.push_str(".buttonStyle(.bordered)"),
+            nexa_ir::ButtonStyle::Borderless => out.push_str(".buttonStyle(.borderless)"),
+            nexa_ir::ButtonStyle::Plain => out.push_str(".buttonStyle(.plain)"),
+        }
+    }
+    if let Some(size) = size {
+        match size {
+            nexa_ir::ButtonSize::Small => out.push_str(".controlSize(.small)"),
+            nexa_ir::ButtonSize::Regular => out.push_str(".controlSize(.regular)"),
+            nexa_ir::ButtonSize::Large => out.push_str(".controlSize(.large)"),
+        }
+    }
+    if let Some(shape) = shape {
+        match shape {
+            nexa_ir::ButtonShape::Capsule => out.push_str(".nexaButtonShape(.capsule)"),
+            nexa_ir::ButtonShape::Circle => out.push_str(".nexaButtonShape(.circle)"),
+            nexa_ir::ButtonShape::Rounded(r) => {
+                out.push_str(&format!(".nexaButtonShape(.roundedRectangle({}))", r))
+            }
+        }
+    }
+    if let Some(tint) = tint {
+        out.push_str(&format!(
+            ".tint({})",
+            crate::generator::colors::expression_for_color(tint)
+        ));
+    }
+    if glass {
+        let shape_str = match shape {
+            Some(nexa_ir::ButtonShape::Circle) => ".circle",
+            Some(nexa_ir::ButtonShape::Rounded(r)) => &format!(".rounded({})", r),
+            _ => ".capsule",
+        };
+        if let Some(tint) = tint {
+            out.push_str(&format!(
+                ".nexaGlass(tint: {}, shape: {})",
+                crate::generator::colors::expression_for_color(tint),
+                shape_str
+            ));
+        } else {
+            out.push_str(&format!(".nexaGlass(shape: {})", shape_str));
+        }
     }
 }
 
 fn render_button_label(
     label: &nexa_ir::Expr,
-    icon: Option<&str>,
+    comment: Option<&str>,
+    icon: Option<&SystemIcon>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
     if let Some(icon) = icon {
         out.push_str(&format!(
-            "Label({}, systemImage: {})\n",
-            expression(label),
-            swift_string(icon)
+            "Label {{ {} }} icon: {{ Image(systemName: {}) }}\n",
+            crate::generator::expressions::localized_text_view(label, comment),
+            swift_string(&icon.sf_symbol_name()),
         ));
     } else {
-        out.push_str(&format!("Text({})\n", expression(label)));
+        out.push_str(&format!(
+            "{}\n",
+            crate::generator::expressions::localized_text_view(label, comment)
+        ));
     }
 }
 
-pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_switch(
+    state: &str,
+    label: &nexa_ir::Expr,
+    comment: Option<&str>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     out.text_at(
         depth,
         format_args!(
-            "Toggle({}, isOn: ${})",
-            swift_string(label),
-            state_name(state)
+            "Toggle(isOn: ${}) {{ {} }}",
+            state_name(state),
+            crate::generator::expressions::localized_text_view(label, comment)
         ),
     );
 }
@@ -183,9 +248,81 @@ pub(crate) fn render_segmented_control(
 pub(crate) fn render_picker(
     items: &nexa_ir::Expr,
     state: &str,
+    icon: Option<&SystemIcon>,
+    label: Option<&nexa_ir::Expr>,
+    comment: Option<&str>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    if let Some(label) = label {
+        let selected = state_name(state);
+        out.line_at(depth, format_args!("Picker(selection: ${selected}) {{"));
+        out.line_at(
+            depth + 1,
+            format_args!("ForEach({}, id: \\.self) {{ item in", expression(items)),
+        );
+        out.line_at(depth + 2, format_args!("Text(item).tag(item)"));
+        out.line_at(depth + 1, format_args!("}}"));
+        if let Some(icon) = icon {
+            out.line_at(depth, format_args!("}} label: {{ Label {{"));
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "{}",
+                    crate::generator::expressions::localized_text_view(label, comment)
+                ),
+            );
+            out.line_at(
+                depth,
+                format_args!(
+                    "}} icon: {{ Image(systemName: {}) }} }}",
+                    swift_string(&icon.sf_symbol_name())
+                ),
+            );
+        } else {
+            out.line_at(
+                depth,
+                format_args!(
+                    "}} label: {{ {} }}",
+                    crate::generator::expressions::localized_text_view(label, comment)
+                ),
+            );
+        }
+        return;
+    }
+    if let Some(icon) = icon {
+        let selected = state_name(state);
+        out.line_at(depth, format_args!("Menu {{"));
+        out.line_at(
+            depth + 1,
+            format_args!("ForEach({}, id: \\.self) {{ item in", expression(items)),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!("Button {{ {selected} = item }} label: {{"),
+        );
+        out.line_at(depth + 3, format_args!("if item == {selected} {{"));
+        out.line_at(
+            depth + 4,
+            format_args!("Label(item, systemImage: \"checkmark\")"),
+        );
+        out.line_at(depth + 3, format_args!("}} else {{"));
+        out.line_at(depth + 4, format_args!("Text(item)"));
+        out.line_at(depth + 3, format_args!("}}"));
+        out.line_at(depth + 2, format_args!("}}"));
+        out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(
+            depth,
+            format_args!(
+                "}} label: {{ Image(systemName: {}) }}",
+                swift_string(&icon.sf_symbol_name())
+            ),
+        );
+        out.push_str(&format!(
+            ".accessibilityLabel(\"Choose an option\").accessibilityValue({selected})"
+        ));
+        return;
+    }
     out.line_at(
         depth,
         format_args!("Picker(\"\", selection: ${}) {{", state_name(state)),
@@ -198,6 +335,39 @@ pub(crate) fn render_picker(
     out.line_at(depth + 1, format_args!("}}"));
     indent(out, depth);
     out.push_str("}.pickerStyle(.menu).labelsHidden()");
+}
+
+pub(crate) fn render_date_picker(
+    timestamp_state: &str,
+    has_time_state: &str,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let timestamp = state_name(timestamp_state);
+    let has_time = state_name(has_time_state);
+    out.line_at(depth, format_args!("VStack(spacing: 8) {{"));
+    out.line_at(
+        depth + 1,
+        format_args!("Toggle(\"Time\", isOn: ${has_time})"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("DatePicker(\"Select Date\", selection: Binding("),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!("get: {{ Date(timeIntervalSince1970: TimeInterval({timestamp}) / 1000) }},"),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!("set: {{ {timestamp} = Int64(($0.timeIntervalSince1970 * 1000).rounded()) }}"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("), displayedComponents: {has_time} ? [.date, .hourAndMinute] : [.date])"),
+    );
+    out.line_at(depth + 2, format_args!(".datePickerStyle(.graphical)"));
+    out.line_at(depth + 1, format_args!("}}"));
 }
 
 pub(crate) fn render_pressable(
@@ -216,6 +386,7 @@ pub(crate) fn render_pressable(
         double_tap_actions,
         long_press_duration_ms,
         long_press_actions,
+        context_menu,
         drag_parameters,
         drag_actions,
         pinch_parameter,
@@ -337,6 +508,7 @@ pub(crate) fn render_pressable(
             indent(out, depth);
             out.push('}');
         }
+        render_context_menu(context_menu, module, features, depth, out);
         if has_drag || has_pinch {
             out.push('\n');
             indent(out, root_depth);
@@ -374,9 +546,7 @@ pub(crate) fn render_pressable(
     }
     out.push_str(".buttonStyle(.plain)");
     if *fill_max_size {
-        out.push_str(
-            ".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())",
-        );
+        out.push_str(".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())");
     }
     if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
         out.push_str(".onLongPressGesture(minimumDuration: ");
@@ -390,11 +560,29 @@ pub(crate) fn render_pressable(
         indent(out, depth);
         out.push('}');
     }
+    render_context_menu(context_menu, module, features, depth, out);
     if has_drag || has_pinch {
         out.push('\n');
         indent(out, root_depth);
         out.push('}');
     }
+}
+
+fn render_context_menu(
+    context_menu: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    if context_menu.is_empty() {
+        return;
+    }
+    out.push_str(".contextMenu {\n");
+    render_children(context_menu, module, features, depth + 1, out);
+    out.push('\n');
+    indent(out, depth);
+    out.push('}');
 }
 
 fn long_press_duration_seconds(duration_ms: &Expr) -> String {
@@ -447,6 +635,20 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
         match action {
             Action::Expression(value) => {
                 out.line_at(depth, format_args!("{}", expression(value)));
+            }
+            Action::Let { name, ty, value } => {
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "let {}: {} = {}",
+                        state_name(name),
+                        swift_type(ty),
+                        expression(value)
+                    ),
+                );
+            }
+            Action::Return { value } => {
+                out.line_at(depth, format_args!("return {}", expression(value)));
             }
             Action::Assign { name, value } => {
                 out.line_at(
@@ -508,10 +710,14 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 executor,
                 actions,
             } => {
-                let handle = state_name(handle);
-                out.line_at(depth, format_args!("{handle}?.cancel()"));
-                indent(out, depth);
-                out.push_str(&format!("{handle} = "));
+                let handle = handle.as_ref().map(|handle| state_name(handle));
+                if let Some(handle) = &handle {
+                    out.line_at(depth, format_args!("{handle}?.cancel()"));
+                    indent(out, depth);
+                    out.push_str(&format!("{handle} = "));
+                } else {
+                    indent(out, depth);
+                }
                 match executor {
                     TaskExecutor::Main => out.push_str("Task { @MainActor in\n"),
                     TaskExecutor::Background => out.push_str("Task.detached {\n"),
@@ -554,6 +760,35 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                     }
                     CollectionMutation::ArrayRemoveAt => {
                         out.push_str(&format!("{state}.remove(at: Int({}))\n", rendered[0]));
+                    }
+                    CollectionMutation::ArrayMove => {
+                        let suffix = out.next_id();
+                        let from = format!("nexaMoveFrom{suffix}");
+                        let to = format!("nexaMoveTo{suffix}");
+                        let moved_value = format!("nexaMovedValue{suffix}");
+                        let nested_indent = "    ".repeat(depth + 1);
+                        let line_indent = "    ".repeat(depth);
+                        out.push_str(&format!(
+                            "let {from} = Int({})\n{line_indent}let {to} = Int({})\n{line_indent}if {state}.indices.contains({from}) && {state}.indices.contains({to}) && {from} != {to} {{\n{nested_indent}let {moved_value} = {state}.remove(at: {from})\n{nested_indent}{state}.insert({moved_value}, at: {to})\n{line_indent}}}\n",
+                            rendered[0], rendered[1],
+                        ));
+                    }
+                    CollectionMutation::ArrayMoveSubset => {
+                        let suffix = out.next_id();
+                        let from = format!("nexaMoveFrom{suffix}");
+                        let to = format!("nexaMoveTo{suffix}");
+                        let original = format!("nexaOriginalSubset{suffix}");
+                        let reordered = format!("nexaReorderedSubset{suffix}");
+                        let cursor = format!("nexaSubsetCursor{suffix}");
+                        let slots = format!("nexaSubsetSlots{suffix}");
+                        let moved = format!("nexaSubsetMoved{suffix}");
+                        let nested_indent = "    ".repeat(depth + 1);
+                        let inner_indent = "    ".repeat(depth + 2);
+                        let line_indent = "    ".repeat(depth);
+                        out.push_str(&format!(
+                            "let {from} = Int({})\n{line_indent}let {to} = Int({})\n{line_indent}let {original} = {}\n{line_indent}var {reordered} = {original}\n{line_indent}if {from} >= 0 && {from} < {reordered}.count && {to} >= 0 && {to} < {reordered}.count && {from} != {to} {{\n{nested_indent}let {moved} = {reordered}.remove(at: {from})\n{nested_indent}{reordered}.insert({moved}, at: {to})\n{line_indent}}}\n{line_indent}var {cursor} = 0\n{line_indent}var {slots}: [Int] = []\n{line_indent}for nexaBackingIndex{suffix} in {state}.indices where {cursor} < {original}.count {{\n{nested_indent}if {state}[nexaBackingIndex{suffix}] == {original}[{cursor}] {{\n{inner_indent}{slots}.append(nexaBackingIndex{suffix})\n{inner_indent}{cursor} += 1\n{nested_indent}}}\n{line_indent}}}\n{line_indent}if {cursor} == {original}.count {{\n{nested_indent}for nexaSubsetIndex{suffix} in {original}.indices {{\n{inner_indent}{state}[{slots}[nexaSubsetIndex{suffix}]] = {reordered}[nexaSubsetIndex{suffix}]\n{nested_indent}}}\n{line_indent}}}\n",
+                            rendered[0], rendered[1], rendered[2],
+                        ));
                     }
                     CollectionMutation::SetInsert => {
                         out.push_str(&format!("{state}.insert({})\n", rendered[0]));
@@ -694,6 +929,11 @@ fn render_swift_error_catches(
                 out.push_str(&format!("case let .{}({bindings}):\n", arm.variant));
             }
             render_actions(&arm.body, depth + 3, out);
+            // Swift does not implicitly terminate an enum switch case. Emit an
+            // explicit break even when the handler has actions so generated
+            // cases are always complete and never rely on fallthrough rules.
+            indent(out, depth + 3);
+            out.push_str("break\n");
         }
         if let Some(catch_all) = catch_all {
             indent(out, depth + 2);
@@ -725,7 +965,7 @@ fn render_swift_error_catches(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Action, Expr, NumericType, TaskExecutor, Type};
+    use nexa_ir::{Action, CollectionMutation, Expr, NumericType, TaskExecutor, Type};
 
     use super::{render_actions, render_progress_bar, render_progress_ring, render_slider};
 
@@ -752,6 +992,28 @@ mod tests {
             output.as_str(),
             "Slider(value: $nexa_volume, in: 0...1, step: 0.1)\n"
         );
+    }
+
+    #[test]
+    fn renders_array_move_as_one_native_remove_and_insert() {
+        let int = |raw: &str| Expr::Number {
+            raw: raw.to_owned(),
+            ty: NumericType::Int32,
+        };
+        let actions = [Action::CollectionMutation {
+            name: "items".to_owned(),
+            operation: CollectionMutation::ArrayMove,
+            arguments: vec![int("2"), int("0")],
+        }];
+        let mut output = SourceWriter::new();
+
+        render_actions(&actions, 0, &mut output);
+
+        assert!(output.contains("let nexaMoveFrom"));
+        assert!(output.contains("nexa_items.indices.contains(nexaMoveFrom"));
+        assert!(output.contains("nexa_items.remove(at: nexaMoveFrom"));
+        assert!(output.contains("nexa_items.insert(nexaMovedValue"));
+        assert!(output.contains(", at: nexaMoveTo"));
     }
 
     #[test]
@@ -802,7 +1064,7 @@ mod tests {
     fn renders_task_launch_and_cancellation_on_the_selected_executor() {
         let actions = [
             Action::TaskLaunch {
-                handle: "refreshTask".to_owned(),
+                handle: Some("refreshTask".to_owned()),
                 executor: TaskExecutor::Main,
                 actions: vec![Action::Assign {
                     name: "finished".to_owned(),
@@ -810,9 +1072,14 @@ mod tests {
                 }],
             },
             Action::TaskLaunch {
-                handle: "workerTask".to_owned(),
+                handle: Some("workerTask".to_owned()),
                 executor: TaskExecutor::Background,
                 actions: vec![Action::Expression(Expr::Bool(true))],
+            },
+            Action::TaskLaunch {
+                handle: None,
+                executor: TaskExecutor::Main,
+                actions: vec![Action::Expression(Expr::Bool(false))],
             },
             Action::TaskCancel {
                 handle: "refreshTask".to_owned(),
@@ -827,6 +1094,7 @@ mod tests {
         );
         assert!(output.contains("nexa_finished = true"));
         assert!(output.contains("nexa_workerTask = Task.detached {"));
+        assert!(output.contains("Task { @MainActor in\n    false\n}"));
         assert!(output.ends_with("nexa_refreshTask?.cancel()\n"));
     }
 
@@ -881,10 +1149,7 @@ mod tests {
                     error_type: "PlayerError".to_owned(),
                     variant: "invalidUrl".to_owned(),
                     parameters: Vec::new(),
-                    body: vec![Action::Assign {
-                        name: "failed".to_owned(),
-                        value: Expr::Bool(true),
-                    }],
+                    body: Vec::new(),
                 },
                 nexa_ir::ErrorCatchArm {
                     namespace: "Video".to_owned(),
@@ -905,6 +1170,7 @@ mod tests {
 
         assert!(output.contains("} catch let error as PlayerError {"));
         assert!(output.contains("case .invalidUrl:"));
+        assert!(output.contains("break\n"));
         assert!(output.contains("case let .decodingFailed(nexa_message):"));
         assert!(output.contains("nexa_loadError = nexa_message"));
         assert!(

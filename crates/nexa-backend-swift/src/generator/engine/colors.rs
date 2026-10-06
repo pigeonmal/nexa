@@ -1,4 +1,4 @@
-use nexa_ir::{Color, ColorValue};
+use nexa_ir::{Color, ColorExpression, ColorValue};
 
 pub(crate) fn expression(color: ColorValue) -> String {
     match color {
@@ -7,6 +7,16 @@ pub(crate) fn expression(color: ColorValue) -> String {
             "(nexaColorScheme == .dark ? {} : {})",
             static_expression(dark),
             static_expression(light)
+        ),
+    }
+}
+
+pub(crate) fn expression_for_color(color: &ColorExpression) -> String {
+    match color {
+        ColorExpression::Static(color) => expression(*color),
+        ColorExpression::Dynamic(value) => format!(
+            "nexaColor(hex: {})",
+            crate::generator::expressions::expression(value)
         ),
     }
 }
