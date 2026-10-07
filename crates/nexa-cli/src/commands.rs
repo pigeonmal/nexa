@@ -2,17 +2,22 @@ use crossterm::{
     cursor::MoveTo,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
+    style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet, HashMap},
     env, fs,
-    io::{self, BufRead, IsTerminal},
+    io::{self, BufRead, IsTerminal, Read},
     path::{Path, PathBuf},
-    process::{Command, ExitStatus},
-    sync::mpsc::{self, Receiver, TryRecvError},
+    process::{Child, Command, ExitStatus, Stdio},
+    sync::mpsc::{self, Receiver, Sender, TryRecvError},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub(super) fn run(args: Vec<String>) -> Result<(), String> {
@@ -726,13 +731,44 @@ fn watch_sources(
     let mut performance_overlay_enabled = false;
     let mut native_rebuild_pending = false;
     let mut active_device: Option<(String, String)> = None;
+    let (device_log_sender, device_log_receiver) = mpsc::channel();
+    let mut device_log_streams = start_device_log_streams(context, &device_log_sender);
+    let mut log_deduplicator = DeviceLogDeduplicator::default();
     let (console_commands, _raw_terminal) = start_dev_console_input();
     loop {
+        while let Ok(event) = device_log_receiver.try_recv() {
+            match event {
+                DeviceLogEvent::Line(line) => {
+                    for output in log_deduplicator.push(line, Instant::now()) {
+                        print_device_log(&output);
+                    }
+                }
+                DeviceLogEvent::Ended {
+                    platform,
+                    device_id,
+                } => eprintln!("[{platform}] device log stream ended ({device_id})"),
+                DeviceLogEvent::Error {
+                    platform,
+                    device_id,
+                    message,
+                } => eprintln!("[{platform}] device log stream failed ({device_id}): {message}"),
+            }
+        }
+        for output in log_deduplicator.flush_expired(Instant::now()) {
+            print_device_log(&output);
+        }
         match console_commands.try_recv() {
             Ok(DevConsoleCommand::HotReload) => {
                 println!("Hot reloading Nexa source...");
                 match reload_or_rebuild_dev_app(context, background_tasks, compiler) {
-                    Ok(true) => println!("Native app rebuilt for background task changes."),
+                    Ok(true) => {
+                        println!("Native app rebuilt for background task changes.");
+                        refresh_device_log_streams(
+                            context,
+                            &device_log_sender,
+                            &mut device_log_streams,
+                        );
+                    }
                     Ok(false) => println!("Nexa source reloaded in the running app."),
                     Err(error) => {
                         eprintln!("{error}");
@@ -746,6 +782,12 @@ fn watch_sources(
                     Ok(rebuilt) => {
                         if !rebuilt {
                             context.server.publish_restart("hot restart requested");
+                        } else {
+                            refresh_device_log_streams(
+                                context,
+                                &device_log_sender,
+                                &mut device_log_streams,
+                            );
                         }
                         println!("Nexa app state restarted in the running app.");
                     }
@@ -774,6 +816,11 @@ fn watch_sources(
                     )?;
                     let resolved = crate::dependencies::resolve(context.root, &dependencies)?;
                     plugin_roots = resolved.plugin_roots.into_values().collect();
+                    refresh_device_log_streams(
+                        context,
+                        &device_log_sender,
+                        &mut device_log_streams,
+                    );
                 }
                 previous = source_fingerprint(context.root, &plugin_roots)?;
                 if rebuilt {
@@ -787,7 +834,13 @@ fn watch_sources(
                         "Selected [{}] {} ({})",
                         device.platform, device.name, device.id
                     );
-                    active_device = Some((device.platform, device.id));
+                    active_device = Some((device.platform.clone(), device.id.clone()));
+                    let platform = display_device_platform(&device.platform);
+                    device_log_streams.retain(|stream| stream.platform != platform);
+                    match start_device_log_stream(context, &device, device_log_sender.clone()) {
+                        Ok(stream) => device_log_streams.push(stream),
+                        Err(error) => eprintln!("warning: {error}"),
+                    }
                 }
                 Err(error) => eprintln!("device selector: {error}"),
             },
@@ -861,6 +914,7 @@ fn watch_sources(
             Ok(true) => {
                 native_rebuild_pending = false;
                 println!("Background task changes rebuilt and relaunched the native app.");
+                refresh_device_log_streams(context, &device_log_sender, &mut device_log_streams);
             }
             Ok(false) => println!("Nexa source reloaded in the running app."),
             Err(error) => {
@@ -869,6 +923,444 @@ fn watch_sources(
             }
         }
     }
+}
+
+#[derive(Clone, Debug)]
+struct DeviceLogLine {
+    platform: String,
+    device_id: String,
+    text: String,
+}
+
+enum DeviceLogEvent {
+    Line(DeviceLogLine),
+    Ended {
+        platform: String,
+        device_id: String,
+    },
+    Error {
+        platform: String,
+        device_id: String,
+        message: String,
+    },
+}
+
+struct DeviceLogStream {
+    platform: String,
+    child: Child,
+    readers: Vec<thread::JoinHandle<()>>,
+    stopping: Arc<AtomicBool>,
+}
+
+impl Drop for DeviceLogStream {
+    fn drop(&mut self) {
+        self.stopping.store(true, Ordering::Release);
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        for reader in self.readers.drain(..) {
+            let _ = reader.join();
+        }
+    }
+}
+
+fn start_device_log_streams(
+    context: &DevWatchContext<'_>,
+    sender: &Sender<DeviceLogEvent>,
+) -> Vec<DeviceLogStream> {
+    let mut devices = Vec::new();
+    if matches!(context.platform, "ios" | "all") {
+        match available_ios_devices() {
+            Ok(available) => {
+                if let Some(device) = available
+                    .iter()
+                    .find(|device| device.booted)
+                    .or_else(|| available.first())
+                {
+                    devices.push(device.clone());
+                }
+            }
+            Err(error) => eprintln!("warning: cannot start iOS device logs: {error}"),
+        }
+    }
+    if matches!(context.platform, "android" | "all") {
+        match available_android_devices() {
+            Ok(available) => {
+                if let Some(device) = available.into_iter().next() {
+                    devices.push(device);
+                }
+            }
+            Err(error) => eprintln!("warning: cannot start Android device logs: {error}"),
+        }
+    }
+
+    devices
+        .iter()
+        .filter_map(
+            |device| match start_device_log_stream(context, device, sender.clone()) {
+                Ok(stream) => Some(stream),
+                Err(error) => {
+                    eprintln!("warning: {error}");
+                    None
+                }
+            },
+        )
+        .collect()
+}
+
+fn refresh_device_log_streams(
+    context: &DevWatchContext<'_>,
+    sender: &Sender<DeviceLogEvent>,
+    streams: &mut Vec<DeviceLogStream>,
+) {
+    streams.clear();
+    streams.extend(start_device_log_streams(context, sender));
+}
+
+fn start_device_log_stream(
+    context: &DevWatchContext<'_>,
+    device: &DevDevice,
+    sender: Sender<DeviceLogEvent>,
+) -> Result<DeviceLogStream, String> {
+    let (mut command, pid_filter) = match device.platform.as_str() {
+        "ios" => {
+            let predicate = format!(
+                "process == \"{}\" OR senderImagePath CONTAINS \"/{}.app/\"",
+                context.project_name, context.project_name
+            );
+            let mut command = Command::new("xcrun");
+            command.args([
+                "simctl",
+                "spawn",
+                &device.id,
+                "log",
+                "stream",
+                "--style",
+                "compact",
+                "--level",
+                "debug",
+                "--predicate",
+                &predicate,
+            ]);
+            (command, None)
+        }
+        "android" => {
+            let package = android_application_id(context.output)?;
+            let pid = android_app_process_id(device, &package)?;
+            let mut command = Command::new("adb");
+            command.args(["-s", &device.id, "logcat", "-v", "brief", "*:V"]);
+            (command, Some(pid))
+        }
+        platform => return Err(format!("unsupported device log platform `{platform}`")),
+    };
+
+    let platform = display_device_platform(&device.platform).to_owned();
+    let device_id = device.id.clone();
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            format!(
+                "cannot start {platform} device logs for {} ({device_id}): {error}",
+                device.name
+            )
+        })?;
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("{platform} device log output is unavailable"));
+    };
+    let Some(stderr) = child.stderr.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("{platform} device log diagnostics are unavailable"));
+    };
+
+    let stdout_platform = platform.clone();
+    let stdout_device = device_id.clone();
+    let stdout_sender = sender.clone();
+    let stopping = Arc::new(AtomicBool::new(false));
+    let stdout_stopping = Arc::clone(&stopping);
+    let reader = thread::Builder::new()
+        .name(format!("nexa-{}-logs", device.platform))
+        .spawn(move || {
+            for line in io::BufReader::new(stdout).lines() {
+                match line {
+                    Ok(text)
+                        if pid_filter
+                            .as_deref()
+                            .is_none_or(|pid| android_log_line_matches_pid(&text, pid)) =>
+                    {
+                        if stdout_sender
+                            .send(DeviceLogEvent::Line(DeviceLogLine {
+                                platform: stdout_platform.clone(),
+                                device_id: stdout_device.clone(),
+                                text,
+                            }))
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        let _ = stdout_sender.send(DeviceLogEvent::Error {
+                            platform: stdout_platform.clone(),
+                            device_id: stdout_device.clone(),
+                            message: error.to_string(),
+                        });
+                        break;
+                    }
+                }
+            }
+            if !stdout_stopping.load(Ordering::Acquire) {
+                let _ = stdout_sender.send(DeviceLogEvent::Ended {
+                    platform: stdout_platform,
+                    device_id: stdout_device,
+                });
+            }
+        })
+        .map_err(|error| {
+            let _ = child.kill();
+            let _ = child.wait();
+            format!("cannot read {platform} device logs: {error}")
+        })?;
+
+    let stderr_platform = platform.clone();
+    let stderr_device = device_id.clone();
+    let stderr_sender = sender;
+    let stderr_reader = match thread::Builder::new()
+        .name(format!("nexa-{}-log-errors", device.platform))
+        .spawn(move || {
+            let mut message = String::new();
+            if let Err(error) = io::BufReader::new(stderr).read_to_string(&mut message) {
+                let _ = stderr_sender.send(DeviceLogEvent::Error {
+                    platform: stderr_platform,
+                    device_id: stderr_device,
+                    message: error.to_string(),
+                });
+            } else if !message.trim().is_empty() {
+                let _ = stderr_sender.send(DeviceLogEvent::Error {
+                    platform: stderr_platform,
+                    device_id: stderr_device,
+                    message: message.trim().to_owned(),
+                });
+            }
+        }) {
+        Ok(reader) => reader,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err(format!(
+                "cannot read {platform} device log diagnostics: {error}"
+            ));
+        }
+    };
+
+    Ok(DeviceLogStream {
+        platform,
+        child,
+        readers: vec![reader, stderr_reader],
+        stopping,
+    })
+}
+
+fn display_device_platform(platform: &str) -> &str {
+    match platform {
+        "ios" => "iOS",
+        "android" => "Android",
+        other => other,
+    }
+}
+
+fn parse_android_process_id(output: &str) -> Option<String> {
+    output
+        .split_whitespace()
+        .find(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+        .map(str::to_owned)
+}
+
+fn android_app_process_id(device: &DevDevice, package: &str) -> Result<String, String> {
+    let mut last_detail = String::new();
+    for attempt in 0..10 {
+        let output = Command::new("adb")
+            .args(["-s", &device.id, "shell", "pidof", package])
+            .output()
+            .map_err(|error| {
+                format!(
+                    "cannot find the Android app process on {}: {error}",
+                    device.name
+                )
+            })?;
+        if output.status.success()
+            && let Some(pid) = parse_android_process_id(&String::from_utf8_lossy(&output.stdout))
+        {
+            return Ok(pid);
+        }
+        last_detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        if attempt < 9 {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    if last_detail.is_empty() {
+        Err(format!(
+            "Android app process `{package}` is not running on {}",
+            device.name
+        ))
+    } else {
+        Err(format!(
+            "cannot find the Android app process `{package}` on {}: {last_detail}",
+            device.name
+        ))
+    }
+}
+
+fn android_log_line_matches_pid(line: &str, pid: &str) -> bool {
+    let Some(open) = line.find('(') else {
+        return false;
+    };
+    let Some(close_offset) = line[open + 1..].find(')') else {
+        return false;
+    };
+    line[open + 1..open + 1 + close_offset].trim() == pid
+}
+
+#[derive(Default)]
+struct DeviceLogDeduplicator {
+    recent: HashMap<String, RecentDeviceLog>,
+}
+
+struct RecentDeviceLog {
+    message: String,
+    platforms: BTreeSet<String>,
+    device_ids: BTreeSet<String>,
+    last_seen: Instant,
+    repeats: usize,
+}
+
+impl DeviceLogDeduplicator {
+    const WINDOW: Duration = Duration::from_millis(1500);
+
+    fn push(&mut self, line: DeviceLogLine, now: Instant) -> Vec<DeviceLogLine> {
+        let message = normalize_device_log(&line);
+        if let Some(recent) = self.recent.get_mut(&message)
+            && now.duration_since(recent.last_seen) <= Self::WINDOW
+        {
+            recent.platforms.insert(line.platform);
+            recent.device_ids.insert(line.device_id);
+            recent.last_seen = now;
+            recent.repeats += 1;
+            return Vec::new();
+        }
+
+        let mut output = self
+            .recent
+            .remove(&message)
+            .and_then(recent_device_log_summary)
+            .into_iter()
+            .collect::<Vec<_>>();
+        self.recent.insert(
+            message,
+            RecentDeviceLog {
+                message: normalize_device_log(&line),
+                platforms: BTreeSet::from([line.platform.clone()]),
+                device_ids: BTreeSet::from([line.device_id.clone()]),
+                last_seen: now,
+                repeats: 0,
+            },
+        );
+        output.push(line);
+        output
+    }
+
+    fn flush_expired(&mut self, now: Instant) -> Vec<DeviceLogLine> {
+        let expired = self
+            .recent
+            .iter()
+            .filter(|(_, recent)| now.duration_since(recent.last_seen) > Self::WINDOW)
+            .map(|(message, _)| message.clone())
+            .collect::<Vec<_>>();
+        expired
+            .into_iter()
+            .filter_map(|message| self.recent.remove(&message))
+            .filter_map(recent_device_log_summary)
+            .collect()
+    }
+}
+
+fn recent_device_log_summary(recent: RecentDeviceLog) -> Option<DeviceLogLine> {
+    (recent.repeats > 0).then(|| DeviceLogLine {
+        platform: recent.platforms.into_iter().collect::<Vec<_>>().join("+"),
+        device_id: recent.device_ids.into_iter().collect::<Vec<_>>().join(","),
+        text: format!("{} (repeated {} times)", recent.message, recent.repeats + 1),
+    })
+}
+
+fn normalize_device_log(line: &DeviceLogLine) -> String {
+    if line.platform == "Android"
+        && let Some((header, message)) = line.text.split_once(": ")
+    {
+        let tag = header
+            .rsplit_once('/')
+            .map_or(header, |(_, tag)| tag)
+            .split('(')
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if !tag.is_empty() {
+            return format!("{tag}: {}", message.trim());
+        }
+    }
+    if line.platform == "iOS"
+        && let Some(index) = line.text.find("[Nexa]")
+    {
+        let message = line.text[index + "[Nexa]".len()..].trim_start();
+        let message = message
+            .strip_prefix('[')
+            .and_then(|message| message.split_once(']'))
+            .map_or(message, |(_, remainder)| remainder.trim_start());
+        return format!("Nexa: {}", message.trim());
+    }
+    line.text.trim().to_owned()
+}
+
+fn print_device_log(line: &DeviceLogLine) {
+    let text = line
+        .text
+        .chars()
+        .map(|character| {
+            if character.is_control() && character != '\t' {
+                '�'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let mut stdout = io::stdout();
+    if stdout.is_terminal() {
+        let color = if line.platform.contains('+') {
+            Color::Magenta
+        } else if line.platform == "iOS" {
+            Color::Cyan
+        } else {
+            Color::Green
+        };
+        if execute!(
+            stdout,
+            SetForegroundColor(color),
+            Print(format!("[{}]", line.platform)),
+            ResetColor,
+            Print(" "),
+            Print(text.as_str()),
+            Print("\r\n")
+        )
+        .is_ok()
+        {
+            return;
+        }
+    }
+    println!("[{}] {text}", line.platform);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2145,12 +2637,61 @@ fn set_flavor(current: &mut Option<String>, requested: &str) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        changed_paths, parse_android_devices, parse_dev_diagnostic, parse_ios_simulator_devices,
-        release_build_arguments, run, run_in_language_tests, select_native_platform,
-        source_fingerprint,
+        DeviceLogDeduplicator, DeviceLogLine, android_log_line_matches_pid, changed_paths,
+        parse_android_devices, parse_android_process_id, parse_dev_diagnostic,
+        parse_ios_simulator_devices, release_build_arguments, run, run_in_language_tests,
+        select_native_platform, source_fingerprint,
     };
     use nexa_testkit::{TempDir, TestProject};
     use std::fs;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn android_device_logs_are_filtered_to_the_app_process() {
+        assert_eq!(
+            parse_android_process_id("\n 4821  4902\n"),
+            Some("4821".to_owned())
+        );
+        assert_eq!(parse_android_process_id("no process"), None);
+        assert!(android_log_line_matches_pid("I/Nexa( 4821): ready", "4821"));
+        assert!(!android_log_line_matches_pid(
+            "I/Nexa( 4902): ready",
+            "4821"
+        ));
+        assert!(!android_log_line_matches_pid("I/Nexa: ready", "4821"));
+    }
+
+    #[test]
+    fn dual_platform_device_logs_coalesce_repeated_messages() {
+        let now = Instant::now();
+        let mut deduplicator = DeviceLogDeduplicator::default();
+        let first = DeviceLogLine {
+            platform: "iOS".to_owned(),
+            device_id: "simulator".to_owned(),
+            text: "12:00 Demo[10:20] [dev.nexa.demo] [Nexa][INFO] Saved: https://example.test/item"
+                .to_owned(),
+        };
+        assert_eq!(deduplicator.push(first, now).len(), 1);
+
+        let duplicate = DeviceLogLine {
+            platform: "Android".to_owned(),
+            device_id: "emulator-5554".to_owned(),
+            text: "I/Nexa( 4821): Saved: https://example.test/item".to_owned(),
+        };
+        assert!(
+            deduplicator
+                .push(duplicate, now + Duration::from_millis(50))
+                .is_empty()
+        );
+
+        let summary = deduplicator.flush_expired(now + Duration::from_secs(2));
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].platform, "Android+iOS");
+        assert_eq!(
+            summary[0].text,
+            "Nexa: Saved: https://example.test/item (repeated 2 times)"
+        );
+    }
 
     #[test]
     fn dev_diagnostics_preserve_paths_and_source_positions() {
