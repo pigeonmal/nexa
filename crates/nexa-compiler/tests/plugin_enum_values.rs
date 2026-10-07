@@ -207,4 +207,3 @@ fn plugin_error_variants_can_be_constructed_in_expressions_on_both_targets() {
         );
     }
 }
-

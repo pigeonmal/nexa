@@ -719,6 +719,7 @@ mod tests {
                     row_mapper: false,
                 }],
                 return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Float64))),
+                source_span: None,
                 is_async: false,
                 is_throwing: false,
             })]),

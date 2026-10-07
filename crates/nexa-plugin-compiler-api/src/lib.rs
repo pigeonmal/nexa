@@ -5,7 +5,10 @@
 //! source files and target configuration; the plugin owns language-specific
 //! analysis and returns source-located diagnostics.
 
+use nexa_diagnostics::{CompileError, Span};
+use nexa_ir::{Action, Expr, Module, Node, Type};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::{
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -13,6 +16,191 @@ use std::{
 };
 
 pub const ANALYZER_PROTOCOL_VERSION: u16 = 1;
+
+/// A typed call into a native plugin, borrowed from the compiler IR.
+///
+/// The wrapper keeps the call's namespace, receiver, argument names, codecs,
+/// and error behavior available without exposing backend-specific codegen.
+pub struct NativeCall<'a> {
+    /// Call-site range from the source file, when the expression came from source.
+    pub source_span: Option<Span>,
+    pub receiver: Option<&'a Expr>,
+    pub namespace: &'a str,
+    pub name: &'a str,
+    pub arguments: &'a [(String, Expr)],
+    pub codecs: &'a [nexa_ir::PluginCodec],
+    pub return_type: &'a Type,
+    pub is_async: bool,
+    pub is_throwing: bool,
+}
+
+impl<'a> NativeCall<'a> {
+    /// Borrows the typed plugin call when `expression` represents one.
+    pub fn from_expression(expression: &'a Expr) -> Option<Self> {
+        let Expr::NativeCall {
+            source_span,
+            receiver,
+            namespace,
+            name,
+            arguments,
+            codecs,
+            return_type,
+            is_async,
+            is_throwing,
+        } = expression
+        else {
+            return None;
+        };
+        Some(Self {
+            source_span: *source_span,
+            receiver: receiver.as_deref(),
+            namespace,
+            name,
+            arguments,
+            codecs,
+            return_type,
+            is_async: *is_async,
+            is_throwing: *is_throwing,
+        })
+    }
+}
+
+/// Diagnostics and request metadata made available to one compiler extension.
+#[derive(Default)]
+pub struct ExtensionContext {
+    extension_name: String,
+    diagnostics: Vec<CompileError>,
+}
+
+impl ExtensionContext {
+    fn new(extension_name: String) -> Self {
+        Self {
+            extension_name,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// Name supplied by [`PluginCompilerExtension::name`].
+    pub fn extension_name(&self) -> &str {
+        &self.extension_name
+    }
+
+    /// Adds an error at a source location owned by the extension's analysis.
+    pub fn report_error(&mut self, span: Span, message: impl Into<String>) {
+        self.diagnostics.push(CompileError::new(span, message));
+    }
+
+    /// Adds an error at the native call's source location when available.
+    pub fn report_call_error(&mut self, call: &NativeCall<'_>, message: impl Into<String>) {
+        self.report_error(call.source_span.unwrap_or_default(), message);
+    }
+
+    /// Adds an already constructed compiler diagnostic.
+    pub fn push_error(&mut self, error: CompileError) {
+        self.diagnostics.push(error);
+    }
+}
+
+/// In-process typed hooks for plugin-specific compiler validation.
+///
+/// Extensions inspect compiler IR after type checking, so they receive native
+/// calls and component nodes with resolved types rather than source strings.
+pub trait PluginCompilerExtension: Send + Sync {
+    /// Stable human-readable extension name for diagnostics and debugging.
+    fn name(&self) -> &str;
+
+    /// Inspects each node in the module, screen, component, and widget trees.
+    fn inspect_node(&self, _node: &Node, _context: &mut ExtensionContext) {}
+
+    /// Inspects each typed native-plugin call in expressions and actions.
+    fn inspect_call(&self, _call: &NativeCall<'_>, _context: &mut ExtensionContext) {}
+
+    /// Runs once after all module nodes and calls have been inspected.
+    fn finalize(&self, _context: &mut ExtensionContext) -> Result<(), Vec<CompileError>> {
+        Ok(())
+    }
+}
+
+/// Runs typed compiler extensions over all IR reachable from a module.
+///
+/// Errors reported directly to each [`ExtensionContext`] and errors returned
+/// from `finalize` are combined. An empty vector means validation succeeded.
+pub fn inspect_module(
+    module: &Module,
+    extensions: &[&dyn PluginCompilerExtension],
+) -> Result<(), Vec<CompileError>> {
+    let mut diagnostics = Vec::new();
+    for extension in extensions {
+        let context = RefCell::new(ExtensionContext::new(extension.name().to_owned()));
+        let mut visit_node = |node: &Node| {
+            extension.inspect_node(node, &mut context.borrow_mut());
+        };
+        let mut visit_expression = |expression: &Expr| {
+            if let Some(call) = NativeCall::from_expression(expression) {
+                extension.inspect_call(&call, &mut context.borrow_mut());
+            }
+        };
+
+        nexa_ir::walk::walk_ir(&module.body, &mut visit_node, &mut visit_expression);
+        for screen in &module.screens {
+            nexa_ir::walk::walk_ir(&screen.body, &mut visit_node, &mut visit_expression);
+            for state in &screen.states {
+                nexa_ir::walk::walk_expression(&state.initial, &mut visit_expression);
+            }
+            visit_actions(screen.on_appear.as_deref(), &mut visit_expression);
+            visit_actions(screen.on_disappear.as_deref(), &mut visit_expression);
+        }
+        for component in &module.components {
+            nexa_ir::walk::walk_ir(&component.body, &mut visit_node, &mut visit_expression);
+            for state in &component.states {
+                nexa_ir::walk::walk_expression(&state.initial, &mut visit_expression);
+            }
+            visit_actions(component.on_appear.as_deref(), &mut visit_expression);
+            visit_actions(component.on_disappear.as_deref(), &mut visit_expression);
+        }
+        for widget in &module.widgets {
+            nexa_ir::walk::walk_ir(&widget.body, &mut visit_node, &mut visit_expression);
+        }
+        for state in module.states.iter().chain(&module.globals) {
+            nexa_ir::walk::walk_expression(&state.initial, &mut visit_expression);
+        }
+        for function in &module.functions {
+            for local in &function.class_initializers {
+                nexa_ir::walk::walk_expression(&local.initial, &mut visit_expression);
+            }
+            for local in &function.locals {
+                nexa_ir::walk::walk_expression(&local.initial, &mut visit_expression);
+            }
+            nexa_ir::walk::walk_expression(&function.body, &mut visit_expression);
+            visit_actions(function.body_actions.as_deref(), &mut visit_expression);
+        }
+        for task in &module.background_tasks {
+            nexa_ir::walk::walk_actions(&task.actions, &mut visit_expression);
+        }
+        visit_actions(module.on_appear.as_deref(), &mut visit_expression);
+        visit_actions(module.on_disappear.as_deref(), &mut visit_expression);
+        visit_actions(module.on_active.as_deref(), &mut visit_expression);
+        visit_actions(module.on_inactive.as_deref(), &mut visit_expression);
+        visit_actions(module.on_background.as_deref(), &mut visit_expression);
+
+        let mut context = context.into_inner();
+        if let Err(errors) = extension.finalize(&mut context) {
+            diagnostics.extend(errors);
+        }
+        diagnostics.extend(context.diagnostics);
+    }
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics)
+    }
+}
+
+fn visit_actions(actions: Option<&[Action]>, visit: &mut impl FnMut(&Expr)) {
+    if let Some(actions) = actions {
+        nexa_ir::walk::walk_actions(actions, visit);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -191,13 +379,106 @@ impl AnalysisRequest {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use nexa_diagnostics::{CompileError, Span};
+    use nexa_ir::{Expr, Function, Module, Node, Type};
+
     use super::{
         ANALYZER_PROTOCOL_VERSION, AnalysisDiagnostic, AnalysisRequest, AnalysisResponse,
-        DiagnosticSeverity, SourceFile, TargetConfiguration,
+        DiagnosticSeverity, ExtensionContext, NativeCall, PluginCompilerExtension, SourceFile,
+        TargetConfiguration, inspect_module,
     };
+
+    struct ProbeExtension {
+        nodes: AtomicUsize,
+        calls: AtomicUsize,
+    }
+
+    impl PluginCompilerExtension for ProbeExtension {
+        fn name(&self) -> &str {
+            "probe"
+        }
+
+        fn inspect_node(&self, node: &Node, context: &mut ExtensionContext) {
+            if matches!(node, Node::Spacer) {
+                self.nodes.fetch_add(1, Ordering::Relaxed);
+                assert_eq!(context.extension_name(), "probe");
+            }
+        }
+
+        fn inspect_call(&self, call: &NativeCall<'_>, context: &mut ExtensionContext) {
+            assert_eq!(call.namespace, "SQLite");
+            assert_eq!(call.name, "query");
+            assert_eq!(call.source_span, Some(test_call_span()));
+            assert!(call.is_async);
+            assert!(call.is_throwing);
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            context.report_call_error(call, "query rejected by test extension");
+        }
+
+        fn finalize(&self, _context: &mut ExtensionContext) -> Result<(), Vec<CompileError>> {
+            Ok(())
+        }
+    }
+
+    fn test_call_span() -> Span {
+        Span {
+            start: 12,
+            end: 28,
+            line: 3,
+            column: 5,
+        }
+    }
+
+    fn module_with_native_call() -> Module {
+        Module {
+            app_name: "PluginExtensionProbe".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: vec![Function {
+                name: "loadRows".to_owned(),
+                receiver: None,
+                class_initializers: Vec::new(),
+                is_async: true,
+                is_throwing: true,
+                parameters: Vec::new(),
+                locals: Vec::new(),
+                return_type: Type::String,
+                body: Expr::NativeCall {
+                    receiver: None,
+                    namespace: "SQLite".to_owned(),
+                    name: "query".to_owned(),
+                    arguments: Vec::new(),
+                    codecs: Vec::new(),
+                    return_type: Type::String,
+                    source_span: Some(test_call_span()),
+                    is_async: true,
+                    is_throwing: true,
+                },
+                body_actions: None,
+            }],
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Spacer],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        }
+    }
 
     #[test]
     fn request_and_response_share_a_versioned_json_line_contract() {
@@ -239,6 +520,24 @@ mod tests {
         let decoded: AnalysisResponse =
             serde_json::from_str(&encoded).expect("response deserializes");
         assert_eq!(decoded, response);
+    }
+
+    #[test]
+    fn typed_extensions_inspect_nodes_and_native_calls_across_the_module() {
+        let module = module_with_native_call();
+        let extension = ProbeExtension {
+            nodes: AtomicUsize::new(0),
+            calls: AtomicUsize::new(0),
+        };
+
+        let errors = inspect_module(&module, &[&extension])
+            .expect_err("the extension reports the query as unsupported");
+
+        assert_eq!(extension.nodes.load(Ordering::Relaxed), 1);
+        assert_eq!(extension.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "query rejected by test extension");
+        assert_eq!(errors[0].span, test_call_span());
     }
 
     #[cfg(unix)]

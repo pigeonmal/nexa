@@ -363,6 +363,20 @@ std::vector<std::uint8_t> fromJniBytes(JNIEnv* env, jbyteArray value) {
     return output;
 }
 
+nexa_buffer_view::BufferView fromJniBufferView(JNIEnv* env, jobject value) {
+    if (value == nullptr) {
+        throwIllegalState(env, "non-null Nexa BufferView was null at the JNI boundary");
+        return {nullptr, 0};
+    }
+    const jlong capacity = env->GetDirectBufferCapacity(value);
+    auto* address = env->GetDirectBufferAddress(value);
+    if (capacity < 0 || (capacity > 0 && address == nullptr)) {
+        throwIllegalState(env, "Nexa BufferView requires a direct ByteBuffer");
+        return {nullptr, 0};
+    }
+    return {static_cast<const std::uint8_t*>(address), static_cast<std::size_t>(capacity)};
+}
+
 jbyteArray toJniBytes(JNIEnv* env, const std::vector<std::uint8_t>& value) {
     if (value.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) {
         throw std::length_error("native plugin byte array is too large for JNI");
@@ -753,6 +767,11 @@ fn kotlin_to_jni_expression(value: &str, ty: &BridgeType) -> String {
         BridgeType::Optional(inner) => (inner.as_ref(), true),
         other => (other, false),
     };
+    if matches!(shape, BridgeType::Scalar(BridgeScalar::BufferView)) {
+        return format!(
+            "java.nio.ByteBuffer.allocateDirect({value}.size).apply {{ put({value}); flip() }}"
+        );
+    }
     if let BridgeType::Map(key, map_value) = shape {
         let mut expression = if optional {
             "nexaOptionalMap".to_owned()
@@ -1782,6 +1801,14 @@ fn render_jni_argument_conversions(
         .iter()
         .enumerate()
         .map(|(index, parameter)| {
+            if matches!(parameter.ty, BridgeType::Scalar(BridgeScalar::BufferView)) {
+                let local = format!("nexaJniBufferViewArgument{index}");
+                out.push_str(&format!(
+                    "        auto {local} = fromJniBufferView(env, {});\n        if (env->ExceptionCheck()) {failure_return}\n",
+                    parameter.name
+                ));
+                return local;
+            }
             if matches!(
                 bridge_strip_optional(&parameter.ty),
                 BridgeType::Map(..)

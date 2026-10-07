@@ -11,6 +11,7 @@ pub use compile::{
 };
 pub use nexa_diagnostics::{CompileError, CompileWarning, Span};
 pub use nexa_ir::Module;
+pub use nexa_plugin_compiler_api::{ExtensionContext, NativeCall, PluginCompilerExtension};
 pub use project::{
     IncrementalProjectCompiler, ProjectCompileStats,
     compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots, compile_file,

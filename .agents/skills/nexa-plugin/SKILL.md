@@ -27,7 +27,7 @@ Read both before proposing an interface. Do not design against a remembered cont
 ## Workflow
 
 ```bash
-nexa plugin init <plugin.id> --out <dir> --name <TypeName> [--kind native|pure]
+nexa plugin new <plugin.id> --out <dir> --name <TypeName> [--kind native|pure]
 nexa plugin check  <package-directory|native.nxid>
 nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <dir>]
 ```

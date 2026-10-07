@@ -97,6 +97,15 @@ pub(crate) fn android_cpp_value(ty: &BridgeType) -> Option<AndroidValue> {
             None,
             false,
         ),
+        BridgeScalar::BufferView => (
+            "ByteArray",
+            "java.nio.ByteBuffer",
+            "jobject",
+            "nexa_buffer_view::BufferView",
+            None,
+            None,
+            false,
+        ),
     };
     if optional && kotlin == "Unit" {
         return None;
@@ -135,6 +144,7 @@ pub(crate) fn android_jni_class_descriptor(ty: &BridgeType) -> Option<String> {
                 BridgeScalar::Float64 => "D",
                 BridgeScalar::String => "Ljava/lang/String;",
                 BridgeScalar::Bytes => "[B",
+                BridgeScalar::BufferView => "Ljava/nio/ByteBuffer;",
                 BridgeScalar::Void => return None,
             }
             .to_owned(),
@@ -632,6 +642,15 @@ pub(crate) fn android_scalar_value(scalar: BridgeScalar, optional: bool) -> Andr
             "ByteArray",
             "jbyteArray",
             "std::vector<std::uint8_t>",
+            None,
+            None,
+            false,
+        ),
+        BridgeScalar::BufferView => (
+            "ByteArray",
+            "java.nio.ByteBuffer",
+            "jobject",
+            "nexa_buffer_view::BufferView",
             None,
             None,
             false,

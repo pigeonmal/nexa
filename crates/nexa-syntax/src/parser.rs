@@ -2764,7 +2764,8 @@ impl Parser {
                         if self.take(&Kind::RParen) {
                             let catch_stmts = self.block_stmts_with_return(allow_return)?;
                             if catch_body.is_some() {
-                                return self.error_here("cannot declare more than one catch-all block");
+                                return self
+                                    .error_here("cannot declare more than one catch-all block");
                             }
                             catch_body = Some(catch_stmts);
                             break;
@@ -2787,7 +2788,10 @@ impl Parser {
                                         }
                                     }
                                 }
-                                self.expect(Kind::RParen, "expected `)` after catch payload bindings")?;
+                                self.expect(
+                                    Kind::RParen,
+                                    "expected `)` after catch payload bindings",
+                                )?;
                             } else if first_ident != "_" && first_ident != "error" {
                                 bindings.push(first_ident);
                             }
@@ -2819,7 +2823,10 @@ impl Parser {
                                         }
                                     }
                                 }
-                                self.expect(Kind::RParen, "expected `)` after catch payload bindings")?;
+                                self.expect(
+                                    Kind::RParen,
+                                    "expected `)` after catch payload bindings",
+                                )?;
                             }
                             self.expect(Kind::RParen, "expected `)` after catch pattern")?;
                             let arm_body = self.block_stmts_with_return(allow_return)?;
@@ -2838,7 +2845,8 @@ impl Parser {
                             self.expect(Kind::RParen, "expected `)` after catch variable")?;
                             let catch_stmts = self.block_stmts_with_return(allow_return)?;
                             if catch_body.is_some() {
-                                return self.error_here("cannot declare more than one catch-all block");
+                                return self
+                                    .error_here("cannot declare more than one catch-all block");
                             }
                             catch_body = Some(catch_stmts);
                             break;
@@ -2849,26 +2857,31 @@ impl Parser {
                             while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
                                 if self.word_is("case") {
                                     if catch_body.is_some() {
-                                        return self.error_here("typed catch cases must precede `else`");
+                                        return self
+                                            .error_here("typed catch cases must precede `else`");
                                     }
                                     error_catches.push(self.error_catch_arm(allow_return)?);
                                 } else if self.word_is("else") {
                                     if catch_body.is_some() {
-                                        return self
-                                            .error_here("a catch block can declare only one `else`");
+                                        return self.error_here(
+                                            "a catch block can declare only one `else`",
+                                        );
                                     }
                                     self.advance();
                                     catch_body = Some(self.block_stmts_with_return(allow_return)?);
                                 } else {
-                                    return self.error_here("expected a typed `case` or catch-all `else`");
+                                    return self
+                                        .error_here("expected a typed `case` or catch-all `else`");
                                 }
                                 self.optional_semicolon();
                             }
                             self.expect(Kind::RBrace, "expected `}` to close catch recovery")?;
                         } else {
-                            let catch_stmts = self.statements_after_open(allow_return, allow_let)?;
+                            let catch_stmts =
+                                self.statements_after_open(allow_return, allow_let)?;
                             if catch_body.is_some() {
-                                return self.error_here("cannot declare more than one catch-all block");
+                                return self
+                                    .error_here("cannot declare more than one catch-all block");
                             }
                             catch_body = Some(catch_stmts);
                             break;
@@ -3434,6 +3447,22 @@ impl Parser {
         let token = self.advance().clone();
         match token.kind {
             Kind::String(value) => self.string_expression(value, token.span),
+            Kind::Regex(pattern, flags) => {
+                let pattern = if flags.is_empty() {
+                    pattern
+                } else {
+                    format!("(?{flags}){pattern}")
+                };
+                Ok(Expr::CallNamed {
+                    name: "Regex".to_owned(),
+                    type_arguments: Vec::new(),
+                    arguments: BTreeMap::from([(
+                        "pattern".to_owned(),
+                        Expr::String(pattern, token.span),
+                    )]),
+                    span: token.span,
+                })
+            }
             Kind::Number(value) => Ok(Expr::Number(value, token.span)),
             Kind::Ident(value) if value == "true" => Ok(Expr::Bool(true, token.span)),
             Kind::Ident(value) if value == "false" => Ok(Expr::Bool(false, token.span)),

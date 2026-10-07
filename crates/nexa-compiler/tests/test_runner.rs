@@ -166,6 +166,40 @@ test "counter increments" for Counter() {
 }
 
 #[test]
+fn headless_component_tests_clear_map_state() {
+    let compilation = compile_with_warnings(
+        r#"
+component Cart() {
+    state quantities: Map<String, Int32> = ["sku-441": 2, "sku-807": 1]
+    body {
+        Text(quantities.count)
+        Button("Clear cart") { quantities.clear() }
+    }
+}
+
+app CartDemo {
+    body { Cart() }
+}
+
+test "clear map" for Cart() {
+    assert(quantities.count == 2)
+    assert(quantities.keys.count == 2)
+    assert(quantities.values.count == 2)
+    assert((quantities.get("sku-441") ?? 0) == 2)
+    assert(quantities.contains("sku-807"))
+    tap("Clear cart")
+    assert(quantities.isEmpty)
+}
+"#,
+    )
+    .expect("compile a headless map clear behavior test");
+
+    let report = run_tests(&compilation.tests);
+    assert_eq!(report.passed, 1, "{:?}", report.failures);
+    assert!(report.failures.is_empty());
+}
+
+#[test]
 fn headless_component_tests_report_missing_buttons_and_text() {
     let compilation = compile_with_warnings(
         r#"

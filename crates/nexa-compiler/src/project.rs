@@ -6,8 +6,8 @@ use std::{
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_plugin_compiler_api::{
-    ANALYZER_PROTOCOL_VERSION, AnalysisRequest, AnalyzerProcess,
-    SourceFile as AnalyzerSourceFile, TargetConfiguration,
+    ANALYZER_PROTOCOL_VERSION, AnalysisRequest, AnalyzerProcess, SourceFile as AnalyzerSourceFile,
+    TargetConfiguration,
 };
 use nexa_plugin_idl::{
     manifest::parse_file as parse_plugin_manifest, parse_file as parse_plugin_idl,
@@ -255,11 +255,7 @@ impl IncrementalProjectCompiler {
                     .cloned()
                     .collect();
                 let plugins = app.plugins.clone();
-                let lowered = semantic::lower_with_project_targets(
-                    app,
-                    target,
-                    dev_runtime,
-                );
+                let lowered = semantic::lower_with_project_targets(app, target, dev_runtime);
                 let (module, mut warnings, tests) =
                     lowered.map_err(|error| error.with_file(entry_path.display().to_string()))?;
                 warnings.extend(
@@ -599,8 +595,7 @@ mod plugin_analyzer_tests {
         )
         .expect("plugin contract");
         let analyzer = package.join("analyzer.sh");
-        let analyzer_source =
-            "#!/bin/sh\nwhile IFS= read -r _request; do printf '%s\\n' '{\"protocol_version\":1,\"diagnostics\":[{\"severity\":\"warning\",\"message\":\"analyzer warning\",\"file\":\"App.nx\",\"start\":0,\"end\":1,\"line\":1,\"column\":1,\"target\":\"swift\"}]}'; done\n";
+        let analyzer_source = "#!/bin/sh\nwhile IFS= read -r _request; do printf '%s\\n' '{\"protocol_version\":1,\"diagnostics\":[{\"severity\":\"warning\",\"message\":\"analyzer warning\",\"file\":\"App.nx\",\"start\":0,\"end\":1,\"line\":1,\"column\":1,\"target\":\"swift\"}]}'; done\n";
         fs::write(&analyzer, analyzer_source).expect("analyzer executable source");
         fs::set_permissions(&analyzer, fs::Permissions::from_mode(0o700))
             .expect("analyzer executable permissions");

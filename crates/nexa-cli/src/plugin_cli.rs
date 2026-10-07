@@ -1,4 +1,4 @@
-//! `nexa plugin init | check | generate` — authoring commands for plugin
+//! `nexa plugin new | check | generate` — authoring commands for plugin
 //! packages.
 //!
 //! These commands operate on a package directory (or a bare `native.nxid`) and
@@ -20,7 +20,7 @@ use nexa_plugin_idl::{PluginIdl, manifest};
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
-        Some("init") => init(&args[1..]),
+        Some("new" | "init") => init(&args[1..]),
         Some("check") => check(&args[1..]),
         Some("generate") => generate(&args[1..]),
         Some(target) => Err(format!(
@@ -32,7 +32,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "Usage:\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"
+    "Usage:\n  nexa plugin new <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure] (alias)\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"
         .to_owned()
 }
 
@@ -73,7 +73,7 @@ fn init(args: &[String]) -> Result<(), String> {
     }
     let id = id.ok_or_else(usage)?;
     let directory =
-        out.ok_or_else(|| "`nexa plugin init` requires `--out <directory>`".to_owned())?;
+        out.ok_or_else(|| "`nexa plugin new` requires `--out <directory>`".to_owned())?;
     if !matches!(kind.as_str(), "native" | "pure") {
         return Err(format!(
             "unsupported plugin kind `{kind}`; expected `native` or `pure`"
@@ -254,6 +254,9 @@ fn check(args: &[String]) -> Result<(), String> {
         checked.push(note);
     }
     for note in native_typecheck_notes(&package)? {
+        if note.contains(" type-check failed:") {
+            return Err(note);
+        }
         checked.push(note);
     }
     println!("{}: {}", package.root.display(), checked.join("; "));
@@ -638,18 +641,47 @@ fn native_typecheck_notes(package: &ResolvedPackage) -> Result<Vec<String>, Stri
                 .to_owned(),
         );
     }
-    if !manifest.android.sources.is_empty() && manifest.android.maven_dependencies.is_empty() {
+    let android_requires_host_classpath = android_sources_require_compose_classpath(package);
+    if !manifest.android.sources.is_empty()
+        && manifest.android.maven_dependencies.is_empty()
+        && !android_requires_host_classpath
+    {
         match typecheck_kotlin(package) {
             Some(note) => notes.push(note),
             None => notes.push("android type-check skipped (no kotlinc)".to_owned()),
         }
     } else if !manifest.android.sources.is_empty() {
-        notes.push(
-            "android type-check skipped (declared Maven dependencies resolve in the generated Gradle project)"
-                .to_owned(),
-        );
+        let reason = if !manifest.android.maven_dependencies.is_empty() {
+            "declared Maven dependencies resolve in the generated Gradle project"
+        } else {
+            "Compose dependencies resolve in the generated Gradle project"
+        };
+        notes.push(format!("android type-check skipped ({reason})"));
     }
     Ok(notes)
+}
+
+fn android_sources_require_compose_classpath(package: &ResolvedPackage) -> bool {
+    let Some(manifest) = package.manifest.as_ref() else {
+        return false;
+    };
+    let mut files = Vec::new();
+    for source in &manifest.android.sources {
+        collect_files(&package.root, source, &mut files);
+    }
+    files
+        .iter()
+        .filter_map(|file| fs::read_to_string(file).ok())
+        .any(|contents| kotlin_requires_compose_classpath(&contents))
+}
+
+fn kotlin_requires_compose_classpath(contents: &str) -> bool {
+    contents.lines().any(|line| {
+        let Some(import) = line.trim().strip_prefix("import ") else {
+            return false;
+        };
+        import.starts_with("androidx.compose.") || import.starts_with("androidx.activity.compose.")
+    })
 }
 
 fn typecheck_swift(package: &ResolvedPackage) -> Option<String> {
@@ -980,4 +1012,59 @@ fn collect_files(root: &Path, pattern: &str, out: &mut Vec<PathBuf>) {
         }
     }
     out.extend(found);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{kotlin_requires_compose_classpath, run};
+    use std::{fs, path::Path};
+
+    #[test]
+    fn compose_imports_require_the_generated_android_host_classpath() {
+        assert!(kotlin_requires_compose_classpath(
+            "import androidx.compose.runtime.Composable\n@Composable fun Example() {}"
+        ));
+        assert!(kotlin_requires_compose_classpath(
+            "import androidx.activity.compose.rememberLauncherForActivityResult"
+        ));
+        assert!(!kotlin_requires_compose_classpath(
+            "import androidx.biometric.BiometricPrompt\nimport android.content.Context"
+        ));
+    }
+
+    #[test]
+    fn plugin_new_is_a_deterministic_alias_for_init() {
+        let new_dir = nexa_testkit::VacantDir::new("nexa-plugin-new");
+        let init_dir = nexa_testkit::VacantDir::new("nexa-plugin-init");
+        let new_args = vec![
+            "new".to_owned(),
+            "dev.example.sensor".to_owned(),
+            "--out".to_owned(),
+            new_dir.path().display().to_string(),
+        ];
+        let init_args = vec![
+            "init".to_owned(),
+            "dev.example.sensor".to_owned(),
+            "--out".to_owned(),
+            init_dir.path().display().to_string(),
+        ];
+        run(&new_args).expect("plugin new should create a package");
+        run(&init_args).expect("plugin init should remain a valid alias");
+
+        for file in [
+            "native.nxid",
+            "plugin.config.nx",
+            "ios/Sources/SensorImpl.swift",
+            "android/src/main/kotlin/dev/nexa/plugin/SensorImpl.kt",
+        ] {
+            assert_eq!(
+                fs::read(new_dir.path().join(file)).expect("new scaffold file"),
+                fs::read(init_dir.path().join(file)).expect("init scaffold file"),
+                "alias output should be identical for {}",
+                Path::new(file).display(),
+            );
+        }
+        let check_args = vec!["check".to_owned(), new_dir.path().display().to_string()];
+        run(&check_args).expect("new scaffold should pass plugin validation");
+    }
 }

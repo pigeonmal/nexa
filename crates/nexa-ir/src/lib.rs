@@ -1,3 +1,4 @@
+use nexa_diagnostics::Span;
 use serde::{Deserialize, Serialize};
 
 pub mod capabilities;
@@ -525,6 +526,9 @@ pub enum Expr {
         body: Box<Expr>,
     },
     NativeCall {
+        /// Original source range for diagnostics produced by compiler extensions.
+        #[serde(default)]
+        source_span: Option<Span>,
         receiver: Option<Box<Expr>>,
         namespace: String,
         name: String,
@@ -1772,6 +1776,7 @@ pub enum CollectionMutation {
     SetRemove,
     MapSet,
     MapRemove,
+    MapClear,
     /// Replaces a whole collection state with a new value.
     ///
     /// A collection state is a snapshot-state collection on Kotlin, so the

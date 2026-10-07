@@ -110,6 +110,31 @@ private func nexaDevLockOrientation(_ mode: String) {
     scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
 }
 
+private func nexaDevRegexMatch(_ match: NSTextCheckingResult, text: String) -> [String: Any] {
+    let value = Range(match.range, in: text).map { String(text[$0]) } ?? ""
+    let groups: [Any] = (1..<match.numberOfRanges).map { index in
+        let range = match.range(at: index)
+        guard range.location != NSNotFound, let swiftRange = Range(range, in: text) else {
+            return NSNull()
+        }
+        return String(text[swiftRange])
+    }
+    return [
+        "value": value,
+        "range": [
+            "lowerBound": Int64(match.range.location),
+            "upperBound": Int64(NSMaxRange(match.range)),
+        ],
+        "groups": groups,
+    ]
+}
+
+private func nexaDevRegexFindAll(_ pattern: String, _ text: String) -> [[String: Any]] {
+    guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+    let range = NSRange(text.startIndex..., in: text)
+    return expression.matches(in: text, range: range).map { nexaDevRegexMatch($0, text: text) }
+}
+
 @MainActor
 extension NexaDevStateStore {
     func invokeNativeAsync(
@@ -406,6 +431,67 @@ extension NexaDevStateStore {
         for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
             guard let argumentName = argument[0] as? String else { continue }
             options[argumentName] = evaluate(argument[1], locals: locals, scope: scope)
+        }
+        if namespace == "Regex" {
+            let receiverExpression = call["receiver"]
+            if let receiverExpression, !(receiverExpression is NSNull) {
+                let pattern = evaluate(receiverExpression, locals: locals, scope: scope) as? String ?? ""
+                let text = options["text"] as? String ?? ""
+                switch name {
+                case "matches":
+                    guard let expression = try? NSRegularExpression(pattern: pattern) else { return false }
+                    let range = NSRange(text.startIndex..., in: text)
+                    guard let match = expression.firstMatch(in: text, range: range) else { return false }
+                    return match.range.location == range.location && match.range.length == range.length
+                case "find":
+                    if let match = nexaDevRegexFindAll(pattern, text).first {
+                        return match
+                    }
+                    return NSNull()
+                case "findAll": return nexaDevRegexFindAll(pattern, text)
+                case "replace":
+                    guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+                    let range = NSRange(text.startIndex..., in: text)
+                    return expression.stringByReplacingMatches(
+                        in: text,
+                        range: range,
+                        withTemplate: options["with"] as? String ?? ""
+                    )
+                default: return NSNull()
+                }
+            }
+            let pattern = options["pattern"] as? String ?? ""
+            let text = options["text"] as? String ?? ""
+            switch name {
+            case "new": return pattern
+            case "isMatch":
+                guard let expression = try? NSRegularExpression(pattern: pattern) else { return false }
+                let range = NSRange(text.startIndex..., in: text)
+                return expression.firstMatch(in: text, range: range) != nil
+            case "matches": return nexaDevRegexFindAll(pattern, text).map { $0["value"] as? String ?? "" }
+            case "replace":
+                guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+                let range = NSRange(text.startIndex..., in: text)
+                return expression.stringByReplacingMatches(
+                    in: text,
+                    range: range,
+                    withTemplate: options["replacement"] as? String ?? ""
+                )
+            default: return NSNull()
+            }
+        }
+        if namespace == "__NexaMap",
+           let receiverExpression = call["receiver"],
+           !(receiverExpression is NSNull),
+           let receiver = evaluate(receiverExpression, locals: locals, scope: scope) as? [String: Any] {
+            let key = stringify(options["key"] ?? NSNull())
+            switch name {
+            case "get": return receiver[key] ?? NSNull()
+            case "contains": return receiver[key] != nil
+            case "keys": return Array(receiver.keys)
+            case "values": return Array(receiver.values)
+            default: return NSNull()
+            }
         }
         if let receiverExpression = call["receiver"], !(receiverExpression is NSNull) {
             let receiver = evaluate(receiverExpression, locals: locals, scope: scope)

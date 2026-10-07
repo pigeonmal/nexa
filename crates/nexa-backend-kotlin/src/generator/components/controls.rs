@@ -1031,6 +1031,9 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                     CollectionMutation::MapRemove => {
                         out.push_str(&format!("{state}.remove({})\n", rendered[0]));
                     }
+                    CollectionMutation::MapClear => {
+                        out.push_str(&format!("{state}.clear()\n"));
+                    }
                     // The state is a snapshot-state collection, so the value
                     // is replaced by swapping the contents. The overload is
                     // chosen from the static types.
@@ -1240,6 +1243,20 @@ mod tests {
     }
 
     #[test]
+    fn renders_map_clear_on_snapshot_state_map() {
+        let actions = [Action::CollectionMutation {
+            name: "quantities".to_owned(),
+            operation: CollectionMutation::MapClear,
+            arguments: Vec::new(),
+        }];
+        let mut output = SourceWriter::new();
+
+        render_actions(&actions, 0, &mut output);
+
+        assert_eq!(output.as_str(), "nexa_quantities.clear()\n");
+    }
+
+    #[test]
     fn renders_typed_native_event_handler_on_its_instance() {
         let actions = [Action::NativeEventSubscribe {
             receiver: Expr::State(
@@ -1338,6 +1355,7 @@ mod tests {
                     arguments: Vec::new(),
                     codecs: Vec::new(),
                     return_type: Type::Void,
+                    source_span: None,
                     is_async: true,
                     is_throwing: true,
                 },
@@ -1367,6 +1385,7 @@ mod tests {
                     arguments: Vec::new(),
                     codecs: Vec::new(),
                     return_type: Type::Void,
+                    source_span: None,
                     is_async: true,
                     is_throwing: true,
                 },

@@ -3,8 +3,8 @@ use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 
 use crate::generator::{
     components::render_node, engine::types::swift_type, features::Features, layout, lifecycle,
-    render_immutable_state, render_native_object_state,
-    render_native_object_state_uninitialized, render_state_initializers_in_init,
+    render_immutable_state, render_native_object_state, render_native_object_state_uninitialized,
+    render_state_initializers_in_init,
 };
 
 pub(crate) fn render(module: &Module, features: &Features, out: &mut SourceWriter) {
@@ -82,6 +82,7 @@ fn render_component(
             ));
         }
     }
+    render_immutable_state(&component.states, 1, out);
     for binding in &focus_bindings {
         out.push_str(&format!(
             "    @FocusState private var {}: Bool\n",
@@ -144,7 +145,6 @@ fn render_component(
     }
 
     out.push_str("    var body: some View {\n");
-    render_immutable_state(&component.states, 2, out);
     if component.on_appear.is_some() || component.on_disappear.is_some() {
         // Attach lifecycle modifiers to a concrete View value. Chaining a
         // modifier after a root `if` result builder is ambiguous in Swift.

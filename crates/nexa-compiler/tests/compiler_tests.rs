@@ -1,8 +1,8 @@
 use std::{fs, path::Path};
 
 use nexa_ir::{
-    AccessibilityRole, Action, ArithmeticOp, AutofillType, Expr, ListPlan, MemberKind, Node,
-    NumericType, ReturnKeyType, Type,
+    AccessibilityRole, Action, ArithmeticOp, AutofillType, CollectionMutation, Expr, ListPlan,
+    MemberKind, Node, NumericType, ReturnKeyType, Type,
     walk::{walk_actions, walk_ir},
 };
 
@@ -328,6 +328,40 @@ fn numeric_coalesce_values_can_be_used_in_collection_mutations() {
         "#,
     )
     .expect("a numeric fallback keeps its type through arithmetic and map mutation");
+}
+
+#[test]
+fn mutable_map_clear_lowers_to_typed_collection_ir() {
+    let module = compile(
+        r#"
+        app ClearCart {
+            state quantities: Map<String, Int32> = ["sku-441": 2]
+
+            body {
+                Button("Clear cart") {
+                    quantities.clear()
+                }
+            }
+        }
+        "#,
+    )
+    .expect("Map.clear should compile for mutable map state");
+
+    let Some(Node::Button { actions, .. }) = module
+        .body
+        .iter()
+        .find(|node| matches!(node, Node::Button { .. }))
+    else {
+        panic!("expected a clear cart button");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [Action::CollectionMutation {
+            name,
+            operation: CollectionMutation::MapClear,
+            arguments,
+        }] if name == "quantities" && arguments.is_empty()
+    ));
 }
 
 #[test]

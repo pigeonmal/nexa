@@ -25,7 +25,10 @@ fn system_icon_catalog_matches_documentation() {
 #[test]
 fn rendered_table_has_one_row_per_catalog_entry() {
     let rendered = render_shared_icon_table();
-    let rows: Vec<&str> = rendered.lines().filter(|line| line.starts_with("| `")).collect();
+    let rows: Vec<&str> = rendered
+        .lines()
+        .filter(|line| line.starts_with("| `"))
+        .collect();
     assert_eq!(
         rows.len(),
         SHARED_ICONS.len(),

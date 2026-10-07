@@ -61,12 +61,11 @@ fn published_defaults_state_the_resolved_values() {
     }
 }
 
-/// The three native build commands publish the flags they share.
+/// Native build commands publish the flags they share.
 ///
-/// `native_command` parses one argument loop for all of `dev`, `test`, and
-/// `release`, so all three accept `--platform`, `--arch`, `--flavor`,
-/// `--staging`, `--out`, and `--locked`. The published table omitted every one
-/// of them for all three commands, which is the specific gap this covers.
+/// `native_command` parses one argument loop for `dev`, `test`, and `release`;
+/// `build` routes into the same release pipeline. All four accept the shared
+/// platform, architecture, flavor, output, and lock flags.
 ///
 /// This asserts publication, not parser acceptance: `native_command` is private
 /// to the binary and reaching it would mean running a real build. The flag
@@ -91,12 +90,13 @@ fn native_build_commands_publish_shared_flags() {
                 line.starts_with("| `nexa dev")
                     || line.starts_with("| `nexa test")
                     || line.starts_with("| `nexa release")
+                    || line.starts_with("| `nexa build")
             })
             .filter(|line| line.contains(&format!("`{flag}")))
             .count();
         assert_eq!(
-            occurrences, 3,
-            "`{flag}` is parsed by all of dev, test, and release, so all three rows must publish it"
+            occurrences, 4,
+            "`{flag}` is accepted by dev, test, release, and build, so all four rows must publish it"
         );
     }
 }
@@ -115,7 +115,9 @@ fn flags_match_parser_spelling() {
     for module in ["commands.rs", "audit.rs", "plugin_cli.rs"] {
         parsers.push_str(
             &std::fs::read_to_string(
-                nexa_testkit::workspace_root().join("crates/nexa-cli/src").join(module),
+                nexa_testkit::workspace_root()
+                    .join("crates/nexa-cli/src")
+                    .join(module),
             )
             .unwrap_or_else(|error| panic!("read {module}: {error}")),
         );
@@ -151,6 +153,7 @@ fn dev_only_flags_are_not_published_for_other_commands() {
     assert!(row("nexa dev").contains("`--compile-only`"));
     assert!(!row("nexa test").contains("`--once`"));
     assert!(!row("nexa release").contains("`--compile-only`"));
+    assert!(!row("nexa build").contains("`--compile-only`"));
     assert!(row("nexa test").contains("`--unit-only`"));
     assert!(!row("nexa dev").contains("`--unit-only`"));
 }
@@ -162,8 +165,10 @@ fn published_commands_cover_every_routed_command() {
     for command in [
         "`nexa create <name>`",
         "`nexa check`",
+        "`nexa fmt`",
         "`nexa dev`",
         "`nexa test`",
+        "`nexa build`",
         "`nexa release`",
         "`nexa doctor`",
         "`nexa audit <file>`",

@@ -33,8 +33,14 @@ pub fn swift(plan: &BridgePlan) -> String {
         );
     }
     let has_signals = plan.interfaces.iter().any(|interface| {
-        interface.methods.iter().any(|m| matches!(&m.return_type, BridgeType::Signal(_)))
-            || interface.properties.iter().any(|p| matches!(&p.ty, BridgeType::Signal(_)))
+        interface
+            .methods
+            .iter()
+            .any(|m| matches!(&m.return_type, BridgeType::Signal(_)))
+            || interface
+                .properties
+                .iter()
+                .any(|p| matches!(&p.ty, BridgeType::Signal(_)))
     });
     if has_signals {
         out.push_str(
@@ -121,8 +127,14 @@ pub fn kotlin(plan: &BridgePlan, package: &str) -> String {
         );
     }
     let has_signals = plan.interfaces.iter().any(|interface| {
-        interface.methods.iter().any(|m| matches!(&m.return_type, BridgeType::Signal(_)))
-            || interface.properties.iter().any(|p| matches!(&p.ty, BridgeType::Signal(_)))
+        interface
+            .methods
+            .iter()
+            .any(|m| matches!(&m.return_type, BridgeType::Signal(_)))
+            || interface
+                .properties
+                .iter()
+                .any(|p| matches!(&p.ty, BridgeType::Signal(_)))
     });
     if has_signals {
         out.push_str(
@@ -664,9 +676,7 @@ fn swift_row_mapper_parameters(method: &BridgeMethod) -> String {
     let Some(row_parameter) = method.row_type_parameters.first() else {
         return String::new();
     };
-    let error = method
-        .error_type()
-        .or(method.row_error_type.as_deref());
+    let error = method.error_type().or(method.row_error_type.as_deref());
     let Some(error) = error else {
         return String::new();
     };
@@ -714,9 +724,7 @@ fn collect_hashable_type_parameters(
             collect_all_type_parameters(key, hashable);
             collect_hashable_type_parameters(value, hashable);
         }
-        BridgeType::Array(inner)
-        | BridgeType::Signal(inner)
-        | BridgeType::Optional(inner) => {
+        BridgeType::Array(inner) | BridgeType::Signal(inner) | BridgeType::Optional(inner) => {
             collect_hashable_type_parameters(inner, hashable)
         }
         BridgeType::Pair(first, second) => {
@@ -1245,7 +1253,7 @@ fn swift_type(ty: &BridgeType) -> String {
         BridgeType::Scalar(BridgeScalar::Float32) => "Float".to_owned(),
         BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
         BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bytes) => "Data".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => "Data".to_owned(),
         BridgeType::Named { name, .. } => name.clone(),
         BridgeType::TypeParameter(name) => name.clone(),
         BridgeType::Array(element) => format!("[{}]", swift_type(element)),
@@ -1285,7 +1293,9 @@ fn kotlin_type(ty: &BridgeType) -> String {
         BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
         BridgeType::Scalar(BridgeScalar::Bool) => "Boolean".to_owned(),
         BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bytes) => "ByteArray".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => {
+            "ByteArray".to_owned()
+        }
         BridgeType::Named { name, .. } => name.clone(),
         BridgeType::TypeParameter(name) => name.clone(),
         BridgeType::Array(element) => format!("List<{}>", kotlin_type(element)),

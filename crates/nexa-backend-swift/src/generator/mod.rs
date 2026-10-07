@@ -293,36 +293,90 @@ const NEXA_COLLECTION_HELPERS: &str = r#"private func nexaGroupByStable<Element,
     return sections
 }
 
-private func nexaRegexIsMatch(_ pattern: String, in text: String) -> Bool {
-    do {
-        let regex = try NSRegularExpression(pattern: pattern)
+"#;
+
+const NEXA_REGEX_HELPERS: &str = r#"struct NexaRegexMatch {
+    let value: String
+    let range: NexaRegexRange
+    let groups: [String?]
+}
+
+struct NexaRegexRange {
+    let lowerBound: Int64
+    let upperBound: Int64
+}
+
+struct NexaRegex {
+    private let expression: NSRegularExpression?
+
+    init(pattern: String) {
+        expression = try? NSRegularExpression(pattern: pattern)
+    }
+
+    func matches(_ text: String) -> Bool {
+        guard let expression else { return false }
         let range = NSRange(text.startIndex..., in: text)
-        return regex.firstMatch(in: text, range: range) != nil
-    } catch {
-        return false
+        guard let match = expression.firstMatch(in: text, range: range) else { return false }
+        return match.range.location == range.location && match.range.length == range.length
+    }
+
+    func find(_ text: String) -> NexaRegexMatch? {
+        guard let expression else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = expression.firstMatch(in: text, range: range) else { return nil }
+        return makeMatch(match, in: text)
+    }
+
+    func findAll(_ text: String) -> [NexaRegexMatch] {
+        guard let expression else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return expression.matches(in: text, range: range).map { makeMatch($0, in: text) }
+    }
+
+    func replace(_ text: String, with replacement: String) -> String {
+        guard let expression else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        return expression.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
+    }
+
+    private func makeMatch(_ match: NSTextCheckingResult, in text: String) -> NexaRegexMatch {
+        let value = Range(match.range, in: text).map { String(text[$0]) } ?? ""
+        let groups = (1..<match.numberOfRanges).map { index -> String? in
+            let range = match.range(at: index)
+            guard range.location != NSNotFound, let swiftRange = Range(range, in: text) else {
+                return nil
+            }
+            return String(text[swiftRange])
+        }
+        return NexaRegexMatch(
+            value: value,
+            range: NexaRegexRange(
+                lowerBound: Int64(match.range.location),
+                upperBound: Int64(NSMaxRange(match.range))
+            ),
+            groups: groups
+        )
     }
 }
 
+private func nexaRegexIsMatch(_ pattern: String, in text: String) -> Bool {
+    guard let expression = try? NSRegularExpression(pattern: pattern) else { return false }
+    let range = NSRange(text.startIndex..., in: text)
+    return expression.firstMatch(in: text, range: range) != nil
+}
+
 private func nexaRegexMatches(_ pattern: String, in text: String) -> [String] {
-    do {
-        let regex = try NSRegularExpression(pattern: pattern)
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.matches(in: text, range: range).compactMap { match in
-            Range(match.range, in: text).map { String(text[$0]) }
-        }
-    } catch {
-        return []
+    guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+    let range = NSRange(text.startIndex..., in: text)
+    return expression.matches(in: text, range: range).compactMap { match in
+        Range(match.range, in: text).map { String(text[$0]) }
     }
 }
 
 private func nexaRegexReplace(_ pattern: String, in text: String, with replacement: String) -> String {
-    do {
-        let regex = try NSRegularExpression(pattern: pattern)
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
-    } catch {
-        return text
-    }
+    guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+    let range = NSRange(text.startIndex..., in: text)
+    return expression.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
 }
 
 "#;
@@ -335,8 +389,8 @@ pub(super) use components::{
     system_icons,
 };
 pub(super) use engine::state::{
-    render_immutable_state, render_native_object_state,
-    render_native_object_state_uninitialized, render_state_initializers_in_init,
+    render_immutable_state, render_native_object_state, render_native_object_state_uninitialized,
+    render_state_initializers_in_init,
 };
 use engine::types::{self, swift_type};
 pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils, value};
@@ -464,6 +518,11 @@ fn generate_with_analysis_mode(
     let value_codecs = nexa_codegen::value::collect(module);
     let json_types = nexa_codegen::value::collect_json_types(module);
     units.write("types", |out| {
+        // Regex declarations are shared by every generated unit. Keep them in
+        // the single types file instead of the repeated per-file preamble.
+        if features.facts.capabilities.uses_regex_api {
+            out.push_str(NEXA_REGEX_HELPERS);
+        }
         types::render_enums(module, out);
         structs::render(module, out);
         types::render_navigation_routes(module, out);
@@ -527,6 +586,7 @@ fn generate_with_analysis_mode(
                 expressions::expression(&state.initial)
             ));
         }
+        render_immutable_state(&module.states, 1, out);
         for binding in &app_focus_bindings {
             out.push_str(&format!(
                 "    @FocusState private var {}: Bool\n",
@@ -576,22 +636,35 @@ fn generate_with_analysis_mode(
         } else {
             out.push_str("    public init() {}\n\n    public var body: some View {\n");
         }
-        if module.screens.is_empty() {
-            render_immutable_state(&module.states, 2, out);
-        }
         let has_body_modifiers = module.direction.is_some()
             || module.on_appear.is_some()
             || module.on_appear_async
             || module.on_disappear.is_some()
             || module.status_bar.is_some()
             || features.uses_shared_elements;
-        let needs_group = module.body.len() == 1
-            && matches!(module.body[0], Node::If { .. })
-            && has_body_modifiers;
+        let needs_group = features.uses_shared_elements
+            || (module.body.len() == 1
+                && matches!(module.body[0], Node::If { .. })
+                && has_body_modifiers);
 
         if needs_group {
             out.push_str("        Group {\n");
-            component_renderer::render_node(&module.body[0], module, &features, 3, out);
+            if module.body.len() == 1 {
+                component_renderer::render_node(&module.body[0], module, &features, 3, out);
+            } else {
+                layout::render_layout(
+                    LayoutKind::Column,
+                    0.0,
+                    &ViewStyle::default(),
+                    &module.body,
+                    &components::RenderScope {
+                        module,
+                        features: &features,
+                    },
+                    3,
+                    out,
+                );
+            }
             out.push_str("\n        }");
         } else if module.body.len() == 1 {
             component_renderer::render_node(&module.body[0], module, &features, 2, out);
@@ -798,6 +871,7 @@ pub(super) fn generate_for_dev_units_with_project_features(
     // Keychain adapter must already be part of every development host.
     features.facts.capabilities.uses_secure_storage_api = true;
     features.facts.capabilities.uses_storage_api = true;
+    features.facts.capabilities.uses_regex_api = true;
     features.uses_permissions = true;
     features.uses_permission_request = true;
     features.dynamic_permission = true;
@@ -850,6 +924,79 @@ mod tests {
         ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
         SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
+
+    fn regex_module(enabled: bool) -> Module {
+        Module {
+            widgets: Vec::new(),
+            app_name: "RegexUsage".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: if enabled {
+                vec![Function {
+                    name: "hasDigits".to_owned(),
+                    receiver: None,
+                    class_initializers: Vec::new(),
+                    is_async: false,
+                    is_throwing: false,
+                    parameters: Vec::new(),
+                    locals: Vec::new(),
+                    return_type: Type::Bool,
+                    body: Expr::NativeCall {
+                        receiver: None,
+                        namespace: "Regex".to_owned(),
+                        name: "isMatch".to_owned(),
+                        arguments: Vec::new(),
+                        codecs: Vec::new(),
+                        return_type: Type::Bool,
+                        source_span: None,
+                        is_async: false,
+                        is_throwing: false,
+                    },
+                    body_actions: None,
+                }]
+            } else {
+                Vec::new()
+            },
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Text {
+                value: Expr::String("Regex capability probe".to_owned()),
+                style: TextStyle::default(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        }
+    }
+
+    #[test]
+    fn regex_runtime_helpers_are_emitted_only_when_the_api_is_used() {
+        let without_regex = generate(&regex_module(false));
+        let with_regex = generate(&regex_module(true));
+        let with_regex_units = super::generate_units(&regex_module(true));
+
+        assert!(!without_regex.contains("nexaRegexIsMatch"));
+        assert!(with_regex.contains("nexaRegexIsMatch"));
+        assert_eq!(
+            with_regex_units
+                .units
+                .iter()
+                .map(|unit| unit.contents.matches("struct NexaRegex {").count())
+                .sum::<usize>(),
+            1,
+            "shared Regex types must be emitted once across separate Swift files"
+        );
+    }
 
     #[test]
     fn pressable_context_menu_emits_native_swiftui_actions() {
@@ -1137,6 +1284,7 @@ mod tests {
 
         let swift = generate(&module);
         assert!(swift.contains("@Namespace private var nexaSharedNamespace"));
+        assert!(swift.contains("Group {\n            NavigationStack"));
         assert!(swift.contains(".nexaSharedElement(id: \"hero-image\")"));
         assert!(swift.contains(".environment(\\.nexaSharedNamespace, nexaSharedNamespace)"));
         assert!(swift.contains("matchedGeometryEffect(id: id, in: namespace)"));
@@ -1205,6 +1353,7 @@ mod tests {
             ],
             codecs: Vec::new(),
             return_type: Type::String,
+            source_span: None,
             is_async: false,
             is_throwing: false,
         };
@@ -1585,6 +1734,32 @@ mod tests {
     }
 
     #[test]
+    fn immutable_app_values_are_view_properties_for_generated_helpers() {
+        let mut module = regex_module(false);
+        module.states.push(State {
+            name: "screenTitle".to_owned(),
+            ty: Type::String,
+            initial: Expr::String("Reading list".to_owned()),
+            mutable: false,
+        });
+        module.body = vec![Node::Text {
+            value: Expr::State("screenTitle".to_owned(), Type::String),
+            style: TextStyle::default(),
+        }];
+
+        let swift = generate(&module);
+        let property = "private var nexa_screenTitle: String { \"Reading list\" }";
+        let body = swift.find("public var body: some View").unwrap();
+        let property = swift.find(property).unwrap();
+
+        assert!(
+            property < body,
+            "immutable app values must be view properties"
+        );
+        assert!(swift.contains("Text(nexa_screenTitle)"));
+    }
+
+    #[test]
     fn mutable_native_class_bindings_write_through_identity_storage() {
         let mut player = native_instance_state("player");
         player.mutable = true;
@@ -1715,6 +1890,7 @@ mod tests {
                             arguments: Vec::new(),
                             codecs: Vec::new(),
                             return_type: Type::Void,
+                            source_span: None,
                             is_async: false,
                             is_throwing: false,
                         })],

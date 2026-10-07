@@ -49,7 +49,7 @@ app ThrowsApp {
     let swift_compiled = compile_file_with_warnings_for_target(&entry, Target::Swift)
         .expect("throwing functions and methods should compile for Swift");
     let swift_out = nexa_backend_swift::SwiftBackend.generate(&swift_compiled.module);
-    
+
     assert!(
         swift_out.contains("func nexa_fn_validate(_ nexa_code: Int32) throws -> Bool"),
         "Swift output should declare throwing synchronous method: {swift_out}"
@@ -238,5 +238,3 @@ app TryOpApp {
     let kotlin_out = nexa_backend_kotlin::KotlinBackend.generate(&kotlin_compiled.module);
     assert!(kotlin_out.contains("nexa_val.getOrThrow()"));
 }
-
-

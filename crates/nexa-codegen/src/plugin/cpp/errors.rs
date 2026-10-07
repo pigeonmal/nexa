@@ -175,10 +175,13 @@ pub(crate) fn render_android_jni_error_converters(
                             BridgeScalar::Int64 | BridgeScalar::UInt64 => "j",
                             BridgeScalar::Float32 => "f",
                             BridgeScalar::Float64 => "d",
-                            BridgeScalar::String | BridgeScalar::Bytes | BridgeScalar::Void => {
+                            BridgeScalar::String
+                            | BridgeScalar::Bytes
+                            | BridgeScalar::BufferView
+                            | BridgeScalar::Void => {
                                 debug_assert!(
                                     false,
-                                    "string, bytes, and void payloads render above"
+                                    "string, bytes, borrowed views, and void payloads render above"
                                 );
                                 continue;
                             }

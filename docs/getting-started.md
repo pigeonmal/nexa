@@ -170,9 +170,11 @@ nexa dev --android
 |---|---|---|
 | `nexa create <name>` | `--directory <path>` | Creates the app source, configuration, and local signing template. |
 | `nexa check` | `--ios`, `--android`, `--locked`, `--deny-warnings`, `--audit` | Validates source, plugin dependencies, types, and platform constraints. |
-| `nexa dev` | `--ios`, `--android`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--once`, `--compile-only`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds and launches a native app with DevRuntime hot reload. |
-| `nexa test` | `--unit-only`, `--ios`, `--android`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Runs app tests; `--unit-only` skips native test hosts. |
-| `nexa release` | `--ios`, `--android`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds an iOS archive or Android AAB using platform signing credentials. |
+| `nexa fmt` | `--check` | Formats Nexa source files or checks whether they need formatting. |
+| `nexa dev` | `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--once`, `--compile-only`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds and launches a native app with DevRuntime hot reload. |
+| `nexa test` | `--unit-only`, `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Runs app tests; `--unit-only` skips native test hosts. |
+| `nexa build` | `--release`, `--ipa`, `--aab`, `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds a signed iOS IPA or Android AAB. |
+| `nexa release` | `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds an iOS archive or Android AAB using platform signing credentials. |
 | `nexa doctor` | `—` | Verifies toolchain installation and environment health. |
 | `nexa audit <file>` | `--target <ios\|android\|all>`, `--release-sizes`, `--out <path>` | Reports reachable features, generated dependencies, and optional release-size data. |
 | `nexa plugin <subcommand>` | `init <plugin.id> --out <directory>`, `check <package-directory\|native.nxid>`, `generate <package-directory\|native.nxid> --target <swift\|kotlin\|cpp>` | Scaffolds, validates, and generates bindings for a plugin package. |

@@ -136,7 +136,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.graphics.shadow.Shadow
@@ -914,7 +913,6 @@ internal fun NexaDevNode(
                 value = value,
                 onValueChange = { next ->
                     val updated = next.take(maxLength)
-                    value = updated
                     store.setState(state, updated, scope)
                     val parameter = onChange?.optString("parameter")?.takeIf(String::isNotEmpty)
                     if (parameter != null) {

@@ -560,6 +560,18 @@ pub const TYPES: &[TypeEntry] = &[
         summary: "Unique element set Set<T>",
     },
     TypeEntry {
+        name: "Regex",
+        summary: "Reusable native regular expression",
+    },
+    TypeEntry {
+        name: "RegexMatch",
+        summary: "Typed regular-expression match, range, and capture groups",
+    },
+    TypeEntry {
+        name: "Range",
+        summary: "Half-open UTF-16 source range returned by RegexMatch",
+    },
+    TypeEntry {
         name: "Pair",
         summary: "Two-element tuple Pair<A, B>",
     },
@@ -601,6 +613,9 @@ app T {
     state list: Array<Int32> = []
     state lookup: Map<String, Int32> = [:]
     state unique: Set<Int32> = []
+    state expression: Regex = /order-[0-9]+/i
+    state match: RegexMatch? = null
+    state range: Range? = null
     state pair: Pair<String, Int32> = Pair("", 0)
     state triple: Triple<String, Int32, Bool> = Triple("", 0, false)
     fn load() -> Result<Int32, String> {

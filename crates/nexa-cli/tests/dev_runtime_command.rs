@@ -35,6 +35,42 @@ fn dev_help_describes_debug_runtime_compile_mode() {
 }
 
 #[test]
+fn build_help_describes_release_artifacts() {
+    let output = Command::new(env!("CARGO_BIN_EXE_nexa"))
+        .args(["build", "--help"])
+        .output()
+        .expect("run build help");
+
+    assert!(output.status.success(), "{output:?}");
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("nexa build --release"), "{help}");
+    assert!(help.contains("--ipa"), "{help}");
+    assert!(help.contains("--aab"), "{help}");
+}
+
+#[test]
+fn ios_dev_virtualized_lists_keep_specialized_row_views() {
+    let runtime = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+    let list_start = runtime
+        .find("struct NexaDevFastList<")
+        .expect("find the development fast list")
+        - "@MainActor\n".len();
+    let list_end = runtime
+        .find("struct NexaDevNodeList: View")
+        .expect("find the dynamic node renderer");
+    let list_runtime = &runtime[list_start..list_end];
+
+    assert!(list_runtime.contains("RowContent: View"));
+    assert!(list_runtime.contains("StickyHeaderContent: View"));
+    assert!(list_runtime.contains("SectionHeaderContent: View"));
+    assert!(list_runtime.contains("private struct NexaDevPageSnapList<RowContent: View>"));
+    assert!(
+        !list_runtime.contains("AnyView"),
+        "virtualized list row and header paths should retain concrete view types"
+    );
+}
+
+#[test]
 fn dev_rejects_conflicting_once_and_compile_only_modes() {
     let root = temporary_project();
     let output = Command::new(env!("CARGO_BIN_EXE_nexa"))

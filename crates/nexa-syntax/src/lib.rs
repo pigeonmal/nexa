@@ -7,10 +7,22 @@
 
 pub mod ast;
 pub mod catalog;
+mod format;
 mod lexer;
 mod parser;
 
 use nexa_diagnostics::CompileError;
+
+pub use lexer::{Kind as TokenKind, Token};
+
+/// Tokenize Nexa source while preserving byte spans for editor integrations.
+/// Comments and whitespace are intentionally omitted, as they are for the
+/// parser; callers that need trivia should retain it from the source text.
+pub fn tokenize(source: &str) -> Result<Vec<Token>, CompileError> {
+    lexer::lex(source)
+}
+
+pub use format::{format_source, format_source_with_options};
 
 pub fn parse(source: &str) -> Result<ast::App, CompileError> {
     parser::parse(lexer::lex(source)?)

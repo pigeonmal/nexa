@@ -307,6 +307,8 @@ pub(crate) fn render_screen_view(
             );
         }
     }
+    render_immutable_state(&module.states, 1, out);
+    render_immutable_state(&screen.states, 1, out);
     for binding in &focus_bindings {
         if module.states.iter().any(|state| state.name == *binding) {
             continue;
@@ -395,8 +397,6 @@ pub(crate) fn render_screen_view(
         out.push_str("    }\n\n");
     }
     out.push_str("    var body: some View {\n");
-    render_immutable_state(&module.states, 2, out);
-    render_immutable_state(&screen.states, 2, out);
     out.push_str("        Group {\n");
     let content = screen
         .body

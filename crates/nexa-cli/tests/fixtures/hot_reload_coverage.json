@@ -1500,6 +1500,11 @@
         "android": "covered"
       },
       {
+        "name": "MapClear",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Replace",
         "ios": "covered",
         "android": "covered"

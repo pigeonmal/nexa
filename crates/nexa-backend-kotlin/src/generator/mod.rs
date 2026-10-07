@@ -11,12 +11,12 @@ pub(super) use api::{network, number, permissions};
 
 // Re-exported through `generator` because `engine` is private and the crate
 // root cannot name a path through it.
-pub use engine::kotlin_scalar_types;
 use components::node_renderer as component_renderer;
 pub(super) use components::{
     accessibility, assets, bottom_bar, controls, custom_components, dialogs, images, input,
     keyboard, layout, links, lists, navigation, refresh, sheets, system_icons,
 };
+pub use engine::kotlin_scalar_types;
 pub(super) use engine::{
     colors, expressions, features, functions, runtime, state, structs, utils, value,
 };
@@ -125,6 +125,11 @@ pub(super) fn generate_for_dev_units_with_project_features(
     // Android Keystore adapter must already be part of every development host.
     features.facts.capabilities.uses_secure_storage_api = true;
     features.facts.capabilities.uses_storage_api = true;
+    features.facts.capabilities.uses_regex_api = true;
+    // NexaDevNativeApis dispatches AppIcon calls even when the initial module
+    // does not use them, so the host runtime must keep the typed adapter ready
+    // for a hot-reloaded call.
+    features.facts.capabilities.uses_app_icon_api = true;
     features.uses_permissions = true;
     features.uses_permission_request = true;
     features.dynamic_permission = true;
@@ -229,6 +234,41 @@ private fun <K, V> nexaSnapshotEntries(values: androidx.compose.runtime.snapshot
 
 "#;
 
+const NEXA_REGEX_HELPERS: &str = r#"internal data class NexaRegexMatch(
+    val value: String,
+    val range: NexaRegexRange,
+    val groups: List<String?>,
+)
+
+internal data class NexaRegexRange(
+    val lowerBound: Long,
+    val upperBound: Long,
+)
+
+internal class NexaRegex(pattern: String) {
+    private val expression: Regex? = runCatching { Regex(pattern) }.getOrNull()
+
+    fun matches(text: String): Boolean = expression?.matches(text) == true
+
+    fun find(text: String): NexaRegexMatch? = expression?.find(text)?.let(::toNexaRegexMatch)
+
+    fun findAll(text: String): List<NexaRegexMatch> =
+        expression?.findAll(text)?.map(::toNexaRegexMatch)?.toList().orEmpty()
+
+    fun replace(text: String, with: String): String = expression?.replace(text, with) ?: text
+
+    private fun toNexaRegexMatch(match: MatchResult): NexaRegexMatch {
+        val groups = (1 until match.groups.size).map { index -> match.groups[index]?.value }
+        return NexaRegexMatch(
+            value = match.value,
+            range = NexaRegexRange(match.range.first.toLong(), (match.range.last + 1).toLong()),
+            groups = groups,
+        )
+    }
+}
+
+"#;
+
 fn generate_with_analysis(module: &Module, features: &features::Features) -> GeneratedSources {
     let focus_bindings = features.facts.focus_bindings.app.clone();
     let imports = engine::imports::render(engine::imports::ImportContext {
@@ -259,6 +299,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             || module.on_background.is_some()
             || !module.widgets.is_empty(),
         has_widgets: !module.widgets.is_empty(),
+        has_immutable_structs: structs::has_immutable_structs(module),
     });
     let value_codecs = nexa_codegen::value::collect(module);
     let json_types = nexa_codegen::value::collect_json_types(module);
@@ -304,6 +345,9 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             ));
         }
         structs::render(module, out);
+        if features.facts.capabilities.uses_regex_api {
+            out.push_str(NEXA_REGEX_HELPERS);
+        }
         // Value codecs live in the types file: app structs and enums are
         // file-private, and a codec for one has to construct and read it.
         value::render(&value_codecs, out);
@@ -936,6 +980,7 @@ mod tests {
             ],
             codecs: Vec::new(),
             return_type: Type::String,
+            source_span: None,
             is_async: false,
             is_throwing: false,
         };
@@ -1386,6 +1431,7 @@ mod tests {
                             arguments: Vec::new(),
                             codecs: Vec::new(),
                             return_type: Type::Void,
+                            source_span: None,
                             is_async: false,
                             is_throwing: false,
                         })],

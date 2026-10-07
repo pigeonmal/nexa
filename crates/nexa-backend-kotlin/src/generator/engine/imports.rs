@@ -11,6 +11,7 @@ pub(crate) struct ImportContext<'a> {
     pub(crate) has_on_disappear: bool,
     pub(crate) has_lifecycle_events: bool,
     pub(crate) has_widgets: bool,
+    pub(crate) has_immutable_structs: bool,
 }
 
 /// Deduplicates and orders imports after feature modules contribute them.
@@ -42,6 +43,10 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
+    imports.add(
+        context.has_immutable_structs,
+        "androidx.compose.runtime.Immutable",
+    );
     imports.add(true, "androidx.compose.material3.LocalRippleConfiguration");
     imports.add(context.has_widgets, "androidx.glance.appwidget.updateAll");
     imports.add(context.has_widgets, "kotlinx.coroutines.CoroutineScope");
@@ -112,6 +117,7 @@ mod tests {
             has_on_disappear: false,
             has_lifecycle_events: false,
             has_widgets: false,
+            has_immutable_structs: false,
         })
     }
 
@@ -121,6 +127,37 @@ mod tests {
         assert!(imports.contains("import androidx.compose.material3.LocalRippleConfiguration\n"));
         assert!(imports.contains("import androidx.compose.runtime.Composable\n"));
         assert!(imports.contains("import androidx.compose.runtime.CompositionLocalProvider\n"));
+    }
+
+    #[test]
+    fn immutable_annotation_import_is_gated_to_proven_structs() {
+        let mut context_features = Features::default();
+        let baseline = render(ImportContext {
+            features: &context_features,
+            uses_plugins: false,
+            has_navigation: false,
+            has_direction: false,
+            has_on_appear: false,
+            has_on_disappear: false,
+            has_lifecycle_events: false,
+            has_widgets: false,
+            has_immutable_structs: false,
+        });
+        context_features.uses_network_api = true;
+        let with_annotation = render(ImportContext {
+            features: &context_features,
+            uses_plugins: false,
+            has_navigation: false,
+            has_direction: false,
+            has_on_appear: false,
+            has_on_disappear: false,
+            has_lifecycle_events: false,
+            has_widgets: false,
+            has_immutable_structs: true,
+        });
+
+        assert!(!baseline.contains("androidx.compose.runtime.Immutable"));
+        assert!(with_annotation.contains("import androidx.compose.runtime.Immutable\n"));
     }
 
     #[test]

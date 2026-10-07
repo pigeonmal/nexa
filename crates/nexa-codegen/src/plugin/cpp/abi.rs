@@ -28,9 +28,10 @@ use nexa_plugin_idl::{self, InterfaceKind, Literal};
 pub fn render(plan: &BridgePlan, plugin_id: &str) -> String {
     let mut out = SourceWriter::new();
     out.push_str(
-        "#pragma once\n\n#include <atomic>\n#include <cstdint>\n#include <exception>\n#include <functional>\n#include <future>\n#include <map>\n#include <memory>\n#include <optional>\n#include <set>\n#include <string>\n#include <tuple>\n#include <utility>\n#include <variant>\n#include <vector>\n\n#if __has_include(<swift/bridging>)\n#include <swift/bridging>\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...) SWIFT_SHARED_REFERENCE(__VA_ARGS__)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL _Nonnull\n#define NEXA_CXX_SWIFT_NULLABLE _Nullable\n#else\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL\n#define NEXA_CXX_SWIFT_NULLABLE\n#endif\n\n",
+        "#pragma once\n\n#include <atomic>\n#include <cstddef>\n#include <cstdint>\n#include <exception>\n#include <functional>\n#include <future>\n#include <map>\n#include <memory>\n#include <optional>\n#include <set>\n#include <string>\n#include <tuple>\n#include <utility>\n#include <variant>\n#include <vector>\n\n#if __has_include(<swift/bridging>)\n#include <swift/bridging>\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...) SWIFT_SHARED_REFERENCE(__VA_ARGS__)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL _Nonnull\n#define NEXA_CXX_SWIFT_NULLABLE _Nullable\n#else\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL\n#define NEXA_CXX_SWIFT_NULLABLE\n#endif\n\n",
     );
     out.push_str(&format!("namespace {} {{\n\n", cpp_namespace(plugin_id)));
+    out.push_str("namespace nexa_buffer_view {\nstruct BufferView {\n    const std::uint8_t* data;\n    std::size_t size;\n};\n\ninline BufferView make(const std::uint8_t* data, std::size_t size) noexcept {\n    return BufferView{data, size};\n}\n} // namespace nexa_buffer_view\n\n");
     if plan.interfaces.iter().any(|interface| {
         interface.kind == InterfaceKind::NativeClass && !interface.events.is_empty()
     }) {
@@ -143,6 +144,7 @@ pub(crate) fn bridge_type_name(ty: &BridgeType) -> &str {
             BridgeScalar::Float64 => "Float64",
             BridgeScalar::String => "String",
             BridgeScalar::Bytes => "Bytes",
+            BridgeScalar::BufferView => "BufferView",
         },
         BridgeType::Named { name, .. } | BridgeType::TypeParameter(name) => name,
         BridgeType::Array(_) => "Array",
@@ -816,6 +818,7 @@ fn cpp_type_base(ty: &BridgeType) -> String {
             BridgeScalar::Float32 => "float",
             BridgeScalar::Float64 => "double",
             BridgeScalar::Bytes => "std::vector<std::uint8_t>",
+            BridgeScalar::BufferView => "nexa_buffer_view::BufferView",
         }
         .to_owned(),
         BridgeType::Array(element) => format!("std::vector<{}>", cpp_type(element)),

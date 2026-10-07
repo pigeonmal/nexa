@@ -500,16 +500,12 @@ pub(super) fn collect_plugin_signatures(
         // Payload enum cases are value constructors, not native calls. Their
         // signatures let contextual lowering adapt ordinary Nexa values to a
         // plugin's native representation without exposing constructors in app code.
-        for declaration in idl
-            .types
-            .iter()
-            .filter(|declaration| {
-                matches!(
-                    declaration.kind,
-                    nexa_plugin_idl::NamedTypeKind::Enum | nexa_plugin_idl::NamedTypeKind::Error
-                )
-            })
-        {
+        for declaration in idl.types.iter().filter(|declaration| {
+            matches!(
+                declaration.kind,
+                nexa_plugin_idl::NamedTypeKind::Enum | nexa_plugin_idl::NamedTypeKind::Error
+            )
+        }) {
             let enum_type = Type::Plugin {
                 namespace: plugin.namespace.clone(),
                 name: declaration.name.clone(),
@@ -578,6 +574,10 @@ fn plugin_type(
         "Float32" => Type::Numeric(NumericType::Float32),
         "Float64" => Type::Numeric(NumericType::Float64),
         "Bytes" => Type::Bytes,
+        // The IDL boundary borrows these bytes only for a synchronous native
+        // call. At the Nexa source level it remains the ordinary owned Bytes
+        // value; the generated C++ adapters pin or stage it for that call.
+        "BufferView" => Type::Bytes,
         "Array" if ty.arguments.len() == 1 => Type::Array(Box::new(plugin_type(
             namespace,
             &ty.arguments[0],
@@ -1428,6 +1428,29 @@ pub(super) fn lower_expr(
             }
             if matches!(
                 infer_expr_type(base, ctx.symbols, ctx.functions),
+                Some(Type::Plugin {
+                    namespace,
+                    name
+                }) if namespace == "Regex" && name == "Regex"
+            ) {
+                if !type_arguments.is_empty() {
+                    return Err(CompileError::new(
+                        *span,
+                        "type arguments are not supported on Regex methods",
+                    ));
+                }
+                return lower_regex_method_call(
+                    base,
+                    name,
+                    arguments,
+                    named_arguments,
+                    *span,
+                    expected,
+                    ctx,
+                );
+            }
+            if matches!(
+                infer_expr_type(base, ctx.symbols, ctx.functions),
                 Some(Type::Plugin { .. } | Type::Class { .. })
             ) {
                 lower_plugin_method_call(
@@ -1650,6 +1673,7 @@ pub(super) fn lower_expr(
                     arguments: Vec::new(),
                     codecs: Vec::new(),
                     return_type,
+                    source_span: Some(*span),
                     is_async: false,
                     is_throwing: false,
                 });
@@ -1686,6 +1710,29 @@ pub(super) fn lower_expr(
                     format!("cannot access member `{name}` on an untyped value"),
                 ));
             };
+            if !*optional
+                && let Type::Map(key_type, value_type) = &base_type
+                && matches!(name.as_str(), "keys" | "values")
+            {
+                let return_type = if name == "keys" {
+                    Type::Array(Box::new((**key_type).clone()))
+                } else {
+                    Type::Array(Box::new((**value_type).clone()))
+                };
+                require_expected(expected, &return_type, *span)?;
+                let receiver = lower_expr(base, Some(&base_type), ctx)?;
+                return Ok(Expr::NativeCall {
+                    receiver: Some(Box::new(receiver)),
+                    namespace: "__NexaMap".to_owned(),
+                    name: name.clone(),
+                    arguments: Vec::new(),
+                    codecs: Vec::new(),
+                    return_type,
+                    source_span: Some(*span),
+                    is_async: false,
+                    is_throwing: false,
+                });
+            }
             let (member_base_type, field_type) = if *optional {
                 let Type::Optional(inner) = &base_type else {
                     return Err(CompileError::new(
@@ -1859,6 +1906,18 @@ pub(super) fn lower_expr(
                     Some(Type::Plugin { .. } | Type::Class { .. })
                 ) =>
                 {
+                    if matches!(
+                        infer_expr_type(base, ctx.symbols, ctx.functions),
+                        Some(Type::Plugin {
+                            namespace,
+                            name: class_name,
+                        }) if namespace == "Regex" && class_name == "Regex"
+                    ) {
+                        return Err(CompileError::new(
+                            *call_span,
+                            format!("Regex.{name} is synchronous and cannot be awaited"),
+                        ));
+                    }
                     lower_plugin_method_call(
                         base,
                         name,
@@ -2135,7 +2194,10 @@ fn lower_string_method(
     if arguments.len() != expected_arg_count {
         return Err(CompileError::new(
             span,
-            format!("`{name}` expects {expected_arg_count} argument(s), got {}", arguments.len()),
+            format!(
+                "`{name}` expects {expected_arg_count} argument(s), got {}",
+                arguments.len()
+            ),
         ));
     }
     require_expected(expected, &return_type, span)?;
@@ -2153,6 +2215,7 @@ fn lower_string_method(
         arguments: lowered_args,
         codecs: Vec::new(),
         return_type,
+        source_span: Some(span),
         is_async: false,
         is_throwing: false,
     })
@@ -2184,7 +2247,10 @@ fn lower_map_method(
     if arguments.len() != expected_arg_count {
         return Err(CompileError::new(
             span,
-            format!("`{name}` expects {expected_arg_count} argument(s), got {}", arguments.len()),
+            format!(
+                "`{name}` expects {expected_arg_count} argument(s), got {}",
+                arguments.len()
+            ),
         ));
     }
     require_expected(expected, &return_type, span)?;
@@ -2202,6 +2268,7 @@ fn lower_map_method(
         arguments: lowered_args,
         codecs: Vec::new(),
         return_type,
+        source_span: Some(span),
         is_async: false,
         is_throwing: false,
     })
@@ -2450,6 +2517,36 @@ fn lower_call(
             "type arguments are only supported on plugin methods",
         ));
     }
+    if name == "Regex" {
+        if awaited {
+            return Err(CompileError::new(
+                span,
+                "`Regex` construction is synchronous and cannot be awaited",
+            ));
+        }
+        if arguments.len() != 1 {
+            return Err(CompileError::new(
+                span,
+                "`Regex` expects exactly one pattern argument",
+            ));
+        }
+        let return_type = regex_type();
+        require_expected(expected, &return_type, span)?;
+        return Ok(Expr::NativeCall {
+            receiver: None,
+            namespace: "Regex".to_owned(),
+            name: "new".to_owned(),
+            arguments: vec![(
+                "pattern".to_owned(),
+                lower_expr(&arguments[0], Some(&Type::String), ctx)?,
+            )],
+            codecs: Vec::new(),
+            return_type,
+            source_span: Some(span),
+            is_async: false,
+            is_throwing: false,
+        });
+    }
     if name == "Ok" {
         if arguments.len() != 1 {
             return Err(CompileError::new(span, "`Ok` expects exactly 1 argument"));
@@ -2562,6 +2659,23 @@ fn lower_named_call(
     ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
+    if name == "Regex" {
+        if named_arguments.len() != 1 || !named_arguments.contains_key("pattern") {
+            return Err(CompileError::new(
+                span,
+                "`Regex` requires the named argument `pattern`",
+            ));
+        }
+        return lower_call(
+            name,
+            type_arguments,
+            &[named_arguments["pattern"].clone()],
+            span,
+            expected,
+            ctx,
+            awaited,
+        );
+    }
     let Some(signature) = ctx.functions.get(name) else {
         return Err(CompileError::new(
             span,
@@ -2611,6 +2725,107 @@ fn lower_named_call(
         ctx,
         awaited,
     )
+}
+
+fn regex_type() -> Type {
+    Type::Plugin {
+        namespace: "Regex".to_owned(),
+        name: "Regex".to_owned(),
+    }
+}
+
+fn regex_match_type() -> Type {
+    Type::Plugin {
+        namespace: "Regex".to_owned(),
+        name: "RegexMatch".to_owned(),
+    }
+}
+
+fn regex_range_type() -> Type {
+    Type::Plugin {
+        namespace: "Regex".to_owned(),
+        name: "Range".to_owned(),
+    }
+}
+
+fn lower_regex_method_call(
+    base: &ast::Expr,
+    name: &str,
+    arguments: &[ast::Expr],
+    named_arguments: &BTreeMap<String, ast::Expr>,
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+) -> Result<Expr, CompileError> {
+    let signature: Vec<(&str, Type)> = match name {
+        "matches" | "find" | "findAll" => vec![("text", Type::String)],
+        "replace" => vec![("text", Type::String), ("with", Type::String)],
+        _ => {
+            return Err(CompileError::new(
+                span,
+                format!("Regex has no method `{name}`"),
+            ));
+        }
+    };
+    if arguments.len() + named_arguments.len() != signature.len()
+        || arguments.len() > signature.len()
+    {
+        return Err(CompileError::new(
+            span,
+            format!("Regex.{name} expects {} argument(s)", signature.len()),
+        ));
+    }
+    let mut ordered = vec![None; signature.len()];
+    for (index, argument) in arguments.iter().enumerate() {
+        ordered[index] = Some(argument);
+    }
+    for (argument_name, argument) in named_arguments {
+        let Some(index) = signature
+            .iter()
+            .position(|(parameter, _)| parameter == argument_name)
+        else {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("Regex.{name} has no parameter named `{argument_name}`"),
+            ));
+        };
+        if ordered[index].replace(argument).is_some() {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("Regex.{name} received `{argument_name}` more than once"),
+            ));
+        }
+    }
+    let return_type = match name {
+        "matches" => Type::Bool,
+        "find" => Type::Optional(Box::new(regex_match_type())),
+        "findAll" => Type::Array(Box::new(regex_match_type())),
+        "replace" => Type::String,
+        _ => Type::Void,
+    };
+    require_expected(expected, &return_type, span)?;
+    let receiver = lower_expr(base, Some(&regex_type()), ctx)?;
+    let arguments = ordered
+        .into_iter()
+        .zip(signature)
+        .map(|(argument, (parameter, ty))| {
+            let argument = argument.ok_or_else(|| {
+                CompileError::new(span, format!("Regex.{name} requires `{parameter}`"))
+            })?;
+            Ok((parameter.to_owned(), lower_expr(argument, Some(&ty), ctx)?))
+        })
+        .collect::<Result<Vec<_>, CompileError>>()?;
+    Ok(Expr::NativeCall {
+        receiver: Some(Box::new(receiver)),
+        namespace: "Regex".to_owned(),
+        name: name.to_owned(),
+        arguments,
+        codecs: Vec::new(),
+        return_type,
+        source_span: Some(span),
+        is_async: false,
+        is_throwing: false,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -2709,6 +2924,7 @@ fn lower_locale_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Co
         arguments: vec![("languageCode".to_owned(), lowered)],
         codecs: Vec::new(),
         return_type: Type::Optional(Box::new(Type::String)),
+        source_span: Some(span),
         is_async: false,
         is_throwing: false,
     })
@@ -2929,12 +3145,18 @@ fn lower_native_call(
         "Regex.isMatch" => (
             Type::Bool,
             false,
-            vec![("pattern", Type::String, None), ("text", Type::String, None)],
+            vec![
+                ("pattern", Type::String, None),
+                ("text", Type::String, None),
+            ],
         ),
         "Regex.matches" => (
             Type::Array(Box::new(Type::String)),
             false,
-            vec![("pattern", Type::String, None), ("text", Type::String, None)],
+            vec![
+                ("pattern", Type::String, None),
+                ("text", Type::String, None),
+            ],
         ),
         "Regex.replace" => (
             Type::String,
@@ -3201,6 +3423,7 @@ fn native_plan(
             ],
             codecs: Vec::new(),
             return_type: Type::NetworkResponse,
+            source_span: Some(span),
             is_async: true,
             is_throwing: true,
         }),
@@ -3215,6 +3438,7 @@ fn native_plan(
                 arguments: Vec::new(),
                 codecs: Vec::new(),
                 return_type: Type::String,
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3243,6 +3467,7 @@ fn native_plan(
             arguments: Vec::new(),
             codecs: Vec::new(),
             return_type: Type::Void,
+            source_span: Some(span),
             is_async: false,
             is_throwing: false,
         }),
@@ -3253,6 +3478,7 @@ fn native_plan(
             arguments: vec![("mode".to_owned(), take("mode")?)],
             codecs: Vec::new(),
             return_type: Type::Void,
+            source_span: Some(span),
             is_async: false,
             is_throwing: false,
         }),
@@ -3352,6 +3578,7 @@ fn native_plan(
             arguments: vec![("name".to_owned(), take("name")?)],
             codecs: Vec::new(),
             return_type: Type::Bool,
+            source_span: Some(span),
             is_async: true,
             is_throwing: false,
         }),
@@ -3365,6 +3592,7 @@ fn native_plan(
             ],
             codecs: Vec::new(),
             return_type: Type::String,
+            source_span: Some(span),
             is_async: false,
             is_throwing: false,
         }),
@@ -3383,6 +3611,7 @@ fn native_plan(
                 } else {
                     Type::Array(Box::new(Type::String))
                 },
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3407,6 +3636,7 @@ fn native_plan(
                 arguments,
                 codecs: Vec::new(),
                 return_type: Type::String,
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3440,6 +3670,7 @@ fn native_plan(
                 } else {
                     Type::Void
                 },
+                source_span: Some(span),
                 is_async: true,
                 is_throwing: true,
             })
@@ -3469,6 +3700,7 @@ fn native_plan(
                 } else {
                     Type::Void
                 },
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3493,6 +3725,7 @@ fn native_plan(
                     "hasText" => Type::Bool,
                     _ => Type::Void,
                 },
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3521,6 +3754,7 @@ fn native_plan(
                 arguments,
                 codecs: Vec::new(),
                 return_type: Type::Void,
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3557,6 +3791,7 @@ fn native_plan(
                 arguments,
                 codecs: Vec::new(),
                 return_type,
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3692,6 +3927,7 @@ fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Comp
                     row_mapper: false,
                 }],
                 return_type,
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3762,6 +3998,7 @@ fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Comp
                     row_mapper: false,
                 }],
                 return_type: Type::String,
+                source_span: Some(span),
                 is_async: false,
                 is_throwing: false,
             })
@@ -3845,6 +4082,8 @@ fn lower_plugin_call(
         ctx,
         awaited,
     } = call;
+    let expected_type = expected.map(|ty| resolve_struct_type(ty, ctx.structs));
+    let expected = expected_type.as_ref();
     let qualified_name = format!("{namespace}.{name}");
     let signature = ctx
         .functions
@@ -3982,6 +4221,7 @@ fn lower_plugin_call(
         arguments: lowered,
         codecs,
         return_type,
+        source_span: Some(span),
         is_async: signature.is_async,
         is_throwing: signature.is_throwing,
     })
@@ -4001,6 +4241,8 @@ fn lower_plugin_method_call(
         ctx,
         awaited,
     } = call;
+    let expected_type = expected.map(|ty| resolve_struct_type(ty, ctx.structs));
+    let expected = expected_type.as_ref();
     let Some(base_type) = infer_expr_type(base, ctx.symbols, ctx.functions) else {
         return Err(CompileError::new(
             span,
@@ -4134,6 +4376,7 @@ fn lower_plugin_method_call(
             .map(|(name, _)| name.clone())
             .zip(lowered)
             .collect(),
+        source_span: Some(span),
         is_async: signature.is_async,
         is_throwing: signature.is_throwing,
     })
@@ -4468,7 +4711,10 @@ fn infer_call_return_type(
         }
     }
     for (name, actual_expr) in named_arguments {
-        if let Some((_, declared)) = signature.parameters.iter().find(|(p_name, _)| p_name == name)
+        if let Some((_, declared)) = signature
+            .parameters
+            .iter()
+            .find(|(p_name, _)| p_name == name)
             && let Some(actual_ty) = infer_expr_type(actual_expr, symbols, functions)
         {
             let _ = super::generics::unify(declared, &actual_ty, &mut bindings);
@@ -4514,25 +4760,25 @@ pub(super) fn infer_expr_type(
             }
         }
         ast::Expr::Call(name, type_arguments, args, _) => {
-            if name == "Ok" && args.len() == 1 {
+            if name == "Regex" && args.len() == 1 {
+                Some(regex_type())
+            } else if name == "Ok" && args.len() == 1 {
                 infer_expr_type(&args[0], symbols, functions)
                     .map(|v| Type::Result(Box::new(v), Box::new(Type::String)))
             } else if name == "Err" && args.len() == 1 {
                 infer_expr_type(&args[0], symbols, functions)
                     .map(|e| Type::Result(Box::new(Type::Void), Box::new(e)))
             } else {
-                functions
-                    .get(name)
-                    .and_then(|signature| {
-                        infer_call_return_type(
-                            signature,
-                            type_arguments,
-                            args,
-                            &BTreeMap::new(),
-                            symbols,
-                            functions,
-                        )
-                    })
+                functions.get(name).and_then(|signature| {
+                    infer_call_return_type(
+                        signature,
+                        type_arguments,
+                        args,
+                        &BTreeMap::new(),
+                        symbols,
+                        functions,
+                    )
+                })
             }
         }
         ast::Expr::CallNamed {
@@ -4540,18 +4786,22 @@ pub(super) fn infer_expr_type(
             type_arguments,
             arguments,
             ..
-        } => functions
-            .get(name)
-            .and_then(|signature| {
-                infer_call_return_type(
-                    signature,
-                    type_arguments,
-                    &[],
-                    arguments,
-                    symbols,
-                    functions,
-                )
-            }),
+        } => {
+            if name == "Regex" && arguments.contains_key("pattern") && arguments.len() == 1 {
+                Some(regex_type())
+            } else {
+                functions.get(name).and_then(|signature| {
+                    infer_call_return_type(
+                        signature,
+                        type_arguments,
+                        &[],
+                        arguments,
+                        symbols,
+                        functions,
+                    )
+                })
+            }
+        }
         ast::Expr::QualifiedCall {
             namespace,
             name,
@@ -4580,6 +4830,9 @@ pub(super) fn infer_expr_type(
             ("Storage", "setString" | "delete" | "clear") => Some(Type::Void),
             ("Haptics", "impact" | "notification" | "selection") => Some(Type::Void),
             ("Screen", "lockOrientation") => Some(Type::Void),
+            ("Regex", "isMatch") => Some(Type::Bool),
+            ("Regex", "matches") => Some(Type::Array(Box::new(Type::String))),
+            ("Regex", "replace") => Some(Type::String),
             ("Time", "now")
             | ("Time", "monotonic")
             | ("Time", "startOfDay")
@@ -4679,6 +4932,25 @@ pub(super) fn infer_expr_type(
             named_arguments,
             ..
         } => {
+            if matches!(
+                infer_expr_type(base, symbols, functions),
+                Some(Type::Plugin {
+                    namespace,
+                    name
+                }) if namespace == "Regex" && name == "Regex"
+            ) {
+                return match name.as_str() {
+                    "matches" if arguments.len() + named_arguments.len() == 1 => Some(Type::Bool),
+                    "find" if arguments.len() + named_arguments.len() == 1 => {
+                        Some(Type::Optional(Box::new(regex_match_type())))
+                    }
+                    "findAll" if arguments.len() + named_arguments.len() == 1 => {
+                        Some(Type::Array(Box::new(regex_match_type())))
+                    }
+                    "replace" if arguments.len() + named_arguments.len() == 2 => Some(Type::String),
+                    _ => None,
+                };
+            }
             if let Some((namespace, enum_name)) = qualified_plugin_enum_path(base) {
                 return functions
                     .get(&format!("{namespace}.{enum_name}.{name}"))
@@ -5025,6 +5297,8 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
             Box::new(Type::Array(Box::new(Type::String))),
         )),
         (Type::NetworkResponse, "body") => Some(Type::String),
+        (Type::Map(key, _), "keys") => Some(Type::Array(key.clone())),
+        (Type::Map(_, value), "values") => Some(Type::Array(value.clone())),
         (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "count") => {
             Some(Type::Numeric(NumericType::Int32))
         }
@@ -5040,6 +5314,31 @@ fn member_field_type_with_plugins(
     name: &str,
     functions: &FunctionSignatures,
 ) -> Option<Type> {
+    if matches!(
+        base_type,
+        Type::Plugin {
+            namespace,
+            name: plugin_name
+        } if namespace == "Regex" && plugin_name == "RegexMatch"
+    ) {
+        return match name {
+            "value" => Some(Type::String),
+            "range" => Some(regex_range_type()),
+            "groups" => Some(Type::Array(Box::new(Type::Optional(Box::new(
+                Type::String,
+            ))))),
+            _ => None,
+        };
+    }
+    if matches!(
+        base_type,
+        Type::Plugin { namespace, name } if namespace == "Regex" && name == "Range"
+    ) {
+        return match name {
+            "lowerBound" | "upperBound" => Some(Type::Numeric(NumericType::Int64)),
+            _ => None,
+        };
+    }
     if let Type::Plugin { name: class, .. } = base_type {
         return functions
             .get(&format!("{class}.#property.{name}"))
@@ -5361,6 +5660,9 @@ fn parse_named_type(name: &str, _span: Span) -> Result<Type, CompileError> {
         // A byte buffer is a first-class value type: it can be a state, a
         // struct field, and a plugin parameter.
         "Bytes" => Type::Bytes,
+        "Regex" => regex_type(),
+        "RegexMatch" => regex_match_type(),
+        "Range" => regex_range_type(),
         "TaskHandle" => Type::TaskHandle,
         _ => Type::Enum(name.to_owned()),
     };
@@ -5481,6 +5783,15 @@ pub(super) fn type_name(ty: &Type) -> String {
         Type::Void => "Void".to_owned(),
         Type::String => "String".to_owned(),
         Type::Bytes => "Bytes".to_owned(),
+        Type::Plugin { namespace, name } if namespace == "Regex" && name == "Regex" => {
+            "Regex".to_owned()
+        }
+        Type::Plugin { namespace, name } if namespace == "Regex" && name == "RegexMatch" => {
+            "RegexMatch".to_owned()
+        }
+        Type::Plugin { namespace, name } if namespace == "Regex" && name == "Range" => {
+            "Range".to_owned()
+        }
         Type::Bool => "Bool".to_owned(),
         Type::Numeric(num) => numeric_name(*num).to_owned(),
         Type::Array(element) => format!("Array<{}>", type_name(element)),

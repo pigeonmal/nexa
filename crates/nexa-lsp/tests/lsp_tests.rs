@@ -22,6 +22,13 @@ fn lsp_initialization_reports_capabilities() {
     assert!(result["capabilities"]["completionProvider"].is_object());
     assert_eq!(result["capabilities"]["hoverProvider"], true);
     assert_eq!(result["capabilities"]["documentSymbolProvider"], true);
+    assert_eq!(
+        result["capabilities"]["semanticTokensProvider"]["full"],
+        true
+    );
+    assert_eq!(result["capabilities"]["documentFormattingProvider"], true);
+    assert!(result["capabilities"]["signatureHelpProvider"].is_object());
+    assert!(result["capabilities"]["codeActionProvider"].is_object());
 }
 
 #[test]
@@ -373,4 +380,174 @@ app TodoApp {
     assert!(symbol_names.contains(&"Priority"));
     assert!(symbol_names.contains(&"items_count"));
     assert!(symbol_names.contains(&"refresh"));
+}
+
+#[test]
+fn lsp_returns_semantic_tokens_for_open_documents() {
+    let mut server = LspServer::new();
+    server.open_or_change_document(
+        "file:///counter.nx".to_string(),
+        "app Counter {\n state count: Int32 = 0\n body { Text(count) }\n}\n".to_string(),
+    );
+    let (response, _) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(7)),
+        method: "textDocument/semanticTokens/full".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///counter.nx" }
+        })),
+    });
+    let result = response
+        .expect("semantic tokens request returns a response")
+        .result
+        .expect("semantic token result");
+    let encoded = result["data"].as_array().expect("semantic token data");
+    assert_eq!(encoded.len() % 5, 0);
+    assert!(!encoded.is_empty());
+}
+
+#[test]
+fn lsp_resolves_definitions_and_references_across_open_documents() {
+    let mut server = LspServer::new();
+    server.open_or_change_document(
+        "file:///app.nx".to_string(),
+        "import \"Row.nx\"\napp Tasks { body { TodoRow() } }\n".to_string(),
+    );
+    server.open_or_change_document(
+        "file:///Row.nx".to_string(),
+        "component TodoRow() { body { Text(\"TodoRow\") } }\n".to_string(),
+    );
+
+    let (definition_response, _) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(8)),
+        method: "textDocument/definition".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///app.nx" },
+            "position": { "line": 1, "character": 25 }
+        })),
+    });
+    let location = definition_response
+        .expect("definition response")
+        .result
+        .expect("definition location");
+    assert_eq!(location["uri"], "file:///Row.nx");
+
+    let (references_response, _) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(9)),
+        method: "textDocument/references".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///app.nx" },
+            "position": { "line": 1, "character": 25 },
+            "context": { "includeDeclaration": true }
+        })),
+    });
+    let locations = references_response
+        .expect("references response")
+        .result
+        .expect("references list");
+    assert_eq!(locations.as_array().expect("location array").len(), 2);
+}
+
+#[test]
+fn lsp_formats_an_open_document_with_one_full_range_edit() {
+    let mut server = LspServer::new();
+    server.open_or_change_document(
+        "file:///counter.nx".to_string(),
+        "app Counter{state count:Int32=0\nbody{Text(count)}}\n".to_string(),
+    );
+    let (response, _) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(10)),
+        method: "textDocument/formatting".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///counter.nx" },
+            "options": { "tabSize": 4, "insertSpaces": true }
+        })),
+    });
+    let edits = response
+        .expect("formatting response")
+        .result
+        .expect("formatting edits");
+    assert_eq!(edits.as_array().expect("edit array").len(), 1);
+    assert_eq!(
+        edits[0]["newText"],
+        "app Counter {\n    state count: Int32 = 0\n    body {\n        Text(count)\n    }\n}\n"
+    );
+}
+
+#[test]
+fn lsp_provides_signature_help_for_user_functions() {
+    let mut server = LspServer::new();
+    server.open_or_change_document(
+        "file:///app.nx".to_string(),
+        "fn loadUser(id: String, includePrivate: Bool) -> String { return id }\napp A { body { Text(loadUser(\"u1\", true)) } }\n"
+            .to_string(),
+    );
+    let (response, _) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(11)),
+        method: "textDocument/signatureHelp".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///app.nx" },
+            "position": { "line": 1, "character": 37 }
+        })),
+    });
+    let help = response
+        .expect("signature help response")
+        .result
+        .expect("signature result");
+    assert_eq!(help["activeParameter"], 1);
+    assert!(
+        help["signatures"][0]["label"]
+            .as_str()
+            .expect("signature label")
+            .contains("loadUser(id: String, includePrivate: Bool)")
+    );
+}
+
+#[test]
+fn lsp_offers_a_quick_fix_for_unhandled_throwing_action_calls() {
+    let mut server = LspServer::new();
+    server.open_or_change_document(
+        "file:///app.nx".to_string(),
+        "app Demo {\n    body {\n        Button(\"Save\") {\n            await storage.save()\n        }\n    }\n}\n".to_string(),
+    );
+    let (response, _) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(12)),
+        method: "textDocument/codeAction".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///app.nx" },
+            "range": {
+                "start": { "line": 3, "character": 12 },
+                "end": { "line": 3, "character": 31 }
+            },
+            "context": {
+                "diagnostics": [{
+                    "message": "plugin API `Storage.save` may throw; wrap the call in a `try { ... } catch { ... }` action to handle its failure",
+                    "range": {
+                        "start": { "line": 3, "character": 18 },
+                        "end": { "line": 3, "character": 30 }
+                    }
+                }]
+            }
+        })),
+    });
+    let actions = response
+        .expect("code action response")
+        .result
+        .expect("code actions");
+    let action = actions
+        .as_array()
+        .and_then(|actions| actions.first())
+        .expect("try/catch quick fix");
+    assert_eq!(action["title"], "Wrap in try/catch");
+    assert!(
+        action["edit"]["changes"]["file:///app.nx"][0]["newText"]
+            .as_str()
+            .expect("replacement source")
+            .contains("} catch {")
+    );
 }

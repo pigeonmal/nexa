@@ -51,7 +51,7 @@ There is no plugin registry or `nexa plugin add` command. Keep the package in a 
 
 ## Plugin package files
 
-`nexa plugin init` creates the deterministic starter files. A native package contains a `native.nxid` contract and platform implementations; a pure package contains reusable `.nx` source and no native IDL.
+`nexa plugin new` creates the deterministic starter files; `nexa plugin init` remains an alias. A native package contains a `native.nxid` contract and platform implementations; a pure package contains reusable `.nx` source and no native IDL.
 
 ```text
 sensor-plugin/
@@ -63,8 +63,8 @@ sensor-plugin/
 
 | Command | Purpose |
 |---|---|
-| `nexa plugin init dev.example.sensor --out plugins/sensor --name Sensor` | Create a native plugin package scaffold. |
-| `nexa plugin init dev.example.formatters --out plugins/formatters --kind pure` | Create a Nexa-only package with `plugin.nx`. |
+| `nexa plugin new dev.example.sensor --out plugins/sensor --name Sensor` | Create a native plugin package scaffold. |
+| `nexa plugin new dev.example.formatters --out plugins/formatters --kind pure` | Create a Nexa-only package with `plugin.nx`. |
 | `nexa plugin check plugins/sensor` | Validate the package manifest, IDL, source graph, and available native implementation checks. |
 | `nexa plugin generate plugins/sensor --target swift --out generated/swift` | Emit a Swift binding contract. Use `kotlin` or `cpp` for the other supported outputs. |
 
@@ -154,6 +154,25 @@ The code generator emits typed Swift and Kotlin contracts and uses direct plugin
 
 Do not assume all Swift/Kotlin method signatures map to C++. The generated C++ adapter currently supports a smaller set of scalar, optional scalar, string, bytes, selected collection, and typed-error cases.
 
+### Borrowed C++ byte inputs
+
+Use `BufferView` for a large read-only byte input that a synchronous C++ method consumes before returning:
+
+```nxid
+service FrameDecoder {
+    fn decode(frame: BufferView) -> Int32
+}
+```
+
+`BufferView` is valid only as a direct parameter on a synchronous method. The compiler rejects it in stored fields, properties, events, asynchronous methods, and return values because the pointer cannot outlive the call. The Nexa app still passes its ordinary `Bytes` value.
+
+| Target | Generated boundary | Copy behavior |
+|---|---|---|
+| iOS | Swift holds `Data.withUnsafeBytes` for the duration of the call; C++ receives `{data, size}`. | No intermediate `std::vector` allocation. |
+| Android | Kotlin stages the `ByteArray` into a direct `ByteBuffer`; JNI reads its direct address and capacity; C++ receives `{data, size}`. | One copy into direct memory; no `jbyteArray` extraction into a second C++ vector. |
+
+Treat the view as read-only, do not retain its pointer, and finish all access before the method returns. The Android staging copy is required because Nexa's source-level `Bytes` is an owned `ByteArray`; a future native producer that already owns direct memory can avoid that copy.
+
 ## First-party platform requirements
 
 Every value in the three tables below is read from that package's `plugin.config.nx`, so a
@@ -181,7 +200,7 @@ which means the app's store listing and `Info.plist` need a matching user-facing
 | **Media Picker** | `16.0` | `23` (API 23) | `—` | `—` |
 | **MMKV** | `13.0` | `21` (API 21) | `—` | `—` |
 | **Notifications** | `13.0` | `23` (API 23) | `android.permission.INTERNET`, `android.permission.ACCESS_NETWORK_STATE`, `android.permission.POST_NOTIFICATIONS` | `—` |
-| **Sensors** | `17.0` | `26` (API 26) | `android.permission.ACTIVITY_RECOGNITION` | `NSMotionUsageDescription`: Motion data is used to provide the pedometer and fitness features you start. |
+| **Sensors** | `17.0` | `26` (API 26) | `android.permission.ACTIVITY_RECOGNITION` | `NSMotionUsageDescription`: Motion and barometer data is used only for the sensor features you start. |
 | **SQLite** | `13.0` | `23` (API 23) | `—` | `—` |
 | **Video Player** | `17.0` | `23` (API 23) | `android.permission.INTERNET` | `—` |
 | **Websocket** | `13.0` | `21` (API 21) | `android.permission.INTERNET` | `—` |
@@ -242,6 +261,8 @@ Swift packages and Maven artifacts the plugin generator links into the generated
 ## Optional compiler analyzer
 
 A package may declare `compiler.analyzer` to run domain-specific compile-time checks. Nexa sends a versioned JSON request to the executable and reads one JSON response; stdout is reserved for that response, and diagnostics can include severity, source span, and target. SQLite uses this hook to validate statically known SQL in `.nx` calls.
+
+Host integrations can also opt into the in-process `nexa-plugin-compiler-api` hooks after semantic analysis. `inspect_node` receives typed component nodes, and `inspect_call` receives resolved native-call signatures, including the optional `source_span`. Use `ExtensionContext.report_call_error(call, message)` to attach a diagnostic to that source call; `finalize` runs once after traversal. This API is registered by the compiler host and is separate from the executable declared by `compiler.analyzer`.
 
 ## Further reading
 

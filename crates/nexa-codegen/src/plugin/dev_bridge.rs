@@ -199,9 +199,7 @@ fn supported_dynamic_shape(ty: &BridgeType) -> bool {
             kind: BridgeNamedKind::Enum | BridgeNamedKind::Struct,
             ..
         } => true,
-        BridgeType::Named { .. }
-        | BridgeType::Result { .. }
-        | BridgeType::Signal(_) => false,
+        BridgeType::Named { .. } | BridgeType::Result { .. } | BridgeType::Signal(_) => false,
     }
 }
 
@@ -393,11 +391,11 @@ fn kotlin_dev_row_mapper(
     plan: &BridgePlan,
 ) -> Result<String, String> {
     let cell_type = row_cell_enum(plan, method)?;
-    let (error_type, error_case) = row_mapping_error_case(plan, method)?;
-    let error = format!("throw {error_type}.{}(\"{{message}}\")", error_case.name);
+    row_mapping_error_case(plan, method)?;
+    let error = "throw rowFailure(\"{message}\")";
     let cell_cases = kotlin_dev_row_cell_cases(cell_type);
     Ok(format!(
-        "{{ columnNames ->\n                val nexaRowCodec = nexaCodec{row_codec_index} as? JSONObject ?: run {{ {invalid_type} }}\n                val nexaRowType = nexaRowCodec.optJSONObject(\"ty\")?.optJSONObject(\"Struct\") ?: run {{ {invalid_type} }}\n                val nexaRawFields = nexaRowType.optJSONArray(\"fields\") ?: run {{ {invalid_fields} }}\n                val nexaExpectedFields = (0 until nexaRawFields.length()).mapNotNull {{ nexaRawFields.optJSONArray(it)?.optString(0)?.takeIf(String::isNotEmpty) }}\n                if (nexaExpectedFields.size != nexaRawFields.length()) {{ {invalid_fields} }}\n                val nexaIndexes = HashMap<String, Int>(nexaExpectedFields.size)\n                nexaExpectedFields.forEach {{ nexaField -> val nexaIndex = columnNames.indexOf(nexaField); if (nexaIndex < 0 || columnNames.lastIndexOf(nexaField) != nexaIndex) {{ {missing_column} }}; nexaIndexes[nexaField] = nexaIndex }}\n                {{ row -> val nexaValues = HashMap<String, Any>(nexaIndexes.size); nexaIndexes.forEach {{ (nexaField, nexaIndex) -> val nexaCell = row.value(nexaIndex); val nexaDynamicValue: Any = when (nexaCell) {{\n                            {cell_cases}\n                        }}; nexaValues[nexaField] = nexaDynamicValue }}; NexaDevDynamicRow(nexaValues) }}\n            }}",
+        "{{ columnNames, rowFailure ->\n                val nexaRowCodec = nexaCodec{row_codec_index} as? JSONObject ?: run {{ {invalid_type} }}\n                val nexaRowType = nexaRowCodec.optJSONObject(\"ty\")?.optJSONObject(\"Struct\") ?: run {{ {invalid_type} }}\n                val nexaRawFields = nexaRowType.optJSONArray(\"fields\") ?: run {{ {invalid_fields} }}\n                val nexaExpectedFields = (0 until nexaRawFields.length()).mapNotNull {{ nexaRawFields.optJSONArray(it)?.optString(0)?.takeIf(String::isNotEmpty) }}\n                if (nexaExpectedFields.size != nexaRawFields.length()) {{ {invalid_fields} }}\n                val nexaIndexes = HashMap<String, Int>(nexaExpectedFields.size)\n                nexaExpectedFields.forEach {{ nexaField -> val nexaIndex = columnNames.indexOf(nexaField); if (nexaIndex < 0 || columnNames.lastIndexOf(nexaField) != nexaIndex) {{ {missing_column} }}; nexaIndexes[nexaField] = nexaIndex }}\n                {{ row -> val nexaValues = HashMap<String, Any>(nexaIndexes.size); nexaIndexes.forEach {{ (nexaField, nexaIndex) -> val nexaCell = row.value(nexaIndex); val nexaDynamicValue: Any = when (nexaCell) {{\n                            {cell_cases}\n                        }}; nexaValues[nexaField] = nexaDynamicValue }}; NexaDevDynamicRow(nexaValues) }}\n            }}",
         invalid_type = error.replace("{message}", "Invalid hot-reload row type."),
         invalid_fields = error.replace("{message}", "Invalid hot-reload row fields."),
         missing_column = error.replace(
@@ -445,9 +443,9 @@ fn kotlin_dynamic_type(ty: &BridgeType) -> Option<String> {
                 format!("{inner}?")
             }
         }
-        BridgeType::Named { .. }
-        | BridgeType::Result { .. }
-        | BridgeType::Signal(_) => return None,
+        BridgeType::Named { .. } | BridgeType::Result { .. } | BridgeType::Signal(_) => {
+            return None;
+        }
     })
 }
 
@@ -1060,7 +1058,8 @@ fn supported_hashable_collection_element(ty: &BridgeType) -> bool {
             | BridgeScalar::Float32
             | BridgeScalar::Float64
             | BridgeScalar::String
-            | BridgeScalar::Bytes,
+            | BridgeScalar::Bytes
+            | BridgeScalar::BufferView,
         ) => true,
         BridgeType::Named {
             kind: BridgeNamedKind::Enum,
@@ -1131,6 +1130,7 @@ fn swift_type_for_dev(ty: &BridgeType) -> String {
         BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
         BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
         BridgeType::Scalar(BridgeScalar::Bytes) => "Data".to_owned(),
+        BridgeType::Scalar(BridgeScalar::BufferView) => "Data".to_owned(),
         BridgeType::Named { name, .. } => name.clone(),
         BridgeType::Array(inner) => format!("[{}]", swift_type_for_dev(inner)),
         BridgeType::Set(inner) => format!("Set<{}>", swift_type_for_dev(inner)),
@@ -1171,6 +1171,7 @@ fn kotlin_type_for_dev(ty: &BridgeType) -> String {
         BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
         BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
         BridgeType::Scalar(BridgeScalar::Bytes) => "ByteArray".to_owned(),
+        BridgeType::Scalar(BridgeScalar::BufferView) => "ByteArray".to_owned(),
         BridgeType::Named { name, .. } => name.clone(),
         BridgeType::Array(inner) => format!("List<{}>", kotlin_type_for_dev(inner)),
         BridgeType::Set(inner) => format!("Set<{}>", kotlin_type_for_dev(inner)),
@@ -1453,7 +1454,9 @@ fn kotlin_decode_value(
     Some(match ty {
         BridgeType::Scalar(BridgeScalar::String) => format!("{raw} as? String"),
         BridgeType::Scalar(BridgeScalar::Bool) => format!("{raw} as? Boolean"),
-        BridgeType::Scalar(BridgeScalar::Bytes) => format!("decodeBytes({raw})"),
+        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => {
+            format!("decodeBytes({raw})")
+        }
         BridgeType::Scalar(scalar) if kotlin_number_conversion(*scalar).is_some() => format!(
             "({raw} as? Number)?.{}()",
             kotlin_number_conversion(*scalar)?
@@ -1712,7 +1715,9 @@ fn dev_struct_suffix(namespace: &str, name: &str) -> String {
 
 fn swift_encode_value(ty: &BridgeType, value: &str, namespace: &str) -> String {
     match ty {
-        BridgeType::Scalar(BridgeScalar::Bytes) => format!("{value}.base64EncodedString()"),
+        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => {
+            format!("{value}.base64EncodedString()")
+        }
         BridgeType::Named {
             name,
             kind: BridgeNamedKind::Enum,
@@ -1733,7 +1738,9 @@ fn swift_encode_dev_value(
     depth: usize,
 ) -> Option<String> {
     Some(match ty {
-        BridgeType::Scalar(BridgeScalar::Bytes) => format!("{value}.base64EncodedString()"),
+        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => {
+            format!("{value}.base64EncodedString()")
+        }
         BridgeType::Scalar(_) => value.to_owned(),
         BridgeType::TypeParameter(_) => {
             format!("({value} as? NexaDevHashableValue)?.value ?? {value}")
@@ -1842,7 +1849,7 @@ fn kotlin_encode_dev_value(
     depth: usize,
 ) -> Option<String> {
     Some(match ty {
-        BridgeType::Scalar(BridgeScalar::Bytes) => {
+        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => {
             format!("Base64.encodeToString({value}, Base64.NO_WRAP)")
         }
         BridgeType::Scalar(_) | BridgeType::TypeParameter(_) => value.to_owned(),
@@ -2666,6 +2673,7 @@ fn supported_scalar(scalar: BridgeScalar) -> bool {
             | BridgeScalar::Float32
             | BridgeScalar::Float64
             | BridgeScalar::Bytes
+            | BridgeScalar::BufferView
     )
 }
 
@@ -3412,7 +3420,7 @@ fn swift_decoder(ty: &BridgeType) -> &'static str {
         BridgeType::Scalar(BridgeScalar::UInt64) => "decodeUInt64",
         BridgeType::Scalar(BridgeScalar::Float32) => "decodeFloat32",
         BridgeType::Scalar(BridgeScalar::Float64) => "decodeFloat64",
-        BridgeType::Scalar(BridgeScalar::Bytes) => "decodeBytes",
+        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => "decodeBytes",
         BridgeType::Optional(inner) => match inner.as_ref() {
             BridgeType::Scalar(BridgeScalar::String) => "decodeOptionalString",
             BridgeType::Scalar(BridgeScalar::Bool) => "decodeOptionalBool",
@@ -3867,7 +3875,8 @@ mod tests {
             kotlin
                 .contains("is Cell.bytes -> Base64.encodeToString(nexaCell.value, Base64.NO_WRAP)")
         );
-        assert!(kotlin.contains("ReadFailure.malformedRow("));
+        assert!(kotlin.contains("throw rowFailure(\""));
+        assert!(kotlin.contains("{ columnNames, rowFailure ->"));
         assert!(!kotlin.contains("SQLite"));
         assert!(!kotlin.contains("queryFailed"));
     }

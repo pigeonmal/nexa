@@ -33,6 +33,9 @@ pub enum BridgeScalar {
     Float64,
     String,
     Bytes,
+    /// A call-scoped, non-owning byte span. Validation permits it only as a
+    /// direct parameter of synchronous methods.
+    BufferView,
 }
 
 /// Resolved kind of a named type or interface reference. Carrying the kind
@@ -180,9 +183,7 @@ pub fn contains_type_parameter(ty: &BridgeType) -> bool {
         BridgeType::Array(element)
         | BridgeType::Set(element)
         | BridgeType::Signal(element)
-        | BridgeType::Optional(element) => {
-            contains_type_parameter(element)
-        }
+        | BridgeType::Optional(element) => contains_type_parameter(element),
         BridgeType::Map(key, value) => {
             contains_type_parameter(key) || contains_type_parameter(value)
         }
@@ -322,6 +323,7 @@ fn validate(idl: &PluginIdl, target: Target) -> Result<BridgePlan, String> {
         config,
         referenced_errors: Vec::new(),
     };
+    check_buffer_view_positions(&plan)?;
     // Per-target value support previously lived behind `Option` mappers
     // rediscovered at every render call. Check every value position once,
     // with the same messages the renderers used to produce.
@@ -329,6 +331,113 @@ fn validate(idl: &PluginIdl, target: Target) -> Result<BridgePlan, String> {
     check_target_structure(&plan, target)?;
     plan.referenced_errors = collect_referenced_errors(&plan);
     Ok(plan)
+}
+
+fn check_buffer_view_positions(plan: &BridgePlan) -> Result<(), String> {
+    fn contains_view(ty: &BridgeType) -> bool {
+        match ty {
+            BridgeType::Scalar(BridgeScalar::BufferView) => true,
+            BridgeType::Array(inner)
+            | BridgeType::Set(inner)
+            | BridgeType::Signal(inner)
+            | BridgeType::Optional(inner) => contains_view(inner),
+            BridgeType::Map(key, value) | BridgeType::Pair(key, value) => {
+                contains_view(key) || contains_view(value)
+            }
+            BridgeType::Triple(first, second, third) => {
+                contains_view(first) || contains_view(second) || contains_view(third)
+            }
+            BridgeType::Result { success, .. } => contains_view(success),
+            BridgeType::Scalar(_) | BridgeType::Named { .. } | BridgeType::TypeParameter(_) => {
+                false
+            }
+        }
+    }
+
+    for ty in &plan.types {
+        for field in &ty.fields {
+            if contains_view(&field.ty) {
+                return Err(format!(
+                    "field `{}.{}` cannot store borrowed `BufferView` data",
+                    ty.name, field.name
+                ));
+            }
+        }
+        for case in &ty.cases {
+            if case
+                .parameters
+                .iter()
+                .any(|parameter| contains_view(&parameter.ty))
+            {
+                return Err(format!(
+                    "case `{}.{}` cannot store borrowed `BufferView` data",
+                    ty.name, case.name
+                ));
+            }
+        }
+    }
+    for option in &plan.config {
+        if contains_view(&option.ty) {
+            return Err(format!(
+                "config option `{}` cannot use borrowed `BufferView` data",
+                option.name
+            ));
+        }
+    }
+    for interface in &plan.interfaces {
+        for constructor in &interface.constructors {
+            if constructor
+                .parameters
+                .iter()
+                .any(|parameter| contains_view(&parameter.ty))
+            {
+                return Err(format!(
+                    "constructor `{}` cannot store borrowed `BufferView` data",
+                    interface.name
+                ));
+            }
+        }
+        for property in &interface.properties {
+            if contains_view(&property.ty) {
+                return Err(format!(
+                    "property `{}.{}` cannot store borrowed `BufferView` data",
+                    interface.name, property.name
+                ));
+            }
+        }
+        for event in &interface.events {
+            if event
+                .parameters
+                .iter()
+                .any(|parameter| contains_view(&parameter.ty))
+            {
+                return Err(format!(
+                    "event `{}.{}` cannot retain borrowed `BufferView` data",
+                    interface.name, event.name
+                ));
+            }
+        }
+        for method in &interface.methods {
+            if contains_view(&method.return_type) {
+                return Err(format!(
+                    "method `{}.{}` cannot return borrowed `BufferView` data",
+                    interface.name, method.name
+                ));
+            }
+            for parameter in &method.parameters {
+                if contains_view(&parameter.ty)
+                    && (parameter.ty != BridgeType::Scalar(BridgeScalar::BufferView)
+                        || method.is_async)
+                {
+                    return Err(format!(
+                        "`BufferView` in method `{}.{}` must be a direct parameter of a synchronous method",
+                        interface.name, method.name
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Structural contract rules the renderers used to enforce inline while
@@ -604,7 +713,10 @@ impl<'a> Resolver<'a> {
         };
         if !method.row_type_parameters.is_empty()
             && method.throws.is_none()
-            && !matches!(&return_type, BridgeType::Result { .. } | BridgeType::Signal(_))
+            && !matches!(
+                &return_type,
+                BridgeType::Result { .. } | BridgeType::Signal(_)
+            )
         {
             return Err(format!(
                 "method `{}` with a `Row` type parameter must declare a typed error for missing or mismatched columns",
@@ -637,7 +749,8 @@ impl<'a> Resolver<'a> {
             } else {
                 let is_array_return = matches!(&return_type, BridgeType::Array(inner) if matches!(inner.as_ref(), BridgeType::TypeParameter(name) if method.row_type_parameters.contains(name)));
                 let is_signal_return = matches!(&return_type, BridgeType::Signal(inner) if matches!(inner.as_ref(), BridgeType::Array(item) if matches!(item.as_ref(), BridgeType::TypeParameter(name) if method.row_type_parameters.contains(name))));
-                if method.row_type_parameters.len() != 1 || (!is_array_return && !is_signal_return) {
+                if method.row_type_parameters.len() != 1 || (!is_array_return && !is_signal_return)
+                {
                     return Err(format!(
                         "method `{}` with a `Row` type parameter must return `Array<T>` or `Signal<Array<T>>` for that parameter",
                         method.name
@@ -771,6 +884,7 @@ impl<'a> Resolver<'a> {
             "Float64" => BridgeType::Scalar(BridgeScalar::Float64),
             "String" => BridgeType::Scalar(BridgeScalar::String),
             "Bytes" => BridgeType::Scalar(BridgeScalar::Bytes),
+            "BufferView" => BridgeType::Scalar(BridgeScalar::BufferView),
             "Array" => {
                 let element = self.generic_argument(ty, context, 1)?.remove(0);
                 BridgeType::Array(Box::new(self.resolve(
@@ -1195,6 +1309,7 @@ pub(crate) fn bridge_scalar_name(scalar: BridgeScalar) -> &'static str {
         BridgeScalar::Float64 => "Float64",
         BridgeScalar::String => "String",
         BridgeScalar::Bytes => "Bytes",
+        BridgeScalar::BufferView => "BufferView",
     }
 }
 
@@ -1457,6 +1572,7 @@ fn android_scalar_supported(ty: &BridgeType) -> bool {
                 | BridgeScalar::Float64
                 | BridgeScalar::String
                 | BridgeScalar::Bytes
+                | BridgeScalar::BufferView
         )
     )
 }

@@ -41,6 +41,45 @@ fn cpp_contract_maps_native_values_and_typed_async_errors() {
 }
 
 #[test]
+fn borrowed_buffer_views_use_call_scoped_swift_and_direct_jni_bridges() {
+    let idl = nexa_plugin_idl::parse("service Decoder { fn decode(frame: BufferView) -> Int32 }")
+        .expect("borrowed input contract should parse");
+    let cpp = render(
+        &BridgePlan::validate_contract(&idl).expect("contract should validate"),
+        "dev.example.decoder",
+    );
+    let swift = render_swift_adapters(
+        &BridgePlan::validate_swift_cpp(&idl).expect("Swift bridge should validate"),
+        "dev.example.decoder",
+    )
+    .expect("Swift bridge should generate");
+    let (kotlin, jni) = render_android_adapters(
+        &BridgePlan::validate_android(&idl).expect("Android bridge should validate"),
+        "dev.example.decoder",
+        "Decoder",
+        "dev.example.decoder",
+        0,
+    )
+    .expect("Android bridge should generate");
+    let swift_contract = nexa_codegen::plugin::render_swift(&idl)
+        .expect("direct Swift contract should retain the owned app boundary");
+    let kotlin_contract = nexa_codegen::plugin::render_kotlin(&idl, "dev.example.decoder")
+        .expect("direct Kotlin contract should retain the owned app boundary");
+
+    assert!(swift_contract.contains("_ frame: Data"));
+    assert!(kotlin_contract.contains("frame: ByteArray"));
+    assert!(cpp.contains("struct BufferView"));
+    assert!(cpp.contains("nexa_buffer_view::BufferView frame"));
+    assert!(swift.contains("frame.withUnsafeBytes { nexaBufferView0 in"));
+    assert!(swift.contains("nexa_buffer_view.make(data: nexaBufferView0.baseAddress"));
+    assert!(kotlin.contains("ByteBuffer.allocateDirect(frame.size)"));
+    assert!(kotlin.contains("frame: java.nio.ByteBuffer"));
+    assert!(jni.contains("GetDirectBufferAddress(value)"));
+    assert!(jni.contains("nexa_buffer_view::BufferView fromJniBufferView"));
+    assert!(!cpp.contains("std::vector<std::uint8_t> frame"));
+}
+
+#[test]
 fn swift_cpp_byte_alias_avoids_plugin_type_names() {
     let idl = nexa_plugin_idl::parse(
             "struct NexaCppByteBuffer { value: Int32 } struct NexaCppByteBuffer1 { value: Int32 } service Codec { fn echo(data: Bytes) -> Bytes }",

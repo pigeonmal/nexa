@@ -63,10 +63,7 @@ native class Store {
     fn dispose()
 }
 "#;
-    let module = compile_with_plugin(
-        "nexa-plugin-named-arguments",
-        contract,
-        r#"
+    let source = r#"
 plugin "store" as Store
 app Demo {
     let store = Store.Store("id")
@@ -77,25 +74,113 @@ app Demo {
         Text(named)
     }
 }
-"#,
-    )
-    .expect("plugin methods should accept positional and named parameters");
+"#;
+    let module = compile_with_plugin("nexa-plugin-named-arguments", contract, source)
+        .expect("plugin methods should accept positional and named parameters");
 
     let calls = module
         .states
         .iter()
         .filter_map(|state| match &state.initial {
             Expr::NativeCall {
-                name, arguments, ..
-            } if name == "writeValue" => Some(arguments),
+                name,
+                arguments,
+                source_span: Some(span),
+                ..
+            } if name == "writeValue" => Some((arguments, *span)),
             _ => None,
         })
         .collect::<Vec<_>>();
     assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0][0].0, "key");
-    assert_eq!(calls[0][1].0, "value");
-    assert_eq!(calls[1][0].0, "key");
-    assert_eq!(calls[1][1].0, "value");
+    assert_eq!(calls[0].0[0].0, "key");
+    assert_eq!(calls[0].0[1].0, "value");
+    assert_eq!(calls[1].0[0].0, "key");
+    assert_eq!(calls[1].0[1].0, "value");
+    for (_, span) in calls {
+        let source_call = source
+            .get(span.start..span.end)
+            .expect("plugin call span should point into the source file");
+        assert!(source_call.contains("writeValue"));
+    }
+}
+
+#[test]
+fn explicit_generic_struct_type_agrees_with_the_contextual_result_type() {
+    let contract = r#"
+native class Store {
+    init(id: String)
+    fn getList<T>(key: String) -> Array<T>?
+    fn dispose()
+}
+"#;
+    let module = compile_with_plugin(
+        "nexa-plugin-explicit-generic-context",
+        contract,
+        r#"
+plugin "store" as Store
+struct Chapter { title: String, seconds: Int64 }
+app Demo {
+    let store = Store.Store("id")
+    state chapters: Array<Chapter> = []
+    body {
+        Button("Load chapters") {
+            chapters = store.getList<Chapter>("chapters") ?? []
+        }
+    }
+}
+"#,
+    )
+    .expect("an explicit generic type should agree with the assignment context");
+
+    assert!(module.states.iter().any(|state| state.name == "chapters"));
+}
+
+#[test]
+fn borrowed_plugin_buffer_parameter_accepts_owned_nexa_bytes_on_both_targets() {
+    let module = compile_with_plugin_for_target(
+        "nexa-plugin-buffer-view",
+        "service Decoder { fn checksum(frame: BufferView) -> Int32 }",
+        r#"
+plugin "store" as Decoder
+app Demo {
+    let frame: Bytes = Bytes.fromArray([1, 2, 3, 4])
+    state checksum: Int32 = Decoder.checksum(frame)
+    body { Text(checksum) }
+}
+"#,
+        Target::Swift,
+    )
+    .expect("BufferView should accept the owned Nexa Bytes value");
+
+    let (name, arguments) = module
+        .states
+        .iter()
+        .find_map(|state| match &state.initial {
+            Expr::NativeCall {
+                name, arguments, ..
+            } if name == "checksum" => Some((name, arguments)),
+            _ => None,
+        })
+        .expect("service call should lower into typed native IR");
+    assert_eq!(name, "checksum");
+    assert_eq!(arguments[0].0, "frame");
+
+    for target in [Target::Swift, Target::Kotlin] {
+        compile_with_plugin_for_target(
+            &format!("nexa-plugin-buffer-view-{target:?}"),
+            "service Decoder { fn checksum(frame: BufferView) -> Int32 }",
+            r#"
+plugin "store" as Decoder
+app Demo {
+    let frame: Bytes = Bytes.fromArray([1, 2, 3, 4])
+    state checksum: Int32 = Decoder.checksum(frame)
+    body { Text(checksum) }
+}
+"#,
+            target,
+        )
+        .expect("borrowed plugin input should type-check on both native targets");
+    }
 }
 
 /// Every `NativeCall` in the module, so a test can assert on the codec each

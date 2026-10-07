@@ -64,6 +64,80 @@ app RegexApp {
 }
 
 #[test]
+fn regex_values_return_typed_matches_ranges_and_capture_groups() {
+    let project = TestProject::new("nexa-regex-match-values-test");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"
+app RegexMatchApp {
+    state expression: Regex = Regex(pattern: "([A-Z][a-z]+) ([0-9]+)")
+    state literal: Regex = /([A-Z][a-z]+) ([0-9]+)/i
+    state matched: Bool = false
+    state first: RegexMatch? = null
+    state all: Array<RegexMatch> = []
+    state range: Range? = null
+    state start: Int64 = 0
+    state text: String = ""
+    state groups: Array<String?> = []
+    state replaced: String = ""
+    body {
+        OnAppear {
+            matched = expression.matches("Order 42")
+            matched = literal.matches("Order 42")
+            first = expression.find(text: "Order 42")
+            range = first?.range
+            start = range?.lowerBound ?? 0
+            all = expression.findAll("Order 42, Item 7")
+            text = first?.value ?? ""
+            groups = first?.groups ?? []
+            replaced = expression.replace("Order 42", with: "Order #")
+        }
+        Text(text)
+    }
+}
+"#,
+    )
+    .expect("Regex match test app should be written");
+
+    let swift = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .expect("Regex values should compile for Swift");
+    let swift_out = nexa_backend_swift::SwiftBackend.generate(&swift.module);
+    assert!(swift_out.contains("NexaRegex(pattern: \"([A-Z][a-z]+) ([0-9]+)\")"));
+    assert!(
+        swift_out.contains("NexaRegex(pattern: \"(?i)([A-Z][a-z]+) ([0-9]+)\")"),
+        "Swift output should include the case-insensitive Regex literal: {swift_out}"
+    );
+    assert!(swift_out.contains(".matches(\"Order 42\")"));
+    assert!(swift_out.contains(".find(\"Order 42\")"));
+    assert!(swift_out.contains(".findAll(\"Order 42, Item 7\")"));
+    assert!(swift_out.contains(".replace(\"Order 42\", with: \"Order #\")"));
+    assert!(swift_out.contains("struct NexaRegexRange"));
+    assert!(swift_out.contains("let range: NexaRegexRange"));
+    assert!(swift_out.contains("lowerBound: Int64(match.range.location)"));
+    assert!(swift_out.contains(".lowerBound"));
+    assert!(swift_out.contains("let groups: [String?]"));
+
+    let kotlin = compile_file_with_warnings_for_target(&entry, Target::Kotlin)
+        .expect("Regex values should compile for Kotlin");
+    let kotlin_out = nexa_backend_kotlin::KotlinBackend.generate(&kotlin.module);
+    assert!(kotlin_out.contains("NexaRegex(\"([A-Z][a-z]+) ([0-9]+)\")"));
+    assert!(
+        kotlin_out.contains("NexaRegex(\"(?i)([A-Z][a-z]+) ([0-9]+)\")"),
+        "Kotlin output should include the case-insensitive Regex literal: {kotlin_out}"
+    );
+    assert!(kotlin_out.contains(".matches(\"Order 42\")"));
+    assert!(kotlin_out.contains(".find(\"Order 42\")"));
+    assert!(kotlin_out.contains(".findAll(\"Order 42, Item 7\")"));
+    assert!(kotlin_out.contains(".replace(\"Order 42\", \"Order #\")"));
+    assert!(kotlin_out.contains("data class NexaRegexRange"));
+    assert!(kotlin_out.contains("val range: NexaRegexRange"));
+    assert!(kotlin_out.contains("NexaRegexRange(match.range.first.toLong(),"));
+    assert!(kotlin_out.contains(".lowerBound"));
+    assert!(kotlin_out.contains("val groups: List<String?>"));
+}
+
+#[test]
 fn string_manipulation_suite_compiles_on_both_backends() {
     let project = TestProject::new("nexa-string-suite-test");
     let entry = project.join("App.nx");

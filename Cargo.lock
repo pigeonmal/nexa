@@ -450,11 +450,15 @@ dependencies = [
 [[package]]
 name = "nexa-diagnostics"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "nexa-ir"
 version = "0.1.0"
 dependencies = [
+ "nexa-diagnostics",
  "nexa-testkit",
  "serde",
 ]
@@ -476,6 +480,8 @@ dependencies = [
 name = "nexa-plugin-compiler-api"
 version = "0.1.0"
 dependencies = [
+ "nexa-diagnostics",
+ "nexa-ir",
  "nexa-testkit",
  "serde",
  "serde_json",

@@ -162,7 +162,8 @@ pub fn load_plugin_packages(root: &Path) -> Result<Option<Vec<PluginPackage>>, S
         return Ok(None);
     }
     let mut packages = Vec::new();
-    let entries = std::fs::read_dir(&plugins).map_err(|error| format!("{}: {error}", plugins.display()))?;
+    let entries =
+        std::fs::read_dir(&plugins).map_err(|error| format!("{}: {error}", plugins.display()))?;
     let mut directories: Vec<std::path::PathBuf> = entries
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter(|path| path.is_dir())
@@ -279,8 +280,7 @@ pub fn render_native_integration(packages: &[PluginPackage]) -> String {
             "| **{}** | {} | {} | {} | {} | {} |\n",
             package.summary.display_name,
             key_list(
-                &ios
-                    .entitlements
+                &ios.entitlements
                     .iter()
                     .map(|(key, value)| (key.clone(), entitlement_text(value)))
                     .collect::<Vec<_>>(),
@@ -446,12 +446,7 @@ const CONFIG_OPTIONS: &[ConfigOptionDoc] = &[
         key: "icon",
         ty: "`String` or `Array<String>`",
         summary: "Primary and alternate app icon asset names.",
-        default: |config| {
-            paths_or_unset(
-                config.ios_icon.as_deref(),
-                &config.ios_alternate_icons,
-            )
-        },
+        default: |config| paths_or_unset(config.ios_icon.as_deref(), &config.ios_alternate_icons),
     },
     ConfigOptionDoc {
         section: "ios",
@@ -553,9 +548,8 @@ const CONFIG_OPTIONS: &[ConfigOptionDoc] = &[
 /// omitted key rather than a remembered approximation of it.
 pub fn render_config_options() -> Result<String, String> {
     let config = ProjectConfig::scaffold_defaults("NexaApp")?;
-    let mut out = String::from(
-        "| Section | Key | Type | Default | Description |\n|---|---|---|---|---|\n",
-    );
+    let mut out =
+        String::from("| Section | Key | Type | Default | Description |\n|---|---|---|---|---|\n");
     for option in CONFIG_OPTIONS {
         out.push_str(&format!(
             "| {} | {} | {} | {} | {} |\n",
@@ -619,10 +613,16 @@ const COMMANDS: &[CommandDoc] = &[
         summary: "Validates source, plugin dependencies, types, and platform constraints.",
     },
     CommandDoc {
+        command: "`nexa fmt`",
+        flags: &["`--check`"],
+        summary: "Formats Nexa source files or checks whether they need formatting.",
+    },
+    CommandDoc {
         command: "`nexa dev`",
         flags: &[
             "`--ios`",
             "`--android`",
+            "`--all`",
             "`--platform <ios\\|android\\|all>`",
             "`--arch <arch>`",
             "`--once`",
@@ -640,6 +640,7 @@ const COMMANDS: &[CommandDoc] = &[
             "`--unit-only`",
             "`--ios`",
             "`--android`",
+            "`--all`",
             "`--platform <ios\\|android\\|all>`",
             "`--arch <arch>`",
             "`--flavor <name>`",
@@ -650,10 +651,29 @@ const COMMANDS: &[CommandDoc] = &[
         summary: "Runs app tests; `--unit-only` skips native test hosts.",
     },
     CommandDoc {
+        command: "`nexa build`",
+        flags: &[
+            "`--release`",
+            "`--ipa`",
+            "`--aab`",
+            "`--ios`",
+            "`--android`",
+            "`--all`",
+            "`--platform <ios\\|android\\|all>`",
+            "`--arch <arch>`",
+            "`--flavor <name>`",
+            "`--staging`",
+            "`--out <directory>`",
+            "`--locked`",
+        ],
+        summary: "Builds a signed iOS IPA or Android AAB.",
+    },
+    CommandDoc {
         command: "`nexa release`",
         flags: &[
             "`--ios`",
             "`--android`",
+            "`--all`",
             "`--platform <ios\\|android\\|all>`",
             "`--arch <arch>`",
             "`--flavor <name>`",
@@ -701,10 +721,13 @@ const COMMANDS: &[CommandDoc] = &[
 /// Fails when a listed type has no spelling in one of the backends, which means
 /// the list and the backends have diverged and publishing either would be wrong.
 pub fn render_scalar_types() -> Result<String, String> {
-    let swift: std::collections::HashMap<&str, String> =
-        nexa_backend_swift::swift_scalar_types().into_iter().collect();
+    let swift: std::collections::HashMap<&str, String> = nexa_backend_swift::swift_scalar_types()
+        .into_iter()
+        .collect();
     let kotlin: std::collections::HashMap<&str, String> =
-        nexa_backend_kotlin::kotlin_scalar_types().into_iter().collect();
+        nexa_backend_kotlin::kotlin_scalar_types()
+            .into_iter()
+            .collect();
     let mut out = String::from(
         "| Nexa Type | Swift Target | Kotlin Target | Size / Representation | Example Literal |\n\
          |---|---|---|---|---|\n",
@@ -737,14 +760,26 @@ const SCALAR_TYPE_NOTES: &[(&str, &str, &str)] = &[
     ("Bool", "1-byte logical boolean", "`true`, `false`"),
     ("Int8", "8-bit signed integer", "`127`"),
     ("Int16", "16-bit signed integer", "`32767`"),
-    ("Int32", "32-bit signed integer (default integer literal)", "`42`"),
+    (
+        "Int32",
+        "32-bit signed integer (default integer literal)",
+        "`42`",
+    ),
     ("Int64", "64-bit signed integer", "`10000000000`"),
     ("UInt8", "8-bit unsigned integer", "`255`"),
     ("UInt16", "16-bit unsigned integer", "`65535`"),
     ("UInt32", "32-bit unsigned integer", "`100000`"),
-    ("UInt64", "64-bit unsigned integer", "`18446744073709551615`"),
+    (
+        "UInt64",
+        "64-bit unsigned integer",
+        "`18446744073709551615`",
+    ),
     ("Float32", "32-bit IEEE 754 floating point", "`3.14`"),
-    ("Float64", "64-bit IEEE 754 (default decimal literal)", "`0.000001`"),
+    (
+        "Float64",
+        "64-bit IEEE 754 (default decimal literal)",
+        "`0.000001`",
+    ),
     (
         "Bytes",
         "Owned contiguous byte buffer",

@@ -5,6 +5,7 @@ pub enum Kind {
     Ident(String),
     Number(String),
     String(String),
+    Regex(String, String),
     LBrace,
     RBrace,
     LParen,
@@ -85,172 +86,176 @@ impl Lexer<'_> {
                 continue;
             }
             let start = self.mark();
-            let kind = match ch {
-                '{' => {
-                    self.bump();
-                    Kind::LBrace
-                }
-                '}' => {
-                    self.bump();
-                    Kind::RBrace
-                }
-                '(' => {
-                    self.bump();
-                    Kind::LParen
-                }
-                ')' => {
-                    self.bump();
-                    Kind::RParen
-                }
-                '[' => {
-                    self.bump();
-                    Kind::LBracket
-                }
-                ']' => {
-                    self.bump();
-                    Kind::RBracket
-                }
-                '<' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+            let kind = if ch == '/' && self.regex_can_start() {
+                self.regex_literal(start)?
+            } else {
+                match ch {
+                    '{' => {
                         self.bump();
-                        Kind::LessEqual
-                    } else {
-                        Kind::Less
+                        Kind::LBrace
                     }
-                }
-                '>' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+                    '}' => {
                         self.bump();
-                        Kind::GreaterEqual
-                    } else {
-                        Kind::Greater
+                        Kind::RBrace
                     }
-                }
-                '?' => {
-                    self.bump();
-                    if self.peek() == Some('?') {
+                    '(' => {
                         self.bump();
-                        Kind::QuestionQuestion
-                    } else {
-                        Kind::Question
+                        Kind::LParen
                     }
-                }
-                '@' => {
-                    self.bump();
-                    Kind::At
-                }
-                ':' => {
-                    self.bump();
-                    Kind::Colon
-                }
-                '.' => {
-                    self.bump();
-                    if self.peek() == Some('.') {
+                    ')' => {
                         self.bump();
-                        if self.peek() == Some('<') {
+                        Kind::RParen
+                    }
+                    '[' => {
+                        self.bump();
+                        Kind::LBracket
+                    }
+                    ']' => {
+                        self.bump();
+                        Kind::RBracket
+                    }
+                    '<' => {
+                        self.bump();
+                        if self.peek() == Some('=') {
                             self.bump();
-                            Kind::DotDotLess
+                            Kind::LessEqual
                         } else {
-                            Kind::DotDot
+                            Kind::Less
                         }
-                    } else {
-                        Kind::Dot
                     }
-                }
-                ';' => {
-                    self.bump();
-                    Kind::Semicolon
-                }
-                ',' => {
-                    self.bump();
-                    Kind::Comma
-                }
-                '=' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+                    '>' => {
                         self.bump();
-                        Kind::EqualEqual
-                    } else {
-                        Kind::Equal
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            Kind::GreaterEqual
+                        } else {
+                            Kind::Greater
+                        }
                     }
-                }
-                '!' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+                    '?' => {
                         self.bump();
-                        Kind::BangEqual
-                    } else {
-                        Kind::Bang
+                        if self.peek() == Some('?') {
+                            self.bump();
+                            Kind::QuestionQuestion
+                        } else {
+                            Kind::Question
+                        }
                     }
-                }
-                '&' if self.peek_next() == Some('&') => {
-                    self.bump();
-                    self.bump();
-                    Kind::AndAnd
-                }
-                '|' if self.peek_next() == Some('|') => {
-                    self.bump();
-                    self.bump();
-                    Kind::OrOr
-                }
-                '+' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+                    '@' => {
                         self.bump();
-                        Kind::PlusEqual
-                    } else {
-                        Kind::Plus
+                        Kind::At
                     }
-                }
-                '-' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+                    ':' => {
                         self.bump();
-                        Kind::MinusEqual
-                    } else {
-                        Kind::Minus
+                        Kind::Colon
                     }
-                }
-                '*' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+                    '.' => {
                         self.bump();
-                        Kind::StarEqual
-                    } else {
-                        Kind::Star
+                        if self.peek() == Some('.') {
+                            self.bump();
+                            if self.peek() == Some('<') {
+                                self.bump();
+                                Kind::DotDotLess
+                            } else {
+                                Kind::DotDot
+                            }
+                        } else {
+                            Kind::Dot
+                        }
                     }
-                }
-                '/' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+                    ';' => {
                         self.bump();
-                        Kind::SlashEqual
-                    } else {
-                        Kind::Slash
+                        Kind::Semicolon
                     }
-                }
-                '%' => {
-                    self.bump();
-                    if self.peek() == Some('=') {
+                    ',' => {
                         self.bump();
-                        Kind::PercentEqual
-                    } else {
-                        Kind::Percent
+                        Kind::Comma
                     }
-                }
-                '"' if self.peek_next() == Some('"') && self.peek_third() == Some('"') => {
-                    Kind::String(self.raw_string(start)?)
-                }
-                '"' => Kind::String(self.string(start)?),
-                c if c.is_ascii_digit() => Kind::Number(self.number()),
-                c if is_ident_start(c) => Kind::Ident(self.identifier()),
-                _ => {
-                    return Err(CompileError::new(
-                        start,
-                        format!("unexpected character {ch:?}"),
-                    ));
+                    '=' => {
+                        self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            Kind::EqualEqual
+                        } else {
+                            Kind::Equal
+                        }
+                    }
+                    '!' => {
+                        self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            Kind::BangEqual
+                        } else {
+                            Kind::Bang
+                        }
+                    }
+                    '&' if self.peek_next() == Some('&') => {
+                        self.bump();
+                        self.bump();
+                        Kind::AndAnd
+                    }
+                    '|' if self.peek_next() == Some('|') => {
+                        self.bump();
+                        self.bump();
+                        Kind::OrOr
+                    }
+                    '+' => {
+                        self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            Kind::PlusEqual
+                        } else {
+                            Kind::Plus
+                        }
+                    }
+                    '-' => {
+                        self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            Kind::MinusEqual
+                        } else {
+                            Kind::Minus
+                        }
+                    }
+                    '*' => {
+                        self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            Kind::StarEqual
+                        } else {
+                            Kind::Star
+                        }
+                    }
+                    '/' => {
+                        self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            Kind::SlashEqual
+                        } else {
+                            Kind::Slash
+                        }
+                    }
+                    '%' => {
+                        self.bump();
+                        if self.peek() == Some('=') {
+                            self.bump();
+                            Kind::PercentEqual
+                        } else {
+                            Kind::Percent
+                        }
+                    }
+                    '"' if self.peek_next() == Some('"') && self.peek_third() == Some('"') => {
+                        Kind::String(self.raw_string(start)?)
+                    }
+                    '"' => Kind::String(self.string(start)?),
+                    c if c.is_ascii_digit() => Kind::Number(self.number()),
+                    c if is_ident_start(c) => Kind::Ident(self.identifier()),
+                    _ => {
+                        return Err(CompileError::new(
+                            start,
+                            format!("unexpected character {ch:?}"),
+                        ));
+                    }
                 }
             };
             self.tokens.push(Token {
@@ -264,6 +269,86 @@ impl Lexer<'_> {
             span,
         });
         Ok(())
+    }
+
+    /// Slash begins a regex only where the previous token cannot finish an
+    /// expression. This keeps ordinary division (`total / count`) unchanged.
+    fn regex_can_start(&self) -> bool {
+        match self.tokens.last().map(|token| &token.kind) {
+            None => true,
+            Some(Kind::Ident(name)) => matches!(
+                name.as_str(),
+                "if" | "return" | "await" | "try" | "throw" | "in" | "else" | "case"
+            ),
+            Some(
+                Kind::Number(_)
+                | Kind::String(_)
+                | Kind::Regex(_, _)
+                | Kind::RParen
+                | Kind::RBracket
+                | Kind::RBrace,
+            ) => false,
+            Some(_) => true,
+        }
+    }
+
+    fn regex_literal(&mut self, start: Span) -> Result<Kind, CompileError> {
+        self.bump();
+        let mut pattern = String::new();
+        let mut in_character_class = false;
+        let mut escaped = false;
+        let mut closed = false;
+        while let Some(ch) = self.bump() {
+            if escaped {
+                pattern.push(ch);
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => {
+                    pattern.push(ch);
+                    escaped = true;
+                }
+                '[' => {
+                    pattern.push(ch);
+                    in_character_class = true;
+                }
+                ']' => {
+                    pattern.push(ch);
+                    in_character_class = false;
+                }
+                '/' if !in_character_class => {
+                    closed = true;
+                    break;
+                }
+                _ => pattern.push(ch),
+            }
+        }
+        if !closed {
+            return Err(CompileError::new(
+                self.span_from(start),
+                "unterminated regular expression literal",
+            ));
+        }
+
+        let mut flags = String::new();
+        while let Some(flag) = self.peek().filter(|ch| ch.is_ascii_alphabetic()) {
+            let _ = self.bump();
+            if !matches!(flag, 'i' | 'm' | 's') {
+                return Err(CompileError::new(
+                    self.span_from(start),
+                    format!("unsupported regular expression flag `{flag}`; use `i`, `m`, or `s`"),
+                ));
+            }
+            if flags.contains(flag) {
+                return Err(CompileError::new(
+                    self.span_from(start),
+                    format!("regular expression flag `{flag}` is repeated"),
+                ));
+            }
+            flags.push(flag);
+        }
+        Ok(Kind::Regex(pattern, flags))
     }
 
     fn string(&mut self, start: Span) -> Result<String, CompileError> {

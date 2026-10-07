@@ -106,14 +106,8 @@ pub fn assert_region(path: &Path, name: &str, body: &str, what: &str) {
 pub fn replace_region(text: &str, name: &str, body: &str) -> Result<String, String> {
     let begin = begin_marker(name);
     let end = end_marker(name);
-    let open = text
-        .find(&begin)
-        .ok_or_else(|| format!("`{begin}`"))?
-        + begin.len();
-    let close = text[open..]
-        .find(&end)
-        .ok_or_else(|| format!("`{end}`"))?
-        + open;
+    let open = text.find(&begin).ok_or_else(|| format!("`{begin}`"))? + begin.len();
+    let close = text[open..].find(&end).ok_or_else(|| format!("`{end}`"))? + open;
     // The generated body owns its own trailing newline so that the closing
     // marker always starts a line, whatever the renderer's last line was.
     let mut out = String::with_capacity(text.len() + body.len());
@@ -135,13 +129,7 @@ fn rewrite_or_panic(path: &Path, current: &str, generated: &str, what: &str) {
             .zip(generated.lines())
             .position(|(left, right)| left != right)
             .map(|index| index + 1)
-            .unwrap_or_else(|| {
-                current
-                    .lines()
-                    .count()
-                    .min(generated.lines().count())
-                    + 1
-            });
+            .unwrap_or_else(|| current.lines().count().min(generated.lines().count()) + 1);
         panic!(
             "{what} drifted from its source of truth at line {first_difference}; \
              run with NEXA_UPDATE_SNAPSHOTS=1 to regenerate"

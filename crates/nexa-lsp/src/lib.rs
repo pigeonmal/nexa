@@ -1,15 +1,23 @@
+pub mod code_actions;
 pub mod completions;
 pub mod diagnostics;
 pub mod hover;
 pub mod line_index;
+pub mod navigation;
 pub mod protocol;
+pub mod semantic_tokens;
 pub mod server;
+pub mod signature_help;
 pub mod symbols;
 
+pub use code_actions::code_actions;
 pub use completions::get_completions;
 pub use diagnostics::check_source;
 pub use hover::get_hover;
 pub use line_index::{LineIndex, span_to_range};
+pub use navigation::{definition, references};
 pub use protocol::*;
+pub use semantic_tokens::semantic_tokens;
 pub use server::LspServer;
+pub use signature_help::signature_help;
 pub use symbols::get_document_symbols;

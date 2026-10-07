@@ -97,8 +97,7 @@ fn every_package_has_exactly_one_summary() {
             .filter(|summary| summary.id == package.manifest.id)
             .count();
         assert_eq!(
-            matches,
-            1,
+            matches, 1,
             "package `{}` must have exactly one PLUGIN_SUMMARIES entry",
             package.manifest.id
         );

@@ -315,7 +315,67 @@ app CartQuantities {
 }
 ```
 
-### 3.4 `Pair<A, B>` and `Triple<A, B, C>`
+| Member | Signature | Behavior |
+|---|---|---|
+| `map[key]` | `K -> V?` | Returns the value for a key, or `null` when it is absent. |
+| `get(key)` | `(K) -> V?` | Named equivalent of indexed lookup. |
+| `contains(key)` | `(K) -> Bool` | Checks whether a key is present. |
+| `keys` | `Array<K>` | Returns the current keys. |
+| `values` | `Array<V>` | Returns the current values. |
+| `keys()` / `values()` | `() -> Array<K>` / `() -> Array<V>` | Named equivalents of the `keys` and `values` properties. |
+| `count` | `Int32` | Number of key-value entries. |
+| `isEmpty` | `Bool` | Whether the map has no entries. |
+| `set(key, value)` | `(K, V) -> Void` | Inserts or replaces one entry in mutable Map state. |
+| `remove(key)` | `(K) -> Void` | Removes the entry for a key from mutable Map state. |
+| `clear()` | `() -> Void` | Removes every entry from mutable Map state. |
+
+Map mutations require mutable state. Keys must be hashable scalar values; map state compiles to Swift dictionaries on iOS and snapshot state maps on Android.
+
+### 3.4 Regular expressions
+
+Create a reusable expression with `Regex(pattern:)` or the `/pattern/flags` literal form. Portable flags are `i` for case-insensitive matching, `m` for line anchors, and `s` for dot matching newlines. `matches` requires the whole input to match; `find` and `findAll` return typed match values. Captured groups omit the full match and retain `null` for an unmatched optional group.
+
+```nexa
+app OrderReferenceSearch {
+    state expression: Regex = /([A-Z]{2})-([0-9]{4})/i
+    state first: RegexMatch? = null
+    state references: Array<RegexMatch> = []
+    state summary: String = "Search has not run"
+
+    body {
+        Column(spacing: 12) {
+            Text(summary)
+            Button("Find order references") {
+                let receipt = "Packed orders: AB-1042 and CD-7715"
+                first = expression.find(text: receipt)
+                references = expression.findAll(receipt)
+                summary = "Found \(references.count) order references"
+            }
+            if first != null {
+                Text("First reference: \(first?.value ?? "No order found")")
+            }
+        }
+    }
+}
+```
+
+| Member | Signature | Behavior |
+|---|---|---|
+| `Regex(pattern:)` | `(String) -> Regex` | Compiles a reusable native regular expression. Invalid patterns produce an inert expression: matches are false, searches are empty, and replacement returns the input unchanged. |
+| `/pattern/ims` | `Regex` literal | Creates a reusable expression. `i`, `m`, and `s` enable case-insensitive matching, line anchors, and dot matching newlines; duplicate or unsupported flags are diagnosed. |
+| `matches(text:)` | `(String) -> Bool` | Returns true only when the expression matches the entire string. |
+| `find(text:)` | `(String) -> RegexMatch?` | Returns the first match, or `null`. |
+| `findAll(text:)` | `(String) -> Array<RegexMatch>` | Returns each non-overlapping match in input order. |
+| `replace(text:with:)` | `(String, String) -> String` | Replaces each match using the platform's native replacement syntax. |
+| `RegexMatch.value` | `String` | Full matched substring. |
+| `RegexMatch.range` | `Range` | Half-open UTF-16 code-unit offsets into the input. |
+| `Range.lowerBound` | `Int64` | Inclusive start offset in UTF-16 code units. |
+| `Range.upperBound` | `Int64` | Exclusive end offset in UTF-16 code units. |
+| `RegexMatch.groups` | `Array<String?>` | Capturing groups, excluding the full match; unmatched optional groups are `null`. |
+
+Use common regular-expression syntax supported by Foundation's `NSRegularExpression` and Kotlin's `Regex`. The portable flags map to each native engine's inline options; platform-specific extensions can still behave differently.
+
+### 3.5 `Pair<A, B>` and `Triple<A, B, C>`
 
 Fixed-size, strongly typed tuples:
 
@@ -662,6 +722,9 @@ These calls are built into the compiler and need no plugin declaration. Asynchro
 | `SecureStorage.clear()` | `async -> Void throws` | Clears protected values managed by this API. |
 | `Json.parse<T>(raw)` | `(String) -> Result<T, JsonError>` | Parses text as a declared Nexa value type. |
 | `Json.stringify<T>(value)` | `(T) -> String` | Encodes a supported typed value as JSON text. |
+| `Regex.isMatch(pattern, text)` | `(String, String) -> Bool` | Returns whether the pattern occurs anywhere in the input. |
+| `Regex.matches(pattern, text)` | `(String, String) -> Array<String>` | Returns all non-overlapping matched substrings. |
+| `Regex.replace(pattern, text, replacement)` | `(String, String, String) -> String` | Replaces all matches using the platform's native replacement syntax. |
 | `Storage.getString(key)` | `(String) -> String?` | Reads a non-secret preference. |
 | `Storage.setString(key, value)` | `(String, String) -> Void` | Writes a non-secret preference. |
 | `Storage.delete(key)` | `(String) -> Void` | Deletes one preference. |

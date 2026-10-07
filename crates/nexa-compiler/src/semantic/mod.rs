@@ -62,7 +62,6 @@ fn expression_uses_throwing_await(expression: &nexa_ir::Expr) -> bool {
     found
 }
 
-
 fn expression_references_state(expression: &nexa_ir::Expr, name: &str) -> bool {
     let mut found = false;
     nexa_ir::walk::walk_expression(expression, &mut |nested| {
@@ -527,7 +526,10 @@ fn lower_with_warnings_in_mode(
                     if generics::mentions_type_parameter(&inferred) {
                         return Err(CompileError::new(
                             field.span,
-                            format!("cannot infer the type of class property `{}`; add a type annotation", field.name),
+                            format!(
+                                "cannot infer the type of class property `{}`; add a type annotation",
+                                field.name
+                            ),
                         ));
                     }
                     resolve_struct_type(&inferred, &struct_types)
@@ -945,7 +947,10 @@ fn lower_with_warnings_in_mode(
                     if generics::mentions_type_parameter(&inferred) {
                         return Err(CompileError::new(
                             field.span,
-                            format!("cannot infer the type of static class property `{}`; add a type annotation", field.name),
+                            format!(
+                                "cannot infer the type of static class property `{}`; add a type annotation",
+                                field.name
+                            ),
                         ));
                     }
                     resolve_struct_type(&inferred, &struct_types)
@@ -2106,10 +2111,9 @@ fn module_uses_json_error(module: &Module) -> bool {
     fn type_uses_json_error(ty: &Type) -> bool {
         match ty {
             Type::Enum(name) => name == "JsonError",
-            Type::Optional(inner)
-            | Type::Array(inner)
-            | Type::Set(inner)
-            | Type::Signal(inner) => type_uses_json_error(inner),
+            Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
+                type_uses_json_error(inner)
+            }
             Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
                 type_uses_json_error(key) || type_uses_json_error(value)
             }
@@ -2521,16 +2525,12 @@ fn plugin_enum_symbols(plugins: &[ast::PluginDecl]) -> HashMap<String, (nexa_ir:
         let Some(idl) = plugin.idl.as_ref() else {
             continue;
         };
-        for declaration in idl
-            .types
-            .iter()
-            .filter(|declaration| {
-                matches!(
-                    declaration.kind,
-                    nexa_plugin_idl::NamedTypeKind::Enum | nexa_plugin_idl::NamedTypeKind::Error
-                )
-            })
-        {
+        for declaration in idl.types.iter().filter(|declaration| {
+            matches!(
+                declaration.kind,
+                nexa_plugin_idl::NamedTypeKind::Enum | nexa_plugin_idl::NamedTypeKind::Error
+            )
+        }) {
             let ty = Type::Plugin {
                 namespace: plugin.namespace.clone(),
                 name: declaration.name.clone(),
@@ -2557,6 +2557,9 @@ fn validate_declared_types(
 ) -> Result<(), CompileError> {
     let mut native_class_types = HashSet::new();
     let mut plugin_types = HashSet::new();
+    plugin_types.insert("Regex.Regex".to_owned());
+    plugin_types.insert("Regex.RegexMatch".to_owned());
+    plugin_types.insert("Regex.Range".to_owned());
     for plugin in &app.plugins {
         let Some(idl) = plugin.idl.as_ref() else {
             continue;
@@ -2657,10 +2660,7 @@ fn validate_component_type_names(
         {
             Ok(())
         }
-        Type::Optional(inner)
-        | Type::Array(inner)
-        | Type::Set(inner)
-        | Type::Signal(inner) => {
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
             validate_component_type_names(inner, enum_names, native_class_types, plugin_types, span)
         }
         Type::Map(key, value) | Type::Pair(key, value) => {
@@ -2707,10 +2707,7 @@ fn validate_type_names(
                 format!("unknown plugin type `{namespace}.{name}`"),
             ))
         }
-        Type::Optional(inner)
-        | Type::Array(inner)
-        | Type::Set(inner)
-        | Type::Signal(inner) => {
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
             validate_type_names(inner, enum_names, plugin_types, span)
         }
         Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
@@ -3830,6 +3827,7 @@ mod callback_disposal_tests {
             arguments: Vec::new(),
             codecs: Vec::new(),
             return_type: Type::Void,
+            source_span: None,
             is_async: false,
             is_throwing: false,
         }

@@ -27,7 +27,6 @@ fn parses_top_level_async_function_declaration() {
     assert!(program.functions[0].is_async);
 }
 
-
 #[test]
 fn database_declarations_are_not_part_of_core_language_syntax() {
     let error = nexa_syntax::parse(
@@ -50,6 +49,53 @@ fn ordinary_strings_keep_escape_processing_with_raw_strings_available() {
         panic!("expected ordinary string argument");
     };
     assert_eq!(text, "line\\nnext");
+}
+
+#[test]
+fn parses_regex_literals_with_portable_flags_and_keeps_division() {
+    let app = nexa_syntax::parse(
+        r#"app RegexApp {
+            state matcher: Regex = /foo\/bar[0-9/]+/ims
+            state ratio: Float64 = 8 / 2
+            body { Text("ready") }
+        }"#,
+    )
+    .expect("regex literals and division should parse in their expression positions");
+
+    assert!(matches!(
+        &app.states[0].initial,
+        Expr::CallNamed { name, arguments, .. }
+            if name == "Regex"
+                && matches!(arguments.get("pattern"), Some(Expr::String(pattern, _))
+                    if pattern == "(?ims)foo\\/bar[0-9/]+")
+    ));
+    assert!(matches!(
+        &app.states[1].initial,
+        Expr::Arithmetic(_, ArithmeticOp::Divide, _, _)
+    ));
+}
+
+#[test]
+fn regex_literals_reject_unsupported_and_repeated_flags() {
+    let unsupported = nexa_syntax::parse(
+        r#"app RegexApp { state matcher: Regex = /item/x body { Text("ready") } }"#,
+    )
+    .expect_err("unsupported regex flags should be diagnosed");
+    assert!(
+        unsupported
+            .message
+            .contains("unsupported regular expression flag `x`")
+    );
+
+    let repeated = nexa_syntax::parse(
+        r#"app RegexApp { state matcher: Regex = /item/ii body { Text("ready") } }"#,
+    )
+    .expect_err("repeated regex flags should be diagnosed");
+    assert!(
+        repeated
+            .message
+            .contains("regular expression flag `i` is repeated")
+    );
 }
 
 #[test]
@@ -277,7 +323,6 @@ fn parses_chained_and_flat_catch_clauses() {
 
     assert!(catch_body.is_some());
 }
-
 
 #[test]
 fn parses_returns_inside_if_and_catch_all_function_blocks() {

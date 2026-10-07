@@ -2192,6 +2192,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
             body: Box::new(folder.fold_expr(*body)),
         },
         Expr::NativeCall {
+            source_span,
             namespace,
             name,
             receiver,
@@ -2201,6 +2202,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
             is_async,
             is_throwing,
         } => Expr::NativeCall {
+            source_span,
             namespace,
             name,
             receiver: receiver.map(|recv| Box::new(folder.fold_expr(*recv))),

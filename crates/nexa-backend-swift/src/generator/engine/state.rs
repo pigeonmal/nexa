@@ -5,33 +5,34 @@ use nexa_ir::State;
 
 use super::{expressions::expression, types::swift_type, utils};
 
-/// Renders the `let` bindings for states SwiftUI must not own.
+/// Renders computed properties for immutable values that SwiftUI must not own.
 ///
-/// A state only reaches the body as a plain `let` when it is never reassigned
-/// and is not a native class instance; anything else lives in `@State`,
-/// `@StateObject`, or a `@Binding` on the screen that owns it.
+/// Immutable values can be referenced by helper views emitted outside `body`,
+/// so they must live on the containing view type instead of in the body scope.
+/// A value that can change or owns a native class instance lives in `@State`,
+/// `@StateObject`, or a `@Binding` on the view that owns it.
 pub(crate) fn render_immutable_state(states: &[State], depth: usize, out: &mut SourceWriter) {
-    let is_body_immutable = |state: &State| {
+    let is_immutable_value = |state: &State| {
         !state.mutable
             && !state.is_native_class_instance_binding()
             && !matches!(state.ty, nexa_ir::Type::Signal(_))
     };
     let immutable = states
         .iter()
-        .filter(|state| is_body_immutable(state))
+        .filter(|state| is_immutable_value(state))
         .collect::<Vec<_>>();
     for state in immutable {
         out.line_at(
             depth,
             format_args!(
-                "let {}: {} = {}",
+                "private var {}: {} {{ {} }}",
                 nexa_codegen::names::state_name(&state.name),
                 swift_type(&state.ty),
                 expression(&state.initial)
             ),
         );
     }
-    if states.iter().any(is_body_immutable) {
+    if states.iter().any(is_immutable_value) {
         out.push('\n');
     }
 }
@@ -72,7 +73,11 @@ pub(crate) fn render_native_object_state(state: &State, depth: usize, out: &mut 
     out.push_str("}\n");
 }
 
-pub(crate) fn render_native_object_state_uninitialized(state: &State, depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_native_object_state_uninitialized(
+    state: &State,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     if !state.is_native_class_constructor_binding() {
         return;
     }
@@ -100,7 +105,11 @@ pub(crate) fn render_native_object_state_uninitialized(state: &State, depth: usi
     out.push_str("}\n");
 }
 
-pub(crate) fn render_state_initializers_in_init(states: &[State], depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_state_initializers_in_init(
+    states: &[State],
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     for state in states {
         if state.is_native_class_constructor_binding() {
             let name = nexa_codegen::names::state_name(&state.name);
@@ -114,14 +123,9 @@ pub(crate) fn render_state_initializers_in_init(states: &[State], depth: usize, 
             );
             out.line_at(
                 depth,
-                format_args!(
-                    "_{storage} = StateObject(wrappedValue: __storage_{name})"
-                ),
+                format_args!("_{storage} = StateObject(wrappedValue: __storage_{name})"),
             );
-            out.line_at(
-                depth,
-                format_args!("let {name} = __storage_{name}.value"),
-            );
+            out.line_at(depth, format_args!("let {name} = __storage_{name}.value"));
         } else if matches!(state.ty, nexa_ir::Type::Signal(_)) {
             let name = nexa_codegen::names::state_name(&state.name);
             out.line_at(
@@ -134,4 +138,3 @@ pub(crate) fn render_state_initializers_in_init(states: &[State], depth: usize, 
         }
     }
 }
-

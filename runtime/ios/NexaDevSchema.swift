@@ -183,6 +183,7 @@ public enum NexaDevCollectionMutationKind {
     public static let setRemove = "SetRemove"
     public static let mapSet = "MapSet"
     public static let mapRemove = "MapRemove"
+    public static let mapClear = "MapClear"
     public static let replace = "Replace"
 }
 

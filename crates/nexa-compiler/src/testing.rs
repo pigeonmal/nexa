@@ -1467,6 +1467,12 @@ fn mutate_collection(
             [key] => items.retain(|(current, _)| current != key),
             _ => return Err("headless Map.remove expects one key".to_owned()),
         },
+        (CollectionMutation::MapClear, Value::Map(items)) => {
+            if !values.is_empty() {
+                return Err("headless Map.clear expects no arguments".to_owned());
+            }
+            items.clear();
+        }
         (CollectionMutation::Replace, Value::Array(items)) => match values.as_slice() {
             [Value::Array(replacement)] => *items = replacement.clone(),
             _ => return Err("headless Array replacement received a non-Array".to_owned()),
@@ -1790,6 +1796,43 @@ fn eval_expr(
                     "headless tests cannot read native plugin property `{field}`"
                 )),
                 _ => Err("unsupported headless member access".to_owned()),
+            }
+        }
+        Expr::NativeCall {
+            receiver: Some(receiver),
+            namespace,
+            name,
+            arguments,
+            ..
+        } if namespace == "__NexaMap" => {
+            let Value::Map(entries) = eval_expr(receiver, environment, functions, depth + 1)?
+            else {
+                return Err("headless Map access requires a Map receiver".to_owned());
+            };
+            let values = arguments
+                .iter()
+                .map(|(_, argument)| eval_expr(argument, environment, functions, depth + 1))
+                .collect::<Result<Vec<_>, _>>()?;
+            match name.as_str() {
+                "get" => Ok(values
+                    .first()
+                    .and_then(|key| {
+                        entries
+                            .iter()
+                            .find_map(|(candidate, value)| (candidate == key).then_some(value))
+                    })
+                    .cloned()
+                    .unwrap_or(Value::Null)),
+                "contains" => Ok(Value::Bool(values.first().is_some_and(|key| {
+                    entries.iter().any(|(candidate, _)| candidate == key)
+                }))),
+                "keys" if values.is_empty() => Ok(Value::Array(
+                    entries.into_iter().map(|(key, _)| key).collect(),
+                )),
+                "values" if values.is_empty() => Ok(Value::Array(
+                    entries.into_iter().map(|(_, value)| value).collect(),
+                )),
+                _ => Err(format!("unsupported headless Map method `{name}`")),
             }
         }
         Expr::CollectionUtility {

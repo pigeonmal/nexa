@@ -1258,6 +1258,7 @@ fn observe_expr(
             }
             "AppIcon" => capabilities.uses_app_icon_api |= name == "set",
             "Json" => capabilities.uses_json_api = true,
+            "Regex" => capabilities.uses_regex_api = true,
             "Crypto" => capabilities.uses_crypto_api = true,
             "SecureStorage" => capabilities.uses_secure_storage_api = true,
             "Storage" => capabilities.uses_storage_api = true,
@@ -1343,7 +1344,9 @@ fn record_permission_usage(expression: &Expr, permissions: &mut PermissionFacts)
 fn type_uses_result(ty: &Type) -> bool {
     match ty {
         Type::Result(_, _) => true,
-        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => type_uses_result(inner),
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
+            type_uses_result(inner)
+        }
         Type::Map(key, value) | Type::Pair(key, value) => {
             type_uses_result(key) || type_uses_result(value)
         }
@@ -1444,6 +1447,7 @@ mod tests {
             arguments: Vec::new(),
             codecs: Vec::new(),
             return_type: crate::Type::String,
+            source_span: None,
             is_async: true,
             is_throwing: false,
         };

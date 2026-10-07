@@ -91,16 +91,19 @@ component CommentPanel(taskID: Int32) {
 
                 Divider(color: "#8E8E93", thickness: 1)
                 Row(spacing: 12, padding: 8) {
-                    MediaPicker.MediaPickerControl(isVideo: false) {
+                    MediaPicker.MediaPickerControl(isVideo: false, selectionLimit: 1) {
                         Icon(system: "image", size: 24, tint: "#8E8E93", description: "Add photo")
                     }
-                    .onPicked { uri ->
-                        comments.append(CommentItem(nextCommentID, taskID, "Image", uri, Time.now(), false))
-                        nextCommentID += 1
-                        Task.launch(executor: TaskExecutor.Main) {
-                            await commentPersistence.saveComment(comments, nextCommentID - 1)
+                    .onPicked { uris ->
+                        let uri = uris.first() ?? ""
+                        if uri != "" {
+                            comments.append(CommentItem(nextCommentID, taskID, "Image", uri, Time.now(), false))
+                            nextCommentID += 1
+                            Task.launch(executor: TaskExecutor.Main) {
+                                await commentPersistence.saveComment(comments, nextCommentID - 1)
+                            }
+                            commentStatus = "Photo attached"
                         }
-                        commentStatus = "Photo attached"
                     }
                     .onFailed { message -> commentStatus = message }
                     TextInput(value: newComment, placeholder: "Add comment...")

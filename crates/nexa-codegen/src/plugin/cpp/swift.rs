@@ -23,7 +23,7 @@ use super::errors::{
 use crate::SourceWriter;
 use crate::plugin::bridge_plan::{
     BridgeEvent, BridgeInterface, BridgeMethod, BridgeNamedType, BridgeParameter, BridgePlan,
-    BridgeType, BridgeTypeKind,
+    BridgeScalar, BridgeType, BridgeTypeKind,
 };
 use crate::plugin::type_visit::collect_value_types;
 use nexa_plugin_idl::{self, InterfaceKind};
@@ -453,6 +453,7 @@ pub(crate) fn swift_cpp_base_type(ty: &BridgeType) -> Option<&'static str> {
         "Float64" => Some("Double"),
         "String" => Some("String"),
         "Bytes" => Some("Data"),
+        "BufferView" => Some("Data"),
         _ => None,
     }
 }
@@ -504,7 +505,15 @@ fn swift_cpp_arguments(
 ) -> String {
     parameters
         .iter()
-        .map(|parameter| swift_cpp_argument_expression(&parameter.ty, &parameter.name, context))
+        .enumerate()
+        .map(|(index, parameter)| {
+            let value = if matches!(parameter.ty, BridgeType::Scalar(BridgeScalar::BufferView)) {
+                format!("nexaBufferView{index}")
+            } else {
+                parameter.name.clone()
+            };
+            swift_cpp_argument_expression(&parameter.ty, &value, context)
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -531,6 +540,9 @@ pub(crate) fn swift_cpp_argument_value(
         }
         "String" => format!("std.string({value})"),
         "Bytes" => format!("{byte_buffer_type}({value})"),
+        "BufferView" => format!(
+            "{namespace}.nexa_buffer_view.make(data: {value}.baseAddress?.assumingMemoryBound(to: UInt8.self), size: UInt({value}.count))"
+        ),
         "Array" if swift_cpp_nested_array_supported(ty) => {
             swift_cpp_array_argument_expression(ty, value, context)
         }
@@ -602,6 +614,14 @@ fn render_swift_cpp_method(
     ));
     let method_name = adapter_method.unwrap_or(&method.name);
     let mut call = format!("{receiver}.{}({arguments})", cpp_identifier(method_name));
+    for (index, parameter) in method.parameters.iter().enumerate().rev() {
+        if matches!(parameter.ty, BridgeType::Scalar(BridgeScalar::BufferView)) {
+            call = format!(
+                "{}.withUnsafeBytes {{ nexaBufferView{index} in {call} }}",
+                parameter.name
+            );
+        }
+    }
     if call_on_worker && receiver == "nexaCppObject" {
         out.push_str(&format!(
             "{indent}    let nexaCppObjectForAsync = nexaCppObject\n"

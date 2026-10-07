@@ -72,9 +72,9 @@ nexa dev
 | **Type Check** | `nexa check` | Blazing-fast whole-project verification without launching native compilers. |
 | **Live Development** | `nexa dev [--ios \| --android]` | Boots simulator/emulator with live DevRuntime hot reload. |
 | **Run Tests** | `nexa test [--unit-only]` | Executes all in-language `.nx` `test` blocks and native test runners. |
-| **Release Build** | `nexa release` | Emits signed Android AABs and iOS production IPA archives. |
+| **Release Build** | `nexa build --release` | Emits signed Android AABs and iOS production IPA archives. |
 | **Health Check** | `nexa doctor` | Verifies local Xcode, Android SDK, Rust, and Clang toolchains. |
-| **Plugin Authoring**| `nexa plugin init\|check\|generate` | Scaffolds, validates, and generates local plugin contracts. There is no registry install command. |
+| **Plugin Authoring**| `nexa plugin new\|check\|generate` | Scaffolds, validates, and generates local plugin contracts. There is no registry install command. |
 
 ### Hot Reload Interactive Keys
 

@@ -664,10 +664,28 @@ fn native_call(
         });
     }
     if let Some(receiver) = receiver {
+        if namespace == "Regex" {
+            let rendered_receiver = expression_with_locals(receiver, locals);
+            let arguments = match name {
+                "matches" | "find" | "findAll" => rendered
+                    .first()
+                    .map(|text| format!("({text})"))
+                    .unwrap_or_else(|| "(\"\")".to_owned()),
+                "replace" => format!(
+                    "({}, with: {})",
+                    rendered.first().map(String::as_str).unwrap_or("\"\""),
+                    rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+                ),
+                _ => format!("({})", rendered.join(", ")),
+            };
+            return format!("{rendered_receiver}.{name}{arguments}");
+        }
         if namespace == "__NexaString" {
             let rendered_receiver = expression_with_locals(receiver, locals);
             return match name {
-                "trim" => format!("{rendered_receiver}.trimmingCharacters(in: .whitespacesAndNewlines)"),
+                "trim" => {
+                    format!("{rendered_receiver}.trimmingCharacters(in: .whitespacesAndNewlines)")
+                }
                 "toLowercase" => format!("{rendered_receiver}.lowercased()"),
                 "toUppercase" => format!("{rendered_receiver}.uppercased()"),
                 "split" => {
@@ -723,6 +741,10 @@ fn native_call(
         };
     }
     match (namespace, name) {
+        ("Regex", "new") => format!(
+            "NexaRegex(pattern: {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
         ("Regex", "isMatch") => {
             let pattern = rendered.first().map(String::as_str).unwrap_or("\"\"");
             let text = rendered.get(1).map(String::as_str).unwrap_or("\"\"");
@@ -1149,6 +1171,7 @@ mod tests {
             arguments: Vec::new(),
             codecs: Vec::new(),
             return_type: Type::String,
+            source_span: None,
             is_async: false,
             is_throwing: false,
         };
@@ -1222,7 +1245,11 @@ mod tests {
         };
 
         let mapper = plugin_row_mapper(&ty).expect("structs should receive typed row mappers");
-        assert!(mapper.contains("columnNames, rowFailure throws(Failure) in\n    let nexaExpectedColumns"));
+        assert!(
+            mapper.contains(
+                "columnNames, rowFailure throws(Failure) in\n    let nexaExpectedColumns"
+            )
+        );
         assert!(mapper.contains("rowFailure("));
         assert!(!mapper.contains("NexaRowReader<Value"));
         assert!(mapper.contains("nexaColumnIndices: [String: Int32] = [:]\n"));
@@ -1275,6 +1302,7 @@ mod tests {
                 row_mapper: true,
             }],
             return_type: Type::Array(Box::new(item)),
+            source_span: None,
             is_async: true,
             is_throwing: true,
         };
@@ -1296,6 +1324,7 @@ mod tests {
                 arguments,
                 codecs: Vec::new(),
                 return_type,
+                source_span: None,
                 is_async: false,
                 is_throwing: false,
             };
@@ -1331,6 +1360,7 @@ mod tests {
             arguments: Vec::new(),
             codecs: Vec::new(),
             return_type: Type::Bool,
+            source_span: None,
             is_async: false,
             is_throwing: false,
         };
@@ -1354,6 +1384,7 @@ mod tests {
             ],
             codecs: Vec::new(),
             return_type: Type::NetworkResponse,
+            source_span: None,
             is_async: true,
             is_throwing: true,
         };
@@ -1374,6 +1405,7 @@ mod tests {
                 arguments,
                 codecs: Vec::new(),
                 return_type,
+                source_span: None,
                 is_async: false,
                 is_throwing: false,
             };
@@ -1420,6 +1452,7 @@ mod tests {
             arguments,
             codecs: Vec::new(),
             return_type: Type::Void,
+            source_span: None,
             is_async: false,
             is_throwing: false,
         };
@@ -1567,6 +1600,7 @@ mod tests {
             arguments: Vec::new(),
             codecs: Vec::new(),
             return_type: Type::Void,
+            source_span: None,
             is_async: true,
             is_throwing: true,
         }));
@@ -1721,6 +1755,7 @@ mod tests {
             arguments: vec![("url".to_owned(), Expr::String("clip.mp4".to_owned()))],
             codecs: Vec::new(),
             return_type: Type::Void,
+            source_span: None,
             is_async: true,
             is_throwing: false,
         };

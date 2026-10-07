@@ -1,6 +1,8 @@
 use crossterm::{
+    cursor::MoveTo,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode},
+    execute,
+    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
 };
 use std::{
     collections::BTreeMap,
@@ -18,6 +20,8 @@ pub(super) fn run(args: Vec<String>) -> Result<(), String> {
         Some("create") => create(&args[1..]),
         Some("check") => check_project(&args[1..]),
         Some("audit") => crate::audit::run(&args[1..]),
+        Some("fmt") => format_sources(&args[1..]),
+        Some("build") => build_command(&args[1..]),
         Some("dev") => native_command("dev", &args[1..]),
         Some("test") => native_command("test", &args[1..]),
         Some("release") => native_command("release", &args[1..]),
@@ -102,6 +106,111 @@ fn create(args: &[String]) -> Result<(), String> {
     )?;
     println!("Created {project_name} in {}", root.display());
     println!("Next: cd {} && nexa dev", root.display());
+    Ok(())
+}
+
+fn format_sources(args: &[String]) -> Result<(), String> {
+    let mut check_only = false;
+    let mut roots = Vec::new();
+    for argument in args {
+        match argument.as_str() {
+            "--check" => check_only = true,
+            "--help" | "-h" => {
+                println!("Usage: nexa fmt [<file-or-directory> ...] [--check]");
+                return Ok(());
+            }
+            option if option.starts_with('-') => {
+                return Err(format!("unknown `nexa fmt` option `{option}`"));
+            }
+            path => roots.push(PathBuf::from(path)),
+        }
+    }
+    if roots.is_empty() {
+        roots.push(PathBuf::from("."));
+    }
+
+    let mut files = Vec::new();
+    for root in &roots {
+        collect_source_files(root, &mut files)?;
+    }
+    files.sort();
+    files.dedup();
+    if files.is_empty() {
+        return Err("no `.nx` source files found".to_owned());
+    }
+
+    let mut changed = Vec::new();
+    for file in files {
+        let source =
+            fs::read_to_string(&file).map_err(|error| format!("{}: {error}", file.display()))?;
+        let formatted = nexa_syntax::format_source(&source)
+            .map_err(|error| format!("{}: {}", file.display(), error.message))?;
+        if formatted != source {
+            if check_only {
+                changed.push(file);
+            } else {
+                fs::write(&file, formatted)
+                    .map_err(|error| format!("{}: {error}", file.display()))?;
+            }
+        }
+    }
+
+    if check_only && !changed.is_empty() {
+        let files = changed
+            .iter()
+            .map(|file| file.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n  ");
+        return Err(format!("these files need formatting:\n  {files}"));
+    }
+    if check_only {
+        println!("All Nexa source files are formatted.");
+    } else {
+        println!("Formatted Nexa source files.");
+    }
+    Ok(())
+}
+
+fn collect_source_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    let metadata = fs::metadata(root).map_err(|error| format!("{}: {error}", root.display()))?;
+    if metadata.is_file() {
+        if root.extension().is_some_and(|extension| extension == "nx") {
+            files.push(root.to_owned());
+            return Ok(());
+        }
+        return Err(format!("{} is not a `.nx` source file", root.display()));
+    }
+    if !metadata.is_dir() {
+        return Err(format!("{} is not a file or directory", root.display()));
+    }
+
+    let entries = fs::read_dir(root).map_err(|error| format!("{}: {error}", root.display()))?;
+    let mut entries = entries
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("{}: {error}", root.display()))?;
+    entries.sort();
+    for entry in entries {
+        let Some(name) = entry.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if matches!(name, ".git" | ".nexa" | "target" | "build" | "node_modules") {
+            continue;
+        }
+        let file_type = fs::symlink_metadata(&entry)
+            .map_err(|error| format!("{}: {error}", entry.display()))?
+            .file_type();
+        if file_type.is_dir() {
+            if entry.join(".git").exists() {
+                continue;
+            }
+            collect_source_files(&entry, files)?;
+        } else if file_type.is_file()
+            && entry.extension().is_some_and(|extension| extension == "nx")
+        {
+            files.push(entry);
+        }
+    }
     Ok(())
 }
 
@@ -229,10 +338,13 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     while cursor < args.len() {
         match args[cursor].as_str() {
             "--ios" => {
-                set_platform(&mut platform, &mut platform_set, "ios")?;
+                select_native_platform(&mut platform, &mut platform_set, "ios");
             }
             "--android" => {
-                set_platform(&mut platform, &mut platform_set, "android")?;
+                select_native_platform(&mut platform, &mut platform_set, "android");
+            }
+            "--all" => {
+                select_native_platform(&mut platform, &mut platform_set, "all");
             }
             "--platform" | "-p" => {
                 cursor += 1;
@@ -244,7 +356,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
                         "unknown platform `{value}`; expected ios, android, or all"
                     ));
                 }
-                set_platform(&mut platform, &mut platform_set, value)?;
+                select_native_platform(&mut platform, &mut platform_set, value);
             }
             "--out" => {
                 cursor += 1;
@@ -444,6 +556,75 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     }
 }
 
+fn build_command(args: &[String]) -> Result<(), String> {
+    if args
+        .iter()
+        .any(|argument| matches!(argument.as_str(), "--help" | "-h"))
+    {
+        print_command_help("build");
+        return Ok(());
+    }
+    let release_args = release_build_arguments(args)?;
+    native_command("release", &release_args)
+}
+
+fn release_build_arguments(args: &[String]) -> Result<Vec<String>, String> {
+    let mut release_selected = false;
+    let mut artifact: Option<&'static str> = None;
+    let mut native_args = Vec::with_capacity(args.len());
+    for argument in args {
+        match argument.as_str() {
+            "--release" => {
+                if release_selected {
+                    return Err("`--release` may only be specified once".to_owned());
+                }
+                release_selected = true;
+            }
+            "--ipa" | "--aab" => {
+                let requested = if argument == "--ipa" { "ipa" } else { "aab" };
+                if artifact.replace(requested).is_some() {
+                    return Err("choose only one release artifact (`--ipa` or `--aab`)".to_owned());
+                }
+            }
+            _ => native_args.push(argument.clone()),
+        }
+    }
+    if !release_selected {
+        return Err("`nexa build` requires `--release`".to_owned());
+    }
+    if let Some(artifact) = artifact {
+        let (platform, platform_flag) = if artifact == "ipa" {
+            ("ios", "--ios")
+        } else {
+            ("android", "--android")
+        };
+        match explicit_build_platform(&native_args) {
+            Some(selected) if selected != platform => {
+                return Err(format!(
+                    "`--{artifact}` requires `--{platform}`, but `{selected}` was selected"
+                ));
+            }
+            Some(_) => {}
+            None => native_args.insert(0, platform_flag.to_owned()),
+        }
+    }
+    Ok(native_args)
+}
+
+fn explicit_build_platform(args: &[String]) -> Option<&str> {
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--ios" => return Some("ios"),
+            "--android" => return Some("android"),
+            "--all" => return Some("all"),
+            "--platform" | "-p" => return args.get(cursor + 1).map(String::as_str),
+            _ => cursor += 1,
+        }
+    }
+    None
+}
+
 fn run_in_language_tests(entry: &Path, platform: &str, locked: bool) -> Result<(), String> {
     let project_root = entry.parent().unwrap_or_else(|| Path::new("."));
     let config_path = project_root.join("nexa.config.nx");
@@ -544,6 +725,7 @@ fn watch_sources(
     let mut previous = source_fingerprint(context.root, &plugin_roots)?;
     let mut performance_overlay_enabled = false;
     let mut native_rebuild_pending = false;
+    let mut active_device: Option<(String, String)> = None;
     let (console_commands, _raw_terminal) = start_dev_console_input();
     loop {
         match console_commands.try_recv() {
@@ -599,6 +781,16 @@ fn watch_sources(
                 }
                 continue;
             }
+            Ok(DevConsoleCommand::NextDevice) => match cycle_dev_device(context, &active_device) {
+                Ok(device) => {
+                    println!(
+                        "Selected [{}] {} ({})",
+                        device.platform, device.name, device.id
+                    );
+                    active_device = Some((device.platform, device.id));
+                }
+                Err(error) => eprintln!("device selector: {error}"),
+            },
             Ok(DevConsoleCommand::TogglePerformanceOverlay) => {
                 performance_overlay_enabled = !performance_overlay_enabled;
                 context
@@ -610,6 +802,12 @@ fn watch_sources(
                     "off"
                 };
                 println!("Nexa performance overlay {state}.");
+            }
+            Ok(DevConsoleCommand::ClearConsole) => {
+                let mut terminal = io::stdout();
+                execute!(terminal, Clear(ClearType::All), MoveTo(0, 0))
+                    .map_err(|error| format!("cannot clear the Nexa dev console: {error}"))?;
+                print_dev_welcome();
             }
             Ok(DevConsoleCommand::Stop) => {
                 println!("Stopping Nexa dev.");
@@ -670,13 +868,15 @@ enum DevConsoleCommand {
     HotReload,
     HotRestart,
     Rebuild,
+    NextDevice,
     TogglePerformanceOverlay,
+    ClearConsole,
     Stop,
 }
 
 fn print_dev_welcome() {
     println!(
-        "\nWelcome to Nexa dev\n  r          Hot reload the current source\n  Shift+R    Hot restart and reset app state\n  b          Rebuild and relaunch the native app\n  p          Toggle the performance overlay (FPS and frame time)\n  Ctrl-C     Stop the dev session\n\nBuild and device logs will appear below.\n"
+        "\nWelcome to Nexa dev\n  r          Hot reload the current source\n  Shift+R    Hot restart and reset app state\n  b          Rebuild and relaunch the native app\n  d          Cycle to the next connected iOS or Android device\n  p          Toggle the performance overlay (FPS and frame time)\n  l          Clear the console\n  q          Stop the dev session\n  Ctrl-C     Stop the dev session\n\nBuild and device logs will appear below.\n"
     );
 }
 
@@ -727,9 +927,12 @@ fn start_dev_console_input() -> (Receiver<DevConsoleCommand>, Option<RawTerminal
                             KeyCode::Char('R') => Some(DevConsoleCommand::HotRestart),
                             KeyCode::Char('r') => Some(DevConsoleCommand::HotReload),
                             KeyCode::Char('b' | 'B') => Some(DevConsoleCommand::Rebuild),
+                            KeyCode::Char('d' | 'D') => Some(DevConsoleCommand::NextDevice),
                             KeyCode::Char('p' | 'P') => {
                                 Some(DevConsoleCommand::TogglePerformanceOverlay)
                             }
+                            KeyCode::Char('l' | 'L') => Some(DevConsoleCommand::ClearConsole),
+                            KeyCode::Char('q' | 'Q') => Some(DevConsoleCommand::Stop),
                             _ => None,
                         };
                         if let Some(command) = command {
@@ -752,11 +955,13 @@ fn start_dev_console_input() -> (Receiver<DevConsoleCommand>, Option<RawTerminal
                 "r" => Some(DevConsoleCommand::HotReload),
                 "R" => Some(DevConsoleCommand::HotRestart),
                 "b" | "B" => Some(DevConsoleCommand::Rebuild),
+                "d" | "D" => Some(DevConsoleCommand::NextDevice),
                 "p" | "P" => Some(DevConsoleCommand::TogglePerformanceOverlay),
+                "l" | "L" => Some(DevConsoleCommand::ClearConsole),
                 "q" | "quit" | "exit" => Some(DevConsoleCommand::Stop),
                 "" => None,
                 value => {
-                    eprintln!("unknown Nexa dev shortcut `{value}`; use r, R, b, or p");
+                    eprintln!("unknown Nexa dev shortcut `{value}`; use r, R, b, d, p, l, or q");
                     None
                 }
             };
@@ -1474,80 +1679,228 @@ fn find_entry(root: &Path) -> Result<PathBuf, String> {
 }
 
 fn launch_ios_simulator(root: &Path, app_name: &str) -> Result<(), String> {
-    let devices = Command::new("xcrun")
+    let devices = available_ios_devices()?;
+    let device = devices
+        .iter()
+        .find(|device| device.booted)
+        .or_else(|| devices.first())
+        .ok_or_else(|| {
+            "no available iOS Simulator found; install an iOS Simulator runtime in Xcode".to_owned()
+        })?;
+    launch_ios_simulator_on_device(root, app_name, device)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DevDevice {
+    platform: String,
+    name: String,
+    id: String,
+    booted: bool,
+}
+
+fn cycle_dev_device(
+    context: &DevWatchContext<'_>,
+    current: &Option<(String, String)>,
+) -> Result<DevDevice, String> {
+    let mut devices = Vec::new();
+    let mut unavailable = Vec::new();
+    if matches!(context.platform, "ios" | "all") {
+        match available_ios_devices() {
+            Ok(found) => devices.extend(found),
+            Err(error) => unavailable.push(error),
+        }
+    }
+    if matches!(context.platform, "android" | "all") {
+        match available_android_devices() {
+            Ok(found) => devices.extend(found),
+            Err(error) => unavailable.push(error),
+        }
+    }
+    if devices.is_empty() {
+        let details = if unavailable.is_empty() {
+            "no available iOS simulators or online Android devices were found".to_owned()
+        } else {
+            unavailable.join("; ")
+        };
+        return Err(details);
+    }
+    let next = current
+        .as_ref()
+        .and_then(|(platform, id)| {
+            devices
+                .iter()
+                .position(|device| &device.platform == platform && &device.id == id)
+        })
+        .map_or(0, |index| (index + 1) % devices.len());
+    let device = devices[next].clone();
+    match device.platform.as_str() {
+        "ios" => launch_ios_simulator_on_device(context.output, context.project_name, &device)?,
+        "android" => launch_android_emulator_on_device(
+            context.output,
+            Some(context.server.address().port()),
+            &device,
+        )?,
+        _ => return Err(format!("unsupported device platform `{}`", device.platform)),
+    }
+    Ok(device)
+}
+
+fn available_ios_devices() -> Result<Vec<DevDevice>, String> {
+    let output = Command::new("xcrun")
         .args(["simctl", "list", "devices", "available"])
         .output()
-        .map_err(|error| format!("xcrun simctl: {error}"))?;
-    let listing = String::from_utf8_lossy(&devices.stdout);
-    let booted = listing.lines().find(|line| line.contains("(Booted)"));
-    let candidate = booted.or_else(|| {
-        listing
-            .lines()
-            .find(|line| line.contains("iPhone") && line.contains("("))
-    });
-    let Some(line) = candidate else {
-        return Err(
-            "no available iOS Simulator found; install an iOS Simulator runtime in Xcode"
-                .to_owned(),
-        );
-    };
-    let udid = line
-        .split('(')
-        .nth(1)
-        .and_then(|part| part.split(')').next())
-        .ok_or("could not read Simulator device ID")?;
-    if !line.contains("(Booted)") {
+        .map_err(|error| format!("cannot list iOS simulators with xcrun: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "xcrun simctl could not list available iOS simulators: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(parse_ios_simulator_devices(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
+}
+
+fn parse_ios_simulator_devices(listing: &str) -> Vec<DevDevice> {
+    let mut devices = listing
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.contains("iPhone") && !trimmed.contains("iPad") {
+                return None;
+            }
+            let id = trimmed
+                .split_whitespace()
+                .map(|part| {
+                    part.trim_matches(|character: char| {
+                        !character.is_ascii_hexdigit() && character != '-'
+                    })
+                })
+                .find(|part| is_simulator_udid(part))?;
+            let marker = format!("({id})");
+            let name = trimmed.split_once(&marker)?.0.trim().to_owned();
+            Some(DevDevice {
+                platform: "ios".to_owned(),
+                name,
+                id: id.to_owned(),
+                booted: trimmed.contains("(Booted)"),
+            })
+        })
+        .collect::<Vec<_>>();
+    devices.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
+    devices
+}
+
+fn is_simulator_udid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
+fn available_android_devices() -> Result<Vec<DevDevice>, String> {
+    let output = Command::new("adb")
+        .args(["devices", "-l"])
+        .output()
+        .map_err(|error| format!("cannot list Android devices with adb: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "adb could not list Android devices: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(parse_android_devices(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
+}
+
+fn parse_android_devices(listing: &str) -> Vec<DevDevice> {
+    let mut devices = listing
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let id = fields.next()?;
+            if fields.next()? != "device" {
+                return None;
+            }
+            let name = line
+                .split_whitespace()
+                .find_map(|field| field.strip_prefix("model:"))
+                .map(|model| model.replace('_', " "))
+                .unwrap_or_else(|| id.to_owned());
+            Some(DevDevice {
+                platform: "android".to_owned(),
+                name,
+                id: id.to_owned(),
+                booted: true,
+            })
+        })
+        .collect::<Vec<_>>();
+    devices.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
+    devices
+}
+
+fn launch_ios_simulator_on_device(
+    root: &Path,
+    app_name: &str,
+    device: &DevDevice,
+) -> Result<(), String> {
+    if !device.booted {
         let mut boot = Command::new("xcrun");
-        boot.args(["simctl", "boot", udid]);
+        boot.args(["simctl", "boot", &device.id]);
         run_command(boot, "Simulator boot")?;
     }
     let mut bootstatus = Command::new("xcrun");
-    bootstatus.args(["simctl", "bootstatus", udid, "-b"]);
+    bootstatus.args(["simctl", "bootstatus", &device.id, "-b"]);
     run_command(bootstatus, "Simulator boot")?;
     let app = root
         .join("ios-derived/Build/Products/Debug-iphonesimulator")
         .join(format!("{app_name}.app"));
     let bundle_id = bundle_identifier(root, app_name)?;
     let mut install = Command::new("xcrun");
-    install.args(["simctl", "install", udid]).arg(&app);
+    install.args(["simctl", "install", &device.id]).arg(&app);
     run_command(install, "Simulator install")?;
     let mut launch = Command::new("xcrun");
-    launch.args(["simctl", "launch", udid, &bundle_id]);
+    launch.args(["simctl", "launch", &device.id, &bundle_id]);
     run_command(launch, "Simulator launch")?;
     Ok(())
 }
 
 fn launch_android_emulator(root: &Path, dev_port: Option<u16>) -> Result<(), String> {
-    require_command(
-        "adb",
-        "Install Android platform-tools and start an emulator.",
-    )?;
-    let devices = Command::new("adb")
-        .args(["devices"])
-        .output()
-        .map_err(|error| error.to_string())?;
-    let listing = String::from_utf8_lossy(&devices.stdout);
-    if !listing
-        .lines()
-        .skip(1)
-        .any(|line| line.ends_with("\tdevice"))
-    {
-        return Err("no Android emulator or device is connected; start one, then rerun `nexa dev --android`".to_owned());
-    }
+    let device = available_android_devices()?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            "no Android emulator or device is connected; start one, then rerun `nexa dev --android`"
+                .to_owned()
+        })?;
+    launch_android_emulator_on_device(root, dev_port, &device)
+}
+
+fn launch_android_emulator_on_device(
+    root: &Path,
+    dev_port: Option<u16>,
+    device: &DevDevice,
+) -> Result<(), String> {
     if let Some(port) = dev_port {
         let local = format!("tcp:{port}");
         let remote = local.clone();
         let mut reverse = Command::new("adb");
-        reverse.args(["reverse", local.as_str(), remote.as_str()]);
+        reverse.args(["-s", &device.id, "reverse", local.as_str(), remote.as_str()]);
         run_command(reverse, "Android dev server port forwarding")?;
     }
     let package = android_application_id(root)?;
     let apk = root.join("android/app/build/outputs/apk/debug/app-debug.apk");
     let mut install = Command::new("adb");
-    install.arg("install").arg("-r").arg(apk);
+    install.args(["-s", &device.id, "install", "-r"]).arg(apk);
     run_command(install, "Android install")?;
     let mut launch = Command::new("adb");
-    launch.args(["shell", "monkey", "-p", &package, "1"]);
+    launch.args(["-s", &device.id, "shell", "monkey", "-p", &package, "1"]);
     run_command(launch, "Android launch")?;
     Ok(())
 }
@@ -1611,6 +1964,15 @@ fn set_platform(
     Ok(())
 }
 
+fn select_native_platform(current: &mut String, explicitly_set: &mut bool, requested: &str) {
+    if !*explicitly_set {
+        *current = requested.to_owned();
+        *explicitly_set = true;
+    } else if current != requested {
+        *current = "all".to_owned();
+    }
+}
+
 fn starter_source(name: &str) -> String {
     format!(
         "app {name} {{\n    state count: Int32 = 0\n\n    body {{\n        Column(spacing: 16) {{\n            Text(\"Welcome to {name}\")\n            Text(\"Count: $count\")\n            Button(\"Add one\") {{\n                count = count + 1\n            }}\n        }}\n    }}\n}}\n"
@@ -1669,7 +2031,7 @@ fn ensure_success(status: ExitStatus, label: &str) -> Result<(), String> {
 
 fn print_help() {
     println!(
-        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--audit] [--locked]\n  nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]\n  nexa dev [--ios | --android] [--locked]\n  nexa test [--ios | --android] [--locked]\n  nexa test --unit-only [--ios | --android] [--locked]\n  nexa release [--ios | --android] [--locked]\n  nexa doctor\n  nexa plugin init | check | generate\n\nRun `nexa <command> --help` for command options."
+        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--audit] [--locked]\n  nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]\n  nexa fmt [<file-or-directory> ...] [--check]\n  nexa dev [--ios | --android | --all] [--locked]\n  nexa test [--ios | --android | --all] [--locked]\n  nexa test --unit-only [--ios | --android] [--locked]\n  nexa build --release [--ios | --android | --all] [--ipa | --aab]\n  nexa release [--ios | --android | --all] [--locked]\n  nexa doctor\n  nexa plugin new | check | generate\n\nRun `nexa <command> --help` for command options."
     );
 }
 
@@ -1680,21 +2042,25 @@ fn print_command_help(command: &str) {
             println!("Usage: nexa check [--ios | --android] [--deny-warnings] [--audit] [--locked]")
         }
         "audit" => crate::audit::print_help(),
+        "fmt" => println!("Usage: nexa fmt [<file-or-directory> ...] [--check]"),
+        "build" => println!(
+            "Usage: nexa build --release [--ios | --android | --all] [--ipa | --aab] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\n`--ipa` selects iOS and `--aab` selects Android when no platform is given."
+        ),
         "dev" => {
             println!(
-                "Usage: nexa dev [--ios | --android] [--arch <architecture>] [--once | --compile-only] [--flavor <name>] [--out <directory>] [--locked]\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, and `p` toggles the performance overlay."
+                "Usage: nexa dev [--ios | --android | --all] [--arch <architecture>] [--once | --compile-only] [--flavor <name>] [--out <directory>] [--locked]\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, `d` cycles connected devices, `p` toggles the performance overlay, `l` clears logs, and `q` stops the session."
             )
         }
         "test" => {
             println!(
-                "Usage: nexa test [--ios | --android] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\n       nexa test --unit-only [--ios | --android] [--locked]"
+                "Usage: nexa test [--ios | --android | --all] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\n       nexa test --unit-only [--ios | --android] [--locked]"
             )
         }
         "release" => println!(
-            "Usage: nexa release [--ios | --android] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Android signing uses .nexa/signing.properties or NEXA_ANDROID_* environment variables; iOS signing uses Xcode."
+            "Usage: nexa release [--ios | --android | --all] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Android signing uses .nexa/signing.properties or NEXA_ANDROID_* environment variables; iOS signing uses Xcode."
         ),
         "plugin" => println!(
-            "Usage:\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"
+            "Usage:\n  nexa plugin new <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure] (alias)\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"
         ),
         _ => print_help(),
     }
@@ -1712,8 +2078,126 @@ fn set_flavor(current: &mut Option<String>, requested: &str) -> Result<(), Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{changed_paths, run_in_language_tests, source_fingerprint};
-    use nexa_testkit::TestProject;
+    use super::{
+        changed_paths, parse_android_devices, parse_ios_simulator_devices, release_build_arguments,
+        run, run_in_language_tests, select_native_platform, source_fingerprint,
+    };
+    use nexa_testkit::{TempDir, TestProject};
+    use std::fs;
+
+    #[test]
+    fn fmt_formats_source_and_check_mode_reports_changes_without_writing() {
+        let scratch = TempDir::new("nexa-cli-fmt");
+        let source = scratch.path().join("App.nx");
+        fs::write(
+            &source,
+            "app Counter{state count:Int32=0\nbody{Text(count)}}\n",
+        )
+        .expect("write formatter fixture");
+
+        let check_result = run(vec![
+            "fmt".to_owned(),
+            "--check".to_owned(),
+            source.display().to_string(),
+        ]);
+        assert!(check_result.is_err());
+        assert!(
+            fs::read_to_string(&source)
+                .expect("read unchanged source")
+                .starts_with("app Counter{")
+        );
+
+        run(vec!["fmt".to_owned(), source.display().to_string()]).expect("format source file");
+        let formatted = fs::read_to_string(&source).expect("read formatted source");
+        assert!(formatted.starts_with("app Counter {\n    state count: Int32 = 0"));
+        run(vec![
+            "fmt".to_owned(),
+            "--check".to_owned(),
+            source.display().to_string(),
+        ])
+        .expect("check formatted source");
+    }
+
+    #[test]
+    fn native_platform_flags_select_one_or_both_targets() {
+        let mut platform = "all".to_owned();
+        let mut selected = false;
+        select_native_platform(&mut platform, &mut selected, "ios");
+        assert_eq!(platform, "ios");
+        select_native_platform(&mut platform, &mut selected, "android");
+        assert_eq!(platform, "all");
+
+        let mut all = "all".to_owned();
+        let mut all_selected = false;
+        select_native_platform(&mut all, &mut all_selected, "all");
+        select_native_platform(&mut all, &mut all_selected, "ios");
+        assert_eq!(all, "all");
+    }
+
+    #[test]
+    fn build_alias_selects_ipa_or_aab_and_forwards_release_options() {
+        assert_eq!(
+            release_build_arguments(&[
+                "--release".to_owned(),
+                "--ipa".to_owned(),
+                "--out".to_owned(),
+                "ios-release".to_owned(),
+            ])
+            .expect("infer iOS from --ipa"),
+            ["--ios", "--out", "ios-release"]
+        );
+        assert_eq!(
+            release_build_arguments(&[
+                "--release".to_owned(),
+                "--android".to_owned(),
+                "--aab".to_owned(),
+                "--locked".to_owned(),
+            ])
+            .expect("forward Android AAB release"),
+            ["--android", "--locked"]
+        );
+    }
+
+    #[test]
+    fn build_alias_requires_release_and_rejects_mismatched_artifacts() {
+        assert!(release_build_arguments(&["--ios".to_owned()]).is_err());
+        assert!(
+            release_build_arguments(&[
+                "--release".to_owned(),
+                "--android".to_owned(),
+                "--ipa".to_owned(),
+            ])
+            .is_err()
+        );
+        assert!(
+            release_build_arguments(&[
+                "--release".to_owned(),
+                "--ipa".to_owned(),
+                "--aab".to_owned(),
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn device_listing_parsers_select_only_launchable_mobile_targets() {
+        let ios = parse_ios_simulator_devices(
+            "-- iOS 26.0 --\n    iPhone SE (3rd generation) (11111111-2222-3333-4444-555555555555) (Booted)\n    iPad Pro 13-inch (M5) (aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee) (Shutdown)\n    Apple Watch Series 11 (99999999-2222-3333-4444-555555555555) (Booted)\n",
+        );
+        assert_eq!(ios.len(), 2);
+        assert_eq!(ios[0].name, "iPad Pro 13-inch (M5)");
+        assert!(!ios[0].booted);
+        assert_eq!(ios[1].name, "iPhone SE (3rd generation)");
+        assert!(ios[1].booted);
+
+        let android = parse_android_devices(
+            "List of devices attached\nemulator-5554 device product:sdk_gphone64_x86_64 model:Pixel_9_Pro device:generic_x86_64\nR58M12345 unauthorized usb:1-1\n192.0.2.1:5555 offline product:sdk model:Offline_Test\n",
+        );
+        assert_eq!(android.len(), 1);
+        assert_eq!(android[0].id, "emulator-5554");
+        assert_eq!(android[0].name, "Pixel 9 Pro");
+        assert!(android[0].booted);
+    }
 
     #[test]
     fn dev_watcher_detects_new_imported_screen_and_tab_files() {

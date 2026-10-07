@@ -120,6 +120,19 @@ internal fun NexaDevStateStore.nativeCall(namespace: String, name: String, argum
 internal fun NexaDevStateStore.argument(name: String, expression: Any?): JSONArray =
     JSONArray().put(name).put(expression ?: JSONObject.NULL)
 
+private fun nexaDevRegexFindAll(pattern: String, text: String): List<Map<String, Any?>> =
+    runCatching { Regex(pattern) }.getOrNull()?.findAll(text)?.map { match ->
+        val groups = (1 until match.groups.size).map { index -> match.groups[index]?.value }
+        mapOf(
+            "value" to match.value,
+            "range" to mapOf(
+                "lowerBound" to match.range.first.toLong(),
+                "upperBound" to (match.range.last + 1).toLong(),
+            ),
+            "groups" to groups,
+        )
+    }?.toList().orEmpty()
+
 internal suspend fun NexaDevStateStore.invokeNativeAsync(
     call: JSONObject,
     locals: Map<String, Any>,
@@ -374,6 +387,44 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
         val entry = rawArguments.optJSONArray(index) ?: continue
         val argumentName = entry.optString(0)
         options[argumentName] = evaluate(entry.opt(1), locals, scope)
+    }
+    if (namespace == "Regex") {
+        if (!call.isNull("receiver")) {
+            val pattern = evaluate(call.opt("receiver"), locals, scope) as? String ?: ""
+            val text = options["text"] as? String ?: ""
+            return when (name) {
+                "matches" -> runCatching { Regex(pattern).matches(text) }.getOrDefault(false)
+                "find" -> nexaDevRegexFindAll(pattern, text).firstOrNull() ?: JSONObject.NULL
+                "findAll" -> nexaDevRegexFindAll(pattern, text)
+                "replace" -> runCatching {
+                    Regex(pattern).replace(text, options["with"] as? String ?: "")
+                }.getOrDefault(text)
+                else -> JSONObject.NULL
+            }
+        }
+        val pattern = options["pattern"] as? String ?: ""
+        val text = options["text"] as? String ?: ""
+        return when (name) {
+            "new" -> pattern
+            "isMatch" -> runCatching { Regex(pattern).containsMatchIn(text) }.getOrDefault(false)
+            "matches" -> nexaDevRegexFindAll(pattern, text).map { it["value"] as? String ?: "" }
+            "replace" -> runCatching {
+                Regex(pattern).replace(text, options["replacement"] as? String ?: "")
+            }.getOrDefault(text)
+            else -> JSONObject.NULL
+        }
+    }
+    if (namespace == "__NexaMap" && !call.isNull("receiver")) {
+        val receiver = evaluate(call.opt("receiver"), locals, scope)
+            as? Map<*, *> ?: emptyMap<Any?, Any?>()
+        val key = stringify(options["key"] ?: JSONObject.NULL)
+        return when (name) {
+            "get" -> receiver[key] ?: JSONObject.NULL
+            "contains" -> receiver.containsKey(key)
+            "keys" -> receiver.keys.toList()
+            "values" -> receiver.values.toList()
+            else -> JSONObject.NULL
+        }
     }
     try {
         if (namespace.startsWith("__NexaUserClass:")) {

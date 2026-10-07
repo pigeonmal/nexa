@@ -157,7 +157,7 @@
       "patterns": [
         {
           "name": "entity.name.type.primitive.nexa",
-          "match": "\\b(Array|Bool|Bytes|Err|Float32|Float64|Int16|Int32|Int64|Int8|Map|Ok|Pair|Result|Set|String|Triple|UInt16|UInt32|UInt64|UInt8|Void)\\b"
+          "match": "\\b(Array|Bool|Bytes|Err|Float32|Float64|Int16|Int32|Int64|Int8|Map|Ok|Pair|Range|Regex|RegexMatch|Result|Set|String|Triple|UInt16|UInt32|UInt64|UInt8|Void)\\b"
         }
       ]
     },

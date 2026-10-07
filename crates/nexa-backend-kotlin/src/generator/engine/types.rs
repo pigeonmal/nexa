@@ -74,6 +74,15 @@ pub(crate) fn kotlin_type(ty: &Type) -> String {
             debug_assert!(false, "unbound plugin value type parameter reached codegen");
             name.clone()
         }
+        Type::Plugin { namespace, name } if namespace == "Regex" && name == "Regex" => {
+            "NexaRegex".to_owned()
+        }
+        Type::Plugin { namespace, name } if namespace == "Regex" && name == "RegexMatch" => {
+            "NexaRegexMatch".to_owned()
+        }
+        Type::Plugin { namespace, name } if namespace == "Regex" && name == "Range" => {
+            "NexaRegexRange".to_owned()
+        }
         Type::Plugin { name, .. } => name.clone(),
         Type::TaskHandle => "kotlinx.coroutines.Job".to_owned(),
         Type::NetworkResponse => "NexaNetworkResponse".to_owned(),

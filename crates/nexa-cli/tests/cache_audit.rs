@@ -16,18 +16,14 @@ use std::collections::HashMap;
 
 /// Reads the leading digits of a `build-vNNN` row label.
 fn version_of(label: &str) -> Option<u32> {
-    let digits: String = label
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect();
+    let digits: String = label.chars().take_while(char::is_ascii_digit).collect();
     digits.parse().ok()
 }
 
 fn audit_versions() -> Vec<u32> {
-    let audit = std::fs::read_to_string(
-        nexa_testkit::workspace_root().join("docs/architecture-audit.md"),
-    )
-    .expect("read docs/architecture-audit.md");
+    let audit =
+        std::fs::read_to_string(nexa_testkit::workspace_root().join("docs/architecture-audit.md"))
+            .expect("read docs/architecture-audit.md");
     audit
         .lines()
         .filter_map(|line| version_of(line.strip_prefix("| `build-v")?))

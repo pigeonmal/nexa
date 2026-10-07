@@ -3953,11 +3953,12 @@ fn lower_actions_with_disposal_state(
                             vec![key.as_ref(), value.as_ref()],
                         ),
                         "remove" => (CollectionMutation::MapRemove, vec![key.as_ref()]),
+                        "clear" => (CollectionMutation::MapClear, vec![]),
                         _ => {
                             return Err(CompileError::new(
                                 span,
                                 format!(
-                                    "Map state `{name}` supports `set(key, value)` and `remove(key)`"
+                                    "Map state `{name}` supports `set(key, value)`, `remove(key)`, and `clear()`"
                                 ),
                             ));
                         }

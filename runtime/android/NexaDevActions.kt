@@ -765,6 +765,10 @@ private fun NexaDevStateStore.applyCollectionMutation(
             setState(name, target, scope)
             moduleRevision++
         }
+        "MapClear" -> {
+            setState(name, emptyMap<String, Any?>(), scope)
+            moduleRevision++
+        }
     }
 }
 

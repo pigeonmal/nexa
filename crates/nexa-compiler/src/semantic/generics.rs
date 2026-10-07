@@ -69,13 +69,15 @@ pub(super) fn resolve(
     }
     for ((_, declared), actual) in signature.parameters.iter().zip(argument_types) {
         if let Some(actual) = actual {
-            unify(declared, actual, &mut bindings).map_err(|message| {
+            let actual = resolve_struct_type(actual, structs);
+            unify(declared, &actual, &mut bindings).map_err(|message| {
                 CompileError::new(span, format!("`{qualified_name}`: {message}"))
             })?;
         }
     }
     if let Some(expected) = expected {
-        unify(&signature.return_type, expected, &mut bindings)
+        let expected = resolve_struct_type(expected, structs);
+        unify(&signature.return_type, &expected, &mut bindings)
             .map_err(|message| CompileError::new(span, format!("`{qualified_name}`: {message}")))?;
     }
     for parameter in &signature.type_parameters {
@@ -269,14 +271,18 @@ pub(super) fn mentions_type_parameter(ty: &Type) -> bool {
 /// An `actual` that still mentions a type parameter comes from a contextual
 /// type that was read from an unsubstituted signature, so it carries no
 /// information and must not bind anything.
-pub(super) fn unify(declared: &Type, actual: &Type, bindings: &mut Vec<(String, Type)>) -> Result<(), String> {
+pub(super) fn unify(
+    declared: &Type,
+    actual: &Type,
+    bindings: &mut Vec<(String, Type)>,
+) -> Result<(), String> {
     if mentions_type_parameter(actual) {
         return Ok(());
     }
     match (declared, actual) {
         (Type::TypeParam(parameter), actual) => {
             if let Some((_, bound)) = bindings.iter().find(|(name, _)| name == parameter)
-                && bound != actual
+                && !same_binding_type(bound, actual)
             {
                 return Err(format!(
                     "value type `{parameter}` is bound to {} and {} at the same time",
@@ -310,6 +316,28 @@ pub(super) fn unify(declared: &Type, actual: &Type, bindings: &mut Vec<(String, 
             unify(declared_third, actual_third, bindings)
         }
         _ => Ok(()),
+    }
+}
+
+/// Compares concrete bindings using the identity rules of the type system.
+/// Struct and class metadata may be reconstructed at separate inference sites;
+/// those nominal types still agree when their declared names match.
+fn same_binding_type(bound: &Type, actual: &Type) -> bool {
+    match (bound, actual) {
+        (Type::Enum(left), Type::Enum(right)) => left == right,
+        (
+            Type::Plugin {
+                namespace: left_namespace,
+                name: left_name,
+            },
+            Type::Plugin {
+                namespace: right_namespace,
+                name: right_name,
+            },
+        ) => left_namespace == right_namespace && left_name == right_name,
+        (Type::Struct { name: left, .. }, Type::Struct { name: right, .. })
+        | (Type::Class { name: left, .. }, Type::Class { name: right, .. }) => left == right,
+        _ => bound == actual,
     }
 }
 

@@ -630,6 +630,8 @@ extension NexaDevStateStore {
                 else { map.removeValue(forKey: key) }
             }
             setValue(name, value: map, scope: scope)
+        case "MapClear":
+            setValue(name, value: [String: Any](), scope: scope)
         default: break
         }
     }

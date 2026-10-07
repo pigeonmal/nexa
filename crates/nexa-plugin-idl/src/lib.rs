@@ -889,6 +889,12 @@ impl Parser {
         for ty in &idl.types {
             for field in &ty.fields {
                 validate_type_ref(&field.ty, &field.name, &types, &interfaces, false, &[])?;
+                if contains_buffer_view(&field.ty) {
+                    return Err(format!(
+                        "field `{}.{}` cannot store borrowed `BufferView` data",
+                        ty.name, field.name
+                    ));
+                }
                 if let Some(default) = &field.default
                     && !literal_matches_type(default, &field.ty)
                 {
@@ -939,6 +945,12 @@ impl Parser {
                     false,
                     &[],
                 )?;
+                if contains_buffer_view(&property.ty) {
+                    return Err(format!(
+                        "property `{}.{}` cannot store borrowed `BufferView` data",
+                        interface.name, property.name
+                    ));
+                }
                 if let Some(default) = &property.default {
                     if interface.kind != InterfaceKind::NativeComponent {
                         return Err(format!(
@@ -1010,6 +1022,12 @@ impl Parser {
                     true,
                     &method.type_parameters,
                 )?;
+                if contains_buffer_view(&method.return_type) {
+                    return Err(format!(
+                        "method `{}` cannot return borrowed `BufferView` data",
+                        method.name
+                    ));
+                }
                 if method.return_type.name == "Result" {
                     if method.throws.is_some() {
                         return Err(format!(
@@ -1034,6 +1052,17 @@ impl Parser {
                         false,
                         &method.type_parameters,
                     )?;
+                    if contains_buffer_view(&parameter.ty)
+                        && (parameter.ty.name != "BufferView"
+                            || !parameter.ty.arguments.is_empty()
+                            || parameter.ty.optional
+                            || method.is_async)
+                    {
+                        return Err(format!(
+                            "`BufferView` in method `{}` must be a non-optional direct parameter of a synchronous method",
+                            method.name
+                        ));
+                    }
                 }
                 if let Some(error) = &method.throws {
                     validate_type_ref(error, &method.name, &types, &interfaces, false, &[])?;
@@ -1319,8 +1348,18 @@ fn validate_parameters(
             false,
             &[],
         )?;
+        if contains_buffer_view(&parameter.ty) {
+            return Err(format!(
+                "parameter `{}` in `{context}` cannot store borrowed `BufferView` data",
+                parameter.name
+            ));
+        }
     }
     Ok(())
+}
+
+fn contains_buffer_view(ty: &TypeRef) -> bool {
+    ty.name == "BufferView" || ty.arguments.iter().any(contains_buffer_view)
 }
 
 fn is_builtin_type_name(name: &str) -> bool {
@@ -1340,6 +1379,7 @@ fn is_builtin_type_name(name: &str) -> bool {
             | "Float32"
             | "Float64"
             | "Bytes"
+            | "BufferView"
             | "Array"
             | "Set"
             | "Map"
@@ -1546,6 +1586,27 @@ mod tests {
     }
 
     #[test]
+    fn buffer_views_are_borrowed_sync_method_inputs_only() {
+        let idl = parse("service Decoder { fn decode(frame: BufferView) -> Int32 }")
+            .expect("a sync method may borrow an input frame");
+        assert_eq!(
+            idl.interfaces[0].methods[0].parameters[0].ty.name,
+            "BufferView"
+        );
+
+        for invalid in [
+            "struct Frame { bytes: BufferView }",
+            "service Decoder { fn decode(frame: BufferView?) -> Int32 }",
+            "service Decoder { async fn decode(frame: BufferView) -> Int32 }",
+            "service Decoder { fn decode() -> BufferView }",
+            "native class Decoder { event decoded(frame: BufferView) }",
+        ] {
+            let error = parse(invalid).expect_err("borrowed views cannot escape a sync call");
+            assert!(error.contains("BufferView"), "unexpected error: {error}");
+        }
+    }
+
+    #[test]
     fn validates_struct_field_defaults() {
         let error = parse("struct PlayerOptions { autoplay: Bool = 1 }")
             .expect_err("field defaults must match the declared type");
@@ -1630,4 +1691,3 @@ mod type_parameter_tests {
         assert_eq!(method.row_error_case.as_deref(), Some("invalidValue"));
     }
 }
-

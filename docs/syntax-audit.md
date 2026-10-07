@@ -817,5 +817,5 @@ Reference: components.md#custom-components--content
 
 Keywords: app, screen, component, state, let, fn, async, await, enum, struct, plugin, try, catch, case, return, if, else, while, for, in, break, continue
 
-Types: String, Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, Bytes, Result, Array, Map, Set, Pair, Triple, Void, Ok, Err
+Types: String, Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, Bytes, Result, Array, Map, Set, Regex, RegexMatch, Range, Pair, Triple, Void, Ok, Err
 

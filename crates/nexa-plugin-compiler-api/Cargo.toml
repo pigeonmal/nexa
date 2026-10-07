@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+nexa-diagnostics = { path = "../nexa-diagnostics" }
+nexa-ir = { path = "../nexa-ir" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

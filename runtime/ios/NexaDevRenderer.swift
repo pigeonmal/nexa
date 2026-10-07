@@ -215,7 +215,7 @@ enum NexaDevFastListAxis {
 }
 
 @MainActor
-struct NexaDevFastList: View {
+struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeaderContent: View>: View {
     let count: Int
     let axis: NexaDevFastListAxis
     let reverseLayout: Bool
@@ -223,9 +223,9 @@ struct NexaDevFastList: View {
     let rowHeight: Double?
     let scrollPosition: Int?
     let sectionCounts: [Int]?
-    let stickyHeader: AnyView?
-    let sectionHeader: ((Int) -> AnyView)?
-    let row: (Int, Int, Int) -> AnyView
+    let stickyHeader: StickyHeaderContent?
+    let sectionHeader: ((Int) -> SectionHeaderContent)?
+    let row: (Int, Int, Int) -> RowContent
     let onMove: ((IndexSet, Int) -> Void)?
     let moveEnabled: Bool
     let onScrollPositionChanged: (Int) -> Void
@@ -353,7 +353,11 @@ struct NexaDevFastList: View {
                                 listItem(start + itemIndex, section: sectionIndex, item: itemIndex, horizontal: false)
                             }
                         } header: {
-                            sectionHeader?(sectionIndex) ?? AnyView(EmptyView())
+                            if let sectionHeader {
+                                sectionHeader(sectionIndex)
+                            } else {
+                                EmptyView()
+                            }
                         }
                     }
                 } else {
@@ -419,10 +423,10 @@ private final class NexaDevPageSnapTableView: UITableView {
 }
 
 @MainActor
-private struct NexaDevPageSnapList: UIViewRepresentable {
+private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
     let count: Int
     let scrollPosition: Int?
-    let row: (Int, Int, Int) -> AnyView
+    let row: (Int, Int, Int) -> RowContent
     let onScrollPositionChanged: (Int) -> Void
     let onScroll: ((Int) -> Void)?
     let onEndReached: ((Int) -> Void)?
@@ -490,7 +494,7 @@ private struct NexaDevPageSnapList: UIViewRepresentable {
         var count: Int
         var scrollPosition: Int?
         var pageHeight: CGFloat = 0
-        var row: (Int, Int, Int) -> AnyView
+        var row: (Int, Int, Int) -> RowContent
         var onScrollPositionChanged: (Int) -> Void
         var onScroll: ((Int) -> Void)?
         var onEndReached: ((Int) -> Void)?
@@ -500,7 +504,7 @@ private struct NexaDevPageSnapList: UIViewRepresentable {
         init(
             count: Int,
             scrollPosition: Int?,
-            row: @escaping (Int, Int, Int) -> AnyView,
+            row: @escaping (Int, Int, Int) -> RowContent,
             onScrollPositionChanged: @escaping (Int) -> Void,
             onScroll: ((Int) -> Void)?,
             onEndReached: ((Int) -> Void)?
@@ -1248,20 +1252,20 @@ struct NexaDevNodeList: View {
                 (store.value(name, scope: scope) as? NSNumber)?.intValue
             }
             let stickyHeaderNodes = listFields["sticky_header"] as? [Any]
-            let stickyHeader = stickyHeaderNodes.map { nodes in
-                AnyView(NexaDevNodeList(nodes: nodes, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
+            let stickyHeader: NexaDevNodeList? = stickyHeaderNodes.map { nodes in
+                NexaDevNodeList(nodes: nodes, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             }
             let sectionHeaderNodes = listFields["section_header"] as? [Any]
-            let sectionHeader: ((Int) -> AnyView)? = sectionHeaderNodes.map { nodes in
+            let sectionHeader: ((Int) -> NexaDevNodeList)? = sectionHeaderNodes.map { nodes in
                 { sectionIndex in
-                    AnyView(NexaDevNodeList(
+                    NexaDevNodeList(
                         nodes: nodes,
                         module: module,
                         store: store,
                         focusedField: focusedField,
                         parameters: locals.merging([sectionName: sectionIndex]) { _, newest in newest },
                         stateScope: scope
-                    ))
+                    )
                 }
             }
             let onScrollActions = listFields["on_scroll"] as? [Any]
@@ -1293,14 +1297,14 @@ struct NexaDevNodeList: View {
                     } else if let itemName, let sourceItems, sourceItems.indices.contains(index) {
                         rowLocals[itemName] = sourceItems[index]
                     }
-                    return AnyView(NexaDevNodeList(
+                    return NexaDevNodeList(
                         nodes: children,
                         module: module,
                         store: store,
                         focusedField: focusedField,
                         parameters: rowLocals,
                         stateScope: scope
-                    ))
+                    )
                 },
                 onMove: onMove.map { callback in
                     { source, destination in

@@ -22,6 +22,7 @@ pub struct Capabilities {
     pub uses_app_icon_api: bool,
     pub uses_localized_strings: bool,
     pub uses_json_api: bool,
+    pub uses_regex_api: bool,
     pub uses_keyboard_api: bool,
     pub uses_crypto_api: bool,
     pub uses_secure_storage_api: bool,
@@ -89,6 +90,7 @@ mod tests {
             arguments: Vec::new(),
             codecs: Vec::new(),
             return_type: crate::Type::String,
+            source_span: None,
             is_async: true,
             is_throwing: false,
         };
@@ -115,6 +117,7 @@ mod tests {
                     Action::Expression(call("Clipboard", "hasText")),
                     Action::Expression(call("Haptics", "selection")),
                     Action::Expression(call("Screen", "lockOrientation")),
+                    Action::Expression(call("Regex", "isMatch")),
                 ],
             }],
         }]);
@@ -129,6 +132,7 @@ mod tests {
         assert!(capabilities.uses_clipboard_api);
         assert!(capabilities.uses_haptics_api);
         assert!(capabilities.uses_screen_orientation_api);
+        assert!(capabilities.uses_regex_api);
     }
 
     #[test]
@@ -162,6 +166,7 @@ mod tests {
                 arguments: Vec::new(),
                 codecs: Vec::new(),
                 return_type: crate::Type::Bool,
+                source_span: None,
                 is_async: false,
                 is_throwing: false,
             })]),
@@ -185,6 +190,7 @@ mod tests {
                 arguments: Vec::new(),
                 codecs: Vec::new(),
                 return_type: crate::Type::Bool,
+                source_span: None,
                 is_async: false,
                 is_throwing: false,
             })]),
@@ -221,6 +227,7 @@ mod tests {
                 )],
                 codecs: Vec::new(),
                 return_type: crate::Type::String,
+                source_span: None,
                 is_async: true,
                 is_throwing: false,
             })),
@@ -246,6 +253,7 @@ mod tests {
                     arguments: vec![("path".to_owned(), Expr::String("caption.txt".to_owned()))],
                     codecs: Vec::new(),
                     return_type: crate::Type::String,
+                    source_span: None,
                     is_async: true,
                     is_throwing: false,
                 },
@@ -491,6 +499,7 @@ mod tests {
                 arguments: Vec::new(),
                 codecs,
                 return_type,
+                source_span: None,
                 is_async: false,
                 is_throwing: false,
             })]);
