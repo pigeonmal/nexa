@@ -69,6 +69,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_page_pager,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_page_pager,
         "androidx.compose.foundation.layout.padding",
     );
     imports.add(
@@ -343,7 +347,7 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth + 1,
         format_args!(
-            "Row(modifier = Modifier.padding(bottom = {}.dp).align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy({}.dp)) {{",
+            "Row(modifier = Modifier.fillMaxWidth().padding(bottom = {}.dp), horizontalArrangement = Arrangement.spacedBy({}.dp, Alignment.CenterHorizontally)) {{",
             nexa_codegen::design_system::PAGE_INDICATOR_BOTTOM_INSET,
             nexa_codegen::design_system::PAGE_INDICATOR_SPACING,
         ),
@@ -413,6 +417,9 @@ mod tests {
 
         assert!(output.contains(
             "Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center, propagateMinConstraints = true) {"
+        ));
+        assert!(output.contains(
+            "Row(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {"
         ));
     }
 }

@@ -2394,8 +2394,11 @@ mod tests {
         ));
         assert!(kotlin.contains("contentAlignment = Alignment.Center"));
         assert!(kotlin.contains("propagateMinConstraints = true"));
-        assert!(kotlin.contains("Arrangement.spacedBy(nexaDevPageIndicatorSpacing.dp)"));
-        assert!(kotlin.contains("Modifier.padding(bottom = nexaDevPageIndicatorBottomInset.dp)"));
+        assert!(kotlin.contains("Modifier.fillMaxWidth()"));
+        assert!(kotlin.contains(
+            "nexaDevPageIndicatorSpacing.dp,\n                        Alignment.CenterHorizontally,"
+        ));
+        assert!(kotlin.contains("Modifier.fillMaxWidth()\n                        .padding(bottom = nexaDevPageIndicatorBottomInset.dp)"));
     }
 
     #[test]

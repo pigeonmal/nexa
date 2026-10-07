@@ -1715,9 +1715,12 @@ internal fun NexaDevNode(
                     }
                 }
                 Row(
-                    modifier = Modifier.padding(bottom = nexaDevPageIndicatorBottomInset.dp)
-                        .align(Alignment.CenterHorizontally),
-                    horizontalArrangement = Arrangement.spacedBy(nexaDevPageIndicatorSpacing.dp),
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(bottom = nexaDevPageIndicatorBottomInset.dp),
+                    horizontalArrangement = Arrangement.spacedBy(
+                        nexaDevPageIndicatorSpacing.dp,
+                        Alignment.CenterHorizontally,
+                    ),
                 ) {
                     for (page in 0 until pages.length()) {
                         Box(
