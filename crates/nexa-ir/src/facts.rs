@@ -26,6 +26,9 @@ use crate::{
 pub struct ModuleFacts {
     pub capabilities: Capabilities,
     pub used_types: TypeFacts,
+    /// A task launch appears in an action, independent of whether app code
+    /// stores its handle in state.
+    pub uses_task_launch: bool,
     pub ui: UiFacts,
     pub permissions: PermissionFacts,
     pub component_calls: ComponentCallGraph,
@@ -431,6 +434,7 @@ impl ModuleFacts {
                 );
             });
             if let Some(actions) = &function.body_actions {
+                facts.uses_task_launch |= actions_contain_task_launch(actions);
                 walk_actions(actions, &mut |expression| {
                     observe_expr(
                         expression,
@@ -451,6 +455,7 @@ impl ModuleFacts {
         {
             facts.capabilities.uses_network_connectivity |=
                 actions_contain_network_status_subscription(actions);
+            facts.uses_task_launch |= actions_contain_task_launch(actions);
             walk_actions(actions, &mut |expression| {
                 observe_expr(
                     expression,
@@ -463,6 +468,7 @@ impl ModuleFacts {
         for task in &module.background_tasks {
             facts.capabilities.uses_network_connectivity |=
                 actions_contain_network_status_subscription(&task.actions);
+            facts.uses_task_launch |= actions_contain_task_launch(&task.actions);
             walk_actions(&task.actions, &mut |expression| {
                 observe_expr(
                     expression,
@@ -476,6 +482,7 @@ impl ModuleFacts {
             for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
+                facts.uses_task_launch |= actions_contain_task_launch(actions);
                 walk_actions(actions, &mut |expression| {
                     observe_expr(
                         expression,
@@ -494,6 +501,7 @@ impl ModuleFacts {
             {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
+                facts.uses_task_launch |= actions_contain_task_launch(actions);
                 walk_actions(actions, &mut |expression| {
                     observe_expr(
                         expression,
@@ -512,6 +520,7 @@ impl ModuleFacts {
             walk_callback_actions(&module.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
+                facts.uses_task_launch |= actions_contain_task_launch(actions);
             });
             walk_ir(
                 &module.body,
@@ -543,6 +552,7 @@ impl ModuleFacts {
             walk_callback_actions(&screen.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
+                facts.uses_task_launch |= actions_contain_task_launch(actions);
             });
             walk_ir(
                 &screen.body,
@@ -578,6 +588,7 @@ impl ModuleFacts {
             walk_callback_actions(&component.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
+                facts.uses_task_launch |= actions_contain_task_launch(actions);
             });
             for actions in component
                 .on_appear
@@ -586,6 +597,7 @@ impl ModuleFacts {
             {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
+                facts.uses_task_launch |= actions_contain_task_launch(actions);
             }
             let calls = facts
                 .component_calls
@@ -1190,6 +1202,42 @@ fn actions_contain_network_status_subscription(actions: &[crate::Action]) -> boo
     })
 }
 
+fn actions_contain_task_launch(actions: &[crate::Action]) -> bool {
+    actions.iter().any(|action| match action {
+        crate::Action::TaskLaunch { .. } => true,
+        crate::Action::NativeEventSubscribe { actions, .. }
+        | crate::Action::NetworkStatusSubscribe { actions, .. }
+        | crate::Action::WithAnimation { actions, .. }
+        | crate::Action::For { body: actions, .. }
+        | crate::Action::ForMap { body: actions, .. }
+        | crate::Action::While { body: actions, .. } => actions_contain_task_launch(actions),
+        crate::Action::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            actions_contain_task_launch(then_branch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(actions_contain_task_launch)
+        }
+        crate::Action::TryCatch {
+            body,
+            error_catches,
+            catch_body,
+        } => {
+            actions_contain_task_launch(body)
+                || error_catches
+                    .iter()
+                    .any(|arm| actions_contain_task_launch(&arm.body))
+                || catch_body
+                    .as_deref()
+                    .is_some_and(actions_contain_task_launch)
+        }
+        _ => false,
+    })
+}
+
 fn observe_expr(
     expression: &Expr,
     capabilities: &mut Capabilities,
@@ -1484,6 +1532,29 @@ mod tests {
         assert!(facts.capabilities.uses_secure_storage_api);
         assert!(facts.ui.layout.column);
         assert!(facts.ui.button.present);
+    }
+
+    #[test]
+    fn task_launches_without_stored_handles_are_reported() {
+        let module = empty_module(vec![Node::Button {
+            label: Expr::String("Release cached media".to_owned()),
+            icon: None,
+            loading: None,
+            disabled: None,
+            style: None,
+            size: None,
+            shape: None,
+            tint: None,
+            glass: false,
+            actions: vec![Action::TaskLaunch {
+                handle: None,
+                executor: crate::TaskExecutor::Main,
+                actions: Vec::new(),
+            }],
+        }]);
+
+        let facts = ModuleFacts::analyze(&module);
+        assert!(facts.uses_task_launch);
     }
 
     #[test]

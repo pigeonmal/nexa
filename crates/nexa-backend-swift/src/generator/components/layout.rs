@@ -52,9 +52,13 @@ pub(crate) fn render_layout(
         }
         (None, false) => out.push_str(&format!("{layout} {{\n")),
     }
-    for (index, child) in children.iter().enumerate() {
+    let content_children = children
+        .iter()
+        .filter(|child| !matches!(child, Node::Toolbar { .. }))
+        .collect::<Vec<_>>();
+    for (index, child) in content_children.iter().enumerate() {
         render_node(child, scope.module, scope.features, depth + 1, out);
-        if index + 1 < children.len() {
+        if index + 1 < content_children.len() {
             out.push('\n');
         }
     }
@@ -62,6 +66,23 @@ pub(crate) fn render_layout(
     indent(out, depth);
     out.push('}');
     append_style(out, depth, style);
+
+    let toolbars = children
+        .iter()
+        .filter(|child| matches!(child, Node::Toolbar { .. }))
+        .collect::<Vec<_>>();
+    if !toolbars.is_empty() {
+        out.push('\n');
+        for toolbar in toolbars {
+            super::bottom_bar::render_navigation_toolbar(
+                toolbar,
+                scope.module,
+                scope.features,
+                depth,
+                out,
+            );
+        }
+    }
 }
 
 pub(crate) fn render_form_section(
@@ -253,4 +274,64 @@ fn append_modifier(out: &mut SourceWriter, depth: usize, modifier: &str) {
     indent(out, depth + 1);
     out.push('.');
     out.push_str(modifier);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_layout;
+    use crate::generator::{components::RenderScope, features::Features};
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::{LayoutKind, Module, Node, ToolbarPlacement, ViewStyle};
+
+    #[test]
+    fn layout_attaches_toolbar_to_the_container_instead_of_an_empty_child() {
+        let module = Module {
+            app_name: "ToolbarLayout".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let children = [Node::Toolbar {
+            placement: ToolbarPlacement::Trailing,
+            children: Vec::new(),
+        }];
+        let mut output = SourceWriter::new();
+
+        render_layout(
+            LayoutKind::Column,
+            0.0,
+            &ViewStyle::default(),
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(generated.contains("VStack(spacing: 0) {\n\n}\n.toolbar {"));
+        assert!(generated.contains("ToolbarItemGroup(placement: .navigationBarTrailing)"));
+        assert!(!generated.contains("EmptyView()"));
+    }
 }

@@ -971,7 +971,11 @@ screen Main {
                                 }
                             }
                             if activeTaskReminders(reminders, selectedTaskID).isEmpty {
-                                ContentUnavailable(title: "No reminders", icon: "notifications", description: "Tap + to add a reminder")
+                                Column(spacing: 8, padding: 32, alignment: Center) {
+                                    Icon(system: "notifications", size: 36, tint: "#8E8E93", description: "")
+                                    Text("No reminders", fontSize: 20)
+                                    Text("Tap + to add a reminder", fontSize: 16, color: "#8E8E93")
+                                }
                             } else {
                                 FastList(activeTaskReminders(reminders, selectedTaskID).sortedBy {
                                     reminder - > reminder.timestamp

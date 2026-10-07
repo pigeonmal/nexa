@@ -23,6 +23,18 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v179` | Attaches SwiftUI toolbar items to their containing layout so sheet navigation actions remain visible. |
+| `build-v178` | Keeps Android date picker calendar days aligned with local timestamps across timezone boundaries. |
+| `build-v177` | Insets Android form rows and adds dividers between adjacent section controls to match native settings lists. |
+| `build-v176` | Gives Android buttons compact default padding and single-line labels so horizontal action rows do not wrap a button vertically. |
+| `build-v175` | Renders Android switches with their text labels in a full-width aligned control row. |
+| `build-v174` | Gives Android virtualized lists full cross-axis width, row separators, and opaque resting content behind swipe actions. |
+| `build-v173` | Combines leading and trailing Android toolbars into one aligned action row inside vertical layouts. |
+| `build-v172` | Preserves circular geometry for icon-only circle buttons in Android Compose, including localized empty labels. |
+| `build-v170` | Renders Android tab toolbar actions beside the navigation title and removes them from the screen body. |
+| `build-v168` | Collects toolbar controls nested inside tab content and attaches them to the active iOS tab navigation bar. |
+| `build-v167` | Attaches iOS tab titles, search, and toolbar actions to the tab container, and propagates the app tab tint to Android screen controls. |
+| `build-v166` | Removes nested navigation stacks from tab content so route links can use the application navigation path. |
 | `build-v165` | Vertically centers Compose page-indicator dots to match SwiftUI `HStack` alignment. |
 | `build-v164` | Binds default iOS button and pager accents to dynamic system blue, matching the shared light and dark accent palette on Android. |
 | `build-v163` | Aligns large-button geometry across iOS and Android and centers Compose pager indicators in a full-width layout. |

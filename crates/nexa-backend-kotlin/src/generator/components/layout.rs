@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Node, ViewStyle};
+use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Node, ToolbarPlacement, ViewStyle};
 
 use crate::generator::{
     colors,
@@ -83,6 +83,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_form,
         "androidx.compose.foundation.layout.fillMaxSize",
     );
+    imports.add(features.uses_form, "androidx.compose.foundation.layout.Box");
     imports.add(
         features.uses_form,
         "androidx.compose.foundation.layout.fillMaxWidth",
@@ -97,6 +98,11 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(features.uses_row, "androidx.compose.foundation.layout.Row");
     imports.add(
+        features.uses_row,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(features.uses_row, "androidx.compose.ui.Modifier");
+    imports.add(
         features.uses_arrangement,
         "androidx.compose.foundation.layout.Arrangement",
     );
@@ -106,6 +112,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_divider,
+        "androidx.compose.material3.HorizontalDivider",
+    );
+    imports.add(
+        features.uses_form,
         "androidx.compose.material3.HorizontalDivider",
     );
     imports.add(
@@ -241,15 +251,88 @@ pub(crate) fn render_layout(
         indent(out, depth);
         out.push_str(") {\n");
     }
-    for (index, child) in children.iter().enumerate() {
+    let has_toolbars = children
+        .iter()
+        .any(|child| matches!(child, Node::Toolbar { .. }));
+    if has_toolbars {
+        render_toolbar_row(children, scope, depth + 1, out);
+    }
+    let mut rendered_content = 0;
+    for child in children
+        .iter()
+        .filter(|child| !matches!(child, Node::Toolbar { .. }))
+    {
         render_node(child, scope.module, scope.features, depth + 1, out);
-        if index + 1 < children.len() {
+        rendered_content += 1;
+        if rendered_content < children.len() - usize::from(has_toolbars) {
             out.push('\n');
         }
     }
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+fn render_toolbar_row(
+    children: &[Node],
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let toolbars = children.iter().filter_map(|node| match node {
+        Node::Toolbar {
+            placement,
+            children,
+        } => Some((*placement, children.as_slice())),
+        _ => None,
+    });
+    let toolbars = toolbars.collect::<Vec<_>>();
+    let has_leading = toolbars
+        .iter()
+        .any(|(placement, _)| *placement == ToolbarPlacement::Leading);
+    let has_trailing = toolbars
+        .iter()
+        .any(|(placement, _)| *placement == ToolbarPlacement::Trailing);
+    let arrangement = match (has_leading, has_trailing) {
+        (true, true) => "SpaceBetween",
+        (false, true) => "End",
+        _ => "Start",
+    };
+
+    out.line_at(
+        depth,
+        format_args!("Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.{arrangement}, verticalAlignment = Alignment.CenterVertically) {{"),
+    );
+    for placement in [ToolbarPlacement::Leading, ToolbarPlacement::Trailing] {
+        if !toolbars
+            .iter()
+            .any(|(toolbar_placement, _)| *toolbar_placement == placement)
+        {
+            continue;
+        }
+        let group_arrangement = "Arrangement.spacedBy(8.dp)";
+        out.line_at(
+            depth + 1,
+            format_args!("Row(horizontalArrangement = {group_arrangement}, verticalAlignment = Alignment.CenterVertically) {{"),
+        );
+        let mut rendered_items = 0;
+        for (_, toolbar_children) in toolbars
+            .iter()
+            .filter(|(toolbar_placement, _)| *toolbar_placement == placement)
+        {
+            for child in *toolbar_children {
+                if rendered_items > 0 {
+                    out.push('\n');
+                }
+                render_node(child, scope.module, scope.features, depth + 2, out);
+                rendered_items += 1;
+            }
+        }
+        out.push('\n');
+        indent(out, depth + 1);
+        out.push_str("}\n");
+    }
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_form_section(
@@ -274,7 +357,18 @@ pub(crate) fn render_form_section(
         );
     }
     for (index, child) in children.iter().enumerate() {
-        render_node(child, scope.module, scope.features, depth + 1, out);
+        out.line_at(
+            depth + 1,
+            format_args!("Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {{"),
+        );
+        render_node(child, scope.module, scope.features, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}}"));
+        if index + 1 < children.len() {
+            out.line_at(
+                depth + 1,
+                format_args!("HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))"),
+            );
+        }
         if index + 1 < children.len() || footer.is_some() {
             out.push('\n');
         }
@@ -428,5 +522,145 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             "\n{}.animateContentSize(animationSpec = {spec})",
             spaces(depth)
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::{Expr, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle};
+
+    use crate::generator::features::Features;
+
+    use super::{RenderScope, render_form_section, render_layout};
+
+    #[test]
+    fn column_toolbars_share_a_leading_and_trailing_action_row() {
+        let module = Module {
+            app_name: "ToolbarParity".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let children = vec![
+            Node::Toolbar {
+                placement: ToolbarPlacement::Leading,
+                children: vec![Node::Text {
+                    value: Expr::String("Priority".to_owned()),
+                    style: TextStyle::default(),
+                }],
+            },
+            Node::Toolbar {
+                placement: ToolbarPlacement::Trailing,
+                children: vec![Node::Text {
+                    value: Expr::String("Save".to_owned()),
+                    style: TextStyle::default(),
+                }],
+            },
+            Node::Text {
+                value: Expr::String("Task name".to_owned()),
+                style: TextStyle::default(),
+            },
+        ];
+        let mut output = SourceWriter::new();
+
+        render_layout(
+            LayoutKind::Column,
+            0.0,
+            &ViewStyle::default(),
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {"
+        ));
+        assert!(output.contains("Row(horizontalArrangement = Arrangement.spacedBy(8.dp)"));
+        assert!(output.contains("Text(\"Priority\"") && output.contains("Text(\"Save\""));
+        assert!(output.contains("Text(\"Task name\""));
+        assert_eq!(
+            output
+                .as_str()
+                .matches("Row(modifier = Modifier.fillMaxWidth()")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn form_section_insets_rows_and_divides_adjacent_controls() {
+        let module = Module {
+            app_name: "FormParity".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let children = [
+            Node::Text {
+                value: Expr::String("First setting".to_owned()),
+                style: TextStyle::default(),
+            },
+            Node::Text {
+                value: Expr::String("Second setting".to_owned()),
+                style: TextStyle::default(),
+            },
+        ];
+        let mut output = SourceWriter::new();
+
+        render_form_section(None, None, &children, &scope, 0, &mut output);
+
+        assert!(
+            output.contains("Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))")
+        );
+        assert!(
+            output.contains("HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))")
+        );
+        assert_eq!(output.as_str().matches("HorizontalDivider(").count(), 1);
     }
 }

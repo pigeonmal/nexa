@@ -31,6 +31,18 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.lazy.LazyColumn",
     );
     imports.add(
+        features.uses_linear_list || features.uses_grid_list,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_linear_list || features.uses_grid_list,
+        "androidx.compose.ui.Modifier",
+    );
+    imports.add(
+        features.uses_linear_list,
+        "androidx.compose.material3.HorizontalDivider",
+    );
+    imports.add(
         features.uses_page_snap,
         "androidx.compose.foundation.layout.Box",
     );
@@ -137,6 +149,12 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         swipe_actions,
         "androidx.compose.foundation.layout.fillMaxSize",
     );
+    imports.add(
+        swipe_actions,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(swipe_actions, "androidx.compose.foundation.background");
+    imports.add(swipe_actions, "androidx.compose.material3.MaterialTheme");
     imports.add(
         swipe_actions,
         "androidx.compose.foundation.layout.Arrangement",
@@ -342,20 +360,16 @@ pub(crate) fn render_virtualized_list(
     // Grid plans return through `render_grid_list` above; the remaining
     // axes select the linear container with a total comparison.
     let container = if pieces.axis == ListAxis::Horizontal {
-        state_argument.map_or_else(
-            || "LazyRow".to_owned(),
-            |argument| format!("LazyRow({argument})"),
-        )
+        let mut arguments = vec!["modifier = Modifier.fillMaxWidth()".to_owned()];
+        arguments.extend(state_argument);
+        format!("LazyRow({})", arguments.join(", "))
     } else {
-        let mut arguments = state_argument.into_iter().collect::<Vec<_>>();
+        let mut arguments = vec!["modifier = Modifier.fillMaxWidth()".to_owned()];
+        arguments.extend(state_argument);
         if pieces.reverse_layout {
             arguments.push("reverseLayout = true".to_owned());
         }
-        if arguments.is_empty() {
-            "LazyColumn".to_owned()
-        } else {
-            format!("LazyColumn({})", arguments.join(", "))
-        }
+        format!("LazyColumn({})", arguments.join(", "))
     };
     out.push_str(&format!("{container} {{\n"));
     indent(out, list_depth + 1);
@@ -469,6 +483,10 @@ pub(crate) fn render_virtualized_list(
         list_depth + 2,
         out,
     );
+    if pieces.axis == ListAxis::Vertical {
+        out.push('\n');
+        out.line_at(list_depth + 2, format_args!("HorizontalDivider()"));
+    }
     out.push('\n');
     indent(out, list_depth + 1);
     out.push_str("}\n");
@@ -1093,7 +1111,7 @@ fn render_row_content(
                     format!("Modifier.width({extent}.dp).height({extent}.dp)")
                 }
                 ListAxis::Vertical | ListAxis::Grid { .. } => {
-                    format!("Modifier.height({extent}.dp)")
+                    format!("Modifier.fillMaxWidth().height({extent}.dp)")
                 }
             }
         }
@@ -1286,8 +1304,13 @@ fn render_row_content_with_actions(
     out.line_at(depth + 2, format_args!("}}"));
     out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth + 1, format_args!("content = {{"));
+    out.line_at(
+        depth + 2,
+        format_args!("Box(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {{"),
+    );
     render_reorderable_row(row, module, features, depth + 2, out);
     out.push('\n');
+    out.line_at(depth + 2, format_args!("}}"));
     out.line_at(depth + 1, format_args!("}}"));
     indent(out, depth);
     out.push(')');

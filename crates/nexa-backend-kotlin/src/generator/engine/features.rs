@@ -176,7 +176,7 @@ impl Features {
         self.uses_file_api = capabilities.uses_file_api;
         self.uses_file_async = capabilities.uses_file_async;
         self.uses_result = capabilities.uses_result;
-        self.uses_tasks = facts.used_types.task_handle;
+        self.uses_tasks = facts.used_types.task_handle || facts.uses_task_launch;
         self.uses_permissions = facts.permissions.present;
         self.uses_permission_request = facts.permissions.request;
         self.used_permissions = facts.permissions.used.clone();

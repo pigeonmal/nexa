@@ -23,42 +23,15 @@ pub(crate) fn render_bottom_bar_helpers(
                     out.push_str(&format!(
                         "\n    @ViewBuilder\n    private func {prefix}_{i}() -> some View {{\n"
                     ));
-                    out.push_str("        NavigationStack {\n            Group {\n");
+                    out.push_str("        Group {\n");
                     let content: Vec<_> = tab
                         .children
                         .iter()
                         .filter(|child| !matches!(child, Node::Toolbar { .. }))
                         .cloned()
                         .collect();
-                    render_children(&content, module, features, 4, out);
-                    out.push_str("\n            }");
-                    if let Some(title) = &tab.navigation_title {
-                        out.push_str(&format!(
-                            "\n                .navigationTitle(String(localized: {}))",
-                            swift_string(title)
-                        ));
-                        if tab.large_title {
-                            out.push_str("\n                .nexaLargeTitleDisplayMode()");
-                        }
-                    }
-                    if let Some(search_state) = &tab.search_state {
-                        let prompt = tab.search_prompt.as_deref().unwrap_or("Search");
-                        out.push_str(&format!(
-                            "\n                .searchable(text: ${}, prompt: String(localized: {}))\n                .nexaAvoidHidingSearchToolbar()",
-                            state_name(search_state),
-                            swift_string(prompt)
-                        ));
-                    }
-                    out.push('\n');
-                    for toolbar in tab
-                        .children
-                        .iter()
-                        .filter(|child| matches!(child, Node::Toolbar { .. }))
-                    {
-                        render_navigation_toolbar(toolbar, module, features, 3, out);
-                    }
-                    out.push_str("        }\n");
-                    out.push_str("    }\n");
+                    render_children(&content, module, features, 3, out);
+                    out.push_str("\n        }\n    }\n");
                 }
             } else if let Node::PagePager { state, pages } = node {
                 let prefix = format!("nexa_{}_page", state_name(state));
@@ -90,20 +63,17 @@ pub(crate) fn render_navigation_toolbar(
     else {
         return;
     };
-    let placement = match placement {
-        ToolbarPlacement::Leading => ".navigationBarLeading",
-        ToolbarPlacement::Trailing => ".navigationBarTrailing",
-    };
     out.line_at(depth, format_args!(".toolbar {{"));
-    out.line_at(
+    render_navigation_toolbar_items(
+        &Node::Toolbar {
+            placement: *placement,
+            children: children.clone(),
+        },
+        module,
+        features,
         depth + 1,
-        format_args!("ToolbarItemGroup(placement: {placement}) {{"),
+        out,
     );
-    for child in children {
-        crate::generator::components::render_node(child, module, features, depth + 2, out);
-        out.push('\n');
-    }
-    out.line_at(depth + 1, format_args!("}}"));
     out.line_at(depth, format_args!("}}"));
 }
 
@@ -196,8 +166,8 @@ pub(crate) fn render_app_bottom_bar(
     state: &str,
     tint: Option<&nexa_ir::ColorExpression>,
     tabs: &[BottomBarTab],
-    _module: &Module,
-    _features: &Features,
+    module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -225,6 +195,7 @@ pub(crate) fn render_app_bottom_bar(
         indent(out, depth + 1);
         out.push_str(".nexaSearchActivation()");
     }
+    render_app_tab_navigation_modifiers(state, tabs, module, features, depth + 1, out);
     out.push('\n');
     out.line_at(depth, format_args!("}} else {{"));
     out.line_at(
@@ -242,9 +213,122 @@ pub(crate) fn render_app_bottom_bar(
             crate::generator::colors::expression_for_color(tint)
         ));
     }
+    render_app_tab_navigation_modifiers(state, tabs, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+fn render_app_tab_navigation_modifiers(
+    state: &str,
+    tabs: &[BottomBarTab],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let selected = state_name(state);
+    let titled_tabs = tabs
+        .iter()
+        .filter_map(|tab| tab.navigation_title.as_ref().map(|title| (tab, title)))
+        .collect::<Vec<_>>();
+    if !titled_tabs.is_empty() {
+        let title = titled_tabs
+            .iter()
+            .rev()
+            .fold("\"\"".to_owned(), |fallback, (tab, title)| {
+                format!(
+                    "({selected} == Int32({} ) ? String(localized: {}) : {fallback})",
+                    tab.index,
+                    swift_string(title)
+                )
+            });
+        out.push_str(&format!("\n.navigationTitle({title})"));
+        if titled_tabs.iter().all(|(tab, _)| tab.large_title) {
+            out.push_str("\n.nexaLargeTitleDisplayMode()");
+        }
+    }
+
+    if let Some((tab, search_state)) = tabs
+        .iter()
+        .find_map(|tab| tab.search_state.as_deref().map(|state| (tab, state)))
+    {
+        let prompt = tab.search_prompt.as_deref().unwrap_or("Search");
+        out.push_str(&format!(
+            "\n.searchable(text: ${}, prompt: String(localized: {}))\n.nexaAvoidHidingSearchToolbar()",
+            state_name(search_state),
+            swift_string(prompt)
+        ));
+    }
+
+    if tabs
+        .iter()
+        .any(|tab| !collect_navigation_toolbars(&tab.children).is_empty())
+    {
+        out.push_str("\n.toolbar {");
+        for tab in tabs {
+            let toolbars = collect_navigation_toolbars(&tab.children);
+            if toolbars.is_empty() {
+                continue;
+            }
+            out.push('\n');
+            indent(out, depth + 1);
+            out.push_str(&format!("if {selected} == Int32({}) {{", tab.index));
+            for toolbar in &toolbars {
+                out.push('\n');
+                render_navigation_toolbar_items(toolbar, module, features, depth + 2, out);
+            }
+            out.push('\n');
+            indent(out, depth + 1);
+            out.push('}');
+        }
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+    }
+}
+
+fn collect_navigation_toolbars(nodes: &[Node]) -> Vec<Node> {
+    let mut toolbars = Vec::new();
+    walk_ir(
+        nodes,
+        &mut |node| {
+            if matches!(node, Node::Toolbar { .. }) {
+                toolbars.push(node.clone());
+            }
+        },
+        &mut |_| {},
+    );
+    toolbars
+}
+
+fn render_navigation_toolbar_items(
+    node: &Node,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let Node::Toolbar {
+        placement,
+        children,
+    } = node
+    else {
+        return;
+    };
+    let placement = match placement {
+        ToolbarPlacement::Leading => ".navigationBarLeading",
+        ToolbarPlacement::Trailing => ".navigationBarTrailing",
+    };
+    out.line_at(
+        depth,
+        format_args!("ToolbarItemGroup(placement: {placement}) {{"),
+    );
+    for child in children {
+        crate::generator::components::render_node(child, module, features, depth + 1, out);
+        out.push('\n');
+    }
+    out.line_at(depth, format_args!("}}"));
 }
 
 fn render_modern_tab_ref(

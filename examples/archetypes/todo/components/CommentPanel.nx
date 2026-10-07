@@ -33,7 +33,11 @@ component CommentPanel(taskID: Int32) {
         if taskID >= 0 {
             Column(spacing: 10, padding: 12) {
                 if activeTaskComments(comments, taskID).isEmpty {
-                    ContentUnavailable(title: "No comments", icon: "comment_left", description: "Add a comment below")
+                    Column(spacing: 8, padding: 32, alignment: Center) {
+                        Icon(system: "comment_left", size: 36, tint: "#8E8E93", description: "")
+                        Text("No comments", fontSize: 20)
+                        Text("Add a comment below", fontSize: 16, color: "#8E8E93")
+                    }
                 } else {
                     FastList(activeTaskComments(comments, taskID).sortedBy { comment -> comment.createdAt }, native: true) { comment, index in
                         Column(spacing: 6, padding: 8) {

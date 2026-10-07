@@ -107,6 +107,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_button,
         "androidx.compose.foundation.layout.defaultMinSize",
     );
+    imports.add(
+        features.uses_button,
+        "androidx.compose.foundation.layout.size",
+    );
     imports.add(features.uses_button, "androidx.compose.ui.Modifier");
     imports.add(features.uses_button, "androidx.compose.ui.unit.dp");
     imports.add(features.uses_button, "androidx.compose.ui.unit.sp");
@@ -119,6 +123,21 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.CircularProgressIndicator",
     );
     imports.add(features.uses_switch, "androidx.compose.material3.Switch");
+    imports.add(features.uses_switch, "androidx.compose.material3.Text");
+    imports.add(
+        features.uses_switch,
+        "androidx.compose.material3.MaterialTheme",
+    );
+    imports.add(
+        features.uses_switch,
+        "androidx.compose.foundation.layout.Row",
+    );
+    imports.add(
+        features.uses_switch,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(features.uses_switch, "androidx.compose.ui.Alignment");
+    imports.add(features.uses_switch, "androidx.compose.ui.Modifier");
     imports.add(features.uses_slider, "androidx.compose.material3.Slider");
     imports.add(
         features.uses_segmented_control,
@@ -197,6 +216,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.runtime.LaunchedEffect",
     );
     imports.add(features.uses_date_picker, "java.util.Calendar");
+    imports.add(features.uses_date_picker, "java.util.TimeZone");
     imports.add(
         features.uses_progress_bar,
         "androidx.compose.material3.LinearProgressIndicator",
@@ -234,16 +254,24 @@ pub(crate) fn render_button(
     out: &mut SourceWriter,
 ) {
     let min_height = button_min_height(size);
+    let icon_only_circle = icon.is_some()
+        && matches!(shape, Some(nexa_ir::ButtonShape::Circle))
+        && is_empty_button_label(label);
+    let modifier = if icon_only_circle {
+        format!("Modifier.size({min_height}.dp)")
+    } else {
+        format!(
+            "Modifier.defaultMinSize(minWidth = {}.dp, minHeight = {}.dp)",
+            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
+            min_height
+        )
+    };
     if let Some(loading) = loading {
         indent(out, depth);
         out.push_str(button_component(style));
         out.push_str("(\n");
         indent(out, depth + 1);
-        out.push_str(&format!(
-            "modifier = Modifier.defaultMinSize(minWidth = {}.dp, minHeight = {}.dp),\n",
-            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-            min_height,
-        ));
+        out.push_str(&format!("modifier = {modifier},\n"));
         indent(out, depth + 1);
         out.push_str("onClick = {");
         if actions.is_empty() {
@@ -260,7 +288,7 @@ pub(crate) fn render_button(
             out.push_str(" && !");
             out.push_str(&expression(disabled));
         }
-        append_button_options(style, size, shape, tint, out);
+        append_button_options(style, size, shape, tint, icon_only_circle, out);
         out.push_str(") {");
         out.push('\n');
         out.line_at(depth + 1, format_args!("if ({}) {{", expression(loading)));
@@ -280,11 +308,7 @@ pub(crate) fn render_button(
     out.push_str(button_component(style));
     out.push_str("(\n");
     indent(out, depth + 1);
-    out.push_str(&format!(
-        "modifier = Modifier.defaultMinSize(minWidth = {}.dp, minHeight = {}.dp),\n",
-        nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-        min_height,
-    ));
+    out.push_str(&format!("modifier = {modifier},\n"));
     indent(out, depth + 1);
     out.push_str("onClick = {");
     if actions.is_empty() {
@@ -299,7 +323,7 @@ pub(crate) fn render_button(
         out.push_str(", enabled = !");
         out.push_str(&expression(disabled));
     }
-    append_button_options(style, size, shape, tint, out);
+    append_button_options(style, size, shape, tint, icon_only_circle, out);
     out.push_str(") {\n");
     render_button_content(label, icon, depth + 1, out);
     indent(out, depth);
@@ -310,6 +334,16 @@ fn button_min_height(size: Option<nexa_ir::ButtonSize>) -> u8 {
     match size {
         Some(nexa_ir::ButtonSize::Large) => nexa_codegen::design_system::BUTTON_LARGE_MIN_HEIGHT,
         _ => nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
+    }
+}
+
+fn is_empty_button_label(label: &Expr) -> bool {
+    match label {
+        Expr::String(value) => value.is_empty(),
+        Expr::LocalizedText { value, .. } => {
+            matches!(value.as_ref(), Expr::String(value) if value.is_empty())
+        }
+        _ => false,
     }
 }
 
@@ -326,6 +360,7 @@ fn append_button_options(
     size: Option<nexa_ir::ButtonSize>,
     shape: Option<nexa_ir::ButtonShape>,
     tint: Option<&nexa_ir::ColorExpression>,
+    icon_only_circle: bool,
     out: &mut SourceWriter,
 ) {
     if let Some(tint) = tint {
@@ -371,19 +406,21 @@ fn append_button_options(
         style,
         Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
     );
-    let padding = match size {
-        Some(nexa_ir::ButtonSize::Small) => Some((
-            nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING,
-            nexa_codegen::design_system::BUTTON_SMALL_VERTICAL_PADDING,
-        )),
-        Some(nexa_ir::ButtonSize::Regular) if borderless => Some((0, 0)),
-        Some(nexa_ir::ButtonSize::Regular) => None,
-        Some(nexa_ir::ButtonSize::Large) => Some((
-            nexa_codegen::design_system::BUTTON_LARGE_HORIZONTAL_PADDING,
-            nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING,
-        )),
-        None if borderless => Some((0, 0)),
-        None => None,
+    let padding = if icon_only_circle {
+        Some((0, 0))
+    } else {
+        match size {
+            Some(nexa_ir::ButtonSize::Small) => Some((
+                nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING,
+                nexa_codegen::design_system::BUTTON_SMALL_VERTICAL_PADDING,
+            )),
+            Some(nexa_ir::ButtonSize::Regular) if borderless => Some((0, 0)),
+            Some(nexa_ir::ButtonSize::Regular) | None => Some((8, 8)),
+            Some(nexa_ir::ButtonSize::Large) => Some((
+                nexa_codegen::design_system::BUTTON_LARGE_HORIZONTAL_PADDING,
+                nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING,
+            )),
+        }
     };
     if let Some((horizontal, vertical)) = padding {
         if horizontal == 0 && vertical == 0 {
@@ -414,7 +451,7 @@ fn render_button_content(
     out.line_at(
         depth,
         format_args!(
-            "Text({}, fontSize = {}.sp, fontWeight = FontWeight.Normal, lineHeight = {}.sp * {}f, letterSpacing = 0.sp)",
+            "Text({}, fontSize = {}.sp, fontWeight = FontWeight.Normal, lineHeight = {}.sp * {}f, letterSpacing = 0.sp, maxLines = 1, softWrap = false)",
             expression(label),
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
@@ -429,11 +466,29 @@ pub(crate) fn render_switch(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    out.text_at(depth, format_args!("Switch(checked = {}, onCheckedChange = {{ {} = it }}, modifier = Modifier.semantics {{ contentDescription = {} }})",
-        state_name(state),
-        state_name(state),
-        expression(label)
-    ));
+    out.line_at(
+        depth,
+        format_args!(
+            "Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {{"
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "Text({}, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)",
+            crate::generator::engine::expressions::text_expression(label)
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "Switch(checked = {}, onCheckedChange = {{ {} = it }}, modifier = Modifier.semantics {{ contentDescription = {} }})",
+            state_name(state),
+            state_name(state),
+            expression(label)
+        ),
+    );
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_slider(
@@ -546,7 +601,7 @@ pub(crate) fn render_date_picker(
     let has_time = state_name(has_time_state);
     let pad = "    ".repeat(depth);
     out.push_str(&format!(
-        "Column {{\n{pad}    val nexaDatePickerState = rememberDatePickerState(initialSelectedDateMillis = {timestamp})\n{pad}    val nexaTimePickerState = rememberTimePickerState()\n{pad}    Switch(checked = {has_time}, onCheckedChange = {{ {has_time} = it }}, modifier = Modifier.semantics {{ contentDescription = \"Time\" }})\n{pad}    DatePicker(state = nexaDatePickerState, title = {{ Text(\"Select Date\") }})\n{pad}    if ({has_time}) TimePicker(state = nexaTimePickerState)\n{pad}    LaunchedEffect({timestamp}) {{ nexaDatePickerState.selectedDateMillis = {timestamp} }}\n{pad}    LaunchedEffect(nexaDatePickerState.selectedDateMillis, nexaTimePickerState.hour, nexaTimePickerState.minute, {has_time}) {{\n{pad}        nexaDatePickerState.selectedDateMillis?.let {{ selectedMillis ->\n{pad}            val calendar = Calendar.getInstance().apply {{\n{pad}                timeInMillis = selectedMillis\n{pad}                set(Calendar.HOUR_OF_DAY, if ({has_time}) nexaTimePickerState.hour else 0)\n{pad}                set(Calendar.MINUTE, if ({has_time}) nexaTimePickerState.minute else 0)\n{pad}                set(Calendar.SECOND, 0)\n{pad}                set(Calendar.MILLISECOND, 0)\n{pad}            }}\n{pad}            {timestamp} = calendar.timeInMillis\n{pad}        }}\n{pad}    }}\n{pad}}}"
+        "Column {{\n{pad}    val nexaDatePickerLocalDate = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}\n{pad}    val nexaDatePickerInitialMillis = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{\n{pad}        clear()\n{pad}        set(nexaDatePickerLocalDate.get(Calendar.YEAR), nexaDatePickerLocalDate.get(Calendar.MONTH), nexaDatePickerLocalDate.get(Calendar.DAY_OF_MONTH))\n{pad}    }}.timeInMillis\n{pad}    val nexaDatePickerState = rememberDatePickerState(initialSelectedDateMillis = nexaDatePickerInitialMillis)\n{pad}    val nexaTimePickerState = rememberTimePickerState()\n{pad}    Switch(checked = {has_time}, onCheckedChange = {{ {has_time} = it }}, modifier = Modifier.semantics {{ contentDescription = \"Time\" }})\n{pad}    DatePicker(state = nexaDatePickerState, title = {{ Text(\"Select Date\") }})\n{pad}    if ({has_time}) TimePicker(state = nexaTimePickerState)\n{pad}    LaunchedEffect({timestamp}) {{\n{pad}        val localDate = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}\n{pad}        nexaDatePickerState.selectedDateMillis = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{\n{pad}            clear()\n{pad}            set(localDate.get(Calendar.YEAR), localDate.get(Calendar.MONTH), localDate.get(Calendar.DAY_OF_MONTH))\n{pad}        }}.timeInMillis\n{pad}    }}\n{pad}    LaunchedEffect(nexaDatePickerState.selectedDateMillis, nexaTimePickerState.hour, nexaTimePickerState.minute, {has_time}) {{\n{pad}        nexaDatePickerState.selectedDateMillis?.let {{ selectedMillis ->\n{pad}            val selectedDate = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{ timeInMillis = selectedMillis }}\n{pad}            val calendar = Calendar.getInstance().apply {{\n{pad}                clear()\n{pad}                set(selectedDate.get(Calendar.YEAR), selectedDate.get(Calendar.MONTH), selectedDate.get(Calendar.DAY_OF_MONTH), if ({has_time}) nexaTimePickerState.hour else 0, if ({has_time}) nexaTimePickerState.minute else 0)\n{pad}            }}\n{pad}            {timestamp} = calendar.timeInMillis\n{pad}        }}\n{pad}    }}\n{pad}}}"
     ));
 }
 
@@ -1327,10 +1382,11 @@ fn render_kotlin_error_catches(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Action, CollectionMutation, Expr, NumericType, TaskExecutor, Type};
+    use nexa_ir::{Action, CollectionMutation, Expr, NumericType, SystemIcon, TaskExecutor, Type};
 
     use super::{
-        render_actions, render_button, render_progress_bar, render_progress_ring, render_slider,
+        render_actions, render_button, render_date_picker, render_progress_bar,
+        render_progress_ring, render_slider, render_switch,
     };
 
     #[test]
@@ -1356,7 +1412,7 @@ mod tests {
             "TextButton(\n    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 50.dp),\n    onClick = { }"
         ));
         assert!(output.contains(
-            "Text(\"Skip\", fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp)"
+            "Text(\"Skip\", fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp, maxLines = 1, softWrap = false)"
         ));
         assert!(
             output.contains("contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)")
@@ -1364,6 +1420,84 @@ mod tests {
         assert!(output.contains(
             "shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
         ));
+        assert!(output.contains("maxLines = 1, softWrap = false"));
+    }
+
+    #[test]
+    fn default_button_padding_keeps_compose_labels_on_one_line_in_rows() {
+        let label = Expr::String("Jump to Top".to_owned());
+        let mut output = SourceWriter::new();
+
+        render_button(
+            &label,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(
+            output.contains("contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)")
+        );
+        assert!(output.contains("maxLines = 1, softWrap = false"));
+    }
+
+    #[test]
+    fn icon_only_circle_button_has_a_square_unpadded_touch_target() {
+        let label = Expr::LocalizedText {
+            key: String::new(),
+            value: Box::new(Expr::String(String::new())),
+            comment: None,
+        };
+        let mut output = SourceWriter::new();
+
+        render_button(
+            &label,
+            Some(&SystemIcon::Shared("add".to_owned())),
+            None,
+            None,
+            None,
+            None,
+            Some(nexa_ir::ButtonShape::Circle),
+            None,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("modifier = Modifier.size(48.dp)"));
+        assert!(output.contains("contentPadding = PaddingValues(0.dp)"));
+        assert!(output.contains("shape = androidx.compose.foundation.shape.CircleShape"));
+    }
+
+    #[test]
+    fn switch_keeps_its_label_in_a_full_width_control_row() {
+        let label = Expr::String("Open Links In App".to_owned());
+        let mut output = SourceWriter::new();
+
+        render_switch("openLinksInApp", &label, 0, &mut output);
+
+        assert!(output.contains("Row(modifier = Modifier.fillMaxWidth()"));
+        assert!(output.contains("Text(\"Open Links In App\", modifier = Modifier.weight(1f)"));
+        assert!(output.contains("Switch(checked = nexa_openLinksInApp"));
+    }
+
+    #[test]
+    fn date_picker_converts_between_local_timestamps_and_utc_calendar_days() {
+        let mut output = SourceWriter::new();
+
+        render_date_picker("reminderTimestamp", "reminderHasTime", 0, &mut output);
+
+        assert!(output.contains("Calendar.getInstance(TimeZone.getTimeZone(\"UTC\"))"));
+        assert!(output.contains("nexaDatePickerState.selectedDateMillis = Calendar.getInstance"));
+        assert!(output.contains("set(selectedDate.get(Calendar.YEAR), selectedDate.get(Calendar.MONTH), selectedDate.get(Calendar.DAY_OF_MONTH)"));
+        assert!(output.contains("reminderTimestamp = calendar.timeInMillis"));
     }
 
     #[test]
