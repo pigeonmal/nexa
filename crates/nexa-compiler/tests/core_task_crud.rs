@@ -72,6 +72,11 @@ test "soft-deleted records remain as hidden tombstones" {
         include_str!("../../../examples/archetypes/todo/components/TaskRowContent.nx"),
     )
     .expect("task row content source should be written");
+    fs::write(
+        components.join("TaskListRow.nx"),
+        include_str!("../../../examples/archetypes/todo/components/TaskListRow.nx"),
+    )
+    .expect("platform-specific task list row source should be written");
     let features = entry
         .parent()
         .expect("app has a parent directory")

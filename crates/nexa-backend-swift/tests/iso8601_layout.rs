@@ -145,6 +145,8 @@ if failures.isEmpty {{
     std::fs::write(&file, driver).expect("the driver should be written");
     let output = match std::process::Command::new("xcrun")
         .arg("swift")
+        .arg("-module-cache-path")
+        .arg(scratch.path().join("module-cache"))
         .arg(&file)
         .output()
     {

@@ -16,6 +16,24 @@ fn every_catalog_component_probe_parses() {
 }
 
 #[test]
+fn formatting_preserves_every_catalog_component_probe() {
+    for entry in catalog::COMPONENTS {
+        let formatted = nexa_syntax::format_source(entry.probe).unwrap_or_else(|error| {
+            panic!(
+                "catalog component `{}` probe failed to format: {error}",
+                entry.name
+            )
+        });
+        nexa_syntax::parse_program(&formatted).unwrap_or_else(|error| {
+            panic!(
+                "formatting catalog component `{}` probe made it invalid: {error}\n{formatted}",
+                entry.name
+            )
+        });
+    }
+}
+
+#[test]
 fn catalog_component_names_are_unique_and_identifier_shaped() {
     let mut seen = std::collections::HashSet::new();
     for entry in catalog::COMPONENTS {

@@ -190,8 +190,10 @@ func mapAdapterProbe() async {
             "-swift-version",
             "6",
             "-cxx-interoperability-mode=default",
-            "-import-objc-header",
+            "-module-cache-path",
         ])
+        .arg(temp.path().join("module-cache"))
+        .arg("-import-objc-header")
         .arg(&bridge)
         .args(["-Xcc", "-std=c++20", "-Xcc"])
         .arg(format!("-I{}", ios.display()))

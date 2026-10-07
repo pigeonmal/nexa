@@ -708,7 +708,9 @@ fn typecheck_swift(package: &ResolvedPackage) -> Option<String> {
         .arg("swiftc")
         .arg("-typecheck")
         .arg("-swift-version")
-        .arg("6");
+        .arg("6")
+        .arg("-module-cache-path")
+        .arg(scratch.join("module-cache"));
     if let Some(sdk) = sdk_path() {
         // The iOS SDK alone is not enough: without a matching target triple
         // `swiftc` falls back to the host and cannot find a standard library,

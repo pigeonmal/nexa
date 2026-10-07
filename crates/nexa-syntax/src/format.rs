@@ -35,10 +35,13 @@ pub fn format_source_with_options(
     let mut indentation = 0usize;
     let indent_width = tab_size.clamp(1, 16);
     let mut previous: Option<Kind> = None;
+    let mut previous_was_arrow = false;
 
-    for item in items {
+    let mut items = items.into_iter().peekable();
+    while let Some(item) = items.next() {
         match item.kind {
             ItemKind::Comment(comment) => {
+                previous_was_arrow = false;
                 if item.line_breaks_before > 0 {
                     apply_line_breaks(&mut output, item.line_breaks_before);
                 } else if !at_line_start(&output) {
@@ -51,6 +54,38 @@ pub fn format_source_with_options(
             }
             ItemKind::Token(token) => {
                 let kind = token.kind.clone();
+                let arrow_end = if kind == Kind::Minus {
+                    items.peek().and_then(|next| match &next.kind {
+                        ItemKind::Token(next_token)
+                            if next_token.kind == Kind::Greater
+                                && token.span.end == next_token.span.start =>
+                        {
+                            Some(next_token.span.end)
+                        }
+                        _ => None,
+                    })
+                } else {
+                    None
+                };
+
+                if let Some(end) = arrow_end {
+                    if item.line_breaks_before > 0 {
+                        apply_line_breaks(&mut output, item.line_breaks_before);
+                    } else if !at_line_start(&output) {
+                        output.push(' ');
+                    }
+                    write_indent(&mut output, indentation, indent_width, insert_spaces);
+                    let arrow = source.get(token.span.start..end).ok_or_else(|| {
+                        CompileError::new(token.span, "arrow span is outside the source text")
+                    })?;
+                    output.push_str(arrow);
+                    let _ = items.next();
+                    previous = Some(Kind::Greater);
+                    previous_was_arrow = true;
+                    continue;
+                }
+
+                let space_after_arrow = std::mem::replace(&mut previous_was_arrow, false);
                 if matches!(kind, Kind::RBrace) {
                     if !matches!(previous, Some(Kind::LBrace)) {
                         apply_line_breaks(&mut output, 1);
@@ -75,12 +110,14 @@ pub fn format_source_with_options(
                     && (is_else_or_catch || matches!(kind, Kind::Dot));
                 if item.line_breaks_before > 0 && !chained_block_member {
                     apply_line_breaks(&mut output, item.line_breaks_before);
-                } else if needs_space(
-                    previous.as_ref(),
-                    &kind,
-                    item.had_space_before,
-                    is_else_or_catch,
-                ) {
+                } else if space_after_arrow
+                    || needs_space(
+                        previous.as_ref(),
+                        &kind,
+                        item.had_space_before,
+                        is_else_or_catch,
+                    )
+                {
                     output.push(' ');
                 }
                 write_indent(&mut output, indentation, indent_width, insert_spaces);
@@ -313,5 +350,21 @@ mod tests {
             formatted
         );
         crate::parse_program(&formatted).expect("formatted source remains valid");
+    }
+
+    #[test]
+    fn preserves_function_and_event_arrows() {
+        let source = "fn value()->Int32{return 4}\napp Drag { state n:Int32=0 body { Pressable() { Text(\"x\") }.onDrag { x,y,vx,vy->n=n+1 }.onPinch { scaleFactor->n=n+1 } } }\n";
+        let formatted = format_source(source).expect("arrows tokenize");
+
+        assert!(formatted.contains("fn value() -> Int32 {"));
+        assert!(formatted.contains("vx, vy -> n = n + 1"));
+        assert!(formatted.contains("scaleFactor -> n = n + 1"));
+        assert!(!formatted.contains("- >"));
+        assert_eq!(
+            format_source(&formatted).expect("formatted arrows tokenize"),
+            formatted
+        );
+        crate::parse_program(&formatted).expect("formatted arrows remain valid");
     }
 }

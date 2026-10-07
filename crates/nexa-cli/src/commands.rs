@@ -146,22 +146,22 @@ fn format_sources(args: &[String]) -> Result<(), String> {
         let formatted = nexa_syntax::format_source(&source)
             .map_err(|error| format!("{}: {}", file.display(), error.message))?;
         if formatted != source {
-            if check_only {
-                changed.push(file);
-            } else {
-                fs::write(&file, formatted)
-                    .map_err(|error| format!("{}: {error}", file.display()))?;
-            }
+            changed.push((file, formatted));
         }
     }
 
     if check_only && !changed.is_empty() {
         let files = changed
             .iter()
-            .map(|file| file.display().to_string())
+            .map(|(file, _)| file.display().to_string())
             .collect::<Vec<_>>()
             .join("\n  ");
         return Err(format!("these files need formatting:\n  {files}"));
+    }
+    if !check_only {
+        for (file, formatted) in changed {
+            fs::write(&file, formatted).map_err(|error| format!("{}: {error}", file.display()))?;
+        }
     }
     if check_only {
         println!("All Nexa source files are formatted.");
@@ -2091,7 +2091,7 @@ mod tests {
         let source = scratch.path().join("App.nx");
         fs::write(
             &source,
-            "app Counter{state count:Int32=0\nbody{Text(count)}}\n",
+            "fn total(count:Int32)->Int32{return count}\napp Counter{state count:Int32=0\nbody{Text(count)}}\n",
         )
         .expect("write formatter fixture");
 
@@ -2104,18 +2104,38 @@ mod tests {
         assert!(
             fs::read_to_string(&source)
                 .expect("read unchanged source")
-                .starts_with("app Counter{")
+                .contains("app Counter{")
         );
 
         run(vec!["fmt".to_owned(), source.display().to_string()]).expect("format source file");
         let formatted = fs::read_to_string(&source).expect("read formatted source");
-        assert!(formatted.starts_with("app Counter {\n    state count: Int32 = 0"));
+        assert!(formatted.contains("fn total(count: Int32) -> Int32 {"));
+        assert!(!formatted.contains("- >"));
+        assert!(formatted.contains("app Counter {\n    state count: Int32 = 0"));
         run(vec![
             "fmt".to_owned(),
             "--check".to_owned(),
             source.display().to_string(),
         ])
         .expect("check formatted source");
+    }
+
+    #[test]
+    fn fmt_validates_all_files_before_writing_changes() {
+        let scratch = TempDir::new("nexa-cli-fmt-preflight");
+        let valid = scratch.path().join("A.nx");
+        let invalid = scratch.path().join("Z.nx");
+        let original = "app Counter{body{Text(\"ready\")}}\n";
+        fs::write(&valid, original).expect("write valid formatter input");
+        fs::write(&invalid, "app Broken { body { Text(\"unterminated) }\n")
+            .expect("write invalid formatter input");
+
+        assert!(run(vec!["fmt".to_owned(), scratch.path().display().to_string()]).is_err());
+        assert_eq!(
+            fs::read_to_string(&valid).expect("read valid source after preflight failure"),
+            original,
+            "a later invalid file must not leave earlier files reformatted"
+        );
     }
 
     #[test]
