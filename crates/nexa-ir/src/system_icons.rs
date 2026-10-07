@@ -252,10 +252,10 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     ),
     icon(
         "notifications_active",
-        "bell.badge",
+        "bell.badge.fill",
         "Filled",
         "NotificationsActive",
-        &["bell.badge"],
+        &["bell.badge", "bell.badge.fill"],
     ),
     icon(
         "checklist",
@@ -1355,6 +1355,16 @@ mod tests {
             SystemIcon::SfSymbol("house.fill".to_owned())
         );
         assert_eq!(shared_icon("search").unwrap().sf_symbol, "magnifyingglass");
+    }
+
+    #[test]
+    fn active_notification_icon_uses_filled_native_variants_on_both_platforms() {
+        let icon = shared_icon("notifications_active").expect("shared notification icon");
+
+        assert_eq!(icon.sf_symbol, "bell.badge.fill");
+        assert_eq!(icon.material_namespace, "Filled");
+        assert_eq!(icon.material_name, "NotificationsActive");
+        assert!(icon.aliases.contains(&"bell.badge"));
     }
 
     #[test]

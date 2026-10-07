@@ -125,7 +125,7 @@ Use `platform ios { ... }` and `platform android { ... }` when an app needs to r
 | `settings` | `gearshape` | `Filled.Settings` | `gearshape.fill`, `gearshape` |
 | `sort` | `arrow.up.arrow.down` | `Filled.Sort` | `arrow.up.arrow.down` |
 | `notifications` | `bell` | `Filled.Notifications` | `bell` |
-| `notifications_active` | `bell.badge` | `Filled.NotificationsActive` | `bell.badge` |
+| `notifications_active` | `bell.badge.fill` | `Filled.NotificationsActive` | `bell.badge`, `bell.badge.fill` |
 | `checklist` | `checklist` | `Filled.AssignmentTurnedIn` | `checklist` |
 | `circle` | `circle` | `Filled.RadioButtonUnchecked` | `circle` |
 | `circle_filled` | `circle.fill` | `Filled.Circle` | `circle.fill` |
