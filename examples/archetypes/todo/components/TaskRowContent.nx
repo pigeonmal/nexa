@@ -31,57 +31,66 @@ fn taskRowIsOverdue(task: TaskItem) -> Bool {
     return task.hasTime ? due < Time.now() : Time.startOfDay(due) < Time.startOfDay(Time.now())
 }
 
-fn taskPriorityTint(priority: String) -> String {
-    return priority == "Highest" ? "#FF3B30"
-        : (priority == "High" ? "#FF9500"
-        : (priority == "Normal" ? "#FFCC00"
-        : (priority == "Low" ? "#34C759" : "#8E8E93")))
-}
-
 component TaskRowContent(task: TaskItem) {
     body {
-        Column(spacing: 3) {
+        Column(spacing: 3, alignment: Start) {
             if task.isCompleted {
-                Text(task.title, strikethrough: true, fontWeight: Medium, color: "#8E8E93")
+                Text(task.title, strikethrough: true, color: "#8E8E93")
             } else {
-                Text(task.title, fontWeight: Medium)
+                Text(task.title)
             }
             if task.taskDescription != "" {
-                Text(task.taskDescription, fontSize: 14, color: "#8E8E93", lineLimit: 2)
+                Text(task.taskDescription, fontSize: 15, color: "#8E8E93", lineLimit: 2)
             }
             if task.dueTimestamp != null || task.priority != "None" || task.commentCount > 0 || task.reminderCount > 0 {
                 Row(spacing: 6) {
                     if task.dueTimestamp != null {
                         if taskRowIsOverdue(task) {
-                            Icon(system: "calendar", size: 12, tint: "#FF3B30", description: "")
-                            Text(taskRowDateLabel(task.dueTimestamp ?? 0, task.hasTime), fontSize: 12, color: "#FF3B30")
+                            Row(spacing: 2) {
+                                Icon(system: "calendar", size: 12, tint: "#FF3B30", description: "")
+                                Text(taskRowDateLabel(task.dueTimestamp ?? 0, task.hasTime), fontSize: 12, color: "#FF3B30")
+                            }
                         } else {
-                            Icon(system: "calendar", size: 12, tint: "#8E8E93", description: "")
-                            Text(taskRowDateLabel(task.dueTimestamp ?? 0, task.hasTime), fontSize: 12, color: "#8E8E93")
+                            Row(spacing: 2) {
+                                Icon(system: "calendar", size: 12, tint: "#8E8E93", description: "")
+                                Text(taskRowDateLabel(task.dueTimestamp ?? 0, task.hasTime), fontSize: 12, color: "#8E8E93")
+                            }
                         }
                     }
                     if task.priority != "None" {
                         if task.priority == "Highest" {
-                            Icon(system: "flag_filled", size: 12, tint: "#FF3B30", description: "")
-                            Text(task.priority, fontSize: 12, color: "#FF3B30")
+                            Row(spacing: 2) {
+                                Icon(system: "flag_filled", size: 12, tint: "#FF3B30", description: "")
+                                Text(task.priority, fontSize: 12, color: "#FF3B30")
+                            }
                         } else if task.priority == "High" {
-                            Icon(system: "flag_filled", size: 12, tint: "#FF9500", description: "")
-                            Text(task.priority, fontSize: 12, color: "#FF9500")
+                            Row(spacing: 2) {
+                                Icon(system: "flag_filled", size: 12, tint: "#FF9500", description: "")
+                                Text(task.priority, fontSize: 12, color: "#FF9500")
+                            }
                         } else if task.priority == "Normal" {
-                            Icon(system: "flag_filled", size: 12, tint: "#FFCC00", description: "")
-                            Text(task.priority, fontSize: 12, color: "#FFCC00")
+                            Row(spacing: 2) {
+                                Icon(system: "flag_filled", size: 12, tint: "#FFCC00", description: "")
+                                Text(task.priority, fontSize: 12, color: "#FFCC00")
+                            }
                         } else {
-                            Icon(system: "flag_filled", size: 12, tint: "#34C759", description: "")
-                            Text(task.priority, fontSize: 12, color: "#34C759")
+                            Row(spacing: 2) {
+                                Icon(system: "flag_filled", size: 12, tint: "#34C759", description: "")
+                                Text(task.priority, fontSize: 12, color: "#34C759")
+                            }
                         }
                     }
                     if task.commentCount > 0 {
-                        Icon(system: "comment", size: 12, tint: "#8E8E93", description: "")
-                        Text(task.commentCount, fontSize: 12, color: "#8E8E93")
+                        Row(spacing: 2) {
+                            Icon(system: "comment_left", size: 12, tint: "#8E8E93", description: "")
+                            Text(task.commentCount, fontSize: 12, color: "#8E8E93")
+                        }
                     }
                     if task.reminderCount > 0 {
-                        Icon(system: "notifications", size: 12, tint: "#8E8E93", description: "")
-                        Text(task.reminderCount, fontSize: 12, color: "#8E8E93")
+                        Row(spacing: 2) {
+                            Icon(system: "notifications", size: 12, tint: "#8E8E93", description: "")
+                            Text(task.reminderCount, fontSize: 12, color: "#8E8E93")
+                        }
                     }
                 }
             }

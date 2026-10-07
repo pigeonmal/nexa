@@ -1,6 +1,7 @@
 import "models/TaskItem.nx"
 import "models/ReminderItem.nx"
 import "components/TaskRowContent.nx"
+import "components/TaskListRow.nx"
 import "storage/TodoPersistence.nx"
 import "widgets/Tasks.nx"
 import "components/CommentPanel.nx"

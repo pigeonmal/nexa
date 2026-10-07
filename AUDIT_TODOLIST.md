@@ -176,7 +176,7 @@ The source now covers the reference's onboarding, five tabs, task CRUD and metad
 |---|---|---|
 | Three onboarding pages | Native page pager with welcome, notification permission, and completion pages. The root destination renders onboarding at first launch and when replayed from Settings; completion persists. Bottom spacing reserves the reference's 48-point area on each page. | Page styling has not been compared with screenshots. |
 | Inbox, Today, Upcoming, Settings, Search | Five native navigation destinations with localized native titles and large-title mode, plus a native search-role tab. Completed tasks open as a separate navigation destination. | Search focus timing and toolbar placement can vary by OS version. Visual alignment has not been compared with screenshots. |
-| Task rows and actions | Reusable task metadata component; complete/incomplete, edit, context menu, swipe delete, priority/date metadata, comment/reminder counts, and manual drag order on Inbox/Today/Completed. Search has row actions and delete. Checkbox controls use a 34-point maximum width, 28-point icons, a spring animation, and success haptics. | Exact row insets and editor spacing are not visually verified. |
+| Task rows and actions | Reusable task row content; complete/incomplete, edit, context menu, swipe delete, priority/date metadata, comment/reminder counts, and manual drag order on Inbox/Today/Completed. Search has row actions and delete. Checkbox controls use a 34-point maximum width, 28-point icons, a spring animation, and success haptics. iOS uses the native list row insets; Android keeps an 8 dp row inset. | Editor spacing, dynamic type sizing, and exact rendered measurements are not visually verified. |
 | Upcoming and search | Upcoming rows are grouped by local day and sorted; search is case-insensitive and includes completed tasks. | Search keyboard focus timing and system search activation can vary by OS version. |
 | Add/edit task and date selection | The editor uses a native titled partial sheet, navigation toolbar actions, capsule-shaped quick-date controls, title autofocus for new tasks, and a separate large-only date picker sheet whose draft values commit on Done. Priority opens a native confirmation dialog from the toolbar. The title and description inputs use the reference title3/body styles and 1–5/1–3 line bounds. | Other row insets and editor spacing are not visually verified. Android uses native Compose controls and Material sheet presentation. |
 | Comments and photos | Typed SQLite records, durable app-private image URIs, photo picking, edit/delete, full-size image view, localized dates, and refreshed row counts after returning. | The reference stores compressed image bytes in SwiftData; Nexa stores the copied file URI, which keeps large image data out of SQLite. Exact composer/list spacing is unverified. |
@@ -189,7 +189,7 @@ The source now covers the reference's onboarding, five tabs, task CRUD and metad
 
 ### Known differences and verification boundary
 
-The source-visible parity pass now uses native tab titles, a native confirmation dialog, a title3 task field with reference line bounds, reusable native empty-state presentation, root onboarding, and animated checkbox controls with success feedback. Remaining source differences include search focus timing and platform-native Android layout conventions. Visual spacing and exact pixel parity remain unverified because screenshots are prohibited.
+The source-visible parity pass now uses native tab titles, a native confirmation dialog, a title3 task field with reference line bounds, reusable native empty-state presentation, root onboarding, and animated checkbox controls with success feedback. Task-row source now matches the reference's leading text alignment, regular title weight, 15-point description, 2-point icon-to-label spacing, and left comment bubble; generated Kotlin retains a native 8 dp inset while generated Swift relies on the native list inset. Remaining source differences include search focus timing and platform-native Android layout conventions. Visual spacing and exact pixel parity remain unverified because screenshots are prohibited.
 
 ### Final verification (2026-10-07)
 
@@ -197,6 +197,15 @@ The source-visible parity pass now uses native tab titles, a native confirmation
 - `nexa check --ios` and `nexa check --android` passed for the Todo app.
 - `nexa test --all --out /tmp/nexa-todo-generated` passed generic iOS and Android native builds. Xcode reported `BUILD SUCCEEDED`; Gradle reported `BUILD SUCCESSFUL`. No simulator or emulator was launched during this verification.
 - `cargo test -p nexa-compiler --test core_task_crud` passed for both target lowerings and checks generated success haptics and spring animation.
+- No screenshots were captured or inspected. Exact pixel parity therefore remains unverified.
+
+### Follow-up verification (2026-10-07)
+
+- `nexa check --ios` and `nexa check --android` passed after the task-row alignment changes.
+- `nexa test --android --out /tmp/nexa-todo-fidelity-android` passed (`BUILD SUCCESSFUL`). The generated Compose row uses leading alignment, 15 sp description text, 2 dp metadata spacing, and the platform-specific 8 dp inset. No emulator was launched.
+- Generated Swift source was inspected: task text uses a leading `VStack`, metadata uses `HStack(spacing: 2)`, the comment icon maps to `bubble.left`, and the iOS row wrapper adds no padding around the native list row.
+- The generated Swift sources pass frontend parsing. A standalone Swift type-check is not verified: invoking the iOS SwiftUI macros directly caused Xcode's plugin server to return a malformed `StateMacro` response outside the normal project build.
+- The generic iOS build currently fails during Xcode asset-catalog compilation: `actool` cannot create catalogs from the existing alternate `Icon*.icon` Icon Studio documents. `nexa check --ios` passes, but the full native iOS build is not verified in this Xcode 27 environment. No simulator was launched.
 - No screenshots were captured or inspected. Exact pixel parity therefore remains unverified.
 
 ### Final verification (2026-10-05)
