@@ -23,6 +23,7 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v165` | Vertically centers Compose page-indicator dots to match SwiftUI `HStack` alignment. |
 | `build-v164` | Binds default iOS button and pager accents to dynamic system blue, matching the shared light and dark accent palette on Android. |
 | `build-v163` | Aligns large-button geometry across iOS and Android and centers Compose pager indicators in a full-width layout. |
 | `build-v162` | Standardizes onboarding visual defaults across DevRuntime hosts, uses the filled active-notification icon on both platforms, and fixes Swift lifecycle modifiers around conditional root views. |

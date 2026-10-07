@@ -2430,6 +2430,7 @@ mod tests {
         assert!(kotlin.contains(
             "nexaDevPageIndicatorSpacing.dp,\n                        Alignment.CenterHorizontally,"
         ));
+        assert!(kotlin.contains("verticalAlignment = Alignment.CenterVertically"));
         assert!(kotlin.contains("Modifier.fillMaxWidth()\n                        .padding(bottom = nexaDevPageIndicatorBottomInset.dp)"));
     }
 

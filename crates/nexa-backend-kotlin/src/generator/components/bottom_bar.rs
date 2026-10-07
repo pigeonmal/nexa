@@ -347,7 +347,7 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth + 1,
         format_args!(
-            "Row(modifier = Modifier.fillMaxWidth().padding(bottom = {}.dp), horizontalArrangement = Arrangement.spacedBy({}.dp, Alignment.CenterHorizontally)) {{",
+            "Row(modifier = Modifier.fillMaxWidth().padding(bottom = {}.dp), horizontalArrangement = Arrangement.spacedBy({}.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {{",
             nexa_codegen::design_system::PAGE_INDICATOR_BOTTOM_INSET,
             nexa_codegen::design_system::PAGE_INDICATOR_SPACING,
         ),
@@ -419,7 +419,7 @@ mod tests {
             "Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center, propagateMinConstraints = true) {"
         ));
         assert!(output.contains(
-            "Row(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {"
+            "Row(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {"
         ));
     }
 }

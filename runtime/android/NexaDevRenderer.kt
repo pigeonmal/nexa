@@ -1737,6 +1737,7 @@ internal fun NexaDevNode(
                         nexaDevPageIndicatorSpacing.dp,
                         Alignment.CenterHorizontally,
                     ),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     for (page in 0 until pages.length()) {
                         Box(
