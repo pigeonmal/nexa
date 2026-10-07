@@ -1986,7 +1986,7 @@ pub(super) fn android_manifest_with_widgets(
         })
         .collect::<String>();
     Ok(format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <meta-data android:name=\"dev.nexa.orientationPolicy\" android:value=\"{}\" />\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"{orientation_policy}\"{config_changes}{picture_in_picture_attributes}>\n{launcher_filter}{deep_link_filters}        </activity>\n{icon_aliases}{widget_declarations}{media_playback_service_declarations}{firebase_messaging_service_declarations}{application_metadata_xml}    </application>\n</manifest>\n",
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <meta-data android:name=\"dev.nexa.orientationPolicy\" android:value=\"{}\" />\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"{orientation_policy}\"{config_changes}{picture_in_picture_attributes} android:windowSoftInputMode=\"adjustResize\">\n{launcher_filter}{deep_link_filters}        </activity>\n{icon_aliases}{widget_declarations}{media_playback_service_declarations}{firebase_messaging_service_declarations}{application_metadata_xml}    </application>\n</manifest>\n",
         xml_escape(&config.display_name),
         xml_escape(&config.orientation),
     ))
