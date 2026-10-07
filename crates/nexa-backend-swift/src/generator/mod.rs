@@ -636,10 +636,12 @@ fn generate_with_analysis_mode(
         } else {
             out.push_str("    public init() {}\n\n    public var body: some View {\n");
         }
+        let task_handles = lifecycle::task_handles(&module.states);
         let has_body_modifiers = module.direction.is_some()
             || module.on_appear.is_some()
             || module.on_appear_async
             || module.on_disappear.is_some()
+            || !task_handles.is_empty()
             || module.status_bar.is_some()
             || features.uses_shared_elements;
         let needs_group = features.uses_shared_elements
@@ -684,12 +686,7 @@ fn generate_with_analysis_mode(
         }
         direction::render(module.direction, 2, out);
         lifecycle::render_on_appear(module.on_appear.as_deref(), module.on_appear_async, 2, out);
-        lifecycle::render_on_disappear(
-            module.on_disappear.as_deref(),
-            &lifecycle::task_handles(&module.states),
-            2,
-            out,
-        );
+        lifecycle::render_on_disappear(module.on_disappear.as_deref(), &task_handles, 2, out);
         lifecycle::render_scene_phase(module, 2, out);
         status_bar::render(module.status_bar, 2, out);
         if features.uses_shared_elements {
@@ -995,6 +992,60 @@ mod tests {
                 .sum::<usize>(),
             1,
             "shared Regex types must be emitted once across separate Swift files"
+        );
+    }
+
+    #[test]
+    fn task_cleanup_modifier_wraps_a_top_level_conditional_in_group() {
+        let task_handle_type = Type::Optional(Box::new(Type::TaskHandle));
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "ConditionalTaskCleanup".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: vec![State {
+                name: "refreshTask".to_owned(),
+                ty: task_handle_type.clone(),
+                initial: Expr::Null(task_handle_type),
+                mutable: true,
+            }],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::If {
+                condition: Expr::Bool(true),
+                then_body: vec![Node::Text {
+                    value: Expr::String("Ready".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                else_body: None,
+                transition: None,
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+
+        assert!(
+            swift.contains("        Group {\n            if true {"),
+            "the conditional body needs a concrete view type before shared modifiers are applied"
+        );
+        assert!(
+            swift.contains(
+                "\n        }\n            .onDisappear {\n                nexa_refreshTask?.cancel()"
+            ),
+            "task cleanup must apply to the full conditional view"
         );
     }
 
