@@ -36,7 +36,9 @@ pub(crate) fn render_layout(
         (_, Alignment::Center) => ".center",
         (_, Alignment::End) => ".trailing",
     });
-    let has_spacing = spacing > 0.0 && !matches!(kind, LayoutKind::Stack);
+    // Compose layouts use zero spacing by default; passing the IR value here
+    // avoids SwiftUI's system-defined spacing drifting between platforms.
+    let has_spacing = !matches!(kind, LayoutKind::Stack);
     match (alignment, has_spacing) {
         (Some(alignment), true) => out.push_str(&format!(
             "{layout}(alignment: {alignment}, spacing: {}) {{\n",

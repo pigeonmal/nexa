@@ -8,5 +8,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(true, "androidx.compose.material3.MaterialTheme");
     imports.add(true, "androidx.compose.material3.darkColorScheme");
     imports.add(true, "androidx.compose.material3.lightColorScheme");
+    imports.add(true, "androidx.compose.ui.graphics.Color");
     imports.add(true, "androidx.compose.runtime.remember");
 }

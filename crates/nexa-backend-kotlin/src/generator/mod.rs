@@ -1580,10 +1580,7 @@ mod tests {
             on_background: None,
         };
 
-        assert!(
-            generate(&module)
-                .contains("style = androidx.compose.material3.MaterialTheme.typography.bodyMedium")
-        );
+        assert!(generate(&module).contains("fontSize = 15.sp, fontWeight = FontWeight.Normal"));
     }
 
     #[test]

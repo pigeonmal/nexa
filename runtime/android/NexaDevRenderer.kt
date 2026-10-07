@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -120,6 +121,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -175,6 +177,48 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.launch
+
+private const val nexaDevDefaultBodyFontSize = 17
+private const val nexaDevDefaultLineHeightMultiplier = 1.2f
+
+private fun nexaDevDefaultColorScheme(dark: Boolean) = if (dark) {
+    darkColorScheme(
+        primary = Color(0xFF0A84FF),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFF003C7A),
+        onPrimaryContainer = Color(0xFFD6E8FF),
+        secondary = Color(0xFF8E8E93),
+        onSecondary = Color.White,
+        background = Color.Black,
+        onBackground = Color.White,
+        surface = Color.Black,
+        onSurface = Color.White,
+        surfaceVariant = Color(0xFF2C2C2E),
+        onSurfaceVariant = Color(0xFF8E8E93),
+        outline = Color(0xFF545458),
+        error = Color(0xFFFF3B30),
+        onError = Color.White,
+    )
+} else {
+    lightColorScheme(
+        primary = Color(0xFF007AFF),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFD6E8FF),
+        onPrimaryContainer = Color(0xFF001D36),
+        secondary = Color(0xFF8E8E93),
+        onSecondary = Color.White,
+        background = Color.White,
+        onBackground = Color.Black,
+        surface = Color.White,
+        onSurface = Color.Black,
+        surfaceVariant = Color(0xFFF2F2F7),
+        onSurfaceVariant = Color(0xFF8E8E93),
+        outline = Color(0xFFC6C6C8),
+        error = Color(0xFFFF3B30),
+        onError = Color.White,
+    )
+}
 
 private fun nexaDevSharedMaterialIcon(name: String) = when (name) {
 __NEXA_SHARED_ICON_MATERIAL_CASES__
@@ -251,7 +295,10 @@ internal fun NexaDevNodeList(
     when (nodes.length()) {
         0 -> Unit
         1 -> NexaDevNode(nexaDevNodeObject(nodes.opt(0)), module, store, locals, scope, modifier)
-        else -> Column(modifier = modifier) {
+        else -> Column(
+            modifier = modifier,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             RenderColumnChildren(nodes, module, store, locals, scope)
         }
     }
@@ -292,9 +339,9 @@ internal fun NexaDevNode(
             val systemDark = isSystemInDarkTheme()
             val scheme = remember(mode, systemDark) {
                 when (mode) {
-                    "dark" -> darkColorScheme()
-                    "light" -> lightColorScheme()
-                    else -> if (systemDark) darkColorScheme() else lightColorScheme()
+                    "dark" -> nexaDevDefaultColorScheme(true)
+                    "light" -> nexaDevDefaultColorScheme(false)
+                    else -> nexaDevDefaultColorScheme(systemDark)
                 }
             }
             MaterialTheme(colorScheme = scheme) {
@@ -508,7 +555,7 @@ internal fun NexaDevNode(
                         "Start" -> Alignment.Start
                         "Center" -> Alignment.CenterHorizontally
                         "End" -> Alignment.End
-                        else -> Alignment.Start
+                        else -> Alignment.CenterHorizontally
                     },
                 ) { RenderColumnChildren(children, module, store, locals, scope) }
             }
@@ -558,22 +605,34 @@ internal fun NexaDevNode(
                     "Trailing" -> TextAlign.End
                     else -> TextAlign.Unspecified
                 }
-                val semanticStyle = when (style.optString("font_style")) {
-                    "LargeTitle" -> MaterialTheme.typography.displaySmall
-                    "Title" -> MaterialTheme.typography.headlineMedium
-                    "Title2" -> MaterialTheme.typography.headlineSmall
-                    "Title3" -> MaterialTheme.typography.titleLarge
-                    "Headline" -> MaterialTheme.typography.titleMedium
-                    "Subheadline", "Callout" -> MaterialTheme.typography.bodyMedium
-                    "Body" -> MaterialTheme.typography.bodyLarge
-                    "Footnote" -> MaterialTheme.typography.bodySmall
-                    "Caption" -> MaterialTheme.typography.labelMedium
-                    "Caption2" -> MaterialTheme.typography.labelSmall
-                    else -> LocalTextStyle.current
+                val semanticMetrics = when (style.optString("font_style")) {
+                    "LargeTitle" -> 34.sp to FontWeight.Normal
+                    "Title" -> 28.sp to FontWeight.Normal
+                    "Title2" -> 22.sp to FontWeight.Normal
+                    "Title3" -> 20.sp to FontWeight.Normal
+                    "Headline" -> 17.sp to FontWeight.SemiBold
+                    "Subheadline" -> 15.sp to FontWeight.Normal
+                    "Body" -> 17.sp to FontWeight.Normal
+                    "Callout" -> 16.sp to FontWeight.Normal
+                    "Footnote" -> 13.sp to FontWeight.Normal
+                    "Caption" -> 12.sp to FontWeight.Normal
+                    "Caption2" -> 11.sp to FontWeight.Normal
+                    else -> null
                 }
-                val fontSize = if (style.has("font_size") && !style.isNull("font_size")) style.getDouble("font_size").sp else androidx.compose.ui.unit.TextUnit.Unspecified
+                val semanticStyle = LocalTextStyle.current
+                val fontSize = if (style.has("font_size") && !style.isNull("font_size")) {
+                    style.getDouble("font_size").sp
+                } else {
+                    semanticMetrics?.first ?: nexaDevDefaultBodyFontSize.sp
+                }
+                val fontWeight = weight ?: semanticMetrics?.second ?: FontWeight.Normal
+                val lineHeight = if (style.has("line_height") && !style.isNull("line_height")) {
+                    style.getDouble("line_height").sp
+                } else {
+                    fontSize * nexaDevDefaultLineHeightMultiplier
+                }
                 val maxLines = if (style.has("line_limit") && !style.isNull("line_limit")) style.getInt("line_limit") else Int.MAX_VALUE
-                val letterSpacing = if (style.has("letter_spacing") && !style.isNull("letter_spacing")) style.getDouble("letter_spacing").sp else androidx.compose.ui.unit.TextUnit.Unspecified
+                val letterSpacing = if (style.has("letter_spacing") && !style.isNull("letter_spacing")) style.getDouble("letter_spacing").sp else 0.sp
                 var modifier: Modifier = Modifier
                 val effects = style.optJSONObject("effects") ?: JSONObject()
                 if (!style.isNull("padding")) modifier = modifier.padding(style.optDouble("padding").dp)
@@ -598,34 +657,19 @@ internal fun NexaDevNode(
                 }
                 if (!effects.isNull("clip_rounded")) modifier = modifier.clip(RoundedCornerShape(effects.optDouble("clip_rounded").dp))
                 if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
-                if (style.has("line_height") && !style.isNull("line_height")) {
-                    Text(
-                        text = text,
-                        modifier = modifier,
-                        color = color ?: Color.Unspecified,
-                        style = semanticStyle,
-                        fontSize = fontSize,
-                        fontWeight = weight,
-                        textAlign = textAlign,
-                        maxLines = maxLines,
-                        textDecoration = if (style.optBoolean("strikethrough")) TextDecoration.LineThrough else null,
-                        lineHeight = style.getDouble("line_height").sp,
-                        letterSpacing = letterSpacing,
-                    )
-                } else {
-                    Text(
-                        text = text,
-                        modifier = modifier,
-                        color = color ?: Color.Unspecified,
-                        style = semanticStyle,
-                        fontSize = fontSize,
-                        fontWeight = weight,
-                        textAlign = textAlign,
-                        maxLines = maxLines,
-                        textDecoration = if (style.optBoolean("strikethrough")) TextDecoration.LineThrough else null,
-                        letterSpacing = letterSpacing,
-                    )
-                }
+                Text(
+                    text = text,
+                    modifier = modifier,
+                    color = color ?: Color.Unspecified,
+                    style = semanticStyle,
+                    fontSize = fontSize,
+                    fontWeight = fontWeight,
+                    textAlign = textAlign,
+                    maxLines = maxLines,
+                    textDecoration = if (style.optBoolean("strikethrough")) TextDecoration.LineThrough else null,
+                    lineHeight = lineHeight,
+                    letterSpacing = letterSpacing,
+                )
             }
             if (style.optBoolean("selectable")) SelectionContainer { content() } else content()
         }
@@ -698,7 +742,7 @@ internal fun NexaDevNode(
             val contentPadding = when (fields.optString("size")) {
                 "Small" -> PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 "Large" -> PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                else -> null
+                else -> if (style == "Borderless" || style == "Plain") PaddingValues(0.dp) else null
             }
             val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
             val icon = when {
@@ -713,15 +757,21 @@ internal fun NexaDevNode(
                     CircularProgressIndicator()
                 } else {
                     if (icon != null) Icon(imageVector = icon, contentDescription = null)
-                    Text(label)
+                    Text(
+                        label,
+                        fontSize = nexaDevDefaultBodyFontSize.sp,
+                        fontWeight = FontWeight.Normal,
+                        letterSpacing = 0.sp,
+                    )
                 }
             }
             val onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) }
             when (style) {
                 "Borderless", "Plain" -> TextButton(
+                    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),
                     onClick = onClick,
                     enabled = !loading && !disabled,
-                    shape = buttonShape ?: androidx.compose.material3.ButtonDefaults.textShape,
+                    shape = buttonShape ?: RoundedCornerShape(percent = 50),
                     colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                         contentColor = tint ?: Color.Unspecified,
                     ),
@@ -729,9 +779,10 @@ internal fun NexaDevNode(
                     content = buttonContent,
                 )
                 "Bordered" -> OutlinedButton(
+                    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),
                     onClick = onClick,
                     enabled = !loading && !disabled,
-                    shape = buttonShape ?: androidx.compose.material3.ButtonDefaults.outlinedShape,
+                    shape = buttonShape ?: RoundedCornerShape(percent = 50),
                     colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
                         contentColor = tint ?: Color.Unspecified,
                     ),
@@ -741,9 +792,10 @@ internal fun NexaDevNode(
                     content = buttonContent,
                 )
                 else -> Button(
+                    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),
                     onClick = onClick,
                     enabled = !loading && !disabled,
-                    shape = buttonShape ?: androidx.compose.material3.ButtonDefaults.shape,
+                    shape = buttonShape ?: RoundedCornerShape(percent = 50),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                         containerColor = tint ?: Color.Unspecified,
                     ),
@@ -1627,6 +1679,7 @@ internal fun NexaDevNode(
             val pages = fields.optJSONArray("pages") ?: JSONArray()
             val selected = (store.state(state, scope) as? Number)?.toInt() ?: 0
             val pageState = rememberPagerState(initialPage = selected) { pages.length() }
+            val pageCoroutineScope = rememberCoroutineScope()
             LaunchedEffect(pageState.currentPage) { store.setState(state, pageState.currentPage, scope) }
             LaunchedEffect(selected) {
                 if (selected in 0 until pages.length() && selected != pageState.currentPage) {
@@ -1649,8 +1702,14 @@ internal fun NexaDevNode(
                                 .clip(CircleShape)
                                 .background(
                                     if (pageState.currentPage == page) MaterialTheme.colorScheme.primary
-                                    else Color.Gray.copy(alpha = 0.45f),
-                                ),
+                                    else Color(0xFF8E8E93).copy(alpha = 0.45f),
+                                )
+                                .clickable(
+                                    role = SemanticsRole.Button,
+                                    onClickLabel = "Page ${page + 1}",
+                                ) {
+                                    pageCoroutineScope.launch { pageState.animateScrollToPage(page) }
+                                },
                         )
                     }
                 }

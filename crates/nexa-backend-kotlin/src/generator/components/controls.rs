@@ -103,7 +103,17 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_button,
         "androidx.compose.foundation.layout.PaddingValues",
     );
+    imports.add(
+        features.uses_button,
+        "androidx.compose.foundation.layout.defaultMinSize",
+    );
+    imports.add(features.uses_button, "androidx.compose.ui.Modifier");
     imports.add(features.uses_button, "androidx.compose.ui.unit.dp");
+    imports.add(features.uses_button, "androidx.compose.ui.unit.sp");
+    imports.add(
+        features.uses_button,
+        "androidx.compose.ui.text.font.FontWeight",
+    );
     imports.add(
         features.uses_button_loading,
         "androidx.compose.material3.CircularProgressIndicator",
@@ -226,14 +236,22 @@ pub(crate) fn render_button(
     if let Some(loading) = loading {
         indent(out, depth);
         out.push_str(button_component(style));
-        out.push_str("(onClick = {");
+        out.push_str("(\n");
+        indent(out, depth + 1);
+        out.push_str(&format!(
+            "modifier = Modifier.defaultMinSize(minWidth = {}.dp, minHeight = {}.dp),\n",
+            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
+            nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
+        ));
+        indent(out, depth + 1);
+        out.push_str("onClick = {");
         if actions.is_empty() {
             out.push_str(" }, enabled = !");
             out.push_str(&expression(loading));
         } else {
             out.push('\n');
             render_actions(actions, depth + 1, out);
-            indent(out, depth);
+            indent(out, depth + 1);
             out.push_str("}, enabled = !");
             out.push_str(&expression(loading));
         }
@@ -259,13 +277,21 @@ pub(crate) fn render_button(
     }
     indent(out, depth);
     out.push_str(button_component(style));
-    out.push_str("(onClick = {");
+    out.push_str("(\n");
+    indent(out, depth + 1);
+    out.push_str(&format!(
+        "modifier = Modifier.defaultMinSize(minWidth = {}.dp, minHeight = {}.dp),\n",
+        nexa_codegen::design_system::BUTTON_MIN_WIDTH,
+        nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
+    ));
+    indent(out, depth + 1);
+    out.push_str("onClick = {");
     if actions.is_empty() {
         out.push_str(" }");
     } else {
         out.push('\n');
         render_actions(actions, depth + 1, out);
-        indent(out, depth);
+        indent(out, depth + 1);
         out.push('}');
     }
     if let Some(disabled) = disabled {
@@ -328,14 +354,27 @@ fn append_button_options(
             ),
         };
         out.push_str(&format!(", shape = {expression}"));
+    } else {
+        out.push_str(
+            ", shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)",
+        );
     }
-    if let Some(size) = size {
-        let padding = match size {
-            nexa_ir::ButtonSize::Small => Some((12, 4)),
-            nexa_ir::ButtonSize::Regular => None,
-            nexa_ir::ButtonSize::Large => Some((24, 12)),
-        };
-        if let Some((horizontal, vertical)) = padding {
+    let borderless = matches!(
+        style,
+        Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
+    );
+    let padding = match size {
+        Some(nexa_ir::ButtonSize::Small) => Some((12, 4)),
+        Some(nexa_ir::ButtonSize::Regular) if borderless => Some((0, 0)),
+        Some(nexa_ir::ButtonSize::Regular) => None,
+        Some(nexa_ir::ButtonSize::Large) => Some((24, 12)),
+        None if borderless => Some((0, 0)),
+        None => None,
+    };
+    if let Some((horizontal, vertical)) = padding {
+        if horizontal == 0 && vertical == 0 {
+            out.push_str(", contentPadding = PaddingValues(0.dp)");
+        } else {
             out.push_str(&format!(
                 ", contentPadding = PaddingValues(horizontal = {horizontal}.dp, vertical = {vertical}.dp)"
             ));
@@ -358,7 +397,14 @@ fn render_button_content(
             ),
         );
     }
-    out.line_at(depth, format_args!("Text({})", expression(label)));
+    out.line_at(
+        depth,
+        format_args!(
+            "Text({}, fontSize = {}.sp, fontWeight = FontWeight.Normal, letterSpacing = 0.sp)",
+            expression(label),
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+        ),
+    );
 }
 
 pub(crate) fn render_switch(
@@ -1290,7 +1336,9 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("TextButton(onClick = { }"));
+        assert!(output.contains(
+            "TextButton(\n    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),\n    onClick = { }"
+        ));
         assert!(
             output.contains("contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)")
         );

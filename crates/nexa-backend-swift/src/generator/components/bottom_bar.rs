@@ -114,22 +114,80 @@ pub(crate) fn render_page_pager(
     out: &mut SourceWriter,
 ) {
     let prefix = format!("nexa_{}_page", state_name(state));
+    let selected = state_name(state);
+    let active_dot = nexa_codegen::design_system::PAGE_INDICATOR_SELECTED_SIZE;
+    let inactive_dot = nexa_codegen::design_system::PAGE_INDICATOR_UNSELECTED_SIZE;
+    let muted_dot = crate::generator::engine::colors::expression_from_argb(
+        nexa_codegen::design_system::MUTED_TEXT_ARGB,
+    );
+    out.line_at(depth, format_args!("VStack(spacing: 0) {{"));
     out.line_at(
-        depth,
-        format_args!("TabView(selection: ${}) {{", state_name(state)),
+        depth + 1,
+        format_args!("TabView(selection: ${selected}) {{"),
     );
     for index in 0..pages.len() {
         out.line_at(
-            depth + 1,
+            depth + 2,
             format_args!("{prefix}_{index}().tag(Int32({index}))"),
         );
     }
-    indent(out, depth);
+    indent(out, depth + 1);
     out.push_str(&format!(
-        "}}.tabViewStyle(.page(indexDisplayMode: .always)).indexViewStyle(.page(backgroundDisplayMode: .always)).animation(.default, value: {})",
-        state_name(state)
+        "}}.tabViewStyle(.page(indexDisplayMode: .never)).animation(.default, value: {selected}).frame(maxWidth: .infinity, maxHeight: .infinity)\n"
     ));
-    out.push('\n');
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "HStack(spacing: {}) {{",
+            nexa_codegen::design_system::PAGE_INDICATOR_SPACING,
+        ),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "ForEach(0..<{pages_len}, id: \\.self) {{ index in",
+            pages_len = pages.len()
+        ),
+    );
+    out.line_at(
+        depth + 3,
+        format_args!("Button {{ {selected} = Int32(index) }} label: {{"),
+    );
+    out.line_at(depth + 4, format_args!("Circle()"));
+    out.line_at(
+        depth + 5,
+        format_args!(
+            ".fill({selected} == Int32(index) ? Color.accentColor : {muted_dot}.opacity({}))",
+            nexa_codegen::design_system::PAGE_INDICATOR_INACTIVE_OPACITY,
+        ),
+    );
+    out.line_at(
+        depth + 5,
+        format_args!(
+            ".frame(width: {selected} == Int32(index) ? {active_dot} : {inactive_dot}, height: {selected} == Int32(index) ? {active_dot} : {inactive_dot})"
+        ),
+    );
+    out.line_at(depth + 3, format_args!("}}.buttonStyle(.plain)"));
+    out.line_at(
+        depth + 4,
+        format_args!(".animation(.default, value: {selected})"),
+    );
+    out.line_at(
+        depth + 4,
+        format_args!(".accessibilityLabel(\"Page \\(index + 1)\")"),
+    );
+    out.line_at(depth + 2, format_args!("}}"));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "}}.padding(.bottom, {})",
+            nexa_codegen::design_system::PAGE_INDICATOR_BOTTOM_INSET
+        ),
+    );
+    out.line_at(
+        depth,
+        format_args!("}}.frame(maxWidth: .infinity, maxHeight: .infinity)"),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]

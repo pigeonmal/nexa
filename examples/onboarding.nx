@@ -43,7 +43,7 @@ app OnboardingExample {
                                     currentPage = 2
                                 }
                             }
-                            Button("Skip", style: Borderless, tint: "#007AFF") {
+                            Button("Skip", style: Borderless) {
                                 currentPage = 2
                             }
                         }

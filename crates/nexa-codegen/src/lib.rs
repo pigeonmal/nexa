@@ -101,6 +101,7 @@ pub mod names {
     }
 }
 
+pub mod design_system;
 pub mod plugin;
 pub mod source_units;
 pub mod source_writer;

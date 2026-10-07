@@ -23,6 +23,8 @@ pub(crate) fn render_node(
         Node::Appearance { mode, children } => {
             let mode = crate::generator::engine::expressions::expression(mode);
             let system_dark = format!("nexaSystemDarkTheme{}", out.next_id());
+            let dark_scheme = nexa_codegen::design_system::kotlin_color_scheme(true);
+            let light_scheme = nexa_codegen::design_system::kotlin_color_scheme(false);
             out.line_at(
                 depth,
                 format_args!("val {system_dark} = isSystemInDarkTheme()"),
@@ -32,13 +34,11 @@ pub(crate) fn render_node(
                 format_args!("MaterialTheme(colorScheme = remember({mode}, {system_dark}) {{"),
             );
             out.line_at(depth + 1, format_args!("when ({mode}) {{"));
-            out.line_at(depth + 2, format_args!("\"dark\" -> darkColorScheme()"));
-            out.line_at(depth + 2, format_args!("\"light\" -> lightColorScheme()"));
+            out.line_at(depth + 2, format_args!("\"dark\" -> {dark_scheme}"));
+            out.line_at(depth + 2, format_args!("\"light\" -> {light_scheme}"));
             out.line_at(
                 depth + 2,
-                format_args!(
-                    "else -> if ({system_dark}) darkColorScheme() else lightColorScheme()"
-                ),
+                format_args!("else -> if ({system_dark}) {dark_scheme} else {light_scheme}"),
             );
             out.line_at(depth + 1, format_args!("}}"));
             out.line_at(

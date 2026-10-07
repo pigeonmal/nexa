@@ -15,7 +15,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.ui.text.style.TextAlign",
     );
     imports.add(
-        features.uses_font_weight,
+        features.uses_font_weight || features.uses_text_node,
         "androidx.compose.ui.text.font.FontWeight",
     );
     imports.add(
@@ -40,21 +40,23 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     if let Some(color) = style.color {
         out.push_str(&format!(", color = {}", colors::expression(color)));
     }
-    if let Some(font_style) = style.font_style {
-        out.push_str(&format!(
-            ", style = androidx.compose.material3.MaterialTheme.typography.{}",
-            kotlin_text_font_style(font_style)
-        ));
-    }
-    if let Some(font_size) = style.font_size {
-        out.push_str(&format!(", fontSize = {}.sp", number(font_size)));
-    }
-    if let Some(font_weight) = style.font_weight {
-        out.push_str(&format!(
-            ", fontWeight = {}",
-            kotlin_font_weight(font_weight)
-        ));
-    }
+    let semantic_metrics = style
+        .font_style
+        .map(nexa_codegen::design_system::text_metrics);
+    let font_size = style
+        .font_size
+        .map(number)
+        .or_else(|| semantic_metrics.map(|metrics| metrics.size.to_string()))
+        .unwrap_or_else(|| nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string());
+    out.push_str(&format!(", fontSize = {font_size}.sp"));
+    let font_weight = style
+        .font_weight
+        .or_else(|| semantic_metrics.map(|metrics| metrics.weight))
+        .unwrap_or(nexa_ir::FontWeight::Normal);
+    out.push_str(&format!(
+        ", fontWeight = {}",
+        kotlin_font_weight(font_weight)
+    ));
     if let Some(alignment) = style.alignment {
         let alignment = match alignment {
             nexa_ir::TextAlignment::Leading => "Start",
@@ -68,9 +70,16 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     }
     if let Some(line_height) = style.line_height {
         out.push_str(&format!(", lineHeight = {}.sp", number(line_height)));
+    } else {
+        out.push_str(&format!(
+            ", lineHeight = {font_size}.sp * {}f",
+            nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER,
+        ));
     }
     if let Some(letter_spacing) = style.letter_spacing {
         out.push_str(&format!(", letterSpacing = {}.sp", number(letter_spacing)));
+    } else {
+        out.push_str(", letterSpacing = 0.sp");
     }
     if style.strikethrough {
         out.push_str(", textDecoration = TextDecoration.LineThrough");
@@ -137,21 +146,5 @@ fn kotlin_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
         nexa_ir::FontWeight::Medium => "FontWeight.Medium",
         nexa_ir::FontWeight::Semibold => "FontWeight.SemiBold",
         nexa_ir::FontWeight::Bold => "FontWeight.Bold",
-    }
-}
-
-fn kotlin_text_font_style(style: nexa_ir::TextFontStyle) -> &'static str {
-    match style {
-        nexa_ir::TextFontStyle::LargeTitle => "displaySmall",
-        nexa_ir::TextFontStyle::Title => "headlineMedium",
-        nexa_ir::TextFontStyle::Title2 => "headlineSmall",
-        nexa_ir::TextFontStyle::Title3 => "titleLarge",
-        nexa_ir::TextFontStyle::Headline => "titleMedium",
-        nexa_ir::TextFontStyle::Subheadline => "bodyMedium",
-        nexa_ir::TextFontStyle::Body => "bodyLarge",
-        nexa_ir::TextFontStyle::Callout => "bodyMedium",
-        nexa_ir::TextFontStyle::Footnote => "bodySmall",
-        nexa_ir::TextFontStyle::Caption => "labelMedium",
-        nexa_ir::TextFontStyle::Caption2 => "labelSmall",
     }
 }

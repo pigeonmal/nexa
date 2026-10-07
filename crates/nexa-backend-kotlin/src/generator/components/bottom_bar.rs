@@ -13,6 +13,10 @@ use crate::generator::engine::imports::ImportSet;
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_page_pager,
+        "androidx.compose.foundation.clickable",
+    );
+    imports.add(
+        features.uses_page_pager,
         "androidx.compose.foundation.pager.HorizontalPager",
     );
     imports.add(
@@ -23,6 +27,11 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_page_pager,
         "androidx.compose.runtime.LaunchedEffect",
     );
+    imports.add(
+        features.uses_page_pager,
+        "androidx.compose.runtime.rememberCoroutineScope",
+    );
+    imports.add(features.uses_page_pager, "kotlinx.coroutines.launch");
     imports.add(
         features.uses_page_pager,
         "androidx.compose.foundation.shape.CircleShape",
@@ -279,6 +288,11 @@ pub(crate) fn render_page_pager(
 ) {
     let selected = state_name(state);
     let page_state = format!("{}Pager", state_name(state));
+    let coroutine_scope = format!("{}PagerScope", state_name(state));
+    out.line_at(
+        depth,
+        format_args!("val {coroutine_scope} = rememberCoroutineScope()"),
+    );
     out.line_at(
         depth,
         format_args!(
@@ -322,14 +336,21 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth + 1,
         format_args!(
-            "Row(modifier = Modifier.padding(bottom = 24.dp).align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(8.dp)) {{"
+            "Row(modifier = Modifier.padding(bottom = {}.dp).align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy({}.dp)) {{",
+            nexa_codegen::design_system::PAGE_INDICATOR_BOTTOM_INSET,
+            nexa_codegen::design_system::PAGE_INDICATOR_SPACING,
         ),
     );
     for (index, _) in pages.iter().enumerate() {
         out.line_at(
             depth + 2,
             format_args!(
-                "Box(modifier = Modifier.size(if ({page_state}.currentPage == {index}) 8.dp else 6.dp).clip(CircleShape).background(if ({page_state}.currentPage == {index}) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.45f)))"
+                "Box(modifier = Modifier.size(if ({page_state}.currentPage == {index}) {active_dot}.dp else {inactive_dot}.dp).clip(CircleShape).background(if ({page_state}.currentPage == {index}) MaterialTheme.colorScheme.primary else Color(0x{muted_dot:08X}).copy(alpha = {inactive_opacity}f)).clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = {page_label}) {{ {coroutine_scope}.launch {{ {page_state}.animateScrollToPage({index}) }} }})",
+                active_dot = nexa_codegen::design_system::PAGE_INDICATOR_SELECTED_SIZE,
+                inactive_dot = nexa_codegen::design_system::PAGE_INDICATOR_UNSELECTED_SIZE,
+                inactive_opacity = nexa_codegen::design_system::PAGE_INDICATOR_INACTIVE_OPACITY,
+                muted_dot = nexa_codegen::design_system::MUTED_TEXT_ARGB,
+                page_label = kotlin_string(&format!("Page {}", index + 1)),
             ),
         );
     }

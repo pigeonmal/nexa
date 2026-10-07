@@ -30,3 +30,12 @@ fn static_expression(color: Color) -> String {
         f64::from(color.alpha) / 255.0
     )
 }
+
+pub(crate) fn expression_from_argb(argb: u32) -> String {
+    static_expression(Color {
+        red: ((argb >> 16) & 0xFF) as u8,
+        green: ((argb >> 8) & 0xFF) as u8,
+        blue: (argb & 0xFF) as u8,
+        alpha: ((argb >> 24) & 0xFF) as u8,
+    })
+}

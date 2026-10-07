@@ -105,7 +105,16 @@ fn render_button_modifiers(
             nexa_ir::ButtonStyle::Borderless => out.push_str(".buttonStyle(.borderless)"),
             nexa_ir::ButtonStyle::Plain => out.push_str(".buttonStyle(.plain)"),
         }
+    } else {
+        // Android's default Button is a filled Material button. Make Swift's
+        // implicit style explicit so an omitted style has the same meaning.
+        out.push_str(".buttonStyle(.borderedProminent)");
     }
+    out.push_str(&format!(
+        ".frame(minWidth: {}, minHeight: {})",
+        nexa_codegen::design_system::BUTTON_MIN_WIDTH,
+        nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
+    ));
     if let Some(size) = size {
         match size {
             nexa_ir::ButtonSize::Small => out.push_str(".controlSize(.small)"),
@@ -127,6 +136,11 @@ fn render_button_modifiers(
             ".tint({})",
             crate::generator::colors::expression_for_color(tint)
         ));
+    } else if matches!(
+        style,
+        Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
+    ) {
+        out.push_str(".tint(Color.accentColor)");
     }
     if glass {
         let shape_str = match shape {
@@ -156,13 +170,13 @@ fn render_button_label(
     indent(out, depth);
     if let Some(icon) = icon {
         out.push_str(&format!(
-            "Label {{ {} }} icon: {{ Image(systemName: {}) }}\n",
+            "Label {{ {} }} icon: {{ Image(systemName: {}) }}.font(.body)\n",
             crate::generator::expressions::localized_text_view(label, comment),
             swift_string(&icon.sf_symbol_name()),
         ));
     } else {
         out.push_str(&format!(
-            "{}\n",
+            "{}.font(.body)\n",
             crate::generator::expressions::localized_text_view(label, comment)
         ));
     }

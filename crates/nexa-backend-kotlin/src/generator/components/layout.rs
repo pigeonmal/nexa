@@ -71,7 +71,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.animation.core.tween",
     );
     imports.add(features.uses_box, "androidx.compose.foundation.layout.Box");
-    imports.add(features.uses_alignment, "androidx.compose.ui.Alignment");
+    imports.add(
+        features.uses_alignment || features.uses_column || features.uses_box,
+        "androidx.compose.ui.Alignment",
+    );
     imports.add(
         features.uses_column,
         "androidx.compose.foundation.layout.Column",
@@ -154,7 +157,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_z_index, "androidx.compose.ui.zIndex");
     imports.add(features.uses_color, "androidx.compose.ui.graphics.Color");
     imports.add(features.uses_dp, "androidx.compose.ui.unit.dp");
-    imports.add(features.uses_text_sp, "androidx.compose.ui.unit.sp");
+    imports.add(
+        features.uses_text_sp || features.uses_text_node,
+        "androidx.compose.ui.unit.sp",
+    );
     imports.add(
         features.uses_adaptive_color,
         "androidx.compose.foundation.isSystemInDarkTheme",
@@ -189,7 +195,13 @@ pub(crate) fn render_layout(
     } else {
         None
     };
-    let alignment = style.alignment.map(|alignment| {
+    let default_alignment = match kind {
+        // SwiftUI's VStack and ZStack center their children when alignment is omitted.
+        // Spell that out in Compose, whose native defaults are Start and TopStart.
+        LayoutKind::Column | LayoutKind::Stack => Some(Alignment::Center),
+        LayoutKind::Row => None,
+    };
+    let alignment = style.alignment.or(default_alignment).map(|alignment| {
         let (argument, value) = match (kind, alignment) {
             (LayoutKind::Row, Alignment::Start) => ("verticalAlignment", "Top"),
             (LayoutKind::Row, Alignment::Center) => ("verticalAlignment", "CenterVertically"),

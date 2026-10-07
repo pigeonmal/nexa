@@ -617,7 +617,7 @@ struct NexaDevNodeList: View {
         } else if nodes.count == 1 {
             renderNode(nodes[0], locals: locals, scope: stateScope)
         } else {
-            VStack {
+            VStack(alignment: .center, spacing: 0) {
             ForEach(nodes.indices, id: \.self) { index in
                 renderNode(nodes[index], locals: locals, scope: stateScope)
             }
@@ -686,7 +686,7 @@ struct NexaDevNodeList: View {
             case "End": .trailing
             default: .center
             }
-            let nativeSpacing: CGFloat? = spacing > 0 ? CGFloat(spacing) : nil
+            let nativeSpacing = CGFloat(spacing)
             let container: AnyView
             switch fields["kind"] as? String {
             case "Row":
@@ -964,9 +964,9 @@ struct NexaDevNodeList: View {
                 if loading {
                     ProgressView()
                 } else if let symbol {
-                    Label(label, systemImage: symbol)
+                    Label(label, systemImage: symbol).font(.body)
                 } else {
-                    Text(label)
+                    Text(label).font(.body)
                 }
             }.disabled(disabled || loading))
             switch fields["style"] as? String {
@@ -974,7 +974,7 @@ struct NexaDevNodeList: View {
             case "Bordered": button = AnyView(button.buttonStyle(.bordered))
             case "Borderless": button = AnyView(button.buttonStyle(.borderless))
             case "Plain": button = AnyView(button.buttonStyle(.plain))
-            default: break
+            default: button = AnyView(button.buttonStyle(.borderedProminent))
             }
             switch fields["size"] as? String {
             case "Small": button = AnyView(button.controlSize(.small))
@@ -982,6 +982,10 @@ struct NexaDevNodeList: View {
             case "Large": button = AnyView(button.controlSize(.large))
             default: break
             }
+            button = AnyView(button.frame(
+                minWidth: CGFloat(64),
+                minHeight: CGFloat(48)
+            ))
             let shapeFields = fields["shape"] as? [String: Any] ?? [:]
             let shape: NexaDevButtonShape
             if shapeFields["Circle"] != nil { shape = .circle }
@@ -1002,6 +1006,8 @@ struct NexaDevNodeList: View {
                 } else if let tint = devColor(tintValue, isDark: colorScheme == .dark) {
                     button = AnyView(button.tint(tint))
                 }
+            } else if ["Borderless", "Plain"].contains(fields["style"] as? String ?? "") {
+                button = AnyView(button.tint(.accentColor))
             }
             if fields["glass"] as? Bool == true {
                 let glassShape: NexaDevGlassShape = switch shape {
@@ -1691,25 +1697,43 @@ struct NexaDevNodeList: View {
         case "PagePager":
             let state = fields["state"] as? String ?? ""
             let pages = fields["pages"] as? [[Any]] ?? []
-            return AnyView(TabView(selection: Binding(
-                get: { (store.value(state, scope: scope) as? NSNumber)?.intValue ?? 0 },
-                set: { store.setValue(state, value: $0, scope: scope) }
-            )) {
-                ForEach(pages.indices, id: \.self) { index in
-                    NexaDevNodeList(
-                        nodes: pages[index],
-                        module: module,
-                        store: store,
-                        focusedField: focusedField,
-                        parameters: locals,
-                        stateScope: scope
-                    )
-                    .tag(index)
+            let selected = (store.value(state, scope: scope) as? NSNumber)?.intValue ?? 0
+            return AnyView(VStack(spacing: 0) {
+                TabView(selection: Binding(
+                    get: { (store.value(state, scope: scope) as? NSNumber)?.intValue ?? 0 },
+                    set: { store.setValue(state, value: $0, scope: scope) }
+                )) {
+                    ForEach(pages.indices, id: \.self) { index in
+                        NexaDevNodeList(
+                            nodes: pages[index],
+                            module: module,
+                            store: store,
+                            focusedField: focusedField,
+                            parameters: locals,
+                            stateScope: scope
+                        )
+                        .tag(index)
+                    }
                 }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
-            .animation(.default, value: (store.value(state, scope: scope) as? NSNumber)?.intValue ?? 0))
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.default, value: selected)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(spacing: 8) {
+                    ForEach(pages.indices, id: \.self) { index in
+                        Button {
+                            store.setValue(state, value: index, scope: scope)
+                        } label: {
+                            Circle()
+                                .fill(index == selected ? Color.accentColor : Color(red: 0.556863, green: 0.556863, blue: 0.576471).opacity(0.45))
+                                .frame(width: index == selected ? 8 : 6, height: index == selected ? 8 : 6)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Page \(index + 1)")
+                            .animation(.default, value: selected)
+                    }
+                }
+                .padding(.bottom, 24)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity))
         case "Toolbar":
             let children = fields["children"] as? [Any] ?? []
             let placement: ToolbarItemPlacement = fields["placement"] as? String == "Leading" ? .navigationBarLeading : .navigationBarTrailing
