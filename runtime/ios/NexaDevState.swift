@@ -28,6 +28,7 @@ struct NexaDevNetworkStatusSubscription {
 
 @MainActor
 final class NexaDevStateStore: ObservableObject {
+    var onRuntimeFailure: ((Error, String) -> Void)?
     @Published var revision = 0
     @Published private(set) var appLifecycleEpoch = 0
     @Published var navigationPath: [NexaDevRoute] = []
@@ -52,6 +53,11 @@ final class NexaDevStateStore: ObservableObject {
     var pendingPluginFailure: NexaDevPluginFailure?
     var hasInstalledModule = false
     private var hotTranslations: [String: [String: Any]] = [:]
+
+    func reportRuntimeFailure(_ error: Error, stackTrace: String? = nil) {
+        let capturedStack = stackTrace ?? Thread.callStackSymbols.joined(separator: "\n")
+        onRuntimeFailure?(error, capturedStack)
+    }
 
     func installTranslations(_ raw: Any?) {
         hotTranslations = raw as? [String: [String: Any]] ?? [:]

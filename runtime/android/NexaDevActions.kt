@@ -363,6 +363,7 @@ private fun NexaDevStateStore.launchNativeTask(
     val exceptionHandler = CoroutineExceptionHandler { _, error ->
         if (error !is CancellationException) {
             android.util.Log.e("NexaDevRuntime", "Foreground task failed", error)
+            reportRuntimeFailure(error)
         }
     }
     val job = eventScope.launch(context = dispatcher + exceptionHandler, start = CoroutineStart.LAZY) {
@@ -372,6 +373,7 @@ private fun NexaDevStateStore.launchNativeTask(
             throw cancellation
         } catch (error: Throwable) {
             android.util.Log.e("NexaDevRuntime", "Foreground task failed", error)
+            reportRuntimeFailure(error)
         }
     }
     foregroundTasks[key] = job
@@ -410,6 +412,7 @@ internal fun NexaDevStateStore.devNativeEventHandler(
                 throw error
             } catch (error: Throwable) {
                 android.util.Log.e("NexaDevRuntime", "Native event action failed", error)
+                store.reportRuntimeFailure(error)
             }
         }
     }

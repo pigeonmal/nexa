@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -84,7 +85,8 @@ internal fun NexaDevErrorOverlay(
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text("Nexa development error", color = Color.White, fontWeight = FontWeight.SemiBold)
             Text(
-                "${first.file.substringAfterLast('/').substringAfterLast('\\')}:${first.line}:${first.column}",
+                if (first.isRuntimeFailure) "Runtime error · source mapping unavailable"
+                else "${first.file.substringAfterLast('/').substringAfterLast('\\')}:${first.line}:${first.column}",
                 color = Color(0xFFFFC9C5),
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 2.dp),
@@ -97,7 +99,11 @@ internal fun NexaDevErrorOverlay(
                 modifier = Modifier.padding(top = 4.dp),
             )
             Text(
-                if (diagnostics.size == 1) "Tap to inspect and open in editor" else "${diagnostics.size} errors · tap to inspect",
+                when {
+                    diagnostics.size > 1 -> "${diagnostics.size} errors · tap to inspect"
+                    first.isRuntimeFailure -> "Tap to inspect stack trace"
+                    else -> "Tap to inspect and open in editor"
+                },
                 color = Color(0xFFFFC9C5),
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 6.dp),
@@ -114,17 +120,35 @@ internal fun NexaDevErrorOverlay(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    Text("Build diagnostics", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    Text("Development diagnostics", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                     diagnostics.forEach { diagnostic ->
                         Column(Modifier.padding(top = 16.dp)) {
-                            Text(
-                                "${diagnostic.file}:${diagnostic.line}:${diagnostic.column}",
-                                color = Color(0xFFFFC9C5),
-                                fontSize = 12.sp,
-                            )
+                            if (diagnostic.isRuntimeFailure) {
+                                Text("Runtime error · source mapping unavailable", color = Color(0xFFFFC9C5), fontSize = 12.sp)
+                            } else {
+                                Text(
+                                    "${diagnostic.file}:${diagnostic.line}:${diagnostic.column}",
+                                    color = Color(0xFFFFC9C5),
+                                    fontSize = 12.sp,
+                                )
+                            }
                             Text(diagnostic.message, color = Color.White, modifier = Modifier.padding(top = 4.dp))
-                            TextButton(onClick = { onOpenInEditor(diagnostic) }) {
-                                Text("Open in editor")
+                            if (diagnostic.isRuntimeFailure) {
+                                diagnostic.stackTrace?.takeIf(String::isNotBlank)?.let { stackTrace ->
+                                    SelectionContainer {
+                                        Text(
+                                            stackTrace,
+                                            color = Color(0xFFE4DEE7),
+                                            fontSize = 11.sp,
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            modifier = Modifier.padding(top = 8.dp),
+                                        )
+                                    }
+                                }
+                            } else {
+                                TextButton(onClick = { onOpenInEditor(diagnostic) }) {
+                                    Text("Open in editor")
+                                }
                             }
                         }
                     }

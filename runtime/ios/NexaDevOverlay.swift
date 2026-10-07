@@ -86,13 +86,13 @@ struct NexaDevErrorOverlay: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Nexa development error")
                         .font(.subheadline.weight(.semibold))
-                    Text(diagnostic.sourceLocation)
+                    Text(diagnostic.isRuntimeFailure ? "Runtime error · source mapping unavailable" : diagnostic.sourceLocation)
                         .font(.caption.monospaced())
                         .foregroundStyle(.red)
                     Text(diagnostic.message)
                         .font(.subheadline)
                         .lineLimit(2)
-                    Text(diagnostics.count == 1 ? "Tap to inspect and open in editor" : "\(diagnostics.count) errors · tap to inspect")
+                    Text(diagnostics.count > 1 ? "\(diagnostics.count) errors · tap to inspect" : (diagnostic.isRuntimeFailure ? "Tap to inspect stack trace" : "Tap to inspect and open in editor"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -111,24 +111,32 @@ struct NexaDevErrorOverlay: View {
                         VStack(alignment: .leading, spacing: 18) {
                             ForEach(diagnostics) { item in
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text(item.sourceLocation)
+                                    Text(item.isRuntimeFailure ? "Runtime error · source mapping unavailable" : item.sourceLocation)
                                         .font(.caption.monospaced())
                                         .foregroundStyle(.red)
                                     Text(item.message)
                                         .font(.body)
-                                    Button {
-                                        onOpenInEditor(item)
-                                    } label: {
-                                        Label("Open in editor", systemImage: "arrow.up.forward.app")
+                                    if item.isRuntimeFailure {
+                                        if let stackTrace = item.stackTrace {
+                                            Text(stackTrace)
+                                                .font(.caption.monospaced())
+                                                .textSelection(.enabled)
+                                        }
+                                    } else {
+                                        Button {
+                                            onOpenInEditor(item)
+                                        } label: {
+                                            Label("Open in editor", systemImage: "arrow.up.forward.app")
+                                        }
+                                        .buttonStyle(.bordered)
                                     }
-                                    .buttonStyle(.bordered)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                         .padding()
                     }
-                    .navigationTitle("Build diagnostics")
+                    .navigationTitle("Development diagnostics")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {

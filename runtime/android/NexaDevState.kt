@@ -1,6 +1,8 @@
 package __NEXA_PACKAGE__
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -21,7 +23,10 @@ internal data class NexaDevDiagnostic(
     val line: Int,
     val column: Int,
     val message: String,
-)
+    val stackTrace: String? = null,
+) {
+    val isRuntimeFailure: Boolean get() = file == "<runtime>"
+}
 
 internal data class NexaDevNativeEventSubscription(
     val receiver: Any,
@@ -47,6 +52,7 @@ internal data class NexaDevUserClassInstance(val className: String, val fields: 
 internal data class NexaDevDynamicRow(val fields: Map<String, Any>)
 
 internal class NexaDevStateStore(internal val context: Context) {
+    private val mainHandler = Handler(Looper.getMainLooper())
     internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val foregroundTasks = ConcurrentHashMap<String, Job>()
     internal val values = mutableStateMapOf<String, Any>()
@@ -456,6 +462,21 @@ internal class NexaDevStateStore(internal val context: Context) {
 
     fun publishDiagnostics(next: List<NexaDevDiagnostic>) {
         diagnostics = next
+    }
+
+    fun reportRuntimeFailure(error: Throwable) {
+        val diagnostic = NexaDevDiagnostic(
+            file = "<runtime>",
+            line = 1,
+            column = 1,
+            message = error.message?.takeIf(String::isNotBlank) ?: error.javaClass.simpleName,
+            stackTrace = error.stackTraceToString(),
+        )
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            diagnostics = listOf(diagnostic)
+        } else {
+            mainHandler.post { diagnostics = listOf(diagnostic) }
+        }
     }
 
     fun requestEditorOpen(diagnostic: NexaDevDiagnostic) {

@@ -34,6 +34,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import org.json.JSONArray
 
@@ -58,7 +59,13 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
         val readyModule = snapshotFlow { store.module }.filterNotNull().first()
         val actions = readyModule.optJSONArray("on_appear") ?: JSONArray()
         if (readyModule.optBoolean("on_appear_async")) {
-            store.performAsync(actions, "app", emptyMap())
+            try {
+                store.performAsync(actions, "app", emptyMap())
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                store.reportRuntimeFailure(error)
+            }
         } else {
             store.perform(actions, "app", emptyMap())
         }

@@ -867,11 +867,19 @@ fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
         .expect("read iOS dev protocol");
     let ios_overlay = fs::read_to_string(root.join("../../runtime/ios/NexaDevOverlay.swift"))
         .expect("read iOS dev overlay");
+    let ios_state = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS dev state");
+    let ios_actions = fs::read_to_string(root.join("../../runtime/ios/NexaDevActions.swift"))
+        .expect("read iOS dev actions");
     let android_protocol =
         fs::read_to_string(root.join("../../runtime/android/NexaDevProtocol.kt"))
             .expect("read Android dev protocol");
     let android_overlay = fs::read_to_string(root.join("../../runtime/android/NexaDevOverlay.kt"))
         .expect("read Android dev overlay");
+    let android_state = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state");
+    let android_actions = fs::read_to_string(root.join("../../runtime/android/NexaDevActions.kt"))
+        .expect("read Android dev actions");
     let server = fs::read_to_string(root.join("../../crates/nexa-dev-server/src/lib.rs"))
         .expect("read dev server");
     let cli = fs::read_to_string(root.join("../../crates/nexa-cli/src/commands.rs"))
@@ -879,12 +887,20 @@ fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
 
     assert!(ios_protocol.contains("NexaDevKeys.msgOpenInEditor"));
     assert!(ios_protocol.contains("NexaDevDiagnostic(file: file, line: line, column: column"));
-    assert!(ios_overlay.contains("Build diagnostics"));
+    assert!(ios_overlay.contains("Development diagnostics"));
     assert!(ios_overlay.contains("onOpenInEditor(item)"));
+    assert!(ios_overlay.contains("item.stackTrace"));
+    assert!(ios_overlay.contains("source mapping unavailable"));
+    assert!(ios_state.contains("onRuntimeFailure?(error, capturedStack)"));
+    assert!(ios_actions.contains("self.reportRuntimeFailure(error)"));
     assert!(android_protocol.contains("NexaDevKeys.MSG_OPEN_IN_EDITOR"));
     assert!(android_protocol.contains("NexaDevDiagnostic("));
-    assert!(android_overlay.contains("Build diagnostics"));
+    assert!(android_overlay.contains("Development diagnostics"));
     assert!(android_overlay.contains("onOpenInEditor(diagnostic)"));
+    assert!(android_overlay.contains("diagnostic.stackTrace"));
+    assert!(android_overlay.contains("source mapping unavailable"));
+    assert!(android_state.contains("error.stackTraceToString()"));
+    assert!(android_actions.contains("store.reportRuntimeFailure(error)"));
     assert!(server.contains("ClientMessage::OpenInEditor { file, line, column }"));
     assert!(cli.contains("vscode://file/"));
 }

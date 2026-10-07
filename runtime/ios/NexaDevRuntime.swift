@@ -69,7 +69,13 @@ public struct NexaDevRuntimeRoot: View {
             let actions = module["on_appear"] as? [Any] ?? []
             if module["on_appear_async"] as? Bool == true {
                 Task { @MainActor in
-                    try? await runtime.store.performAsync(actions, scope: "app", locals: [:])
+                    do {
+                        _ = try await runtime.store.performAsync(actions, scope: "app", locals: [:])
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        runtime.store.reportRuntimeFailure(error)
+                    }
                 }
             } else {
                 runtime.store.perform(actions, scope: "app", locals: [:])

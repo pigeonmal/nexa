@@ -58,6 +58,10 @@ extension NexaDevStateStore {
                     return
                 } catch {
                     NSLog("NexaDevRuntime background task failed: %@", String(describing: error))
+                    await self.reportRuntimeFailure(
+                        error,
+                        stackTrace: Thread.callStackSymbols.joined(separator: "\n")
+                    )
                 }
             }
         } else {
@@ -73,6 +77,7 @@ extension NexaDevStateStore {
                     return
                 } catch {
                     NSLog("NexaDevRuntime foreground task failed: %@", String(describing: error))
+                    self.reportRuntimeFailure(error)
                 }
             }
         }
@@ -272,6 +277,7 @@ extension NexaDevStateStore {
                     _ = try await self.performAsync(actions, scope: scope, locals: eventLocals)
                 } catch {
                     NSLog("NexaDevRuntime native event action failed: %@", String(describing: error))
+                    self.reportRuntimeFailure(error)
                 }
             }
         }

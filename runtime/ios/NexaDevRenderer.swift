@@ -1903,7 +1903,13 @@ struct NexaDevNodeList: View {
             let actions = screen["on_appear"] as? [Any] ?? []
             if screen["on_appear_async"] as? Bool == true {
                 Task { @MainActor in
-                    try? await store.performAsync(actions, scope: scope, locals: parameters)
+                    do {
+                        _ = try await store.performAsync(actions, scope: scope, locals: parameters)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        store.reportRuntimeFailure(error)
+                    }
                 }
             } else {
                 store.perform(actions, scope: scope, locals: parameters)

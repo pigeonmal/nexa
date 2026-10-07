@@ -7,8 +7,18 @@ struct NexaDevDiagnostic: Identifiable, Equatable {
     let line: Int
     let column: Int
     let message: String
+    let stackTrace: String?
+
+    init(file: String, line: Int, column: Int, message: String, stackTrace: String? = nil) {
+        self.file = file
+        self.line = line
+        self.column = column
+        self.message = message
+        self.stackTrace = stackTrace
+    }
 
     var sourceLocation: String { "\(file):\(line):\(column)" }
+    var isRuntimeFailure: Bool { file == "<runtime>" }
 }
 
 /// WebSocket protocol and session management for the Nexa development runtime.
@@ -28,6 +38,19 @@ final class NexaDevRuntime: ObservableObject {
     init(serverURL: String, sessionToken: String) {
         self.serverURL = serverURL
         self.sessionToken = sessionToken
+        store.onRuntimeFailure = { [weak self] error, stackTrace in
+            self?.reportRuntimeFailure(error, stackTrace: stackTrace)
+        }
+    }
+
+    func reportRuntimeFailure(_ error: Error, stackTrace: String) {
+        diagnostics = [NexaDevDiagnostic(
+            file: "<runtime>",
+            line: 1,
+            column: 1,
+            message: String(describing: error),
+            stackTrace: "\(String(describing: error))\n\nCall stack:\n\(stackTrace)"
+        )]
     }
 
     func connect() {
