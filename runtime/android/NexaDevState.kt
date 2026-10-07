@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import java.util.concurrent.ConcurrentHashMap
 
 internal data class NexaDevNativeEventSubscription(
@@ -58,11 +59,11 @@ internal class NexaDevStateStore(internal val context: Context) {
     var diagnostics by mutableStateOf<List<String>>(emptyList())
         private set
     var performanceOverlayEnabled by mutableStateOf(false)
-    var navigationEpoch by mutableStateOf(0)
+    var navigationEpoch by mutableIntStateOf(0)
         private set
     var focusedFieldKey by mutableStateOf<String?>(null)
         private set
-    var moduleRevision by mutableStateOf(0)
+    var moduleRevision by mutableIntStateOf(0)
         internal set
     private var navigationRoot: String? = null
     private var navigationScreensSignature: String? = null
@@ -73,6 +74,12 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal var pendingPluginFailure: NexaDevPluginFailure? = null
     private var hasInstalledModule = false
     private var hotTranslations = JSONObject()
+
+    fun dispose() {
+        clearNativeTasks()
+        clearNativeEventSubscriptions()
+        eventScope.cancel()
+    }
 
     fun installTranslations(translations: JSONObject?) {
         hotTranslations = translations?.let { JSONObject(it.toString()) } ?: JSONObject()

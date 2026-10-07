@@ -77,6 +77,30 @@ fn user_classes_are_interpreted_by_both_dev_runtimes() {
     assert!(kotlin.contains("callLocals = instance.fields.toMutableMap()"));
 }
 
+#[test]
+fn android_dev_runtime_unboxes_primitive_state_and_closes_its_event_scope() {
+    let (root, _) = fixture();
+    let kotlin_state = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state store");
+    let kotlin_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRuntime.kt"))
+        .expect("read Android dev runtime");
+
+    for declaration in [
+        "appLifecycleEpoch by mutableIntStateOf(0)",
+        "navigationEpoch by mutableIntStateOf(0)",
+        "moduleRevision by mutableIntStateOf(0)",
+    ] {
+        assert!(
+            kotlin_state.contains(declaration),
+            "missing unboxed state: {declaration}"
+        );
+    }
+    assert!(kotlin_runtime.contains("frameTimeMs by remember { mutableDoubleStateOf(0.0) }"));
+    assert!(kotlin_state.contains("fun dispose()"));
+    assert!(kotlin_state.contains("eventScope.cancel()"));
+    assert!(kotlin_runtime.contains("store.dispose()"));
+}
+
 fn is_semantically_probed_plugin_variant(enum_name: &str, variant_name: &str) -> bool {
     matches!(
         (enum_name, variant_name),

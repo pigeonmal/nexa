@@ -16,6 +16,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,12 +83,11 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
     DisposableEffect(lifecycleOwner) {
         onDispose {
             latestModule.value?.optJSONArray("on_disappear")?.let { store.perform(it, "app", emptyMap()) }
-            store.clearNativeEventSubscriptions("app")
-            store.clearNativeTasks("app")
+            store.dispose()
         }
     }
     var fps by remember { mutableIntStateOf(0) }
-    var frameTimeMs by remember { mutableStateOf(0.0) }
+    var frameTimeMs by remember { mutableDoubleStateOf(0.0) }
     LaunchedEffect(store.performanceOverlayEnabled) {
         if (!store.performanceOverlayEnabled) return@LaunchedEffect
         var frameCount = 0
