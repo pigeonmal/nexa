@@ -92,6 +92,19 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(features.uses_button, "androidx.compose.material3.Button");
     imports.add(
+        features.uses_button,
+        "androidx.compose.material3.OutlinedButton",
+    );
+    imports.add(
+        features.uses_button,
+        "androidx.compose.material3.TextButton",
+    );
+    imports.add(
+        features.uses_button,
+        "androidx.compose.foundation.layout.PaddingValues",
+    );
+    imports.add(features.uses_button, "androidx.compose.ui.unit.dp");
+    imports.add(
         features.uses_button_loading,
         "androidx.compose.material3.CircularProgressIndicator",
     );
@@ -202,6 +215,9 @@ pub(crate) fn render_button(
     icon: Option<&SystemIcon>,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
+    style: Option<nexa_ir::ButtonStyle>,
+    size: Option<nexa_ir::ButtonSize>,
+    shape: Option<nexa_ir::ButtonShape>,
     tint: Option<&nexa_ir::ColorExpression>,
     actions: &[Action],
     depth: usize,
@@ -209,7 +225,8 @@ pub(crate) fn render_button(
 ) {
     if let Some(loading) = loading {
         indent(out, depth);
-        out.push_str("Button(onClick = {");
+        out.push_str(button_component(style));
+        out.push_str("(onClick = {");
         if actions.is_empty() {
             out.push_str(" }, enabled = !");
             out.push_str(&expression(loading));
@@ -224,7 +241,7 @@ pub(crate) fn render_button(
             out.push_str(" && !");
             out.push_str(&expression(disabled));
         }
-        append_button_tint(tint, out);
+        append_button_options(style, size, shape, tint, out);
         out.push_str(") {");
         out.push('\n');
         out.line_at(depth + 1, format_args!("if ({}) {{", expression(loading)));
@@ -241,7 +258,8 @@ pub(crate) fn render_button(
         return;
     }
     indent(out, depth);
-    out.push_str("Button(onClick = {");
+    out.push_str(button_component(style));
+    out.push_str("(onClick = {");
     if actions.is_empty() {
         out.push_str(" }");
     } else {
@@ -254,19 +272,74 @@ pub(crate) fn render_button(
         out.push_str(", enabled = !");
         out.push_str(&expression(disabled));
     }
-    append_button_tint(tint, out);
+    append_button_options(style, size, shape, tint, out);
     out.push_str(") {\n");
     render_button_content(label, icon, depth + 1, out);
     indent(out, depth);
     out.push('}');
 }
 
-fn append_button_tint(tint: Option<&nexa_ir::ColorExpression>, out: &mut SourceWriter) {
+fn button_component(style: Option<nexa_ir::ButtonStyle>) -> &'static str {
+    match style {
+        Some(nexa_ir::ButtonStyle::Bordered) => "OutlinedButton",
+        Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain) => "TextButton",
+        Some(nexa_ir::ButtonStyle::BorderedProminent) | None => "Button",
+    }
+}
+
+fn append_button_options(
+    style: Option<nexa_ir::ButtonStyle>,
+    size: Option<nexa_ir::ButtonSize>,
+    shape: Option<nexa_ir::ButtonShape>,
+    tint: Option<&nexa_ir::ColorExpression>,
+    out: &mut SourceWriter,
+) {
     if let Some(tint) = tint {
-        out.push_str(&format!(
-            ", colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = {})",
-            crate::generator::colors::expression_for_color(tint)
-        ));
+        let color = crate::generator::colors::expression_for_color(tint);
+        match style {
+            Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain) => {
+                out.push_str(&format!(
+                    ", colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = {color})"
+                ));
+            }
+            Some(nexa_ir::ButtonStyle::Bordered) => {
+                out.push_str(&format!(
+                    ", colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = {color}), border = androidx.compose.foundation.BorderStroke(1.dp, {color})"
+                ));
+            }
+            Some(nexa_ir::ButtonStyle::BorderedProminent) | None => {
+                out.push_str(&format!(
+                    ", colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = {color})"
+                ));
+            }
+        }
+    }
+    if let Some(shape) = shape {
+        let expression = match shape {
+            nexa_ir::ButtonShape::Capsule => {
+                "androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)".to_owned()
+            }
+            nexa_ir::ButtonShape::Circle => {
+                "androidx.compose.foundation.shape.CircleShape".to_owned()
+            }
+            nexa_ir::ButtonShape::Rounded(radius) => format!(
+                "androidx.compose.foundation.shape.RoundedCornerShape({}.dp)",
+                crate::generator::utils::number(radius)
+            ),
+        };
+        out.push_str(&format!(", shape = {expression}"));
+    }
+    if let Some(size) = size {
+        let padding = match size {
+            nexa_ir::ButtonSize::Small => Some((12, 4)),
+            nexa_ir::ButtonSize::Regular => None,
+            nexa_ir::ButtonSize::Large => Some((24, 12)),
+        };
+        if let Some((horizontal, vertical)) = padding {
+            out.push_str(&format!(
+                ", contentPadding = PaddingValues(horizontal = {horizontal}.dp, vertical = {vertical}.dp)"
+            ));
+        }
     }
 }
 
@@ -1194,7 +1267,37 @@ mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{Action, CollectionMutation, Expr, NumericType, TaskExecutor, Type};
 
-    use super::{render_actions, render_progress_bar, render_progress_ring, render_slider};
+    use super::{
+        render_actions, render_button, render_progress_bar, render_progress_ring, render_slider,
+    };
+
+    #[test]
+    fn renders_button_style_size_and_shape_as_compose_parameters() {
+        let label = Expr::String("Skip".to_owned());
+        let mut output = SourceWriter::new();
+
+        render_button(
+            &label,
+            None,
+            None,
+            None,
+            Some(nexa_ir::ButtonStyle::Borderless),
+            Some(nexa_ir::ButtonSize::Large),
+            Some(nexa_ir::ButtonShape::Capsule),
+            None,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("TextButton(onClick = { }"));
+        assert!(
+            output.contains("contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)")
+        );
+        assert!(output.contains(
+            "shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
+        ));
+    }
 
     #[test]
     fn renders_native_progress_indicators_with_bounded_float_values() {

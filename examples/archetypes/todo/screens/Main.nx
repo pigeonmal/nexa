@@ -46,7 +46,7 @@ screen Main {
                                 currentOnboardingPage = 2
                             }
                         }
-                        Button("Skip", style: Borderless) {
+                        Button("Skip", style: Borderless, tint: "#007AFF") {
                             currentOnboardingPage = 2
                         }
                         Column(height: 36) {

@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -73,6 +74,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Badge
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.TimePicker
@@ -676,6 +679,7 @@ internal fun NexaDevNode(
         "Button" -> {
             val loading = store.evaluatePresented(fields.opt("loading"), locals, scope) as? Boolean ?: false
             val disabled = store.evaluatePresented(fields.opt("disabled"), locals, scope) as? Boolean ?: false
+            val style = fields.optString("style")
             val tintValue = fields.optJSONObject("tint") ?: JSONObject()
             val dynamicTint = tintValue.opt("Dynamic")
             val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
@@ -683,25 +687,69 @@ internal fun NexaDevNode(
             } else {
                 nexaDevColor(tintValue, isSystemInDarkTheme())
             }
-            Button(
-                onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) },
-                enabled = !loading && !disabled,
-                colors = tint?.let { androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = it) }
-                    ?: androidx.compose.material3.ButtonDefaults.buttonColors(),
-            ) {
+            val encodedShape = fields.opt("shape")
+            val shapeFields = fields.optJSONObject("shape") ?: JSONObject()
+            val buttonShape = when {
+                shapeFields.has("Circle") || encodedShape == "Circle" -> CircleShape
+                shapeFields.has("Rounded") -> RoundedCornerShape(shapeFields.optDouble("Rounded").dp)
+                shapeFields.has("Capsule") || encodedShape == "Capsule" -> RoundedCornerShape(percent = 50)
+                else -> null
+            }
+            val contentPadding = when (fields.optString("size")) {
+                "Small" -> PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                "Large" -> PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                else -> null
+            }
+            val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
+            val icon = when {
+                iconSelection.has("shared") -> nexaDevSharedMaterialIcon(iconSelection.optString("shared"))
+                iconSelection.has("sf_symbol") -> nexaDevSfAliasMaterialIcon(iconSelection.optString("sf_symbol"))
+                iconSelection.has("material_symbol") -> nexaDevSpecificMaterialIcon(iconSelection.optString("material_symbol"))
+                else -> null
+            }
+            val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
+            val buttonContent: @Composable RowScope.() -> Unit = {
                 if (loading) {
                     CircularProgressIndicator()
                 } else {
-                    val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
-                    val icon = when {
-                        iconSelection.has("shared") -> nexaDevSharedMaterialIcon(iconSelection.optString("shared"))
-                        iconSelection.has("sf_symbol") -> nexaDevSfAliasMaterialIcon(iconSelection.optString("sf_symbol"))
-                        iconSelection.has("material_symbol") -> nexaDevSpecificMaterialIcon(iconSelection.optString("material_symbol"))
-                        else -> null
-                    }
                     if (icon != null) Icon(imageVector = icon, contentDescription = null)
-                    Text(store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope)))
+                    Text(label)
                 }
+            }
+            val onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) }
+            when (style) {
+                "Borderless", "Plain" -> TextButton(
+                    onClick = onClick,
+                    enabled = !loading && !disabled,
+                    shape = buttonShape ?: androidx.compose.material3.ButtonDefaults.textShape,
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = tint ?: Color.Unspecified,
+                    ),
+                    contentPadding = contentPadding ?: androidx.compose.material3.ButtonDefaults.TextButtonContentPadding,
+                    content = buttonContent,
+                )
+                "Bordered" -> OutlinedButton(
+                    onClick = onClick,
+                    enabled = !loading && !disabled,
+                    shape = buttonShape ?: androidx.compose.material3.ButtonDefaults.outlinedShape,
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                        contentColor = tint ?: Color.Unspecified,
+                    ),
+                    border = tint?.let { androidx.compose.foundation.BorderStroke(1.dp, it) }
+                        ?: androidx.compose.material3.ButtonDefaults.outlinedButtonBorder(enabled = !loading && !disabled),
+                    contentPadding = contentPadding ?: androidx.compose.material3.ButtonDefaults.ContentPadding,
+                    content = buttonContent,
+                )
+                else -> Button(
+                    onClick = onClick,
+                    enabled = !loading && !disabled,
+                    shape = buttonShape ?: androidx.compose.material3.ButtonDefaults.shape,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = tint ?: Color.Unspecified,
+                    ),
+                    contentPadding = contentPadding ?: androidx.compose.material3.ButtonDefaults.ContentPadding,
+                    content = buttonContent,
+                )
             }
         }
         "Pressable" -> {
