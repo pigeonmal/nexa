@@ -1549,6 +1549,44 @@ mod tests {
     }
 
     #[test]
+    fn semantic_text_font_roles_emit_material_typography() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "SemanticTextStyle".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Text {
+                value: Expr::String("Task description".to_owned()),
+                style: TextStyle {
+                    font_style: Some(nexa_ir::TextFontStyle::Subheadline),
+                    ..TextStyle::default()
+                },
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        assert!(
+            generate(&module)
+                .contains("style = androidx.compose.material3.MaterialTheme.typography.bodyMedium")
+        );
+    }
+
+    #[test]
     fn generates_result_and_try_in_kotlin() {
         let err_type = Type::Enum("AppError".to_owned());
         let module = Module {

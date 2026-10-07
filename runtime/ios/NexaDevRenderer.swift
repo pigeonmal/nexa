@@ -810,6 +810,21 @@ struct NexaDevNodeList: View {
                 }
                 styled = AnyView(styled.multilineTextAlignment(nativeAlignment))
             }
+            let semanticFont: Font? = switch style["font_style"] as? String {
+            case "LargeTitle": .largeTitle
+            case "Title": .title
+            case "Title2": .title2
+            case "Title3": .title3
+            case "Headline": .headline
+            case "Subheadline": .subheadline
+            case "Body": .body
+            case "Callout": .callout
+            case "Footnote": .footnote
+            case "Caption": .caption
+            case "Caption2": .caption2
+            default: nil
+            }
+            if let semanticFont { styled = AnyView(styled.font(semanticFont)) }
             if let size = style["font_size"] as? Double {
                 styled = AnyView(styled.font(.system(size: size)))
             }

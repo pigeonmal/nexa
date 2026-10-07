@@ -1235,6 +1235,63 @@
         "android": "covered"
       }
     ],
+    "TextFontStyle": [
+      {
+        "name": "LargeTitle",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Title",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Title2",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Title3",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Headline",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Subheadline",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Body",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Callout",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Footnote",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Caption",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Caption2",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "ColorValue": [
       {
         "name": "Static",

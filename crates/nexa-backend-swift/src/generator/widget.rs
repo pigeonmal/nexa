@@ -1272,7 +1272,10 @@ mod tests {
             refresh_seconds: 1800,
             body: vec![Node::Text {
                 value: Expr::String("Tasks".into()),
-                style: TextStyle::default(),
+                style: TextStyle {
+                    font_style: Some(nexa_ir::TextFontStyle::Subheadline),
+                    ..TextStyle::default()
+                },
             }],
         });
         let generated = generate(&module).expect("valid widget IR").sources;
@@ -1286,6 +1289,7 @@ mod tests {
         assert!(source.contains(".systemSmall, .systemMedium"));
         assert!(source.contains("addingTimeInterval(1800)"));
         assert!(source.contains("let family: NexaWidgetFamily = switch context.family"));
+        assert!(source.contains(".font(.subheadline)"));
         assert!(!source.contains("rowLimit"));
         let bundle = generated
             .units

@@ -217,9 +217,9 @@ Reference: components.md#content-unavailable
 
 Displays formatted text
 
-Signature: `Text(value, comment:, color:, alignment:, fontSize:, fontWeight:, padding:, opacity:, scale:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, selectable:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Text(value, comment:, color:, alignment:, fontSize:, fontStyle:, fontWeight:, padding:, opacity:, scale:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, selectable:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `comment`, `color`, `alignment`, `fontSize`, `fontWeight`, `padding`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `selectable`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `comment`, `color`, `alignment`, `fontSize`, `fontStyle`, `fontWeight`, `padding`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `selectable`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 

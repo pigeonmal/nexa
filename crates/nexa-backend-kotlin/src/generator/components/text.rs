@@ -40,6 +40,12 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     if let Some(color) = style.color {
         out.push_str(&format!(", color = {}", colors::expression(color)));
     }
+    if let Some(font_style) = style.font_style {
+        out.push_str(&format!(
+            ", style = androidx.compose.material3.MaterialTheme.typography.{}",
+            kotlin_text_font_style(font_style)
+        ));
+    }
     if let Some(font_size) = style.font_size {
         out.push_str(&format!(", fontSize = {}.sp", number(font_size)));
     }
@@ -131,5 +137,21 @@ fn kotlin_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
         nexa_ir::FontWeight::Medium => "FontWeight.Medium",
         nexa_ir::FontWeight::Semibold => "FontWeight.SemiBold",
         nexa_ir::FontWeight::Bold => "FontWeight.Bold",
+    }
+}
+
+fn kotlin_text_font_style(style: nexa_ir::TextFontStyle) -> &'static str {
+    match style {
+        nexa_ir::TextFontStyle::LargeTitle => "displaySmall",
+        nexa_ir::TextFontStyle::Title => "headlineMedium",
+        nexa_ir::TextFontStyle::Title2 => "headlineSmall",
+        nexa_ir::TextFontStyle::Title3 => "titleLarge",
+        nexa_ir::TextFontStyle::Headline => "titleMedium",
+        nexa_ir::TextFontStyle::Subheadline => "bodyMedium",
+        nexa_ir::TextFontStyle::Body => "bodyLarge",
+        nexa_ir::TextFontStyle::Callout => "bodyMedium",
+        nexa_ir::TextFontStyle::Footnote => "bodySmall",
+        nexa_ir::TextFontStyle::Caption => "labelMedium",
+        nexa_ir::TextFontStyle::Caption2 => "labelSmall",
     }
 }

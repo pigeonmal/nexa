@@ -107,6 +107,13 @@ pub(crate) fn render_node(
                     colors::expression(color)
                 ));
             }
+            if let Some(font_style) = style.font_style {
+                out.push_str(&format!(
+                    "\n{}.font({})",
+                    "    ".repeat(depth + 1),
+                    swift_text_font_style(font_style)
+                ));
+            }
             if let Some(font_size) = style.font_size {
                 out.push_str(&format!(
                     "\n{}.font(.system(size: {}))",
@@ -592,6 +599,22 @@ fn swift_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
         nexa_ir::FontWeight::Medium => ".medium",
         nexa_ir::FontWeight::Semibold => ".semibold",
         nexa_ir::FontWeight::Bold => ".bold",
+    }
+}
+
+fn swift_text_font_style(style: nexa_ir::TextFontStyle) -> &'static str {
+    match style {
+        nexa_ir::TextFontStyle::LargeTitle => ".largeTitle",
+        nexa_ir::TextFontStyle::Title => ".title",
+        nexa_ir::TextFontStyle::Title2 => ".title2",
+        nexa_ir::TextFontStyle::Title3 => ".title3",
+        nexa_ir::TextFontStyle::Headline => ".headline",
+        nexa_ir::TextFontStyle::Subheadline => ".subheadline",
+        nexa_ir::TextFontStyle::Body => ".body",
+        nexa_ir::TextFontStyle::Callout => ".callout",
+        nexa_ir::TextFontStyle::Footnote => ".footnote",
+        nexa_ir::TextFontStyle::Caption => ".caption",
+        nexa_ir::TextFontStyle::Caption2 => ".caption2",
     }
 }
 

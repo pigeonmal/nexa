@@ -9,8 +9,8 @@ use nexa_ir::{
     HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis,
     ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType, ReturnKeyType, ScreenId,
     SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
-    TaskExecutor as IrTaskExecutor, TextInputFont, TextStyle, ToolbarPlacement, Type,
-    ViewTransition as IrViewTransition, WhenCase,
+    TaskExecutor as IrTaskExecutor, TextFontStyle, TextInputFont, TextStyle, ToolbarPlacement,
+    Type, ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -655,6 +655,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let color = args.remove("color");
             let alignment = lower_text_alignment(args.remove("alignment"))?;
             let font_size = args.remove("fontSize");
+            let font_style = lower_text_font_style(args.remove("fontStyle"))?;
             let font_weight = args.remove("fontWeight");
             let padding = args.remove("padding");
             let line_limit = args.remove("lineLimit");
@@ -701,6 +702,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     alignment,
                     color,
                     font_size,
+                    font_style,
                     font_weight,
                     padding,
                     opacity,
@@ -3328,6 +3330,38 @@ fn lower_font_weight(value: Option<ast::Expr>) -> Result<Option<FontWeight>, Com
         }
     };
     Ok(Some(weight))
+}
+
+fn lower_text_font_style(value: Option<ast::Expr>) -> Result<Option<TextFontStyle>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "Text fontStyle must be LargeTitle, Title, Title2, Title3, Headline, Subheadline, Body, Callout, Footnote, Caption, or Caption2",
+        ));
+    };
+    let style = match name.as_str() {
+        "LargeTitle" => TextFontStyle::LargeTitle,
+        "Title" => TextFontStyle::Title,
+        "Title2" => TextFontStyle::Title2,
+        "Title3" => TextFontStyle::Title3,
+        "Headline" => TextFontStyle::Headline,
+        "Subheadline" => TextFontStyle::Subheadline,
+        "Body" => TextFontStyle::Body,
+        "Callout" => TextFontStyle::Callout,
+        "Footnote" => TextFontStyle::Footnote,
+        "Caption" => TextFontStyle::Caption,
+        "Caption2" => TextFontStyle::Caption2,
+        _ => {
+            return Err(CompileError::new(
+                span,
+                "Text fontStyle must be LargeTitle, Title, Title2, Title3, Headline, Subheadline, Body, Callout, Footnote, Caption, or Caption2",
+            ));
+        }
+    };
+    Ok(Some(style))
 }
 
 fn lower_line_limit(value: Option<ast::Expr>) -> Result<Option<i32>, CompileError> {

@@ -1645,6 +1645,42 @@ fn chained_text_styles_lower_to_native_text_style_fields() {
 }
 
 #[test]
+fn semantic_text_font_roles_lower_and_validate() {
+    let module = compile(
+        r#"
+        app SemanticTextRoles {
+            body {
+                Text("Task description", fontStyle: Subheadline)
+                Text("Due tomorrow", fontStyle: Caption)
+            }
+        }
+        "#,
+    )
+    .expect("semantic text font roles should lower into typed IR");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::Text { style, .. }
+            if style.font_style == Some(nexa_ir::TextFontStyle::Subheadline)
+    ));
+    assert!(matches!(
+        &module.body[1],
+        Node::Text { style, .. }
+            if style.font_style == Some(nexa_ir::TextFontStyle::Caption)
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidTextRole {
+            body { Text("Task", fontStyle: Display) }
+        }
+        "#,
+    )
+    .expect_err("unsupported semantic text roles should be rejected");
+    assert!(invalid.to_string().contains("fontStyle must be"));
+}
+
+#[test]
 fn visual_modifiers_lower_to_validated_static_effects() {
     let module = compile(
         r##"

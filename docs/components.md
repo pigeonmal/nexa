@@ -140,3 +140,18 @@ app SupportCenter {
 ## Complete component reference
 
 The compiler schema is the source of truth. The [syntax audit](syntax-audit.md) enumerates every current component and its accepted argument names, required values, child blocks, and event modifiers. Read it alongside the [language guide](language-guide.md); do not infer `.nx` syntax from SwiftUI or Compose APIs.
+
+### Text
+
+`Text` accepts optional `fontStyle` (`TextFontStyle`) for scalable native typography; omit it to use the platform default. Supported values are `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`, `Footnote`, `Caption`, and `Caption2`. Swift output uses the matching SwiftUI text style, so Dynamic Type scales it with the user's accessibility setting. Android app output selects the nearest Material 3 typography role, which follows the system font scale. Android widgets use matching scalable `sp` sizes. An explicit `fontSize` overrides the role's default size.
+
+```nx
+app TaskTypographyPreview {
+    body {
+        Column(spacing: 3) {
+            Text("Renew team insurance", fontStyle: Subheadline)
+            Text("Tomorrow · 09:00", fontStyle: Caption, color: "#8E8E93")
+        }
+    }
+}
+```

@@ -113,7 +113,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "Text",
         summary: "Displays formatted text",
         snippet: "Text(\"${1:Label}\")",
-        probe: "app P { body { Text(\"a\", fontSize: 18, accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityValue: \"Ready\", accessibilityRole: Image) } }",
+        probe: "app P { body { Text(\"a\", fontStyle: Subheadline, accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityValue: \"Ready\", accessibilityRole: Image) } }",
     },
     ComponentEntry {
         name: "ContentUnavailable",
@@ -1104,6 +1104,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("color"),
             opt("alignment"),
             opt("fontSize"),
+            opt("fontStyle"),
             opt("fontWeight"),
             opt("padding"),
             opt("opacity"),

@@ -308,6 +308,47 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
 }
 
 #[test]
+fn semantic_text_font_roles_are_rendered_by_both_dev_runtimes() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS dev renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android dev renderer");
+    let swift_text = section(&swift, "case \"Text\":", "case \"Spacer\":");
+    let kotlin_text = section(&kotlin, "\"Text\" -> {", "\"Spacer\" -> Spacer");
+
+    for (role, swift_style, kotlin_style) in [
+        ("LargeTitle", ".largeTitle", "displaySmall"),
+        ("Title", ".title", "headlineMedium"),
+        ("Title2", ".title2", "headlineSmall"),
+        ("Title3", ".title3", "titleLarge"),
+        ("Headline", ".headline", "titleMedium"),
+        ("Subheadline", ".subheadline", "bodyMedium"),
+        ("Body", ".body", "bodyLarge"),
+        ("Callout", ".callout", "bodyMedium"),
+        ("Footnote", ".footnote", "bodySmall"),
+        ("Caption", ".caption", "labelMedium"),
+        ("Caption2", ".caption2", "labelSmall"),
+    ] {
+        assert!(
+            swift_text.contains(&format!("case \"{role}\": {swift_style}")),
+            "iOS DevRuntime has no {role} text style mapping"
+        );
+        assert!(
+            kotlin_text.contains(&format!(
+                "\"{role}\" -> MaterialTheme.typography.{kotlin_style}"
+            )) || (matches!(role, "Subheadline" | "Callout")
+                && kotlin_text.contains(
+                    "\"Subheadline\", \"Callout\" -> MaterialTheme.typography.bodyMedium"
+                )),
+            "Android DevRuntime has no {role} text style mapping"
+        );
+    }
+    assert!(swift_text.contains("style[\"font_size\"]"));
+    assert!(kotlin_text.contains("style = semanticStyle"));
+}
+
+#[test]
 fn calendar_day_arithmetic_has_native_and_dev_runtime_mappings() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))

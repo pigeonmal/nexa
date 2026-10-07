@@ -6,6 +6,6 @@
     {"alias":"Mail","id":"dev.nexa.mail-composer","source":"path:../../../plugins/mail-composer","revision":null,"package":null,"contentHash":"bb11946faf98fe30"},
     {"alias":"MediaPicker","id":"dev.nexa.media-picker","source":"path:../../../plugins/media-picker","revision":null,"package":null,"contentHash":"8d06d6a9d6fdc06c"},
     {"alias":"Notifications","id":"dev.nexa.notifications","source":"path:../../../plugins/notifications","revision":null,"package":null,"contentHash":"7845cedbec97d38d"},
-    {"alias":"SQLite","id":"dev.nexa.sqlite","source":"path:../../../plugins/sqlite","revision":null,"package":null,"contentHash":"b5d65f0019f6356c"}
+    {"alias":"SQLite","id":"dev.nexa.sqlite","source":"path:../../../plugins/sqlite","revision":null,"package":null,"contentHash":"69b6004575b7dc9b"}
   ]
 }

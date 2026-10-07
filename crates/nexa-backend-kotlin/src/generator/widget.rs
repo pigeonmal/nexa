@@ -845,7 +845,14 @@ fn render_node(
     match node {
         Node::Text { value, style, .. } => {
             let mut parameters = Vec::new();
-            if let Some(size) = style.font_size { parameters.push(format!("fontSize = {size}.sp")); }
+            if let Some(size) = style.font_size {
+                parameters.push(format!("fontSize = {size}.sp"));
+            } else if let Some(font_style) = style.font_style {
+                parameters.push(format!(
+                    "fontSize = {}.sp",
+                    glance_text_font_size(font_style)
+                ));
+            }
             if let Some(weight) = style.font_weight {
                 let value = match weight { nexa_ir::FontWeight::Normal => "Normal", nexa_ir::FontWeight::Medium => "Medium", nexa_ir::FontWeight::Semibold => "SemiBold", nexa_ir::FontWeight::Bold => "Bold" };
                 parameters.push(format!("fontWeight = androidx.glance.text.FontWeight.{value}"));
@@ -936,6 +943,22 @@ fn render_node(
         _ => return Err(crate::WidgetGenerationError { widget: widget.name.clone(), message: "unsupported widget node reached backend renderer".to_owned() }),
     }
     Ok(())
+}
+
+fn glance_text_font_size(style: nexa_ir::TextFontStyle) -> u8 {
+    match style {
+        nexa_ir::TextFontStyle::LargeTitle => 34,
+        nexa_ir::TextFontStyle::Title => 28,
+        nexa_ir::TextFontStyle::Title2 => 22,
+        nexa_ir::TextFontStyle::Title3 => 20,
+        nexa_ir::TextFontStyle::Headline => 17,
+        nexa_ir::TextFontStyle::Subheadline => 15,
+        nexa_ir::TextFontStyle::Body => 17,
+        nexa_ir::TextFontStyle::Callout => 16,
+        nexa_ir::TextFontStyle::Footnote => 13,
+        nexa_ir::TextFontStyle::Caption => 12,
+        nexa_ir::TextFontStyle::Caption2 => 11,
+    }
 }
 
 fn render_layout(
@@ -1134,7 +1157,10 @@ mod tests {
             body: vec![
                 Node::Text {
                     value: Expr::String("Tasks".into()),
-                    style: TextStyle::default(),
+                    style: TextStyle {
+                        font_style: Some(nexa_ir::TextFontStyle::Subheadline),
+                        ..TextStyle::default()
+                    },
                 },
                 Node::Accessibility {
                     label: Expr::String("Calendar".into()),
@@ -1167,7 +1193,10 @@ mod tests {
             .unwrap_or_default();
         assert!(source.contains("GlanceAppWidgetReceiver"));
         assert!(source.contains("provideGlance"));
-        assert!(source.contains("Text(text = \"Tasks\")"));
+        assert!(source.contains(
+            "Text(text = \"Tasks\", style = androidx.glance.text.TextStyle(fontSize = 15.sp))"
+        ));
+        assert!(source.contains("fontSize = 15.sp"));
         assert!(generated.sources.units.iter().any(|unit| {
             unit.name == "NexaWidgetFamily.kt"
                 && unit.contents.contains("internal fun nexaWidgetFamily")

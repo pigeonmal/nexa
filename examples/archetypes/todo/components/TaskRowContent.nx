@@ -40,7 +40,7 @@ component TaskRowContent(task: TaskItem) {
                 Text(task.title)
             }
             if task.taskDescription != "" {
-                Text(task.taskDescription, fontSize: 15, color: "#8E8E93", lineLimit: 2)
+                Text(task.taskDescription, fontStyle: Subheadline, color: "#8E8E93", lineLimit: 2)
             }
             if task.dueTimestamp != null || task.priority != "None" || task.commentCount > 0 || task.reminderCount > 0 {
                 Row(spacing: 6) {
@@ -48,12 +48,12 @@ component TaskRowContent(task: TaskItem) {
                         if taskRowIsOverdue(task) {
                             Row(spacing: 2) {
                                 Icon(system: "calendar", size: 12, tint: "#FF3B30", description: "")
-                                Text(taskRowDateLabel(task.dueTimestamp ?? 0, task.hasTime), fontSize: 12, color: "#FF3B30")
+                                Text(taskRowDateLabel(task.dueTimestamp ?? 0, task.hasTime), fontStyle: Caption, color: "#FF3B30")
                             }
                         } else {
                             Row(spacing: 2) {
                                 Icon(system: "calendar", size: 12, tint: "#8E8E93", description: "")
-                                Text(taskRowDateLabel(task.dueTimestamp ?? 0, task.hasTime), fontSize: 12, color: "#8E8E93")
+                                Text(taskRowDateLabel(task.dueTimestamp ?? 0, task.hasTime), fontStyle: Caption, color: "#8E8E93")
                             }
                         }
                     }
@@ -61,35 +61,35 @@ component TaskRowContent(task: TaskItem) {
                         if task.priority == "Highest" {
                             Row(spacing: 2) {
                                 Icon(system: "flag_filled", size: 12, tint: "#FF3B30", description: "")
-                                Text(task.priority, fontSize: 12, color: "#FF3B30")
+                                Text(task.priority, fontStyle: Caption, color: "#FF3B30")
                             }
                         } else if task.priority == "High" {
                             Row(spacing: 2) {
                                 Icon(system: "flag_filled", size: 12, tint: "#FF9500", description: "")
-                                Text(task.priority, fontSize: 12, color: "#FF9500")
+                                Text(task.priority, fontStyle: Caption, color: "#FF9500")
                             }
                         } else if task.priority == "Normal" {
                             Row(spacing: 2) {
                                 Icon(system: "flag_filled", size: 12, tint: "#FFCC00", description: "")
-                                Text(task.priority, fontSize: 12, color: "#FFCC00")
+                                Text(task.priority, fontStyle: Caption, color: "#FFCC00")
                             }
                         } else {
                             Row(spacing: 2) {
                                 Icon(system: "flag_filled", size: 12, tint: "#34C759", description: "")
-                                Text(task.priority, fontSize: 12, color: "#34C759")
+                                Text(task.priority, fontStyle: Caption, color: "#34C759")
                             }
                         }
                     }
                     if task.commentCount > 0 {
                         Row(spacing: 2) {
                             Icon(system: "comment_left", size: 12, tint: "#8E8E93", description: "")
-                            Text(task.commentCount, fontSize: 12, color: "#8E8E93")
+                            Text(task.commentCount, fontStyle: Caption, color: "#8E8E93")
                         }
                     }
                     if task.reminderCount > 0 {
                         Row(spacing: 2) {
                             Icon(system: "notifications", size: 12, tint: "#8E8E93", description: "")
-                            Text(task.reminderCount, fontSize: 12, color: "#8E8E93")
+                            Text(task.reminderCount, fontStyle: Caption, color: "#8E8E93")
                         }
                     }
                 }

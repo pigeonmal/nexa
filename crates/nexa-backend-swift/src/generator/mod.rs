@@ -1106,6 +1106,41 @@ mod tests {
     }
 
     #[test]
+    fn semantic_text_font_roles_emit_scalable_swiftui_styles() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "SemanticTextStyle".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Text {
+                value: Expr::String("Task description".to_owned()),
+                style: TextStyle {
+                    font_style: Some(nexa_ir::TextFontStyle::Subheadline),
+                    ..TextStyle::default()
+                },
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        assert!(generate(&module).contains(".font(.subheadline)"));
+    }
+
+    #[test]
     fn page_snap_lists_use_viewport_rows_and_report_the_settled_page() {
         let module = Module {
             widgets: Vec::new(),

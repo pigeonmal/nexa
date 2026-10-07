@@ -555,6 +555,19 @@ internal fun NexaDevNode(
                     "Trailing" -> TextAlign.End
                     else -> TextAlign.Unspecified
                 }
+                val semanticStyle = when (style.optString("font_style")) {
+                    "LargeTitle" -> MaterialTheme.typography.displaySmall
+                    "Title" -> MaterialTheme.typography.headlineMedium
+                    "Title2" -> MaterialTheme.typography.headlineSmall
+                    "Title3" -> MaterialTheme.typography.titleLarge
+                    "Headline" -> MaterialTheme.typography.titleMedium
+                    "Subheadline", "Callout" -> MaterialTheme.typography.bodyMedium
+                    "Body" -> MaterialTheme.typography.bodyLarge
+                    "Footnote" -> MaterialTheme.typography.bodySmall
+                    "Caption" -> MaterialTheme.typography.labelMedium
+                    "Caption2" -> MaterialTheme.typography.labelSmall
+                    else -> LocalTextStyle.current
+                }
                 val fontSize = if (style.has("font_size") && !style.isNull("font_size")) style.getDouble("font_size").sp else androidx.compose.ui.unit.TextUnit.Unspecified
                 val maxLines = if (style.has("line_limit") && !style.isNull("line_limit")) style.getInt("line_limit") else Int.MAX_VALUE
                 val letterSpacing = if (style.has("letter_spacing") && !style.isNull("letter_spacing")) style.getDouble("letter_spacing").sp else androidx.compose.ui.unit.TextUnit.Unspecified
@@ -587,6 +600,7 @@ internal fun NexaDevNode(
                         text = text,
                         modifier = modifier,
                         color = color ?: Color.Unspecified,
+                        style = semanticStyle,
                         fontSize = fontSize,
                         fontWeight = weight,
                         textAlign = textAlign,
@@ -600,6 +614,7 @@ internal fun NexaDevNode(
                         text = text,
                         modifier = modifier,
                         color = color ?: Color.Unspecified,
+                        style = semanticStyle,
                         fontSize = fontSize,
                         fontWeight = weight,
                         textAlign = textAlign,

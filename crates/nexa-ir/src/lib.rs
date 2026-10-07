@@ -1641,6 +1641,8 @@ pub struct TextStyle {
     pub alignment: Option<TextAlignment>,
     pub color: Option<ColorValue>,
     pub font_size: Option<f32>,
+    #[serde(default)]
+    pub font_style: Option<TextFontStyle>,
     pub font_weight: Option<FontWeight>,
     pub padding: Option<f32>,
     pub opacity: Option<f32>,
@@ -1659,6 +1661,21 @@ pub enum FontWeight {
     Medium,
     Semibold,
     Bold,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextFontStyle {
+    LargeTitle,
+    Title,
+    Title2,
+    Title3,
+    Headline,
+    Subheadline,
+    Body,
+    Callout,
+    Footnote,
+    Caption,
+    Caption2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
