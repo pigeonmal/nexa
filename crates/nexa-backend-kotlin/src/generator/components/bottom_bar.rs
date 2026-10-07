@@ -322,15 +322,22 @@ pub(crate) fn render_page_pager(
             "HorizontalPager(state = {page_state}, modifier = Modifier.weight(1f)) {{ page ->"
         ),
     );
-    out.line_at(depth + 2, format_args!("when (page) {{"));
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center, propagateMinConstraints = true) {{"
+        ),
+    );
+    out.line_at(depth + 3, format_args!("when (page) {{"));
     for (index, page) in pages.iter().enumerate() {
-        out.line_at(depth + 3, format_args!("{index} -> {{"));
-        render_children(page, module, features, depth + 4, out);
+        out.line_at(depth + 4, format_args!("{index} -> {{"));
+        render_children(page, module, features, depth + 5, out);
         out.push('\n');
-        indent(out, depth + 3);
+        indent(out, depth + 4);
         out.push_str("}\n");
     }
-    out.line_at(depth + 3, format_args!("else -> {{}}"));
+    out.line_at(depth + 4, format_args!("else -> {{}}"));
+    out.line_at(depth + 3, format_args!("}}"));
     out.line_at(depth + 2, format_args!("}}"));
     out.line_at(depth + 1, format_args!("}}"));
     out.line_at(
@@ -356,4 +363,56 @@ pub(crate) fn render_page_pager(
     }
     out.line_at(depth + 1, format_args!("}}"));
     out.line_at(depth, format_args!("}}"));
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::Module;
+
+    use crate::generator::features::Features;
+
+    use super::render_page_pager;
+
+    #[test]
+    fn page_pager_gives_each_page_a_full_size_centered_native_canvas() {
+        let module = Module {
+            app_name: "PagerParity".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let mut output = SourceWriter::new();
+
+        render_page_pager(
+            "currentPage",
+            &[Vec::new()],
+            &module,
+            &features,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center, propagateMinConstraints = true) {"
+        ));
+    }
 }

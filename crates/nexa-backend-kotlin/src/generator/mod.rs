@@ -720,7 +720,9 @@ mod tests {
         assert!(
             kotlin.contains("MaterialTheme(colorScheme = remember(\"dark\", nexaSystemDarkTheme")
         );
-        assert!(kotlin.contains("Text(\"Hello\")"));
+        assert!(kotlin.contains(
+            "Text(\"Hello\", fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp)"
+        ));
         assert!(!kotlin.contains("nexaColorFromHex("));
     }
 
@@ -1549,7 +1551,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_text_font_roles_emit_material_typography() {
+    fn semantic_text_font_roles_emit_shared_native_metrics() {
         let module = Module {
             widgets: Vec::new(),
             app_name: "SemanticTextStyle".to_owned(),

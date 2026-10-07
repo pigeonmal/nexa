@@ -400,9 +400,11 @@ fn render_button_content(
     out.line_at(
         depth,
         format_args!(
-            "Text({}, fontSize = {}.sp, fontWeight = FontWeight.Normal, letterSpacing = 0.sp)",
+            "Text({}, fontSize = {}.sp, fontWeight = FontWeight.Normal, lineHeight = {}.sp * {}f, letterSpacing = 0.sp)",
             expression(label),
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER,
         ),
     );
 }
@@ -1338,6 +1340,9 @@ mod tests {
 
         assert!(output.contains(
             "TextButton(\n    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),\n    onClick = { }"
+        ));
+        assert!(output.contains(
+            "Text(\"Skip\", fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp)"
         ));
         assert!(
             output.contains("contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)")

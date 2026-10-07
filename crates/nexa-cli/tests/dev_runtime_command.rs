@@ -913,8 +913,9 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
         activity.contains("Play Services Cronet provider is unavailable; network calls may fail")
     );
     assert!(activity.contains(
-        "colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),"
+        "colorScheme = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFF0A84FF)"
     ));
+    assert!(activity.contains("else lightColorScheme(primary = Color(0xFF007AFF)"));
     assert!(activity.contains("NexaDevRuntimeRoot(serverURL = "));
     assert!(
         output

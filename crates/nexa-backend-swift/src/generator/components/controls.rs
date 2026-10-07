@@ -170,14 +170,16 @@ fn render_button_label(
     indent(out, depth);
     if let Some(icon) = icon {
         out.push_str(&format!(
-            "Label {{ {} }} icon: {{ Image(systemName: {}) }}.font(.body)\n",
+            "Label {{ {} }} icon: {{ Image(systemName: {}) }}.font(.system(size: {}))\n",
             crate::generator::expressions::localized_text_view(label, comment),
             swift_string(&icon.sf_symbol_name()),
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
         ));
     } else {
         out.push_str(&format!(
-            "{}.font(.body)\n",
-            crate::generator::expressions::localized_text_view(label, comment)
+            "{}.font(.system(size: {}))\n",
+            crate::generator::expressions::localized_text_view(label, comment),
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
         ));
     }
 }
@@ -984,7 +986,34 @@ mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{Action, CollectionMutation, Expr, NumericType, TaskExecutor, Type};
 
-    use super::{render_actions, render_progress_bar, render_progress_ring, render_slider};
+    use super::{
+        render_actions, render_button, render_progress_bar, render_progress_ring, render_slider,
+    };
+
+    #[test]
+    fn borderless_button_uses_shared_label_metrics_and_tap_target() {
+        let mut output = SourceWriter::new();
+        render_button(
+            &Expr::String("Skip".to_owned()),
+            None,
+            None,
+            None,
+            None,
+            Some(nexa_ir::ButtonStyle::Borderless),
+            None,
+            None,
+            None,
+            false,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("Text(\"Skip\").font(.system(size: 17))"));
+        assert!(output.contains(
+            ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).tint(Color.accentColor)"
+        ));
+    }
 
     #[test]
     fn renders_native_progress_indicators_with_bounded_values() {

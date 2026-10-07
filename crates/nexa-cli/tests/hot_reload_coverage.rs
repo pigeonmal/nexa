@@ -308,7 +308,7 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
 }
 
 #[test]
-fn semantic_text_font_roles_are_rendered_by_both_dev_runtimes() {
+fn semantic_text_font_roles_match_native_metrics_in_both_dev_runtimes() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
         .expect("read iOS dev renderer");
@@ -317,18 +317,18 @@ fn semantic_text_font_roles_are_rendered_by_both_dev_runtimes() {
     let swift_text = section(&swift, "case \"Text\":", "case \"Spacer\":");
     let kotlin_text = section(&kotlin, "\"Text\" -> {", "\"Spacer\" -> Spacer");
 
-    for (role, swift_style, kotlin_style) in [
-        ("LargeTitle", ".largeTitle", "displaySmall"),
-        ("Title", ".title", "headlineMedium"),
-        ("Title2", ".title2", "headlineSmall"),
-        ("Title3", ".title3", "titleLarge"),
-        ("Headline", ".headline", "titleMedium"),
-        ("Subheadline", ".subheadline", "bodyMedium"),
-        ("Body", ".body", "bodyLarge"),
-        ("Callout", ".callout", "bodyMedium"),
-        ("Footnote", ".footnote", "bodySmall"),
-        ("Caption", ".caption", "labelMedium"),
-        ("Caption2", ".caption2", "labelSmall"),
+    for (role, swift_style, kotlin_size, kotlin_weight) in [
+        ("LargeTitle", ".largeTitle", 34, "Normal"),
+        ("Title", ".title", 28, "Normal"),
+        ("Title2", ".title2", 22, "Normal"),
+        ("Title3", ".title3", 20, "Normal"),
+        ("Headline", ".headline", 17, "SemiBold"),
+        ("Subheadline", ".subheadline", 15, "Normal"),
+        ("Body", ".body", 17, "Normal"),
+        ("Callout", ".callout", 16, "Normal"),
+        ("Footnote", ".footnote", 13, "Normal"),
+        ("Caption", ".caption", 12, "Normal"),
+        ("Caption2", ".caption2", 11, "Normal"),
     ] {
         assert!(
             swift_text.contains(&format!("case \"{role}\": {swift_style}")),
@@ -336,16 +336,14 @@ fn semantic_text_font_roles_are_rendered_by_both_dev_runtimes() {
         );
         assert!(
             kotlin_text.contains(&format!(
-                "\"{role}\" -> MaterialTheme.typography.{kotlin_style}"
-            )) || (matches!(role, "Subheadline" | "Callout")
-                && kotlin_text.contains(
-                    "\"Subheadline\", \"Callout\" -> MaterialTheme.typography.bodyMedium"
-                )),
-            "Android DevRuntime has no {role} text style mapping"
+                "\"{role}\" -> {kotlin_size}.sp to FontWeight.{kotlin_weight}"
+            )),
+            "Android DevRuntime has no matching {role} font metrics"
         );
     }
     assert!(swift_text.contains("style[\"font_size\"]"));
     assert!(kotlin_text.contains("style = semanticStyle"));
+    assert!(kotlin_text.contains("fontSize * nexaDevDefaultLineHeightMultiplier"));
 }
 
 #[test]
