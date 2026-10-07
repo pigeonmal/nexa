@@ -157,7 +157,8 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth + 5,
         format_args!(
-            ".fill({selected} == Int32(index) ? Color.accentColor : {muted_dot}.opacity({}))",
+            ".fill({selected} == Int32(index) ? {} : {muted_dot}.opacity({}))",
+            nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR,
             nexa_codegen::design_system::PAGE_INDICATOR_INACTIVE_OPACITY,
         ),
     );
@@ -317,4 +318,23 @@ fn swift_tab_label(tab: &BottomBarTab) -> String {
             swift_string(&icon.sf_symbol_name())
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_codegen::SourceWriter;
+
+    use super::render_page_pager;
+
+    #[test]
+    fn page_indicator_uses_the_shared_dynamic_default_accent() {
+        let mut output = SourceWriter::new();
+        render_page_pager("currentPage", &[Vec::new(), Vec::new()], 0, &mut output);
+        let selected = nexa_codegen::names::state_name("currentPage");
+
+        assert!(output.contains(&format!(
+            ".fill({selected} == Int32(index) ? Color(uiColor: .systemBlue) :"
+        )));
+        assert!(output.contains("HStack(spacing: 8)"));
+    }
 }

@@ -47,7 +47,10 @@ pub(crate) fn render(features: &Features) -> String {
         features.facts.capabilities.uses_keyboard_api
             || features.facts.capabilities.uses_haptics_api
             || features.facts.capabilities.uses_screen_orientation_api
-            || features.facts.capabilities.uses_app_icon_api,
+            || features.facts.capabilities.uses_app_icon_api
+            || features.facts.ui.button.present
+            || features.facts.ui.page_pager
+            || features.facts.ui.style.dynamic_color,
         "UIKit",
     );
     imports.render()
@@ -74,6 +77,15 @@ mod tests {
         assert_eq!(imports.matches("import UIKit\n").count(), 1);
         assert!(imports.contains("import SwiftUI\n"));
         assert!(!render(&Features::default()).contains("import UIKit\n"));
+    }
+
+    #[test]
+    fn shared_accent_controls_import_dynamic_system_blue() {
+        let mut features = Features::default();
+        features.facts.ui.button.present = true;
+        let imports = render(&features);
+
+        assert!(imports.contains("import UIKit\n"));
     }
 
     #[test]

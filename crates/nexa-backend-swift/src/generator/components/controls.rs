@@ -141,11 +141,10 @@ fn render_button_modifiers(
             ".tint({})",
             crate::generator::colors::expression_for_color(tint)
         ));
-    } else if matches!(
-        style,
-        Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
-    ) {
-        out.push_str(".tint(Color.accentColor)");
+    } else {
+        out.push_str(".tint(");
+        out.push_str(nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR);
+        out.push(')');
     }
     if glass {
         let shape_str = match shape {
@@ -1016,7 +1015,7 @@ mod tests {
 
         assert!(output.contains("Text(\"Skip\").font(.system(size: 17))"));
         assert!(output.contains(
-            ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).tint(Color.accentColor)"
+            ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).tint(Color(uiColor: .systemBlue))"
         ));
     }
 
@@ -1040,6 +1039,7 @@ mod tests {
         );
 
         assert!(output.contains(".frame(minWidth: 64, minHeight: 50).controlSize(.large)"));
+        assert!(output.contains(".tint(Color(uiColor: .systemBlue))"));
         assert!(output.contains("Text(\"Enable Notifications\").font(.system(size: 17))"));
     }
 

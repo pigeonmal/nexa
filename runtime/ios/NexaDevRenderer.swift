@@ -1006,8 +1006,8 @@ struct NexaDevNodeList: View {
                 } else if let tint = devColor(tintValue, isDark: colorScheme == .dark) {
                     button = AnyView(button.tint(tint))
                 }
-            } else if ["Borderless", "Plain"].contains(fields["style"] as? String ?? "") {
-                button = AnyView(button.tint(.accentColor))
+            } else {
+                button = AnyView(button.tint(__NEXA_SWIFT_DEFAULT_ACCENT_COLOR__))
             }
             if fields["glass"] as? Bool == true {
                 let glassShape: NexaDevGlassShape = switch shape {
@@ -1724,7 +1724,7 @@ struct NexaDevNodeList: View {
                             store.setValue(state, value: index, scope: scope)
                         } label: {
                             Circle()
-                                .fill(index == selected ? Color.accentColor : Color(red: __NEXA_MUTED_TEXT_RED__, green: __NEXA_MUTED_TEXT_GREEN__, blue: __NEXA_MUTED_TEXT_BLUE__).opacity(__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__))
+                                .fill(index == selected ? __NEXA_SWIFT_DEFAULT_ACCENT_COLOR__ : Color(red: __NEXA_MUTED_TEXT_RED__, green: __NEXA_MUTED_TEXT_GREEN__, blue: __NEXA_MUTED_TEXT_BLUE__).opacity(__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__))
                                 .frame(width: index == selected ? __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ : __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__, height: index == selected ? __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ : __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__)
                         }
                         .buttonStyle(.plain)

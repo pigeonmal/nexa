@@ -19,7 +19,7 @@ use nexa_syntax::ast::Program;
 //
 // Published as the newest row of `docs/architecture-audit.md`; the
 // `cache_audit_documents_current_version` test fails when the two disagree.
-pub(super) const CACHE_VERSION: &str = "build-v163";
+pub(super) const CACHE_VERSION: &str = "build-v164";
 
 pub(super) fn restore_warnings(entry: &Path, key: &str) -> Result<Option<Vec<String>>, String> {
     let path = cache_directory(entry).join(format!("{key}.warnings"));

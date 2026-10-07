@@ -4,6 +4,8 @@ use nexa_ir::{FontWeight, TextFontStyle};
 
 pub const DEFAULT_ACCENT_ARGB: u32 = 0xFF00_7AFF;
 pub const DARK_ACCENT_ARGB: u32 = 0xFF0A_84FF;
+/// Dynamic iOS system blue matches the shared light and dark accent tokens.
+pub const SWIFT_DEFAULT_ACCENT_COLOR: &str = "Color(uiColor: .systemBlue)";
 pub const LIGHT_BACKGROUND_ARGB: u32 = 0xFFFF_FFFF;
 pub const DARK_BACKGROUND_ARGB: u32 = 0xFF00_0000;
 pub const LIGHT_SURFACE_ARGB: u32 = 0xFFFF_FFFF;

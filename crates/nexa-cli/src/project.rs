@@ -885,6 +885,10 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 format!("0x{:08X}", design::DEFAULT_ACCENT_ARGB),
             ),
             (
+                "__NEXA_SWIFT_DEFAULT_ACCENT_COLOR__",
+                design::SWIFT_DEFAULT_ACCENT_COLOR.to_owned(),
+            ),
+            (
                 "__NEXA_DARK_ACCENT_ARGB__",
                 format!("0x{:08X}", design::DARK_ACCENT_ARGB),
             ),
@@ -2406,6 +2410,8 @@ mod tests {
         );
         assert!(swift.contains("HStack(spacing: 8)"));
         assert!(swift.contains(".padding(.bottom, 24)"));
+        assert!(swift.contains("button.tint(Color(uiColor: .systemBlue))"));
+        assert!(swift.contains("index == selected ? Color(uiColor: .systemBlue)"));
         assert!(swift.contains("Color(red: 0.556863, green: 0.556863, blue: 0.576471)"));
 
         assert!(kotlin.contains("private const val nexaDevDefaultBodyFontSize = 17"));

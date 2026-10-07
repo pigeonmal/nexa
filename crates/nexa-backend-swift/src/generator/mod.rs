@@ -125,7 +125,7 @@ private struct NexaDragGestureView<Content: View>: View {
 
 const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"private func nexaColor(hex: String) -> Color {
     let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-    guard let value = UInt64(digits, radix: 16) else { return .accentColor }
+    guard let value = UInt64(digits, radix: 16) else { return __NEXA_SWIFT_DEFAULT_ACCENT_COLOR__ }
     let red: UInt64
     let green: UInt64
     let blue: UInt64
@@ -142,7 +142,7 @@ const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"private func nexaColor(hex: String) 
         blue = (value >> 8) & 0xFF
         alpha = value & 0xFF
     default:
-        return .accentColor
+        return __NEXA_SWIFT_DEFAULT_ACCENT_COLOR__
     }
     return Color(
         .sRGB,
@@ -483,7 +483,10 @@ fn generate_with_analysis_mode(
         preamble.push_str(DRAG_GESTURE_HELPERS);
     }
     if features.facts.ui.style.dynamic_color {
-        preamble.push_str(NEXA_DYNAMIC_COLOR_HELPER);
+        preamble.push_str(&NEXA_DYNAMIC_COLOR_HELPER.replace(
+            "__NEXA_SWIFT_DEFAULT_ACCENT_COLOR__",
+            nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR,
+        ));
     }
     if features.facts.ui.button.custom_shape {
         preamble.push_str(NEXA_BUTTON_SHAPE_HELPER);
@@ -1189,6 +1192,17 @@ mod tests {
         };
 
         assert!(generate(&module).contains(".font(.subheadline)"));
+    }
+
+    #[test]
+    fn dynamic_color_fallback_uses_the_shared_default_accent() {
+        let helper = super::NEXA_DYNAMIC_COLOR_HELPER.replace(
+            "__NEXA_SWIFT_DEFAULT_ACCENT_COLOR__",
+            nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR,
+        );
+
+        assert!(!helper.contains("__NEXA_"));
+        assert!(helper.contains("return Color(uiColor: .systemBlue)"));
     }
 
     #[test]
