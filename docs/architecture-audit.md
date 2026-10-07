@@ -23,6 +23,7 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v163` | Aligns large-button geometry across iOS and Android and centers Compose pager indicators in a full-width layout. |
 | `build-v162` | Standardizes onboarding visual defaults across DevRuntime hosts, uses the filled active-notification icon on both platforms, and fixes Swift lifecycle modifiers around conditional root views. |
 | `build-v161` | Removes the legacy `@query` annotation system in favour of `Signal<T>` reactive primitives across the parser, IR, both AOT backends, and DevRuntime. |
 | `build-v135` | Completes the Nexa v1 language and archetype set: new component grammar, state scopes, and generated-host metadata. |

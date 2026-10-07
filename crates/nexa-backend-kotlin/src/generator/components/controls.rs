@@ -233,6 +233,7 @@ pub(crate) fn render_button(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let min_height = button_min_height(size);
     if let Some(loading) = loading {
         indent(out, depth);
         out.push_str(button_component(style));
@@ -241,7 +242,7 @@ pub(crate) fn render_button(
         out.push_str(&format!(
             "modifier = Modifier.defaultMinSize(minWidth = {}.dp, minHeight = {}.dp),\n",
             nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-            nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
+            min_height,
         ));
         indent(out, depth + 1);
         out.push_str("onClick = {");
@@ -282,7 +283,7 @@ pub(crate) fn render_button(
     out.push_str(&format!(
         "modifier = Modifier.defaultMinSize(minWidth = {}.dp, minHeight = {}.dp),\n",
         nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-        nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
+        min_height,
     ));
     indent(out, depth + 1);
     out.push_str("onClick = {");
@@ -303,6 +304,13 @@ pub(crate) fn render_button(
     render_button_content(label, icon, depth + 1, out);
     indent(out, depth);
     out.push('}');
+}
+
+fn button_min_height(size: Option<nexa_ir::ButtonSize>) -> u8 {
+    match size {
+        Some(nexa_ir::ButtonSize::Large) => nexa_codegen::design_system::BUTTON_LARGE_MIN_HEIGHT,
+        _ => nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
+    }
 }
 
 fn button_component(style: Option<nexa_ir::ButtonStyle>) -> &'static str {
@@ -364,10 +372,16 @@ fn append_button_options(
         Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
     );
     let padding = match size {
-        Some(nexa_ir::ButtonSize::Small) => Some((12, 4)),
+        Some(nexa_ir::ButtonSize::Small) => Some((
+            nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING,
+            nexa_codegen::design_system::BUTTON_SMALL_VERTICAL_PADDING,
+        )),
         Some(nexa_ir::ButtonSize::Regular) if borderless => Some((0, 0)),
         Some(nexa_ir::ButtonSize::Regular) => None,
-        Some(nexa_ir::ButtonSize::Large) => Some((24, 12)),
+        Some(nexa_ir::ButtonSize::Large) => Some((
+            nexa_codegen::design_system::BUTTON_LARGE_HORIZONTAL_PADDING,
+            nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING,
+        )),
         None if borderless => Some((0, 0)),
         None => None,
     };
@@ -1339,13 +1353,13 @@ mod tests {
         );
 
         assert!(output.contains(
-            "TextButton(\n    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),\n    onClick = { }"
+            "TextButton(\n    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 50.dp),\n    onClick = { }"
         ));
         assert!(output.contains(
             "Text(\"Skip\", fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp)"
         ));
         assert!(
-            output.contains("contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)")
+            output.contains("contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)")
         );
         assert!(output.contains(
             "shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"

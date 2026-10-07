@@ -96,6 +96,11 @@ fn render_button_modifiers(
     glass: bool,
     out: &mut SourceWriter,
 ) {
+    let min_height = if matches!(size, Some(nexa_ir::ButtonSize::Large)) {
+        nexa_codegen::design_system::BUTTON_LARGE_MIN_HEIGHT
+    } else {
+        nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET
+    };
     if let Some(style) = style {
         match style {
             nexa_ir::ButtonStyle::BorderedProminent => {
@@ -113,7 +118,7 @@ fn render_button_modifiers(
     out.push_str(&format!(
         ".frame(minWidth: {}, minHeight: {})",
         nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-        nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
+        min_height,
     ));
     if let Some(size) = size {
         match size {
@@ -1013,6 +1018,29 @@ mod tests {
         assert!(output.contains(
             ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).tint(Color.accentColor)"
         ));
+    }
+
+    #[test]
+    fn large_button_uses_the_shared_large_control_height() {
+        let mut output = SourceWriter::new();
+        render_button(
+            &Expr::String("Enable Notifications".to_owned()),
+            None,
+            None,
+            None,
+            None,
+            Some(nexa_ir::ButtonStyle::BorderedProminent),
+            Some(nexa_ir::ButtonSize::Large),
+            None,
+            None,
+            false,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(".frame(minWidth: 64, minHeight: 50).controlSize(.large)"));
+        assert!(output.contains("Text(\"Enable Notifications\").font(.system(size: 17))"));
     }
 
     #[test]

@@ -984,7 +984,7 @@ struct NexaDevNodeList: View {
             }
             button = AnyView(button.frame(
                 minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__),
-                minHeight: CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)
+                minHeight: CGFloat((fields["size"] as? String) == "Large" ? __NEXA_BUTTON_LARGE_MIN_HEIGHT__ : __NEXA_BUTTON_MIN_TAP_TARGET__)
             ))
             let shapeFields = fields["shape"] as? [String: Any] ?? [:]
             let shape: NexaDevButtonShape

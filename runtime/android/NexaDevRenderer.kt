@@ -183,6 +183,11 @@ private const val nexaDevDefaultBodyFontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__
 private const val nexaDevDefaultLineHeightMultiplier = __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f
 private const val nexaDevButtonMinWidth = __NEXA_BUTTON_MIN_WIDTH__
 private const val nexaDevButtonMinTapTarget = __NEXA_BUTTON_MIN_TAP_TARGET__
+private const val nexaDevButtonLargeMinHeight = __NEXA_BUTTON_LARGE_MIN_HEIGHT__
+private const val nexaDevButtonSmallHorizontalPadding = __NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__
+private const val nexaDevButtonSmallVerticalPadding = __NEXA_BUTTON_SMALL_VERTICAL_PADDING__
+private const val nexaDevButtonLargeHorizontalPadding = __NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__
+private const val nexaDevButtonLargeVerticalPadding = __NEXA_BUTTON_LARGE_VERTICAL_PADDING__
 private const val nexaDevPageIndicatorSelectedSize = __NEXA_PAGE_INDICATOR_SELECTED_SIZE__
 private const val nexaDevPageIndicatorUnselectedSize = __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__
 private const val nexaDevPageIndicatorSpacing = __NEXA_PAGE_INDICATOR_SPACING__
@@ -747,9 +752,20 @@ internal fun NexaDevNode(
                 else -> null
             }
             val contentPadding = when (fields.optString("size")) {
-                "Small" -> PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                "Large" -> PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                "Small" -> PaddingValues(
+                    horizontal = nexaDevButtonSmallHorizontalPadding.dp,
+                    vertical = nexaDevButtonSmallVerticalPadding.dp,
+                )
+                "Large" -> PaddingValues(
+                    horizontal = nexaDevButtonLargeHorizontalPadding.dp,
+                    vertical = nexaDevButtonLargeVerticalPadding.dp,
+                )
                 else -> if (style == "Borderless" || style == "Plain") PaddingValues(0.dp) else null
+            }
+            val minButtonHeight = if (fields.optString("size") == "Large") {
+                nexaDevButtonLargeMinHeight.dp
+            } else {
+                nexaDevButtonMinTapTarget.dp
             }
             val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
             val icon = when {
@@ -778,7 +794,7 @@ internal fun NexaDevNode(
                 "Borderless", "Plain" -> TextButton(
                     modifier = Modifier.defaultMinSize(
                         minWidth = nexaDevButtonMinWidth.dp,
-                        minHeight = nexaDevButtonMinTapTarget.dp,
+                        minHeight = minButtonHeight,
                     ),
                     onClick = onClick,
                     enabled = !loading && !disabled,
@@ -792,7 +808,7 @@ internal fun NexaDevNode(
                 "Bordered" -> OutlinedButton(
                     modifier = Modifier.defaultMinSize(
                         minWidth = nexaDevButtonMinWidth.dp,
-                        minHeight = nexaDevButtonMinTapTarget.dp,
+                        minHeight = minButtonHeight,
                     ),
                     onClick = onClick,
                     enabled = !loading && !disabled,
@@ -808,7 +824,7 @@ internal fun NexaDevNode(
                 else -> Button(
                     modifier = Modifier.defaultMinSize(
                         minWidth = nexaDevButtonMinWidth.dp,
-                        minHeight = nexaDevButtonMinTapTarget.dp,
+                        minHeight = minButtonHeight,
                     ),
                     onClick = onClick,
                     enabled = !loading && !disabled,

@@ -841,6 +841,26 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::BUTTON_MIN_TAP_TARGET.to_string(),
             ),
             (
+                "__NEXA_BUTTON_LARGE_MIN_HEIGHT__",
+                design::BUTTON_LARGE_MIN_HEIGHT.to_string(),
+            ),
+            (
+                "__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__",
+                design::BUTTON_SMALL_HORIZONTAL_PADDING.to_string(),
+            ),
+            (
+                "__NEXA_BUTTON_SMALL_VERTICAL_PADDING__",
+                design::BUTTON_SMALL_VERTICAL_PADDING.to_string(),
+            ),
+            (
+                "__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__",
+                design::BUTTON_LARGE_HORIZONTAL_PADDING.to_string(),
+            ),
+            (
+                "__NEXA_BUTTON_LARGE_VERTICAL_PADDING__",
+                design::BUTTON_LARGE_VERTICAL_PADDING.to_string(),
+            ),
+            (
                 "__NEXA_PAGE_INDICATOR_SELECTED_SIZE__",
                 design::PAGE_INDICATOR_SELECTED_SIZE.to_string(),
             ),
@@ -2379,7 +2399,11 @@ mod tests {
         }
         assert!(swift.contains("Text(label).font(.system(size: 17))"));
         assert!(swift.contains("minWidth: CGFloat(64)"));
-        assert!(swift.contains("minHeight: CGFloat(48)"));
+        assert!(
+            swift.contains(
+                "minHeight: CGFloat((fields[\"size\"] as? String) == \"Large\" ? 50 : 48)"
+            )
+        );
         assert!(swift.contains("HStack(spacing: 8)"));
         assert!(swift.contains(".padding(.bottom, 24)"));
         assert!(swift.contains("Color(red: 0.556863, green: 0.556863, blue: 0.576471)"));
@@ -2388,6 +2412,8 @@ mod tests {
         assert!(kotlin.contains("private const val nexaDevDefaultLineHeightMultiplier = 1.2f"));
         assert!(kotlin.contains("private const val nexaDevButtonMinWidth = 64"));
         assert!(kotlin.contains("private const val nexaDevButtonMinTapTarget = 48"));
+        assert!(kotlin.contains("private const val nexaDevButtonLargeMinHeight = 50"));
+        assert!(kotlin.contains("private const val nexaDevButtonLargeHorizontalPadding = 20"));
         assert!(kotlin.contains("primary = Color(0xFF007AFF)"));
         assert!(kotlin.contains(
             "lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier"
