@@ -964,9 +964,9 @@ struct NexaDevNodeList: View {
                 if loading {
                     ProgressView()
                 } else if let symbol {
-                    Label(label, systemImage: symbol).font(.body)
+                    Label(label, systemImage: symbol).font(.system(size: __NEXA_DEFAULT_BODY_FONT_SIZE__))
                 } else {
-                    Text(label).font(.body)
+                    Text(label).font(.system(size: __NEXA_DEFAULT_BODY_FONT_SIZE__))
                 }
             }.disabled(disabled || loading))
             switch fields["style"] as? String {
@@ -983,8 +983,8 @@ struct NexaDevNodeList: View {
             default: break
             }
             button = AnyView(button.frame(
-                minWidth: CGFloat(64),
-                minHeight: CGFloat(48)
+                minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__),
+                minHeight: CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)
             ))
             let shapeFields = fields["shape"] as? [String: Any] ?? [:]
             let shape: NexaDevButtonShape
@@ -1718,21 +1718,21 @@ struct NexaDevNodeList: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.default, value: selected)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                HStack(spacing: 8) {
+                HStack(spacing: __NEXA_PAGE_INDICATOR_SPACING__) {
                     ForEach(pages.indices, id: \.self) { index in
                         Button {
                             store.setValue(state, value: index, scope: scope)
                         } label: {
                             Circle()
-                                .fill(index == selected ? Color.accentColor : Color(red: 0.556863, green: 0.556863, blue: 0.576471).opacity(0.45))
-                                .frame(width: index == selected ? 8 : 6, height: index == selected ? 8 : 6)
+                                .fill(index == selected ? Color.accentColor : Color(red: __NEXA_MUTED_TEXT_RED__, green: __NEXA_MUTED_TEXT_GREEN__, blue: __NEXA_MUTED_TEXT_BLUE__).opacity(__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__))
+                                .frame(width: index == selected ? __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ : __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__, height: index == selected ? __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ : __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Page \(index + 1)")
                             .animation(.default, value: selected)
                     }
                 }
-                .padding(.bottom, 24)
+                .padding(.bottom, __NEXA_PAGE_INDICATOR_BOTTOM_INSET__)
             }.frame(maxWidth: .infinity, maxHeight: .infinity))
         case "Toolbar":
             let children = fields["children"] as? [Any] ?? []

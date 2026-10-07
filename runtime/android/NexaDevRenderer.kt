@@ -179,43 +179,50 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.launch
 
-private const val nexaDevDefaultBodyFontSize = 17
-private const val nexaDevDefaultLineHeightMultiplier = 1.2f
+private const val nexaDevDefaultBodyFontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__
+private const val nexaDevDefaultLineHeightMultiplier = __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f
+private const val nexaDevButtonMinWidth = __NEXA_BUTTON_MIN_WIDTH__
+private const val nexaDevButtonMinTapTarget = __NEXA_BUTTON_MIN_TAP_TARGET__
+private const val nexaDevPageIndicatorSelectedSize = __NEXA_PAGE_INDICATOR_SELECTED_SIZE__
+private const val nexaDevPageIndicatorUnselectedSize = __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__
+private const val nexaDevPageIndicatorSpacing = __NEXA_PAGE_INDICATOR_SPACING__
+private const val nexaDevPageIndicatorBottomInset = __NEXA_PAGE_INDICATOR_BOTTOM_INSET__
+private const val nexaDevPageIndicatorInactiveOpacity = __NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__f
 
 private fun nexaDevDefaultColorScheme(dark: Boolean) = if (dark) {
     darkColorScheme(
-        primary = Color(0xFF0A84FF),
+        primary = Color(__NEXA_DARK_ACCENT_ARGB__),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFF003C7A),
-        onPrimaryContainer = Color(0xFFD6E8FF),
-        secondary = Color(0xFF8E8E93),
+        primaryContainer = Color(__NEXA_DARK_PRIMARY_CONTAINER_ARGB__),
+        onPrimaryContainer = Color(__NEXA_DARK_ON_PRIMARY_CONTAINER_ARGB__),
+        secondary = Color(__NEXA_MUTED_TEXT_ARGB__),
         onSecondary = Color.White,
-        background = Color.Black,
-        onBackground = Color.White,
-        surface = Color.Black,
-        onSurface = Color.White,
-        surfaceVariant = Color(0xFF2C2C2E),
-        onSurfaceVariant = Color(0xFF8E8E93),
-        outline = Color(0xFF545458),
-        error = Color(0xFFFF3B30),
+        background = Color(__NEXA_DARK_BACKGROUND_ARGB__),
+        onBackground = Color(__NEXA_DARK_ON_SURFACE_ARGB__),
+        surface = Color(__NEXA_DARK_SURFACE_ARGB__),
+        onSurface = Color(__NEXA_DARK_ON_SURFACE_ARGB__),
+        surfaceVariant = Color(__NEXA_DARK_SURFACE_VARIANT_ARGB__),
+        onSurfaceVariant = Color(__NEXA_MUTED_TEXT_ARGB__),
+        outline = Color(__NEXA_DARK_OUTLINE_ARGB__),
+        error = Color(__NEXA_DEFAULT_ERROR_ARGB__),
         onError = Color.White,
     )
 } else {
     lightColorScheme(
-        primary = Color(0xFF007AFF),
+        primary = Color(__NEXA_DEFAULT_ACCENT_ARGB__),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFFD6E8FF),
-        onPrimaryContainer = Color(0xFF001D36),
-        secondary = Color(0xFF8E8E93),
+        primaryContainer = Color(__NEXA_LIGHT_PRIMARY_CONTAINER_ARGB__),
+        onPrimaryContainer = Color(__NEXA_LIGHT_ON_PRIMARY_CONTAINER_ARGB__),
+        secondary = Color(__NEXA_MUTED_TEXT_ARGB__),
         onSecondary = Color.White,
-        background = Color.White,
-        onBackground = Color.Black,
-        surface = Color.White,
-        onSurface = Color.Black,
-        surfaceVariant = Color(0xFFF2F2F7),
-        onSurfaceVariant = Color(0xFF8E8E93),
-        outline = Color(0xFFC6C6C8),
-        error = Color(0xFFFF3B30),
+        background = Color(__NEXA_LIGHT_BACKGROUND_ARGB__),
+        onBackground = Color(__NEXA_LIGHT_ON_SURFACE_ARGB__),
+        surface = Color(__NEXA_LIGHT_SURFACE_ARGB__),
+        onSurface = Color(__NEXA_LIGHT_ON_SURFACE_ARGB__),
+        surfaceVariant = Color(__NEXA_LIGHT_SURFACE_VARIANT_ARGB__),
+        onSurfaceVariant = Color(__NEXA_MUTED_TEXT_ARGB__),
+        outline = Color(__NEXA_LIGHT_OUTLINE_ARGB__),
+        error = Color(__NEXA_DEFAULT_ERROR_ARGB__),
         onError = Color.White,
     )
 }
@@ -761,6 +768,7 @@ internal fun NexaDevNode(
                         label,
                         fontSize = nexaDevDefaultBodyFontSize.sp,
                         fontWeight = FontWeight.Normal,
+                        lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier,
                         letterSpacing = 0.sp,
                     )
                 }
@@ -768,7 +776,10 @@ internal fun NexaDevNode(
             val onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) }
             when (style) {
                 "Borderless", "Plain" -> TextButton(
-                    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),
+                    modifier = Modifier.defaultMinSize(
+                        minWidth = nexaDevButtonMinWidth.dp,
+                        minHeight = nexaDevButtonMinTapTarget.dp,
+                    ),
                     onClick = onClick,
                     enabled = !loading && !disabled,
                     shape = buttonShape ?: RoundedCornerShape(percent = 50),
@@ -779,7 +790,10 @@ internal fun NexaDevNode(
                     content = buttonContent,
                 )
                 "Bordered" -> OutlinedButton(
-                    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),
+                    modifier = Modifier.defaultMinSize(
+                        minWidth = nexaDevButtonMinWidth.dp,
+                        minHeight = nexaDevButtonMinTapTarget.dp,
+                    ),
                     onClick = onClick,
                     enabled = !loading && !disabled,
                     shape = buttonShape ?: RoundedCornerShape(percent = 50),
@@ -792,7 +806,10 @@ internal fun NexaDevNode(
                     content = buttonContent,
                 )
                 else -> Button(
-                    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),
+                    modifier = Modifier.defaultMinSize(
+                        minWidth = nexaDevButtonMinWidth.dp,
+                        minHeight = nexaDevButtonMinTapTarget.dp,
+                    ),
                     onClick = onClick,
                     enabled = !loading && !disabled,
                     shape = buttonShape ?: RoundedCornerShape(percent = 50),
@@ -1689,20 +1706,32 @@ internal fun NexaDevNode(
             Column(modifier = Modifier.fillMaxSize()) {
                 HorizontalPager(state = pageState, modifier = Modifier.weight(1f)) { page ->
                     val children = pages.optJSONArray(page) ?: JSONArray()
-                    RenderChildren(children, module, store, locals, scope)
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                        propagateMinConstraints = true,
+                    ) {
+                        RenderChildren(children, module, store, locals, scope)
+                    }
                 }
                 Row(
-                    modifier = Modifier.padding(bottom = 24.dp).align(Alignment.CenterHorizontally),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = nexaDevPageIndicatorBottomInset.dp)
+                        .align(Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.spacedBy(nexaDevPageIndicatorSpacing.dp),
                 ) {
                     for (page in 0 until pages.length()) {
                         Box(
                             modifier = Modifier
-                                .size(if (pageState.currentPage == page) 8.dp else 6.dp)
+                                .size(
+                                    if (pageState.currentPage == page) nexaDevPageIndicatorSelectedSize.dp
+                                    else nexaDevPageIndicatorUnselectedSize.dp,
+                                )
                                 .clip(CircleShape)
                                 .background(
                                     if (pageState.currentPage == page) MaterialTheme.colorScheme.primary
-                                    else Color(0xFF8E8E93).copy(alpha = 0.45f),
+                                    else Color(__NEXA_MUTED_TEXT_ARGB__).copy(
+                                        alpha = nexaDevPageIndicatorInactiveOpacity,
+                                    ),
                                 )
                                 .clickable(
                                     role = SemanticsRole.Button,

@@ -817,6 +817,138 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
         }
         _ => {}
     }
+    if matches!(filename, "NexaDevRenderer.swift" | "NexaDevRenderer.kt") {
+        use nexa_codegen::design_system as design;
+
+        let muted_red = (design::MUTED_TEXT_ARGB >> 16) & 0xFF;
+        let muted_green = (design::MUTED_TEXT_ARGB >> 8) & 0xFF;
+        let muted_blue = design::MUTED_TEXT_ARGB & 0xFF;
+        let replacements = [
+            (
+                "__NEXA_DEFAULT_BODY_FONT_SIZE__",
+                design::DEFAULT_BODY_FONT_SIZE.to_string(),
+            ),
+            (
+                "__NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__",
+                design::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
+            ),
+            (
+                "__NEXA_BUTTON_MIN_WIDTH__",
+                design::BUTTON_MIN_WIDTH.to_string(),
+            ),
+            (
+                "__NEXA_BUTTON_MIN_TAP_TARGET__",
+                design::BUTTON_MIN_TAP_TARGET.to_string(),
+            ),
+            (
+                "__NEXA_PAGE_INDICATOR_SELECTED_SIZE__",
+                design::PAGE_INDICATOR_SELECTED_SIZE.to_string(),
+            ),
+            (
+                "__NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__",
+                design::PAGE_INDICATOR_UNSELECTED_SIZE.to_string(),
+            ),
+            (
+                "__NEXA_PAGE_INDICATOR_SPACING__",
+                design::PAGE_INDICATOR_SPACING.to_string(),
+            ),
+            (
+                "__NEXA_PAGE_INDICATOR_BOTTOM_INSET__",
+                design::PAGE_INDICATOR_BOTTOM_INSET.to_string(),
+            ),
+            (
+                "__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__",
+                design::PAGE_INDICATOR_INACTIVE_OPACITY.to_string(),
+            ),
+            (
+                "__NEXA_DEFAULT_ACCENT_ARGB__",
+                format!("0x{:08X}", design::DEFAULT_ACCENT_ARGB),
+            ),
+            (
+                "__NEXA_DARK_ACCENT_ARGB__",
+                format!("0x{:08X}", design::DARK_ACCENT_ARGB),
+            ),
+            (
+                "__NEXA_LIGHT_PRIMARY_CONTAINER_ARGB__",
+                format!("0x{:08X}", design::LIGHT_PRIMARY_CONTAINER_ARGB),
+            ),
+            (
+                "__NEXA_DARK_PRIMARY_CONTAINER_ARGB__",
+                format!("0x{:08X}", design::DARK_PRIMARY_CONTAINER_ARGB),
+            ),
+            (
+                "__NEXA_LIGHT_ON_PRIMARY_CONTAINER_ARGB__",
+                format!("0x{:08X}", design::LIGHT_ON_PRIMARY_CONTAINER_ARGB),
+            ),
+            (
+                "__NEXA_DARK_ON_PRIMARY_CONTAINER_ARGB__",
+                format!("0x{:08X}", design::DARK_ON_PRIMARY_CONTAINER_ARGB),
+            ),
+            (
+                "__NEXA_LIGHT_BACKGROUND_ARGB__",
+                format!("0x{:08X}", design::LIGHT_BACKGROUND_ARGB),
+            ),
+            (
+                "__NEXA_DARK_BACKGROUND_ARGB__",
+                format!("0x{:08X}", design::DARK_BACKGROUND_ARGB),
+            ),
+            (
+                "__NEXA_LIGHT_SURFACE_ARGB__",
+                format!("0x{:08X}", design::LIGHT_SURFACE_ARGB),
+            ),
+            (
+                "__NEXA_DARK_SURFACE_ARGB__",
+                format!("0x{:08X}", design::DARK_SURFACE_ARGB),
+            ),
+            (
+                "__NEXA_LIGHT_SURFACE_VARIANT_ARGB__",
+                format!("0x{:08X}", design::LIGHT_SURFACE_VARIANT_ARGB),
+            ),
+            (
+                "__NEXA_DARK_SURFACE_VARIANT_ARGB__",
+                format!("0x{:08X}", design::DARK_SURFACE_VARIANT_ARGB),
+            ),
+            (
+                "__NEXA_LIGHT_OUTLINE_ARGB__",
+                format!("0x{:08X}", design::LIGHT_OUTLINE_ARGB),
+            ),
+            (
+                "__NEXA_DARK_OUTLINE_ARGB__",
+                format!("0x{:08X}", design::DARK_OUTLINE_ARGB),
+            ),
+            (
+                "__NEXA_LIGHT_ON_SURFACE_ARGB__",
+                format!("0x{:08X}", design::LIGHT_ON_SURFACE_ARGB),
+            ),
+            (
+                "__NEXA_DARK_ON_SURFACE_ARGB__",
+                format!("0x{:08X}", design::DARK_ON_SURFACE_ARGB),
+            ),
+            (
+                "__NEXA_MUTED_TEXT_ARGB__",
+                format!("0x{:08X}", design::MUTED_TEXT_ARGB),
+            ),
+            (
+                "__NEXA_DEFAULT_ERROR_ARGB__",
+                format!("0x{:08X}", design::DEFAULT_ERROR_ARGB),
+            ),
+            (
+                "__NEXA_MUTED_TEXT_RED__",
+                format!("{:.6}", f64::from(muted_red) / 255.0),
+            ),
+            (
+                "__NEXA_MUTED_TEXT_GREEN__",
+                format!("{:.6}", f64::from(muted_green) / 255.0),
+            ),
+            (
+                "__NEXA_MUTED_TEXT_BLUE__",
+                format!("{:.6}", f64::from(muted_blue) / 255.0),
+            ),
+        ];
+        for (placeholder, value) in replacements {
+            source = source.replace(placeholder, &value);
+        }
+    }
     source
 }
 
@@ -2220,6 +2352,51 @@ mod tests {
         KotlinBackend, ProjectPlan, SHARED_ICONS, SwiftBackend, dev_runtime_source,
         generate_splash, plugin_package, plugins, writers,
     };
+
+    #[test]
+    fn dev_runtime_ui_defaults_are_injected_from_the_shared_design_system() {
+        let module =
+            nexa_compiler::compile(r##"app DesignSystemProbe { body { Text("Parity") } }"##)
+                .expect("compile the runtime design-system fixture");
+        let swift = dev_runtime_source(
+            "NexaDevRenderer.swift",
+            include_str!("../../../runtime/ios/NexaDevRenderer.swift"),
+            "",
+            &module,
+        );
+        let kotlin = dev_runtime_source(
+            "NexaDevRenderer.kt",
+            include_str!("../../../runtime/android/NexaDevRenderer.kt"),
+            "dev.nexa",
+            &module,
+        );
+
+        for (platform, source) in [("iOS", swift.as_str()), ("Android", kotlin.as_str())] {
+            assert!(
+                !source.contains("__NEXA_"),
+                "{platform} DevRuntime retained an unresolved design-system token"
+            );
+        }
+        assert!(swift.contains("Text(label).font(.system(size: 17))"));
+        assert!(swift.contains("minWidth: CGFloat(64)"));
+        assert!(swift.contains("minHeight: CGFloat(48)"));
+        assert!(swift.contains("HStack(spacing: 8)"));
+        assert!(swift.contains(".padding(.bottom, 24)"));
+        assert!(swift.contains("Color(red: 0.556863, green: 0.556863, blue: 0.576471)"));
+
+        assert!(kotlin.contains("private const val nexaDevDefaultBodyFontSize = 17"));
+        assert!(kotlin.contains("private const val nexaDevDefaultLineHeightMultiplier = 1.2f"));
+        assert!(kotlin.contains("private const val nexaDevButtonMinWidth = 64"));
+        assert!(kotlin.contains("private const val nexaDevButtonMinTapTarget = 48"));
+        assert!(kotlin.contains("primary = Color(0xFF007AFF)"));
+        assert!(kotlin.contains(
+            "lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier"
+        ));
+        assert!(kotlin.contains("contentAlignment = Alignment.Center"));
+        assert!(kotlin.contains("propagateMinConstraints = true"));
+        assert!(kotlin.contains("Arrangement.spacedBy(nexaDevPageIndicatorSpacing.dp)"));
+        assert!(kotlin.contains("Modifier.padding(bottom = nexaDevPageIndicatorBottomInset.dp)"));
+    }
 
     #[test]
     fn generated_dev_icon_mappings_cover_the_shared_catalog() {
