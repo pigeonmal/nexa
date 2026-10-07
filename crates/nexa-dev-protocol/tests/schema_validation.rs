@@ -51,6 +51,7 @@ fn dev_ir_schema_fixture_matches_rust_protocol_and_native_runtimes() {
     assert!(client_messages.contains(&"hello".to_string()));
     assert!(client_messages.contains(&"acknowledge".to_string()));
     assert!(client_messages.contains(&"request_full_module".to_string()));
+    assert!(client_messages.contains(&"open_in_editor".to_string()));
     assert!(client_messages.contains(&"disconnect".to_string()));
 
     let server_messages = schema["server_messages"]

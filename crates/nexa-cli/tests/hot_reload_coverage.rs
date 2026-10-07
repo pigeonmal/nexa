@@ -861,6 +861,35 @@ fn runtime_feature_gaps_have_explicit_dual_platform_status() {
 }
 
 #[test]
+fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
+    let (root, _) = fixture();
+    let ios_protocol = fs::read_to_string(root.join("../../runtime/ios/NexaDevProtocol.swift"))
+        .expect("read iOS dev protocol");
+    let ios_overlay = fs::read_to_string(root.join("../../runtime/ios/NexaDevOverlay.swift"))
+        .expect("read iOS dev overlay");
+    let android_protocol =
+        fs::read_to_string(root.join("../../runtime/android/NexaDevProtocol.kt"))
+            .expect("read Android dev protocol");
+    let android_overlay = fs::read_to_string(root.join("../../runtime/android/NexaDevOverlay.kt"))
+        .expect("read Android dev overlay");
+    let server = fs::read_to_string(root.join("../../crates/nexa-dev-server/src/lib.rs"))
+        .expect("read dev server");
+    let cli = fs::read_to_string(root.join("../../crates/nexa-cli/src/commands.rs"))
+        .expect("read CLI commands");
+
+    assert!(ios_protocol.contains("NexaDevKeys.msgOpenInEditor"));
+    assert!(ios_protocol.contains("NexaDevDiagnostic(file: file, line: line, column: column"));
+    assert!(ios_overlay.contains("Build diagnostics"));
+    assert!(ios_overlay.contains("onOpenInEditor(item)"));
+    assert!(android_protocol.contains("NexaDevKeys.MSG_OPEN_IN_EDITOR"));
+    assert!(android_protocol.contains("NexaDevDiagnostic("));
+    assert!(android_overlay.contains("Build diagnostics"));
+    assert!(android_overlay.contains("onOpenInEditor(diagnostic)"));
+    assert!(server.contains("ClientMessage::OpenInEditor { file, line, column }"));
+    assert!(cli.contains("vscode://file/"));
+}
+
+#[test]
 fn appearance_wrapper_is_rendered_by_both_dev_runtimes() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))

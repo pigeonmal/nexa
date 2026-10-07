@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "NexaDevIRSchema",
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
-  "protocol_version": 10,
+  "protocol_version": 11,
   "dev_ir_format_version": 38,
   "view_transitions": [
     "Fade",
@@ -19,6 +19,7 @@
     "hello",
     "acknowledge",
     "request_full_module",
+    "open_in_editor",
     "disconnect"
   ],
   "server_messages": [

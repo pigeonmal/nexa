@@ -2,22 +2,36 @@ package __NEXA_PACKAGE__
 
 import android.app.Activity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import org.json.JSONObject
+import androidx.compose.ui.window.Dialog
 
 internal fun nexaDevColor(value: JSONObject?, isDark: Boolean): Color? {
     value ?: return null
@@ -51,6 +65,76 @@ internal fun nexaDevHexColor(value: String): Color? {
         blue = channels.third.toFloat() / 255f,
         alpha = alpha,
     )
+}
+
+@Composable
+internal fun NexaDevErrorOverlay(
+    diagnostics: List<NexaDevDiagnostic>,
+    modifier: Modifier = Modifier,
+    onOpenInEditor: (NexaDevDiagnostic) -> Unit,
+) {
+    val first = diagnostics.firstOrNull() ?: return
+    var showDetails by remember(diagnostics) { mutableStateOf(false) }
+    Surface(
+        modifier = modifier.clickable { showDetails = true },
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xF2221B1D),
+        tonalElevation = 8.dp,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text("Nexa development error", color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(
+                "${first.file.substringAfterLast('/').substringAfterLast('\\')}:${first.line}:${first.column}",
+                color = Color(0xFFFFC9C5),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            Text(
+                first.message,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(
+                if (diagnostics.size == 1) "Tap to inspect and open in editor" else "${diagnostics.size} errors · tap to inspect",
+                color = Color(0xFFFFC9C5),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+    if (showDetails) {
+        Dialog(onDismissRequest = { showDetails = false }) {
+            Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF211D23)) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 560.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
+                ) {
+                    Text("Build diagnostics", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    diagnostics.forEach { diagnostic ->
+                        Column(Modifier.padding(top = 16.dp)) {
+                            Text(
+                                "${diagnostic.file}:${diagnostic.line}:${diagnostic.column}",
+                                color = Color(0xFFFFC9C5),
+                                fontSize = 12.sp,
+                            )
+                            Text(diagnostic.message, color = Color.White, modifier = Modifier.padding(top = 4.dp))
+                            TextButton(onClick = { onOpenInEditor(diagnostic) }) {
+                                Text("Open in editor")
+                            }
+                        }
+                    }
+                    TextButton(onClick = { showDetails = false }) {
+                        Text("Done")
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

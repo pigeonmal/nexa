@@ -4,7 +4,7 @@ import Foundation
 /// shared between Nexa development servers and native dev runtimes.
 public enum NexaDevSchema {
     /// Dev protocol version exchanged during WebSocket handshake.
-    public static let protocolVersion: Int = 10
+    public static let protocolVersion: Int = 11
 
     /// Format version of the Dev IR payload.
     public static let devIRFormatVersion: Int = 38
@@ -35,6 +35,7 @@ public enum NexaDevKeys {
     public static let msgAcknowledge = "acknowledge"
     public static let msgRequestFullModule = "request_full_module"
     public static let msgDisconnect = "disconnect"
+    public static let msgOpenInEditor = "open_in_editor"
 
     // Server message types
     public static let msgWelcome = "welcome"

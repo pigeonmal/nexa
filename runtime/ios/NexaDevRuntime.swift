@@ -38,14 +38,6 @@ public struct NexaDevRuntimeRoot: View {
         Group {
             ZStack(alignment: .topTrailing) {
                 ZStack(alignment: .topLeading) {
-                    if !runtime.diagnostics.isEmpty {
-                        Text(runtime.diagnostics.joined(separator: "\n"))
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .background(.red)
-                    }
                     if let module = runtime.module {
                         NexaDevNodeList(
                             nodes: module["body"] as? [Any] ?? [],
@@ -58,6 +50,14 @@ public struct NexaDevRuntimeRoot: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                if !runtime.diagnostics.isEmpty {
+                    NexaDevErrorOverlay(
+                        diagnostics: runtime.diagnostics,
+                        onOpenInEditor: runtime.openInEditor
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                }
                 if runtime.performanceOverlayEnabled {
                     NexaDevPerformanceOverlay(fps: performance.fps, frameTimeMs: performance.frameTimeMs)
                         .padding(8)

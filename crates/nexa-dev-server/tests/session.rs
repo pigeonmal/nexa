@@ -1,4 +1,8 @@
-use std::{net::TcpStream, thread, time::Duration};
+use std::{
+    net::TcpStream,
+    thread,
+    time::{Duration, Instant},
+};
 
 use nexa_dev_ir::{DevModule, lower};
 use nexa_dev_protocol::{
@@ -147,6 +151,39 @@ fn authenticated_client_receives_full_module_and_compiler_diagnostics_keep_last_
         read_server_message(&mut client),
         ServerMessage::FullModule { revision, .. } if revision == "good-1"
     ));
+}
+
+#[test]
+fn authenticated_runtime_can_request_host_editor_navigation() {
+    let server = DevServer::bind([(TargetPlatform::Ios, module("ios-1", "last good"))])
+        .expect("bind dev server");
+    let mut client = connect(&server, server.session_token(), TargetPlatform::Ios);
+    let _ = read_server_message(&mut client);
+    let _ = read_server_message(&mut client);
+
+    client
+        .send(Message::Text(
+            encode_client(&ClientMessage::OpenInEditor {
+                file: "/work/nexa/App.nx".to_owned(),
+                line: 12,
+                column: 7,
+            })
+            .expect("encode editor request")
+            .into(),
+        ))
+        .expect("send editor request");
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if let Some(request) = server.try_recv_editor_request() {
+            assert_eq!(request.file, "/work/nexa/App.nx");
+            assert_eq!(request.line, 12);
+            assert_eq!(request.column, 7);
+            break;
+        }
+        assert!(Instant::now() < deadline, "editor request should arrive");
+        thread::sleep(Duration::from_millis(5));
+    }
 }
 
 #[test]

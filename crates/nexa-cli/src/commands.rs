@@ -815,6 +815,14 @@ fn watch_sources(
             }
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => {}
         }
+        if let Some(request) = context.server.try_recv_editor_request()
+            && let Err(error) = open_editor_location(&request.file, request.line, request.column)
+        {
+            eprintln!(
+                "cannot open {}:{}:{} in an editor: {error}",
+                request.file, request.line, request.column
+            );
+        }
         thread::sleep(Duration::from_millis(350));
         let current = match source_fingerprint(context.root, &plugin_roots) {
             Ok(current) => current,
@@ -1056,16 +1064,74 @@ fn publish_dev_error(
     platform: &str,
     message: String,
 ) {
-    let diagnostic = nexa_dev_protocol::Diagnostic {
-        severity: nexa_dev_protocol::Severity::Error,
-        file: entry.display().to_string(),
-        line: 1,
-        column: 1,
-        message,
-    };
+    let diagnostic = parse_dev_diagnostic(entry, &message);
     for target in dev_targets(platform) {
         let _ = server.publish_diagnostics(target, vec![diagnostic.clone()]);
     }
+}
+
+fn parse_dev_diagnostic(entry: &Path, message: &str) -> nexa_dev_protocol::Diagnostic {
+    let parsed = message.lines().find_map(|line| {
+        let (location, detail) = line.split_once(": error: ")?;
+        let mut parts = location.rsplitn(3, ':');
+        let column = parts.next()?.parse::<u32>().ok()?;
+        let line_number = parts.next()?.parse::<u32>().ok()?;
+        let file = parts.next()?;
+        Some((file, line_number, column, detail))
+    });
+    let (file, line, column, detail) =
+        parsed.unwrap_or((entry.to_str().unwrap_or("<unknown>"), 1, 1, message));
+    nexa_dev_protocol::Diagnostic {
+        severity: nexa_dev_protocol::Severity::Error,
+        file: file.to_owned(),
+        line,
+        column,
+        message: detail.to_owned(),
+    }
+}
+
+fn open_editor_location(file: &str, line: u32, column: u32) -> Result<(), String> {
+    let source_path = PathBuf::from(file);
+    let absolute_path = std::fs::canonicalize(&source_path).unwrap_or_else(|_| {
+        if source_path.is_absolute() {
+            source_path
+        } else {
+            env::current_dir()
+                .map(|directory| directory.join(&source_path))
+                .unwrap_or(source_path)
+        }
+    });
+    let path = absolute_path.to_string_lossy().replace('\\', "/");
+    let encoded_path = path
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'.' | b'_' | b'~' => {
+                char::from(byte).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect::<String>();
+    let uri = format!(
+        "vscode://file/{}:{line}:{column}",
+        encoded_path.trim_start_matches('/')
+    );
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(&uri);
+        command
+    } else if cfg!(target_os = "windows") {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", &uri]);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(&uri);
+        command
+    };
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("could not launch the system URL handler for {uri}: {error}"))
 }
 
 fn dev_targets(platform: &str) -> Vec<nexa_dev_protocol::TargetPlatform> {
@@ -2079,11 +2145,31 @@ fn set_flavor(current: &mut Option<String>, requested: &str) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        changed_paths, parse_android_devices, parse_ios_simulator_devices, release_build_arguments,
-        run, run_in_language_tests, select_native_platform, source_fingerprint,
+        changed_paths, parse_android_devices, parse_dev_diagnostic, parse_ios_simulator_devices,
+        release_build_arguments, run, run_in_language_tests, select_native_platform,
+        source_fingerprint,
     };
     use nexa_testkit::{TempDir, TestProject};
     use std::fs;
+
+    #[test]
+    fn dev_diagnostics_preserve_paths_and_source_positions() {
+        let entry = std::path::Path::new("fallback/App.nx");
+        let diagnostic = parse_dev_diagnostic(
+            entry,
+            "C:\\work\\My App\\Screen.nx:18:6: error: unknown state `count`",
+        );
+        assert_eq!(diagnostic.file, "C:\\work\\My App\\Screen.nx");
+        assert_eq!(diagnostic.line, 18);
+        assert_eq!(diagnostic.column, 6);
+        assert_eq!(diagnostic.message, "unknown state `count`");
+
+        let fallback = parse_dev_diagnostic(entry, "native build failed");
+        assert_eq!(fallback.file, "fallback/App.nx");
+        assert_eq!(fallback.line, 1);
+        assert_eq!(fallback.column, 1);
+        assert_eq!(fallback.message, "native build failed");
+    }
 
     #[test]
     fn fmt_formats_source_and_check_mode_reports_changes_without_writing() {

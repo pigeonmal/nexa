@@ -70,6 +70,78 @@ struct NexaDevPerformanceOverlay: View {
     }
 }
 
+struct NexaDevErrorOverlay: View {
+    let diagnostics: [NexaDevDiagnostic]
+    let onOpenInEditor: (NexaDevDiagnostic) -> Void
+
+    @State private var detailsPresented = false
+
+    private var firstDiagnostic: NexaDevDiagnostic? { diagnostics.first }
+
+    var body: some View {
+        if let diagnostic = firstDiagnostic {
+            Button {
+                detailsPresented = true
+            } label: {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Nexa development error")
+                        .font(.subheadline.weight(.semibold))
+                    Text(diagnostic.sourceLocation)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.red)
+                    Text(diagnostic.message)
+                        .font(.subheadline)
+                        .lineLimit(2)
+                    Text(diagnostics.count == 1 ? "Tap to inspect and open in editor" : "\(diagnostics.count) errors · tap to inspect")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(.red.opacity(0.35), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $detailsPresented) {
+                NavigationStack {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            ForEach(diagnostics) { item in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(item.sourceLocation)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.red)
+                                    Text(item.message)
+                                        .font(.body)
+                                    Button {
+                                        onOpenInEditor(item)
+                                    } label: {
+                                        Label("Open in editor", systemImage: "arrow.up.forward.app")
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding()
+                    }
+                    .navigationTitle("Build diagnostics")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { detailsPresented = false }
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
+            }
+        }
+    }
+}
+
 /// Status bar visibility modifier for modern and legacy iOS versions.
 struct NexaDevStatusBarVisibility: ViewModifier {
     let hidden: Bool

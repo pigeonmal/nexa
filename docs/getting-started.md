@@ -191,6 +191,8 @@ While `nexa dev` is running in your terminal:
 | `b` | **Rebuild Native Host**| Re-runs native compiler (Xcode/Gradle) when plugins or native code change. |
 | `p` | **Toggle Overlay** | Toggles the on-device live FPS and frame latency diagnostics HUD. |
 
+When a source compile fails, the running debug app keeps the last working screen and shows a tappable error banner. Open its details and choose **Open in editor** to ask the `nexa dev` host to open the reported file and line through the desktop's `vscode://` URL handler.
+
 ---
 
 ## 6. Your First Complete App

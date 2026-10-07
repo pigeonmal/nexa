@@ -4,7 +4,7 @@
 use nexa_dev_ir::DevModulePatch;
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u16 = 10;
+pub const PROTOCOL_VERSION: u16 = 11;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,6 +25,11 @@ pub enum ClientMessage {
         revision: String,
     },
     RequestFullModule,
+    OpenInEditor {
+        file: String,
+        line: u32,
+        column: u32,
+    },
     Disconnect {
         reason: Option<String>,
     },
@@ -72,6 +77,14 @@ pub struct Diagnostic {
     pub line: u32,
     pub column: u32,
     pub message: String,
+}
+
+/// A source location the connected app asks the host editor to open.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditorRequest {
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
 }
 
 /// Encode a client message as one JSON WebSocket text frame.

@@ -74,13 +74,29 @@ internal class NexaDevSocketClient(
                     .put(NexaDevKeys.SESSION_TOKEN, token)
                     .put(NexaDevKeys.TARGET, NexaDevSchema.TARGET_PLATFORM))
                 .toString())
-            while (active.get()) {
-                val frame = readFrame(input) ?: break
-                when (frame.first) {
-                    0x1 -> handle(frame.second, output)
-                    0x8 -> break
-                    0x9 -> sendFrame(output, 0xA, frame.second)
+            val editorHandler: (NexaDevDiagnostic) -> Unit = { diagnostic ->
+                runCatching {
+                    sendFrame(output, 0x1, JSONObject()
+                        .put(NexaDevKeys.TYPE, NexaDevKeys.MSG_OPEN_IN_EDITOR)
+                        .put(NexaDevKeys.PAYLOAD, JSONObject()
+                            .put(NexaDevKeys.FILE, diagnostic.file)
+                            .put(NexaDevKeys.LINE, diagnostic.line)
+                            .put(NexaDevKeys.COLUMN, diagnostic.column))
+                        .toString())
                 }
+            }
+            store.openEditorHandler = editorHandler
+            try {
+                while (active.get()) {
+                    val frame = readFrame(input) ?: break
+                    when (frame.first) {
+                        0x1 -> handle(frame.second, output)
+                        0x8 -> break
+                        0x9 -> sendFrame(output, 0xA, frame.second)
+                    }
+                }
+            } finally {
+                if (store.openEditorHandler === editorHandler) store.openEditorHandler = null
             }
         }
     }
@@ -98,6 +114,7 @@ internal class NexaDevSocketClient(
                 onMainAndWait {
                     store.installTranslations(translations)
                     store.install(module)
+                    store.publishDiagnostics(emptyList())
                 }
                 acknowledge(output, revision)
                 android.util.Log.i("NexaDevRuntime", "Applied module $revision")
@@ -116,6 +133,7 @@ internal class NexaDevSocketClient(
                         store.installTranslations(patch.optJSONObject("translations"))
                     }
                     store.applyPatch(patch)
+                    store.publishDiagnostics(emptyList())
                 }
                 acknowledge(output, revision)
                 android.util.Log.i("NexaDevRuntime", "Applied patch $revision")
@@ -124,7 +142,12 @@ internal class NexaDevSocketClient(
                 val entries = payload.optJSONArray(NexaDevKeys.MSG_DIAGNOSTICS) ?: JSONArray()
                 val messages = (0 until entries.length()).map { index ->
                     val diagnostic = entries.optJSONObject(index) ?: JSONObject()
-                    "${diagnostic.optString(NexaDevKeys.FILE, "<unknown>")}:${diagnostic.optInt(NexaDevKeys.LINE, 1)}:${diagnostic.optInt(NexaDevKeys.COLUMN, 1)}: ${diagnostic.optString(NexaDevKeys.MESSAGE, "compile error")}"
+                    NexaDevDiagnostic(
+                        file = diagnostic.optString(NexaDevKeys.FILE, "<unknown>"),
+                        line = diagnostic.optInt(NexaDevKeys.LINE, 1).coerceAtLeast(1),
+                        column = diagnostic.optInt(NexaDevKeys.COLUMN, 1).coerceAtLeast(1),
+                        message = diagnostic.optString(NexaDevKeys.MESSAGE, "compile error"),
+                    )
                 }
                 mainHandler.post { store.publishDiagnostics(messages) }
             }

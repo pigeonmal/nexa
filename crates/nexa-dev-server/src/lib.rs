@@ -7,7 +7,7 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{self, RecvTimeoutError, Sender},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -15,8 +15,8 @@ use std::{
 
 use nexa_dev_ir::DevModule;
 use nexa_dev_protocol::{
-    ClientMessage, Diagnostic, PROTOCOL_VERSION, ServerMessage, TargetPlatform, decode_client,
-    encode_server,
+    ClientMessage, Diagnostic, EditorRequest, PROTOCOL_VERSION, ServerMessage, TargetPlatform,
+    decode_client, encode_server,
 };
 use tungstenite::{Message, WebSocket, accept};
 
@@ -43,6 +43,7 @@ pub struct DevServer {
     address: SocketAddr,
     session_token: String,
     state: Arc<Mutex<SharedState>>,
+    editor_requests: Receiver<EditorRequest>,
     stopping: Arc<AtomicBool>,
     listener_thread: Option<JoinHandle<()>>,
 }
@@ -81,6 +82,7 @@ impl DevServer {
 
         let state = Arc::new(Mutex::new(state));
         let stopping = Arc::new(AtomicBool::new(false));
+        let (editor_request_sender, editor_requests) = mpsc::channel();
         let session_token = uuid::Uuid::new_v4().simple().to_string();
         let listener_state = Arc::clone(&state);
         let listener_stopping = Arc::clone(&stopping);
@@ -101,11 +103,19 @@ impl DevServer {
                             let state = Arc::clone(&listener_state);
                             let stopping = Arc::clone(&listener_stopping);
                             let token = listener_token.clone();
+                            let editor_requests = editor_request_sender.clone();
                             let client_id = next_client_id.fetch_add(1, Ordering::Relaxed);
                             let _ = thread::Builder::new()
                                 .name("nexa-dev-client".to_owned())
                                 .spawn(move || {
-                                    serve_client(stream, state, stopping, token, client_id);
+                                    serve_client(
+                                        stream,
+                                        state,
+                                        stopping,
+                                        token,
+                                        client_id,
+                                        editor_requests,
+                                    );
                                 });
                         }
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -121,6 +131,7 @@ impl DevServer {
             address,
             session_token,
             state,
+            editor_requests,
             stopping,
             listener_thread: Some(listener_thread),
         })
@@ -132,6 +143,11 @@ impl DevServer {
 
     pub fn session_token(&self) -> &str {
         &self.session_token
+    }
+
+    /// Return the next authenticated editor-open request, if one is waiting.
+    pub fn try_recv_editor_request(&self) -> Option<EditorRequest> {
+        self.editor_requests.try_recv().ok()
     }
 
     /// Publish a newly compiled module. The update is routed only to clients
@@ -251,6 +267,7 @@ fn serve_client(
     stopping: Arc<AtomicBool>,
     session_token: String,
     client_id: u64,
+    editor_requests: Sender<EditorRequest>,
 ) {
     if stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT)).is_err() {
         return;
@@ -409,6 +426,11 @@ fn serve_client(
                     pending_patch_revisions.remove(&revision);
                     if send(&mut websocket, &message).is_err() {
                         break;
+                    }
+                }
+                Ok(ClientMessage::OpenInEditor { file, line, column }) => {
+                    if !file.is_empty() && line > 0 && column > 0 {
+                        let _ = editor_requests.send(EditorRequest { file, line, column });
                     }
                 }
                 Ok(ClientMessage::Disconnect { .. }) => break,

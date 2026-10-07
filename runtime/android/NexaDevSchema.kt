@@ -5,7 +5,7 @@ package __NEXA_PACKAGE__
  * shared between Nexa development servers and Android dev runtimes.
  */
 internal object NexaDevSchema {
-    const val PROTOCOL_VERSION: Int = 10
+    const val PROTOCOL_VERSION: Int = 11
     const val DEV_IR_FORMAT_VERSION: Int = 38
     const val TARGET_PLATFORM: String = "android"
 }
@@ -34,6 +34,7 @@ internal object NexaDevKeys {
     const val MSG_ACKNOWLEDGE = "acknowledge"
     const val MSG_REQUEST_FULL_MODULE = "request_full_module"
     const val MSG_DISCONNECT = "disconnect"
+    const val MSG_OPEN_IN_EDITOR = "open_in_editor"
 
     // Server message types
     const val MSG_WELCOME = "welcome"

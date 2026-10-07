@@ -121,6 +121,20 @@ fn diagnostics_preserve_file_position_and_severity() {
 }
 
 #[test]
+fn editor_open_requests_preserve_source_position() {
+    let message = ClientMessage::OpenInEditor {
+        file: "/work/nexa/App.nx".to_owned(),
+        line: 12,
+        column: 7,
+    };
+
+    let frame = encode_client(&message).expect("editor request should serialize");
+    let decoded = decode_client(&frame).expect("editor request should deserialize");
+
+    assert_eq!(decoded, message);
+}
+
+#[test]
 fn performance_overlay_toggle_round_trips() {
     let message = ServerMessage::PerformanceOverlay { enabled: true };
     let frame = encode_server(&message).expect("performance overlay should serialize");

@@ -16,6 +16,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.util.concurrent.ConcurrentHashMap
 
+internal data class NexaDevDiagnostic(
+    val file: String,
+    val line: Int,
+    val column: Int,
+    val message: String,
+)
+
 internal data class NexaDevNativeEventSubscription(
     val receiver: Any,
     val property: String,
@@ -56,8 +63,9 @@ internal class NexaDevStateStore(internal val context: Context) {
         private set
     var appLifecycleEpoch by mutableIntStateOf(0)
         private set
-    var diagnostics by mutableStateOf<List<String>>(emptyList())
+    var diagnostics by mutableStateOf<List<NexaDevDiagnostic>>(emptyList())
         private set
+    @Volatile var openEditorHandler: ((NexaDevDiagnostic) -> Unit)? = null
     var performanceOverlayEnabled by mutableStateOf(false)
     var navigationEpoch by mutableIntStateOf(0)
         private set
@@ -446,8 +454,12 @@ internal class NexaDevStateStore(internal val context: Context) {
         return false
     }
 
-    fun publishDiagnostics(next: List<String>) {
+    fun publishDiagnostics(next: List<NexaDevDiagnostic>) {
         diagnostics = next
+    }
+
+    fun requestEditorOpen(diagnostic: NexaDevDiagnostic) {
+        openEditorHandler?.invoke(diagnostic)
     }
 
     fun state(name: String, scope: String = "app"): Any =

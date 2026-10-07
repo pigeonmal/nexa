@@ -1,11 +1,21 @@
 import Foundation
 import SwiftUI
 
+struct NexaDevDiagnostic: Identifiable, Equatable {
+    let id = UUID()
+    let file: String
+    let line: Int
+    let column: Int
+    let message: String
+
+    var sourceLocation: String { "\(file):\(line):\(column)" }
+}
+
 /// WebSocket protocol and session management for the Nexa development runtime.
 @MainActor
 final class NexaDevRuntime: ObservableObject {
     @Published var module: [String: Any]?
-    @Published var diagnostics: [String] = []
+    @Published var diagnostics: [NexaDevDiagnostic] = []
     @Published var performanceOverlayEnabled = false
     let store = NexaDevStateStore()
 
@@ -99,12 +109,12 @@ final class NexaDevRuntime: ObservableObject {
         case NexaDevKeys.msgDiagnostics:
             diagnostics = (payload[NexaDevKeys.diagnostics] as? [[String: Any]] ?? []).map { diagnostic in
                 let file = diagnostic[NexaDevKeys.file] as? String ?? "<unknown>"
-                let line = diagnostic[NexaDevKeys.line] as? Int ?? 1
-                let column = diagnostic[NexaDevKeys.column] as? Int ?? 1
+                let line = max(diagnostic[NexaDevKeys.line] as? Int ?? 1, 1)
+                let column = max(diagnostic[NexaDevKeys.column] as? Int ?? 1, 1)
                 let message = diagnostic[NexaDevKeys.message] as? String ?? "compile error"
-                let formatted = "\(file):\(line):\(column): \(message)"
-                print(formatted)
-                return formatted
+                let value = NexaDevDiagnostic(file: file, line: line, column: column, message: message)
+                print("\(value.sourceLocation): \(message)")
+                return value
             }
         case NexaDevKeys.msgRestart:
             if let module { store.hotRestart(module: module) }
@@ -130,6 +140,21 @@ final class NexaDevRuntime: ObservableObject {
                 NexaDevKeys.type: NexaDevKeys.msgAcknowledge,
                 NexaDevKeys.payload: [NexaDevKeys.revision: revision],
             ])))
+        }
+    }
+
+    func openInEditor(_ diagnostic: NexaDevDiagnostic) {
+        guard let socket else { return }
+        Task<Void, Never> {
+            guard let encoded = try? Self.encode([
+                NexaDevKeys.type: NexaDevKeys.msgOpenInEditor,
+                NexaDevKeys.payload: [
+                    NexaDevKeys.file: diagnostic.file,
+                    NexaDevKeys.line: diagnostic.line,
+                    NexaDevKeys.column: diagnostic.column,
+                ],
+            ]) else { return }
+            try? await socket.send(.string(encoded))
         }
     }
 
