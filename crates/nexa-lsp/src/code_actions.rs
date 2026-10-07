@@ -27,10 +27,12 @@ pub fn code_actions_with_documents<'a>(
         .collect::<Vec<_>>();
     let mut components = HashMap::<String, ComponentDecl>::new();
     let mut enum_cases = HashMap::<String, String>::new();
+    let mut declared_plugins = HashSet::<String>::new();
     for document in documents {
         let Ok(program) = nexa_syntax::parse_program(document) else {
             continue;
         };
+        declared_plugins.extend(program.plugins.into_iter().map(|plugin| plugin.namespace));
         for component in program.components {
             components
                 .entry(component.name.clone())
@@ -44,6 +46,7 @@ pub fn code_actions_with_documents<'a>(
             }
         }
     }
+    let dependencies = crate::diagnostics::project_plugin_dependencies(uri).unwrap_or_default();
 
     diagnostics
         .iter()
@@ -58,6 +61,15 @@ pub fn code_actions_with_documents<'a>(
                     .collect()
             } else {
                 add_missing_component_arguments(source, uri, diagnostic, &components, &enum_cases)
+                    .or_else(|| {
+                        import_project_plugin(
+                            source,
+                            uri,
+                            diagnostic,
+                            &dependencies,
+                            &declared_plugins,
+                        )
+                    })
                     .into_iter()
                     .collect()
             }
@@ -115,6 +127,106 @@ fn wrap_throwing_statement(source: &str, uri: &str, diagnostic: &Value) -> Optio
             }
         }
     }))
+}
+
+fn import_project_plugin(
+    source: &str,
+    uri: &str,
+    diagnostic: &Value,
+    dependencies: &[nexa_syntax::ast::PluginDependencyConfig],
+    declared_plugins: &HashSet<String>,
+) -> Option<Value> {
+    let message = diagnostic.get("message")?.as_str()?;
+    let qualified = message
+        .strip_prefix("unknown native API `")
+        .or_else(|| message.strip_prefix("unknown native component `"))?
+        .strip_suffix('`')?;
+    let (namespace, _) = qualified.split_once('.')?;
+    let dependency = dependencies
+        .iter()
+        .find(|dependency| dependency.alias == namespace)?;
+    if dependency.package_id.is_empty() || declared_plugins.contains(namespace) {
+        return None;
+    }
+    if !namespace
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return None;
+    }
+
+    let program = nexa_syntax::parse_program(source).ok()?;
+    let index = LineIndex::new(source);
+    let declaration_start = program
+        .imports
+        .iter()
+        .map(|declaration| declaration.span.start)
+        .chain(
+            program
+                .plugins
+                .iter()
+                .map(|declaration| declaration.span.start),
+        )
+        .max();
+    let (insertion_offset, inserted) = if let Some(start) = declaration_start {
+        let line_start = source[..start].rfind('\n').map_or(0, |newline| newline + 1);
+        let line_end = source[line_start..]
+            .find('\n')
+            .map_or(source.len(), |newline| line_start + newline);
+        let declaration_line = source.get(line_start..line_end)?.trim_end_matches('\r');
+        if declaration_line.trim().is_empty() {
+            return None;
+        }
+        (
+            line_end,
+            format!(
+                "\nplugin \"{}\" as {namespace}",
+                escape_string(dependency.package_id.as_str())
+            ),
+        )
+    } else {
+        let app_start = program.app.as_ref()?.span.start;
+        let line_start = source[..app_start]
+            .rfind('\n')
+            .map_or(0, |newline| newline + 1);
+        (
+            line_start,
+            format!(
+                "plugin \"{}\" as {namespace}\n",
+                escape_string(dependency.package_id.as_str())
+            ),
+        )
+    };
+    let position = index.to_position(source, insertion_offset);
+    let updated = format!(
+        "{}{}{}",
+        &source[..insertion_offset],
+        inserted,
+        &source[insertion_offset..]
+    );
+    nexa_syntax::parse_program(&updated).ok()?;
+
+    Some(json!({
+        "title": format!("Import plugin {namespace} as {namespace}"),
+        "kind": "quickfix",
+        "isPreferred": false,
+        "diagnostics": [diagnostic],
+        "edit": {
+            "changes": {
+                (uri): [{
+                    "range": {
+                        "start": { "line": position.line, "character": position.character },
+                        "end": { "line": position.line, "character": position.character }
+                    },
+                    "newText": inserted
+                }]
+            }
+        }
+    }))
+}
+
+fn escape_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn add_missing_component_arguments(
@@ -513,5 +625,101 @@ component TaskCard(title: String, priority: Priority, completed: Bool, tags: Arr
             }),
         );
         assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn imports_a_configured_plugin_for_an_unknown_native_api() {
+        let project = nexa_testkit::TestProject::new("nexa-lsp-plugin-import");
+        let source = "import \"screens/Settings.nx\"\napp Demo { body { SQLite.open() } }\n";
+        let app = project.write_app(source);
+        project.write_config(
+            r#"config {
+                dependencies {
+                    SQLite { id: "dev.nexa.sqlite", path: "plugins/sqlite" }
+                }
+            }"#,
+        );
+        let uri = format!("file://{}", app.display());
+        let offset = source.find("SQLite.open").expect("unknown plugin API");
+        let position = LineIndex::new(source).to_position(source, offset);
+        let actions = code_actions(
+            source,
+            &uri,
+            &json!({
+                "diagnostics": [{
+                    "message": "unknown native API `SQLite.open`",
+                    "range": { "start": position, "end": position }
+                }]
+            }),
+        );
+
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0]["title"], "Import plugin SQLite as SQLite");
+        let change = &actions[0]["edit"]["changes"][&uri][0];
+        assert_eq!(change["newText"], "\nplugin \"dev.nexa.sqlite\" as SQLite");
+        let edit_position: crate::Position =
+            serde_json::from_value(change["range"]["start"].clone()).expect("edit position");
+        let edit_offset = LineIndex::new(source)
+            .to_offset(source, edit_position)
+            .expect("edit offset");
+        let updated = format!(
+            "{}{}{}",
+            &source[..edit_offset],
+            change["newText"].as_str().expect("plugin import edit"),
+            &source[edit_offset..]
+        );
+        nexa_syntax::parse_program(&updated).expect("quick fix emits a valid plugin import");
+    }
+
+    #[test]
+    fn does_not_offer_a_duplicate_or_unconfigured_plugin_import() {
+        let project = nexa_testkit::TestProject::new("nexa-lsp-plugin-import-existing");
+        let source = "plugin \"dev.nexa.sqlite\" as SQLite\napp Demo { body { SQLite.open() } }\n";
+        let app = project.write_app(source);
+        project.write_config(
+            r#"config {
+                dependencies {
+                    SQLite { id: "dev.nexa.sqlite", path: "plugins/sqlite" }
+                }
+            }"#,
+        );
+        let uri = format!("file://{}", app.display());
+        let offset = source.find("SQLite.open").expect("unknown plugin API");
+        let position = LineIndex::new(source).to_position(source, offset);
+        let diagnostic = json!({
+            "diagnostics": [{
+                "message": "unknown native API `SQLite.open`",
+                "range": { "start": position, "end": position }
+            }]
+        });
+        assert!(code_actions(source, &uri, &diagnostic).is_empty());
+
+        let unconfigured_project = nexa_testkit::TestProject::new("nexa-lsp-plugin-not-configured");
+        let unconfigured_source = "app Demo { body { SQLite.open() } }\n";
+        let unconfigured_app = unconfigured_project.write_app(unconfigured_source);
+        unconfigured_project.write_config("config { dependencies {} }\n");
+        let unconfigured_uri = format!("file://{}", unconfigured_app.display());
+        let unconfigured_offset = unconfigured_source
+            .find("SQLite.open")
+            .expect("unknown plugin API");
+        let unconfigured_position = LineIndex::new(unconfigured_source)
+            .to_position(unconfigured_source, unconfigured_offset);
+        let unconfigured_diagnostic = json!({
+            "diagnostics": [{
+                "message": "unknown native API `SQLite.open`",
+                "range": {
+                    "start": unconfigured_position,
+                    "end": unconfigured_position
+                }
+            }]
+        });
+        assert!(
+            code_actions(
+                unconfigured_source,
+                &unconfigured_uri,
+                &unconfigured_diagnostic
+            )
+            .is_empty()
+        );
     }
 }

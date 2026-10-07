@@ -593,3 +593,52 @@ fn lsp_adds_missing_arguments_from_an_open_component_document() {
         ", count: 0"
     );
 }
+
+#[test]
+fn lsp_imports_a_configured_plugin_for_an_unknown_native_api() {
+    let project = nexa_testkit::TestProject::new("nexa-lsp-plugin-import-integration");
+    let source = "app Demo { body { SQLite.open() } }\n";
+    let app = project.write_app(source);
+    project.write_config(
+        r#"config {
+            dependencies {
+                SQLite { id: "dev.nexa.sqlite", path: "plugins/sqlite" }
+            }
+        }"#,
+    );
+    let uri = format!("file://{}", app.display());
+    let mut server = LspServer::new();
+    let diagnostics = server.open_or_change_document(uri.clone(), source.to_owned());
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message == "unknown native component `SQLite.open`"),
+        "unexpected diagnostics: {diagnostics:#?}"
+    );
+    let offset = source.find("SQLite.open").expect("unknown plugin API");
+    let position = LineIndex::new(source).to_position(source, offset);
+    let diagnostic_context = serde_json::to_value(&diagnostics).expect("serialize diagnostics");
+    let (response, _) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(14)),
+        method: "textDocument/codeAction".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": uri },
+            "range": { "start": position, "end": position },
+            "context": { "diagnostics": diagnostic_context }
+        })),
+    });
+    let actions = response
+        .expect("code action response")
+        .result
+        .expect("code actions");
+    let action = actions
+        .as_array()
+        .and_then(|actions| actions.first())
+        .expect("plugin import quick fix");
+    assert_eq!(action["title"], "Import plugin SQLite as SQLite");
+    assert_eq!(
+        action["edit"]["changes"][uri][0]["newText"],
+        "plugin \"dev.nexa.sqlite\" as SQLite\n"
+    );
+}

@@ -8,6 +8,7 @@ use std::{
 
 use nexa_compiler::{IncrementalProjectCompiler, Target};
 use nexa_diagnostics::{CompileError, CompileWarning, Span};
+use nexa_syntax::ast::PluginDependencyConfig;
 
 /// Converts a Nexa source span into an LSP 0-based range for `source`.
 ///
@@ -154,6 +155,17 @@ fn find_project_entry(active_path: &Path) -> Option<(PathBuf, PathBuf)> {
         }
         directory = directory.parent()?;
     }
+}
+
+/// Reads already-declared project dependencies for safe LSP import fixes.
+/// This stays offline and returns `None` for files outside a Nexa app project.
+pub(crate) fn project_plugin_dependencies(uri: &str) -> Option<Vec<PluginDependencyConfig>> {
+    let active_path = file_uri_path(uri)?;
+    let (_, project_root) = find_project_entry(&active_path)?;
+    let config_source = fs::read_to_string(project_root.join("nexa.config.nx")).ok()?;
+    nexa_syntax::parse_config(&config_source)
+        .ok()
+        .map(|config| config.dependencies)
 }
 
 fn file_uri_path(uri: &str) -> Option<PathBuf> {
