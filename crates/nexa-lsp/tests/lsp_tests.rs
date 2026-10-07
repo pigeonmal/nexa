@@ -1,3 +1,4 @@
+use nexa_lsp::LineIndex;
 use nexa_lsp::protocol::{DiagnosticSeverity, JsonRpcRequest};
 use nexa_lsp::server::LspServer;
 use serde_json::json;
@@ -549,5 +550,46 @@ fn lsp_offers_a_quick_fix_for_unhandled_throwing_action_calls() {
             .as_str()
             .expect("replacement source")
             .contains("} catch {")
+    );
+}
+
+#[test]
+fn lsp_adds_missing_arguments_from_an_open_component_document() {
+    let mut server = LspServer::new();
+    server.open_or_change_document(
+        "file:///Card.nx".to_string(),
+        "component Card(title: String, count: Int32) { body { Text(title) } }\n".to_string(),
+    );
+    let source = "import \"Card.nx\"\napp Demo { body { Card(title: \"Inbox\") } }\n";
+    server.open_or_change_document("file:///app.nx".to_string(), source.to_string());
+    let offset = source.find("Card(title").expect("component call");
+    let position = LineIndex::new(source).to_position(source, offset);
+    let (response, _) = server.handle_request(JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(13)),
+        method: "textDocument/codeAction".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///app.nx" },
+            "range": { "start": position, "end": position },
+            "context": {
+                "diagnostics": [{
+                    "message": "component `Card` expects 2 named argument(s), got 1",
+                    "range": { "start": position, "end": position }
+                }]
+            }
+        })),
+    });
+    let actions = response
+        .expect("code action response")
+        .result
+        .expect("code actions");
+    let action = actions
+        .as_array()
+        .and_then(|actions| actions.first())
+        .expect("missing component argument quick fix");
+    assert_eq!(action["title"], "Add missing required component arguments");
+    assert_eq!(
+        action["edit"]["changes"]["file:///app.nx"][0]["newText"],
+        ", count: 0"
     );
 }

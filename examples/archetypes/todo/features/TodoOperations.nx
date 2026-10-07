@@ -1,0 +1,249 @@
+import "../models/TaskItem.nx"
+import "../models/ReminderItem.nx"
+import "../storage/TodoPersistence.nx"
+
+fn firstDetectedDate(matches: Array<DataExtractor.ExtractedData>) -> DataExtractor.ExtractedData? {
+    for detected in matches {
+        if isDetectedDate(detected.kind) { return detected }
+    }
+    return null
+}
+
+fn isDetectedDate(dataKind: DataExtractor.ExtractedDataKind) -> Bool {
+    return dataKind == DataExtractor.ExtractedDataKind.date
+}
+
+fn taskPriorityRank(priority: String) -> Int32 {
+    return priority == "Highest" ? 4 : (priority == "High" ? 3 : (priority == "Normal" ? 2 : (priority == "Low" ? 1 : 0)))
+}
+
+fn taskDateSortKey(task: TaskItem, descending: Bool) -> Int64 {
+    let distantFuture: Int64 = 4102444800000
+    return task.dueTimestamp == null ? distantFuture : (descending ? 0 - (task.dueTimestamp ?? 0) : (task.dueTimestamp ?? distantFuture))
+}
+
+fn activeTaskReminders(source: Array<ReminderItem>, taskID: Int32) -> Array<ReminderItem> {
+    return source.filter { reminder -> reminder.taskID == taskID && !reminder.isDeleted }
+}
+
+fn deleteTaskReminders(source: Array<ReminderItem>, taskID: Int32) -> Array<ReminderItem> {
+    return source.map { reminder ->
+        if reminder.taskID == taskID && !reminder.isDeleted {
+            ReminderItem(reminder.id, reminder.taskID, reminder.identifier, reminder.title, reminder.timestamp, true)
+        } else { reminder }
+    }
+}
+
+fn cancelTaskReminders(source: Array<ReminderItem>, taskID: Int32, manager: Notifications.Notifications) -> Void {
+    for reminder in source {
+        if reminder.taskID == taskID && !reminder.isDeleted {
+            manager.cancelLocal(reminder.identifier)
+        }
+    }
+}
+
+fn cancelRemindersIfCompleted(tasks: Array<TaskItem>, reminders: Array<ReminderItem>, taskID: Int32, manager: Notifications.Notifications) -> Void {
+    for task in tasks {
+        if task.id == taskID {
+            if task.isCompleted { cancelTaskReminders(reminders, taskID, manager) }
+            break
+        }
+    }
+}
+
+fn nextTaskSortOrder(source: Array<TaskItem>) -> Int32 {
+    let activeTasks = source.filter { task -> !task.isDeleted }
+    let earliestOrder: Int32 = activeTasks.reduce(activeTasks.first()?.sortOrder ?? 0) { current, task ->
+        task.sortOrder < current ? task.sortOrder : current
+    }
+    return activeTasks.isEmpty ? 0 : earliestOrder - 1
+}
+
+fn taskCommentLabel(task: TaskItem?) -> String {
+    let count: Int32 = task?.commentCount ?? 0
+    return count == 0 ? "Comments" : "Comments (\(count))"
+}
+
+fn taskReminderLabel(task: TaskItem?) -> String {
+    let count: Int32 = task?.reminderCount ?? 0
+    return count == 0 ? "Reminders" : "Reminders (\(count))"
+}
+
+fn makeTask(id: Int32, title: String, description: String, dueTimestamp: Int64?, hasTime: Bool, priority: String, sortOrder: Int32) -> TaskItem {
+    let normalizedTitle = title.trimmed
+    return TaskItem(id, normalizedTitle == "" ? "Untitled" : normalizedTitle, description.trimmed, dueTimestamp, hasTime, priority, false, null, false, sortOrder, 0, 0)
+}
+
+fn editTask(source: Array<TaskItem>, id: Int32, title: String, description: String, dueTimestamp: Int64?, hasTime: Bool, priority: String) -> Array<TaskItem> {
+    let normalizedTitle = title.trimmed
+    let normalizedDescription = description.trimmed
+    return source.map { task ->
+        if task.id == id {
+            TaskItem(task.id, normalizedTitle == "" ? task.title : normalizedTitle, normalizedDescription, dueTimestamp, hasTime, priority, task.isCompleted, task.completedTimestamp, task.isDeleted, task.sortOrder, task.commentCount, task.reminderCount)
+        } else { task }
+    }
+}
+
+async fn persistTaskAndRefreshBadge(tasks: Array<TaskItem>, id: Int32, manager: Notifications.Notifications) -> Void {
+    await todoPersistence.saveTask(tasks, id)
+    await manager.setBadgeCount(todoFilter(tasks, 1, "").count)
+}
+
+async fn persistTaskWithReminderAndRefreshBadge(tasks: Array<TaskItem>, taskID: Int32, reminders: Array<ReminderItem>, reminderID: Int32, manager: Notifications.Notifications, notificationTitle: String) -> Void {
+    let saved = await todoPersistence.saveTaskWithReminder(tasks, taskID, reminders, reminderID)
+    if saved {
+        let reminderItem = findReminder(reminders, reminderID)
+        let reminder = reminderItem ?? ReminderItem(0, 0, "", "", 0, true)
+        try {
+            await manager.scheduleLocalAt(reminder.identifier, notificationTitle, reminderNotificationBody(tasks, reminder), reminder.timestamp / 1000)
+        } catch {
+            case Notifications.NotificationError.permissionDenied {}
+            case Notifications.NotificationError.invalidIdentifier {}
+            case Notifications.NotificationError.invalidDelay {}
+            case Notifications.NotificationError.schedulerUnavailable {}
+            case Notifications.NotificationError.firebaseNotConfigured {}
+            case Notifications.NotificationError.remoteRegistrationUnavailable {}
+        }
+    }
+    await manager.setBadgeCount(todoFilter(tasks, 1, "").count)
+}
+
+fn taskMatchesFilter(task: TaskItem, filter: Int32, query: String, today: Int64) -> Bool {
+    if task.isDeleted { return false }
+    if filter == 0 { return !task.isCompleted }
+    if filter == 1 {
+        return !task.isCompleted && task.dueTimestamp != null && Time.startOfDay(task.dueTimestamp ?? 0) == today
+    }
+    if filter == 2 {
+        return !task.isCompleted && task.dueTimestamp != null && Time.startOfDay(task.dueTimestamp ?? 0) >= today
+    }
+    if filter == 3 { return task.isCompleted }
+    return query != "" && ((query in task.title) || (query in task.taskDescription))
+}
+
+fn todoFilter(source: Array<TaskItem>, filter: Int32, query: String) -> Array<TaskItem> {
+    let today: Int64 = Time.startOfDay(Time.now())
+    return source.filter { task -> taskMatchesFilter(task, filter, query, today) }
+}
+
+fn todoSort(source: Array<TaskItem>, sort: String) -> Array<TaskItem> {
+    return sort == "Manual" ? source
+        : (sort == "Priority (Asc)" ? source.sortedBy { task -> taskPriorityRank(task.priority) }
+        : (sort == "Priority (Desc)" ? source.sortedBy { task -> 4 - taskPriorityRank(task.priority) }
+        : (sort == "Date (Desc)" ? source.sortedBy { task -> taskDateSortKey(task, true) }
+        : source.sortedBy { task -> taskDateSortKey(task, false) })))
+}
+
+fn toggleTodo(source: Array<TaskItem>, id: Int32) -> Array<TaskItem> {
+    return source.map { task ->
+        if task.id == id {
+            TaskItem(task.id, task.title, task.taskDescription, task.dueTimestamp, task.hasTime, task.priority, !task.isCompleted, task.isCompleted ? null : Time.now(), task.isDeleted, task.sortOrder, task.commentCount, task.reminderCount)
+        } else { task }
+    }
+}
+
+fn deleteTodo(source: Array<TaskItem>, id: Int32) -> Array<TaskItem> {
+    return source.map { task ->
+        if task.id == id {
+            TaskItem(task.id, task.title, task.taskDescription, task.dueTimestamp, task.hasTime, task.priority, task.isCompleted, task.completedTimestamp, true, task.sortOrder, task.commentCount, task.reminderCount)
+        } else { task }
+    }
+}
+
+fn deleteReminder(source: Array<ReminderItem>, id: Int32) -> Array<ReminderItem> {
+    return source.map { reminder ->
+        if reminder.id == id {
+            ReminderItem(reminder.id, reminder.taskID, reminder.identifier, reminder.title, reminder.timestamp, true)
+        } else { reminder }
+    }
+}
+
+fn taskForReminder(source: Array<TaskItem>, reminderSource: Array<ReminderItem>, identifier: String) -> TaskItem? {
+    for reminder in reminderSource {
+        if reminder.identifier == identifier && !reminder.isDeleted {
+            let task = findTask(source, reminder.taskID)
+            if task != null && !(task?.isDeleted ?? true) { return task }
+            return null
+        }
+    }
+    return null
+}
+
+fn taskAccessibilityValue(task: TaskItem) -> String {
+    let dueValue: String = task.dueTimestamp == null
+        ? ""
+        : (task.hasTime
+            ? Time.format(task.dueTimestamp ?? 0, "d MMM, HH:mm")
+            : todoDateLabel(task.dueTimestamp ?? 0))
+    let descriptionAndDate = task.taskDescription
+        + (task.taskDescription != "" && dueValue != "" ? ", " : "")
+        + dueValue
+    return descriptionAndDate
+        + (descriptionAndDate != "" && task.priority != "None" ? ", " : "")
+        + (task.priority == "None" ? "" : task.priority)
+}
+
+fn reminderAccessibilityLabel(reminder: ReminderItem) -> String {
+    let date = Time.format(reminder.timestamp, "d MMM, HH:mm")
+    return date + (reminder.title == "" ? "" : ", " + reminder.title)
+}
+
+fn reminderNotificationBody(tasks: Array<TaskItem>, reminder: ReminderItem) -> String {
+    if "todo-auto-reminder-" in reminder.identifier { return Locale.localized("Task reminder") }
+    if reminder.title != "" { return reminder.title }
+    for task in tasks {
+        if task.id == reminder.taskID && !task.isDeleted { return task.title }
+    }
+    return ""
+}
+
+fn hasActiveReminderTask(tasks: Array<TaskItem>, taskID: Int32) -> Bool {
+    for task in tasks {
+        if task.id == taskID && !task.isCompleted && !task.isDeleted { return true }
+    }
+    return false
+}
+
+fn dateMatchLabel(match: DataExtractor.ExtractedData?) -> String {
+    return match?.text ?? ""
+}
+
+fn themeTint(theme: String) -> String {
+    return theme == "Vanadyl Blue" ? "#0984E3"
+        : (theme == "Skirret Green" ? "#20BF6B"
+        : (theme == "Sunflower Yellow" ? "#F1C40F"
+        : (theme == "Radiant Orange" ? "#F39C12"
+        : (theme == "Rose Pink" ? "#E05384"
+        : (theme == "Midnight Black" ? "#2D3436" : "#D63031")))))
+}
+
+fn isTodoQuickDate(hasDueDate: Bool, timestamp: Int64) -> Bool {
+    if !hasDueDate { return false }
+    let date = Time.startOfDay(timestamp)
+    let today = Time.startOfDay(Time.now())
+    return date == today
+        || date == Time.addCalendarDays(today, 1)
+        || date == Time.addCalendarDays(today, 7)
+}
+
+fn alternateIconName(theme: String) -> String? {
+    return theme == "Vanadyl Blue" ? "IconBlue"
+        : (theme == "Skirret Green" ? "IconGreen"
+        : (theme == "Sunflower Yellow" ? "IconYellow"
+        : (theme == "Radiant Orange" ? "IconOrange"
+        : (theme == "Rose Pink" ? "IconPinkAlt"
+        : (theme == "Midnight Black" ? "IconBlack" : null)))))
+}
+
+fn autoReminderOffset(selection: String) -> Int64 {
+    return selection == "10 minutes before" ? 600000
+        : (selection == "30 minutes before" ? 1800000
+        : (selection == "1 hour before" ? 3600000 : 0))
+}
+
+class TodoOptions {
+    static let sortOptions: Array<String> = ["Date (Asc)", "Date (Desc)", "Priority (Asc)", "Priority (Desc)", "Manual"]
+    static let themeOptions: Array<String> = ["Alizarin Red", "Vanadyl Blue", "Skirret Green", "Sunflower Yellow", "Radiant Orange", "Rose Pink", "Midnight Black"]
+    static let startPageOptions: Array<String> = ["Inbox", "Today", "Upcoming"]
+    static let autoReminderOptions: Array<String> = ["None", "10 minutes before", "30 minutes before", "1 hour before"]
+}

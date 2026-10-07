@@ -1,0 +1,992 @@
+screen Main {
+    if showingOnboarding {
+        PagePager(selected: currentOnboardingPage) {
+            Tab(index: 0) {
+                Column(spacing: 32, padding: 16, alignment: Center) {
+                    Spacer()
+                    Icon(system: "checklist", size: 80, tint: themeTint(selectedTheme), description: "")
+                    Column(spacing: 12, alignment: Center) {
+                        Text("Welcome to ToDoList", alignment: Center, fontSize: 28, fontWeight: Bold)
+                        Row(padding: 16) {
+                            Text("A simple, beautiful way to manage your tasks and stay organized.", alignment: Center, fontSize: 17, color: "#8E8E93")
+                        }
+                    }
+                    Spacer()
+                    Column(spacing: 12) {
+                        Button("Continue", style: BorderedProminent, size: Large, tint: themeTint(selectedTheme)) {
+                            currentOnboardingPage = 1
+                        }
+                        Column(height: 36) {
+                        }
+                    }
+                }
+            }
+            Tab(index: 1) {
+                Column(spacing: 32, padding: 16, alignment: Center) {
+                    Spacer()
+                    Icon(system: "notifications_active", size: 80, tint: themeTint(selectedTheme), description: "")
+                    Column(spacing: 12, alignment: Center) {
+                        Text("Stay on Track", alignment: Center, fontSize: 28, fontWeight: Bold)
+                        Row(padding: 16) {
+                            Text("Enable notifications to get reminded about your tasks and never miss a deadline.", alignment: Center, fontSize: 17, color: "#8E8E93")
+                        }
+                    }
+                    Spacer()
+                    Column(spacing: 12) {
+                        Button("Enable Notifications", style: BorderedProminent, size: Large, tint: themeTint(selectedTheme)) {
+                            Task.launch(handle: notificationTask, executor: TaskExecutor.Main) {
+                                await Permissions.request(permission: Notifications)
+                                currentOnboardingPage = 2
+                            }
+                        }
+                        Button("Skip", style: Borderless) {
+                            currentOnboardingPage = 2
+                        }
+                        Column(height: 36) {
+                        }
+                    }
+                }
+            }
+            Tab(index: 2) {
+                Column(spacing: 32, padding: 16, alignment: Center) {
+                    Spacer()
+                    Icon(system: "check_circle", size: 80, tint: themeTint(selectedTheme), description: "")
+                    Column(spacing: 12, alignment: Center) {
+                        Text("You're All Set!", alignment: Center, fontSize: 28, fontWeight: Bold)
+                        Row(padding: 16) {
+                            Text("Start adding tasks and take control of your day.", alignment: Center, fontSize: 17, color: "#8E8E93")
+                        }
+                    }
+                    Spacer()
+                    Column(spacing: 12) {
+                        Button("Get Started", style: BorderedProminent, size: Large, tint: themeTint(selectedTheme)) {
+                            Storage.setString("onboarding.launchedBefore", "true")
+                            showingOnboarding = false
+                        }
+                        Column(height: 36) {
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Appearance(mode: appearanceMode) {
+            Column {
+                AppBottomBar(selected: selectedTab, tint: themeTint(selectedTheme)) {
+                    Tab(index: 0, label: "Inbox", icon: "inbox", title: "Inbox", largeTitle: true) {
+                        Column(spacing: 8) {
+                            Toolbar(placement: Trailing) {
+                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
+                                NavigationLink(destination: Completed) {
+                                    Icon(system: "check_circle", size: 20, tint: "#8E8E93", description: "Completed")
+                                }
+                                Button("", icon: "add", accessibilityLabel: "Add new task", glass: true, shape: Circle, tint: themeTint(selectedTheme)) {
+                                    editingID = - 1
+                                    dateSuggestionDismissed = false
+                                    detectedDate = null
+                                    taskTitle = ""
+                                    taskDescription = ""
+                                    hasDueDate = false
+                                    dueTimestamp = Time.now()
+                                    hasTime = false
+                                    priority = "None"
+                                    taskTitleFocused = editingID < 0
+                                    showingTaskEditor = true
+                                }
+                            }
+                            if todoFilter(tasks, 0, "").isEmpty {
+                                ContentUnavailable(title: "Inbox is empty", icon: "inbox", description: "Tasks you add will appear here.")
+                            } else {
+                                FastList(todoSort(todoFilter(tasks, 0, ""), sortSelection), key:.id, native: true) {
+                                    task, index in
+                                    Row(spacing: 12, padding: 8) {
+                                        if task.isCompleted {
+                                            Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                                                Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                                                    Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                                                }.onTap {
+                                                    tasks = toggleTodo(tasks, task.id)
+                                                    Haptics.notification(kind: Success)
+                                                    cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                    Task.launch(executor: TaskExecutor.Main) {
+                                                        await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                                                Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                                                    Icon(system: "circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                                                }.onTap {
+                                                    tasks = toggleTodo(tasks, task.id)
+                                                    Haptics.notification(kind: Success)
+                                                    cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                    Task.launch(executor: TaskExecutor.Main) {
+                                                        await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
+                                            Row(spacing: 12) {
+                                                TaskRowContent(task: task)
+                                                Spacer()
+                                            }
+                                        }.onTap {
+                                            editingID = task.id
+                                            dateSuggestionDismissed = false
+                                            taskTitle = task.title
+                                            taskDescription = task.taskDescription
+                                            hasDueDate = task.dueTimestamp != null
+                                            dueTimestamp = task.dueTimestamp ?? Time.now()
+                                            hasTime = task.hasTime
+                                            priority = task.priority
+                                            taskTitleFocused = editingID < 0
+                                            showingTaskEditor = true
+                                        }.contextMenu {
+                                            Button("Edit", icon: "edit") {
+                                                editingID = task.id
+                                                dateSuggestionDismissed = false
+                                                taskTitle = task.title
+                                                taskDescription = task.taskDescription
+                                                hasDueDate = task.dueTimestamp != null
+                                                dueTimestamp = task.dueTimestamp ?? Time.now()
+                                                hasTime = task.hasTime
+                                                priority = task.priority
+                                                taskTitleFocused = editingID < 0
+                                                showingTaskEditor = true
+                                            }
+                                            Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
+                                                tasks = toggleTodo(tasks, task.id)
+                                                Haptics.notification(kind: Success)
+                                                cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                }
+                                            }
+                                            Button("Delete", icon: "delete") {
+                                                cancelTaskReminders(reminders, task.id, notifications)
+                                                reminders = deleteTaskReminders(reminders, task.id)
+                                                tasks = deleteTodo(tasks, task.id)
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }.swipeActions {
+                                    Button("Delete", icon: "delete", style: Borderless) {
+                                        cancelTaskReminders(reminders, task.id, notifications)
+                                        reminders = deleteTaskReminders(reminders, task.id)
+                                        tasks = deleteTodo(tasks, task.id)
+                                        Task.launch(executor: TaskExecutor.Main) {
+                                            await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                        }
+                                    }
+                                }.onMove(enabled: sortSelection == "Manual") {
+                                    from, to - >
+                                    if sortSelection == "Manual" {
+                                        tasks.moveSubset(from, to, todoFilter(tasks, 0, ""))
+                                        Task.launch(executor: TaskExecutor.Main) {
+                                            await todoPersistence.saveTaskOrder(tasks)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 1, label: "Today", icon: "sun", title: "Today", largeTitle: true) {
+                        Column(spacing: 8) {
+                            Toolbar(placement: Trailing) {
+                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
+                                NavigationLink(destination: Completed) {
+                                    Icon(system: "check_circle", size: 20, tint: "#8E8E93", description: "Completed")
+                                }
+                                Button("", icon: "add", accessibilityLabel: "Add new task", glass: true, shape: Circle, tint: themeTint(selectedTheme)) {
+                                    editingID = - 1
+                                    dateSuggestionDismissed = false
+                                    detectedDate = null
+                                    taskTitle = ""
+                                    taskDescription = ""
+                                    hasDueDate = true
+                                    dueTimestamp = Time.now()
+                                    hasTime = false
+                                    priority = "None"
+                                    taskTitleFocused = editingID < 0
+                                    showingTaskEditor = true
+                                }
+                            }
+                            if todoFilter(tasks, 1, "").isEmpty {
+                                ContentUnavailable(title: "Nothing due today", icon: "sun_filled", description: "Enjoy your free day or plan something new.")
+                            } else {
+                                FastList(todoSort(todoFilter(tasks, 1, ""), sortSelection), key:.id, native: true) {
+                                    task, index in
+                                    Row(spacing: 12, padding: 8) {
+                                        if task.isCompleted {
+                                            Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                                                Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                                                    Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                                                }.onTap {
+                                                    tasks = toggleTodo(tasks, task.id)
+                                                    Haptics.notification(kind: Success)
+                                                    cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                    Task.launch(executor: TaskExecutor.Main) {
+                                                        await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                                                Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                                                    Icon(system: "circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                                                }.onTap {
+                                                    tasks = toggleTodo(tasks, task.id)
+                                                    Haptics.notification(kind: Success)
+                                                    cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                    Task.launch(executor: TaskExecutor.Main) {
+                                                        await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
+                                            Row(spacing: 12) {
+                                                TaskRowContent(task: task)
+                                                Spacer()
+                                            }
+                                        }.onTap {
+                                            editingID = task.id
+                                            dateSuggestionDismissed = false
+                                            taskTitle = task.title
+                                            taskDescription = task.taskDescription
+                                            hasDueDate = task.dueTimestamp != null
+                                            dueTimestamp = task.dueTimestamp ?? Time.now()
+                                            hasTime = task.hasTime
+                                            priority = task.priority
+                                            taskTitleFocused = editingID < 0
+                                            showingTaskEditor = true
+                                        }.contextMenu {
+                                            Button("Edit", icon: "edit") {
+                                                editingID = task.id
+                                                dateSuggestionDismissed = false
+                                                taskTitle = task.title
+                                                taskDescription = task.taskDescription
+                                                hasDueDate = task.dueTimestamp != null
+                                                dueTimestamp = task.dueTimestamp ?? Time.now()
+                                                hasTime = task.hasTime
+                                                priority = task.priority
+                                                taskTitleFocused = editingID < 0
+                                                showingTaskEditor = true
+                                            }
+                                            Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
+                                                tasks = toggleTodo(tasks, task.id)
+                                                Haptics.notification(kind: Success)
+                                                cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                }
+                                            }
+                                            Button("Delete", icon: "delete") {
+                                                cancelTaskReminders(reminders, task.id, notifications)
+                                                reminders = deleteTaskReminders(reminders, task.id)
+                                                tasks = deleteTodo(tasks, task.id)
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }.swipeActions {
+                                    Button("Delete", icon: "delete", style: Borderless) {
+                                        cancelTaskReminders(reminders, task.id, notifications)
+                                        reminders = deleteTaskReminders(reminders, task.id)
+                                        tasks = deleteTodo(tasks, task.id)
+                                        Task.launch(executor: TaskExecutor.Main) {
+                                            await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                        }
+                                    }
+                                }.onMove(enabled: sortSelection == "Manual") {
+                                    from, to - >
+                                    if sortSelection == "Manual" {
+                                        tasks.moveSubset(from, to, todoFilter(tasks, 1, ""))
+                                        Task.launch(executor: TaskExecutor.Main) {
+                                            await todoPersistence.saveTaskOrder(tasks)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 2, label: "Upcoming", icon: "calendar", title: "Upcoming", largeTitle: true) {
+                        Column(spacing: 8) {
+                            Toolbar(placement: Trailing) {
+                                Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
+                                NavigationLink(destination: Completed) {
+                                    Icon(system: "check_circle", size: 20, tint: "#8E8E93", description: "Completed")
+                                }
+                                Button("", icon: "add", accessibilityLabel: "Add new task", glass: true, shape: Circle, tint: themeTint(selectedTheme)) {
+                                    editingID = - 1
+                                    dateSuggestionDismissed = false
+                                    detectedDate = null
+                                    taskTitle = ""
+                                    taskDescription = ""
+                                    hasDueDate = true
+                                    dueTimestamp = Time.addCalendarDays(Time.now(), 1)
+                                    hasTime = false
+                                    priority = "None"
+                                    taskTitleFocused = editingID < 0
+                                    showingTaskEditor = true
+                                }
+                            }
+                            if todoFilter(tasks, 2, "").isEmpty {
+                                ContentUnavailable(title: "All clear ahead", icon: "event_done", description: "No upcoming tasks scheduled yet.")
+                            } else {
+                                FastList(sections: todoSort(todoFilter(tasks, 2, ""), sortSelection).groupedBy {
+                                    task - > Time.startOfDay(task.dueTimestamp ?? 0)
+                                }, key:.id, native: true) {
+                                    task, index, section in
+                                    Row(spacing: 12, padding: 8) {
+                                        if task.isCompleted {
+                                            Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                                                Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                                                    Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                                                }.onTap {
+                                                    tasks = toggleTodo(tasks, task.id)
+                                                    Haptics.notification(kind: Success)
+                                                    cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                    Task.launch(executor: TaskExecutor.Main) {
+                                                        await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                                                Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                                                    Icon(system: "circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                                                }.onTap {
+                                                    tasks = toggleTodo(tasks, task.id)
+                                                    Haptics.notification(kind: Success)
+                                                    cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                    Task.launch(executor: TaskExecutor.Main) {
+                                                        await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
+                                            Row(spacing: 12) {
+                                                TaskRowContent(task: task)
+                                                Spacer()
+                                            }
+                                        }.onTap {
+                                            editingID = task.id
+                                            dateSuggestionDismissed = false
+                                            taskTitle = task.title
+                                            taskDescription = task.taskDescription
+                                            hasDueDate = task.dueTimestamp != null
+                                            dueTimestamp = task.dueTimestamp ?? Time.now()
+                                            hasTime = task.hasTime
+                                            priority = task.priority
+                                            taskTitleFocused = editingID < 0
+                                            showingTaskEditor = true
+                                        }.contextMenu {
+                                            Button("Edit", icon: "edit") {
+                                                editingID = task.id
+                                                dateSuggestionDismissed = false
+                                                taskTitle = task.title
+                                                taskDescription = task.taskDescription
+                                                hasDueDate = task.dueTimestamp != null
+                                                dueTimestamp = task.dueTimestamp ?? Time.now()
+                                                hasTime = task.hasTime
+                                                priority = task.priority
+                                                taskTitleFocused = editingID < 0
+                                                showingTaskEditor = true
+                                            }
+                                            Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
+                                                tasks = toggleTodo(tasks, task.id)
+                                                Haptics.notification(kind: Success)
+                                                cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                }
+                                            }
+                                            Button("Delete", icon: "delete") {
+                                                cancelTaskReminders(reminders, task.id, notifications)
+                                                reminders = deleteTaskReminders(reminders, task.id)
+                                                tasks = deleteTodo(tasks, task.id)
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }.swipeActions {
+                                    Button("Delete", icon: "delete", style: Borderless) {
+                                        cancelTaskReminders(reminders, task.id, notifications)
+                                        reminders = deleteTaskReminders(reminders, task.id)
+                                        tasks = deleteTodo(tasks, task.id)
+                                        Task.launch(executor: TaskExecutor.Main) {
+                                            await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                        }
+                                    }
+                                }.sectionHeader {
+                                    Text(todoSectionDateLabel(sectionItems[0].dueTimestamp ?? 0), fontSize: 15, fontWeight: Semibold)
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 3, label: "Settings", icon: "settings", title: "Settings", largeTitle: true) {
+                        Form {
+                            Section {
+                                Picker(items: TodoOptions.startPageOptions, selected: startPageSelection, icon: "star", label: "Start Page")
+                                NavigationLink(destination: Theme) {
+                                    Row(spacing: 16) {
+                                        Icon(system: "palette", size: 20, tint: themeTint(selectedTheme), description: "")
+                                        Text("Theme")
+                                        Spacer()
+                                        Icon(system: "circle_filled", size: 20, tint: themeTint(selectedTheme), description: "")
+                                    }
+                                }
+                                Switch(value: openLinksInApp, label: "Open Links In App")
+                            }
+                            Section {
+                                Picker(items: TodoOptions.autoReminderOptions, selected: autoReminderChoice, icon: "notifications", label: "Automatic\nReminders")
+                            }
+                            Section(footer: "ToDoList v1.0.0 (1)") {
+                                if mail.available {
+                                    Button("Send Feedback", icon: "email", style: Plain) {
+                                        Task.launch(handle: mailTask, executor: TaskExecutor.Main) {
+                                            try {
+                                                await mail.present(
+                                                ["contact@randusoft.ro"],
+                                                "ToDoList Feedback",
+                                                Locale.localized("\n\n---\nApp: ToDoList v1.0.0 (1)\nDevice: \(mail.deviceInfo)")
+                                                )
+                                            } catch {
+                                                case Mail.MailComposerError.unavailable {
+                                                }
+                                                case Mail.MailComposerError.presentationUnavailable {
+                                                }
+                                                case Mail.MailComposerError.attachmentUnavailable {
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Button("Show Onboarding", icon: "waving_hand", style: Plain) {
+                                    currentOnboardingPage = 0
+                                    showingOnboarding = true
+                                }
+                                Button("Terms of Service", icon: "document", style: Plain) {
+                                    Task.launch(handle: browserTask, executor: TaskExecutor.Main) {
+                                        try {
+                                            await browser.open("https://randusoft.ro/tos.html", openLinksInApp)
+                                        } catch {
+                                            case Browser.BrowserError.invalidURL {
+                                            }
+                                            case Browser.BrowserError.unavailable {
+                                            }
+                                            case Browser.BrowserError.presentationUnavailable {
+                                            }
+                                        }
+                                    }
+                                }
+                                Button("Privacy Policy", icon: "security", style: Plain) {
+                                    Task.launch(handle: browserTask, executor: TaskExecutor.Main) {
+                                        try {
+                                            await browser.open("https://randusoft.ro/pp.html", openLinksInApp)
+                                        } catch {
+                                            case Browser.BrowserError.invalidURL {
+                                            }
+                                            case Browser.BrowserError.unavailable {
+                                            }
+                                            case Browser.BrowserError.presentationUnavailable {
+                                            }
+                                        }
+                                    }
+                                }
+                                Button("Source Code", icon: "code", style: Plain) {
+                                    Task.launch(handle: browserTask, executor: TaskExecutor.Main) {
+                                        try {
+                                            await browser.open("https://github.com/rursache/ToDoList", openLinksInApp)
+                                        } catch {
+                                            case Browser.BrowserError.invalidURL {
+                                            }
+                                            case Browser.BrowserError.unavailable {
+                                            }
+                                            case Browser.BrowserError.presentationUnavailable {
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Section {
+                                Row(spacing: 8) {
+                                    Button("System", style: Bordered, disabled: appearanceMode == "system") {
+                                        appearanceMode = "system"
+                                        Storage.setString("settings.appearance", "system")
+                                    }
+                                    Button("Light", style: Bordered, disabled: appearanceMode == "light") {
+                                        appearanceMode = "light"
+                                        Storage.setString("settings.appearance", "light")
+                                    }
+                                    Button("Dark", style: Bordered, disabled: appearanceMode == "dark") {
+                                        appearanceMode = "dark"
+                                        Storage.setString("settings.appearance", "dark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 4, label: "Search", icon: "search", role: "search", title: "Search", largeTitle: true, searchable: searchQuery, searchPrompt: "Search tasks...") {
+                        Column(spacing: 8, padding: 16) {
+                            if searchQuery == "" {
+                                ContentUnavailable(title: "Search Tasks", icon: "search", description: "Search across all your tasks")
+                            } else if todoFilter(tasks, 4, searchQuery).isEmpty {
+                                ContentUnavailable(title: "No Results", icon: "search", description: "No tasks match \"\(searchQuery)\"")
+                            } else {
+                                FastList(todoSort(todoFilter(tasks, 4, searchQuery), sortSelection), key:.id, native: true) {
+                                    task, index in
+                                    Row(spacing: 12, padding: 8) {
+                                        if task.isCompleted {
+                                            Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                                                Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                                                    Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                                                }.onTap {
+                                                    tasks = toggleTodo(tasks, task.id)
+                                                    Haptics.notification(kind: Success)
+                                                    cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                    Task.launch(executor: TaskExecutor.Main) {
+                                                        await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                                                Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                                                    Icon(system: "circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                                                }.onTap {
+                                                    tasks = toggleTodo(tasks, task.id)
+                                                    Haptics.notification(kind: Success)
+                                                    cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                    Task.launch(executor: TaskExecutor.Main) {
+                                                        await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
+                                            Row(spacing: 12) {
+                                                TaskRowContent(task: task)
+                                                Spacer()
+                                            }
+                                        }.onTap {
+                                            editingID = task.id
+                                            dateSuggestionDismissed = false
+                                            taskTitle = task.title
+                                            taskDescription = task.taskDescription
+                                            hasDueDate = task.dueTimestamp != null
+                                            dueTimestamp = task.dueTimestamp ?? Time.now()
+                                            hasTime = task.hasTime
+                                            priority = task.priority
+                                            taskTitleFocused = editingID < 0
+                                            showingTaskEditor = true
+                                        }.contextMenu {
+                                            Button("Edit", icon: "edit") {
+                                                editingID = task.id
+                                                taskTitle = task.title
+                                                taskDescription = task.taskDescription
+                                                hasDueDate = task.dueTimestamp != null
+                                                dueTimestamp = task.dueTimestamp ?? Time.now()
+                                                hasTime = task.hasTime
+                                                priority = task.priority
+                                                taskTitleFocused = editingID < 0
+                                                showingTaskEditor = true
+                                            }
+                                            Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
+                                                tasks = toggleTodo(tasks, task.id)
+                                                Haptics.notification(kind: Success)
+                                                cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                }
+                                            }
+                                            Button("Delete", icon: "delete") {
+                                                cancelTaskReminders(reminders, task.id, notifications)
+                                                reminders = deleteTaskReminders(reminders, task.id)
+                                                tasks = deleteTodo(tasks, task.id)
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }.swipeActions {
+                                    Button("Delete", icon: "delete", style: Borderless) {
+                                        cancelTaskReminders(reminders, task.id, notifications)
+                                        reminders = deleteTaskReminders(reminders, task.id)
+                                        tasks = deleteTodo(tasks, task.id)
+                                        Task.launch(executor: TaskExecutor.Main) {
+                                            await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                BottomSheet(isPresented: showingTaskEditor, partial: true, title: editingID < 0?"New Task": "Edit Task") {
+                    KeyboardAware {
+                        Column(spacing: 12, padding: 16) {
+                            Toolbar(placement: Leading) {
+                                Button("", icon: "flag_filled", accessibilityLabel: "Priority", accessibilityValue: priority, style: Plain, tint: priority == "None"?"#8E8E93": taskPriorityTint(priority)) {
+                                    showingPriorityPicker = true
+                                }
+                            }
+                            Toolbar(placement: Trailing) {
+                                Button("", icon: "submit", style: Plain, size: Large, accessibilityLabel: "Save task", disabled: taskTitle.trimmed == "") {
+                                    if taskTitle.trimmed != "" {
+                                        if editingID < 0 {
+                                            let createdTaskID = nextTaskID
+                                            tasks.append(makeTask(createdTaskID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority, nextTaskSortOrder(tasks)))
+                                            if autoReminderChoice != "None" && hasDueDate && hasTime && dueTimestamp - autoReminderOffset(autoReminderChoice) > Time.now() {
+                                                let createdReminderID = nextReminderID
+                                                let autoReminderIdentifier = "todo-auto-reminder-\(createdReminderID)"
+                                                reminders.append(ReminderItem(createdReminderID, createdTaskID, autoReminderIdentifier, "Task reminder", dueTimestamp - autoReminderOffset(autoReminderChoice), false))
+                                                nextReminderID += 1
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskWithReminderAndRefreshBadge(tasks, createdTaskID, reminders, createdReminderID, notifications, Locale.localized("Reminder"))
+                                                }
+                                            } else {
+                                                Task.launch(executor: TaskExecutor.Main) {
+                                                    await persistTaskAndRefreshBadge(tasks, createdTaskID, notifications)
+                                                }
+                                            }
+                                            nextTaskID += 1
+                                        } else {
+                                            tasks = editTask(tasks, editingID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority)
+                                            Task.launch(executor: TaskExecutor.Main) {
+                                                await persistTaskAndRefreshBadge(tasks, editingID, notifications)
+                                            }
+                                        }
+                                        showingTaskEditor = false
+                                    }
+                                }
+                            }
+                            TextInput(value: taskTitle, placeholder: "Task name", multiline: true, focused: taskTitleFocused, maxLength: 240, font: Title3, minLines: 1, maxLines: 5)
+                            .onChange {
+                                newTitle - >
+                                if hasDueDate || dateSuggestionDismissed {
+                                    detectedDate = null
+                                } else {
+                                    detectedDate = null
+                                    Task.launch(handle: dateExtractionTask, executor: TaskExecutor.Main) {
+                                        try {
+                                            await Time.sleep(milliseconds: 250)
+                                        } catch {
+                                        }
+                                        if taskTitle == newTitle &&!hasDueDate &&!dateSuggestionDismissed {
+                                            detectedDate = firstDetectedDate(await dataExtractor.extract(newTitle))
+                                        }
+                                    }
+                                }
+                            }
+                            if dateMatchLabel(detectedDate) != "" &&!hasDueDate &&!dateSuggestionDismissed {
+                                Row(spacing: 6, padding: 12, background: "#F5EDFF", cornerRadius: 18) {
+                                    Icon(system: "star", size: 16, tint: "#8E44AD", description: "")
+                                    Text(dateMatchLabel(detectedDate), fontSize: 14)
+                                    Spacer()
+                                    Button("", icon: "check_circle_filled", accessibilityLabel: "Accept detected date", style: Plain, tint: "#20BF6B") {
+                                        hasDueDate = true
+                                        hasTime = detectedDate?.hasTime ?? false
+                                        dueTimestamp = detectedDate?.timestampMillis ?? dueTimestamp
+                                        if detectedDate?.timestampMillis == null ||!(detectedDate?.timePrecisionAvailable ?? false) {
+                                            pickerTimestamp = dueTimestamp
+                                            pickerHasTime = hasTime
+                                            showingDatePicker = true
+                                        }
+                                        detectedDate = null
+                                    }
+                                    Button("", icon: "close", accessibilityLabel: "Dismiss detected date", style: Plain, tint: "#8E8E93") {
+                                        dateSuggestionDismissed = true
+                                        detectedDate = null
+                                    }
+                                }
+                            }
+                            TextInput(value: taskDescription, placeholder: "Description", multiline: true, maxLength: 1200, font: Body, minLines: 1, maxLines: 3)
+                            FastList(count: hasDueDate?5: 4, axis: Horizontal) {
+                                index in
+                                if index == 0 {
+                                    Button("Today", icon: "calendar", style: Bordered, shape: Capsule, tint: hasDueDate && Time.startOfDay(dueTimestamp) == Time.startOfDay(Time.now())?"#20BF6B": "#8E8E93", accessibilityLabel: "Today", accessibilityValue: hasDueDate && Time.startOfDay(dueTimestamp) == Time.startOfDay(Time.now())?"Selected": "") {
+                                        hasDueDate = true
+                                        dueTimestamp = Time.startOfDay(Time.now())
+                                        hasTime = false
+                                        detectedDate = null
+                                    }
+                                } else if index == 1 {
+                                    Button("Tomorrow", icon: "sunrise", style: Bordered, shape: Capsule, tint: hasDueDate && Time.startOfDay(dueTimestamp) == Time.addCalendarDays(Time.startOfDay(Time.now()), 1)?"#F39C12": "#8E8E93", accessibilityLabel: "Tomorrow", accessibilityValue: hasDueDate && Time.startOfDay(dueTimestamp) == Time.addCalendarDays(Time.startOfDay(Time.now()), 1)?"Selected": "") {
+                                        hasDueDate = true
+                                        dueTimestamp = Time.addCalendarDays(Time.startOfDay(Time.now()), 1)
+                                        hasTime = false
+                                        detectedDate = null
+                                    }
+                                } else if index == 2 {
+                                    Button("Next Week", icon: "event_add", style: Bordered, shape: Capsule, tint: hasDueDate && Time.startOfDay(dueTimestamp) == Time.addCalendarDays(Time.startOfDay(Time.now()), 7)?"#8E44AD": "#8E8E93", accessibilityLabel: "Next Week", accessibilityValue: hasDueDate && Time.startOfDay(dueTimestamp) == Time.addCalendarDays(Time.startOfDay(Time.now()), 7)?"Selected": "") {
+                                        hasDueDate = true
+                                        dueTimestamp = Time.addCalendarDays(Time.startOfDay(Time.now()), 7)
+                                        hasTime = false
+                                        detectedDate = null
+                                    }
+                                } else if index == 3 {
+                                    Button(hasDueDate?todoDateLabel(dueTimestamp): "Pick Date", icon: "calendar_time", style: Bordered, shape: Capsule, tint: hasDueDate &&!isTodoQuickDate(hasDueDate, dueTimestamp)?"#0984E3": "#8E8E93", accessibilityLabel: hasDueDate?todoDateLabel(dueTimestamp): "Pick Date", accessibilityValue: hasDueDate &&!isTodoQuickDate(hasDueDate, dueTimestamp)?"Selected": "") {
+                                        detectedDate = null
+                                        pickerTimestamp = dueTimestamp
+                                        pickerHasTime = hasTime
+                                        showingDatePicker = true
+                                    }
+                                } else {
+                                    Button("Clear", icon: "close", style: Bordered, shape: Capsule, tint: "#E74C3C") {
+                                        hasDueDate = false
+                                        hasTime = false
+                                        dateSuggestionDismissed = false
+                                        Task.launch(handle: dateExtractionTask, executor: TaskExecutor.Main) {
+                                            if !hasDueDate &&!dateSuggestionDismissed {
+                                                detectedDate = firstDetectedDate(await dataExtractor.extract(taskTitle))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Row(spacing: 8) {
+                                Spacer()
+                                Button(taskCommentLabel(findTask(tasks, editingID)), icon: "comment", style: Bordered) {
+                                    if editingID < 0 {
+                                        tasks.append(makeTask(nextTaskID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority, nextTaskSortOrder(tasks)))
+                                        editingID = nextTaskID
+                                        nextTaskID += 1
+                                        Task.launch(executor: TaskExecutor.Main) {
+                                            await persistTaskAndRefreshBadge(tasks, editingID, notifications)
+                                        }
+                                    }
+                                    selectedTaskID = editingID
+                                    returnToEditorAfterOverlay = true
+                                    showingTaskEditor = false
+                                    showingComments = true
+                                }
+                                Button(taskReminderLabel(findTask(tasks, editingID)), icon: "notifications", style: Bordered) {
+                                    if editingID < 0 {
+                                        tasks.append(makeTask(nextTaskID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority, nextTaskSortOrder(tasks)))
+                                        editingID = nextTaskID
+                                        selectedTaskID = nextTaskID
+                                        nextTaskID += 1
+                                        Task.launch(executor: TaskExecutor.Main) {
+                                            await persistTaskAndRefreshBadge(tasks, editingID, notifications)
+                                        }
+                                    }
+                                    selectedTaskID = editingID
+                                    reminderTitle = ""
+                                    reminderStatus = ""
+                                    reminderHasTime = true
+                                    reminderTimestamp = hasDueDate?dueTimestamp: Time.now() + 3600000
+                                    addingReminder = false
+                                    returnToEditorAfterOverlay = true
+                                    showingTaskEditor = false
+                                    showingReminders = true
+                                }
+                                Spacer()
+                            }
+
+                            ConfirmationDialog(isPresented: showingPriorityPicker, title: "Select Priority") {
+                                Button("None") {
+                                    priority = "None"
+                                    showingPriorityPicker = false
+                                }
+                                Button("Highest") {
+                                    priority = "Highest"
+                                    showingPriorityPicker = false
+                                }
+                                Button("High") {
+                                    priority = "High"
+                                    showingPriorityPicker = false
+                                }
+                                Button("Normal") {
+                                    priority = "Normal"
+                                    showingPriorityPicker = false
+                                }
+                                Button("Low") {
+                                    priority = "Low"
+                                    showingPriorityPicker = false
+                                }
+                                Button("Cancel") {
+                                    showingPriorityPicker = false
+                                }
+                            }
+                        }
+                    }
+                }
+
+                BottomSheet(isPresented: showingDatePicker, partial: true, largeOnly: true, title: "Pick Date") {
+                    Column {
+                        Toolbar(placement: Leading) {
+                            Button("Cancel", style: Borderless) {
+                                showingDatePicker = false
+                            }
+                        }
+                        Toolbar(placement: Trailing) {
+                            Button("Done", style: BorderedProminent) {
+                                dueTimestamp = pickerTimestamp
+                                hasTime = pickerHasTime
+                                hasDueDate = true
+                                showingDatePicker = false
+                            }
+                        }
+                        Form {
+                            Section {
+                                DatePicker(timestamp: pickerTimestamp, hasTime: pickerHasTime)
+                            }
+                        }
+                    }
+                }
+
+                BottomSheet(isPresented: showingComments, partial: true, title: "Comments") {
+                    Column {
+                        Toolbar(placement: Trailing) {
+                            Button("Done", style: Borderless) {
+                                Task.launch(executor: TaskExecutor.Main) {
+                                    tasks = await todoPersistence.loadTasks()
+                                    showingComments = false
+                                    if returnToEditorAfterOverlay {
+                                        returnToEditorAfterOverlay = false
+                                        taskTitleFocused = editingID < 0
+                                        showingTaskEditor = true
+                                    }
+                                }
+                            }
+                        }
+                        CommentPanel(taskID: selectedTaskID)
+                    }
+                }
+
+                BottomSheet(isPresented: showingReminders, partial: true, title: addingReminder?"Add Reminder": "Reminders") {
+                    if addingReminder {
+                        Column {
+                            Toolbar(placement: Leading) {
+                                Button("Cancel", style: Borderless) {
+                                    addingReminder = false
+                                    reminderStatus = ""
+                                }
+                            }
+                            Toolbar(placement: Trailing) {
+                                Button("Save", icon: "submit", style: BorderedProminent, disabled: reminderTimestamp <= Time.now()) {
+                                    let reminderIdentifier = "todo-reminder-\(nextReminderID)"
+                                    let normalizedTitle = reminderTitle.trimmed
+                                    let title: String = normalizedTitle == ""?Locale.localized("Reminder"): normalizedTitle
+                                    let newReminder = ReminderItem(nextReminderID, selectedTaskID, reminderIdentifier, title, reminderTimestamp, false)
+                                    reminders.append(newReminder)
+                                    nextReminderID += 1
+                                    reminderSaved = false
+                                    Task.launch(executor: TaskExecutor.Main) {
+                                        reminderSaved = await todoPersistence.saveReminder(reminders, nextReminderID - 1)
+                                        if reminderSaved {
+                                            addingReminder = false
+                                            reminderStatus = ""
+                                            try {
+                                                await notifications.scheduleLocalAt(reminderIdentifier, title, reminderNotificationBody(tasks, newReminder), reminderTimestamp / 1000)
+                                            } catch {
+                                                case Notifications.NotificationError.permissionDenied {
+                                                    reminderStatus = Locale.localized("Allow notifications to schedule reminders")
+                                                }
+                                                case Notifications.NotificationError.invalidIdentifier {
+                                                    reminderStatus = Locale.localized("Could not schedule reminder")
+                                                }
+                                                case Notifications.NotificationError.invalidDelay {
+                                                    reminderStatus = Locale.localized("Choose a future date and time")
+                                                }
+                                                case Notifications.NotificationError.schedulerUnavailable {
+                                                    reminderStatus = Locale.localized("Could not schedule reminder")
+                                                }
+                                                case Notifications.NotificationError.firebaseNotConfigured {
+                                                    reminderStatus = Locale.localized("Could not schedule reminder")
+                                                }
+                                                case Notifications.NotificationError.remoteRegistrationUnavailable {
+                                                    reminderStatus = Locale.localized("Could not schedule reminder")
+                                                }
+                                            }
+                                            reminders = await todoPersistence.loadReminders()
+                                            tasks = await todoPersistence.loadTasks()
+                                        } else {
+                                            reminderStatus = Locale.localized("Could not save reminder")
+                                        }
+                                    }
+                                }
+                            }
+                            Form {
+                                Section {
+                                    TextInput(value: reminderTitle, placeholder: "Note (optional)")
+                                    DatePicker(timestamp: reminderTimestamp, hasTime: reminderHasTime)
+                                }
+                            }
+                            if reminderStatus != "" {
+                                Text(reminderStatus, fontSize: 13, color: "#8E8E93")
+                            }
+                        }
+                    } else {
+                        Column {
+                            Toolbar(placement: Leading) {
+                                Button("Back", icon: "back", style: Borderless) {
+                                    Task.launch(executor: TaskExecutor.Main) {
+                                        tasks = await todoPersistence.loadTasks()
+                                        showingReminders = false
+                                        if returnToEditorAfterOverlay {
+                                            returnToEditorAfterOverlay = false
+                                            taskTitleFocused = editingID < 0
+                                            showingTaskEditor = true
+                                        }
+                                    }
+                                }
+                            }
+                            Toolbar(placement: Trailing) {
+                                Button("", icon: "add", accessibilityLabel: "Add reminder", style: Borderless) {
+                                    reminderTitle = ""
+                                    reminderStatus = ""
+                                    reminderTimestamp = hasDueDate?dueTimestamp: Time.now() + 3600000
+                                    reminderHasTime = true
+                                    addingReminder = true
+                                }
+                            }
+                            if activeTaskReminders(reminders, selectedTaskID).isEmpty {
+                                ContentUnavailable(title: "No reminders", icon: "notifications", description: "Tap + to add a reminder")
+                            } else {
+                                FastList(activeTaskReminders(reminders, selectedTaskID).sortedBy {
+                                    reminder - > reminder.timestamp
+                                }, native: true) {
+                                    reminder, index in
+                                    Row(spacing: 8, padding: 8) {
+                                        Column(spacing: 4, accessibilityLabel: reminderAccessibilityLabel(reminder)) {
+                                            Text(Time.format(reminder.timestamp, "d MMM, HH:mm"))
+                                            if reminder.title != "" {
+                                                Text(reminder.title, fontSize: 14, color: "#8E8E93")
+                                            }
+                                        }
+                                        Spacer()
+                                        Button("", icon: "delete", accessibilityLabel: "Delete", style: Plain) {
+                                            notifications.cancelLocal(reminder.identifier)
+                                            reminders = deleteReminder(reminders, reminder.id)
+                                            Task.launch(executor: TaskExecutor.Main) {
+                                                await todoPersistence.saveReminder(reminders, reminder.id)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if reminderStatus != "" {
+                                Text(reminderStatus, fontSize: 13, color: "#8E8E93")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

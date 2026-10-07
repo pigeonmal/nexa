@@ -83,14 +83,14 @@ pub(super) fn key_with_extra_and_roots(
         if extra.is_file() {
             fingerprint_file(extra, false, false, &mut visited, &mut hasher, plugin_roots)?;
         } else if extra.is_dir() {
-            fingerprint_directory(extra, false, &mut visited, &mut hasher)?;
+            fingerprint_directory(extra, false, &mut visited, &mut hasher, plugin_roots)?;
         } else {
             hasher.write(b"missing");
         }
     }
     for (package_id, root) in plugin_roots {
         hasher.write(package_id.as_bytes());
-        fingerprint_directory(root, true, &mut visited, &mut hasher)?;
+        fingerprint_directory(root, true, &mut visited, &mut hasher, plugin_roots)?;
     }
     Ok(format!("{target}-{:016x}", hasher.finish()))
 }
@@ -210,6 +210,7 @@ fn fingerprint_plugins(
                         include_plugin_sources,
                         visited,
                         hasher,
+                        plugin_roots,
                     )?;
                 }
                 for artifact in &manifest.ios.xcframeworks {
@@ -218,6 +219,7 @@ fn fingerprint_plugins(
                         include_plugin_sources,
                         visited,
                         hasher,
+                        plugin_roots,
                     )?;
                 }
                 for artifact in &manifest.android.aars {
@@ -244,7 +246,7 @@ fn fingerprint_plugins(
                         include_plugin_sources,
                         visited,
                         hasher,
-                        &BTreeMap::new(),
+                        plugin_roots,
                     )?;
                 }
                 for input in manifest.cpp.sources.iter().chain(&manifest.cpp.headers) {
@@ -253,6 +255,7 @@ fn fingerprint_plugins(
                         include_plugin_sources,
                         visited,
                         hasher,
+                        plugin_roots,
                     )?;
                 }
             }
@@ -272,12 +275,14 @@ fn fingerprint_plugins(
                         include_plugin_sources,
                         visited,
                         hasher,
+                        plugin_roots,
                     )?;
                     fingerprint_directory(
                         &declared.join("android/src/main/kotlin"),
                         include_plugin_sources,
                         visited,
                         hasher,
+                        plugin_roots,
                     )?;
                 }
             }
@@ -301,12 +306,14 @@ fn fingerprint_plugins(
                 include_plugin_sources,
                 visited,
                 hasher,
+                plugin_roots,
             )?;
             fingerprint_directory(
                 &plugin_root.join("android/src/main/kotlin"),
                 include_plugin_sources,
                 visited,
                 hasher,
+                plugin_roots,
             )?;
         }
     }
@@ -318,6 +325,7 @@ fn fingerprint_directory(
     include_plugin_sources: bool,
     visited: &mut HashSet<PathBuf>,
     hasher: &mut Fnv64,
+    plugin_roots: &BTreeMap<String, PathBuf>,
 ) -> Result<(), String> {
     if !directory.is_dir() {
         return Ok(());
@@ -346,7 +354,7 @@ fn fingerprint_directory(
     entries.sort();
     for path in entries {
         if path.is_dir() {
-            fingerprint_directory(&path, include_plugin_sources, visited, hasher)?;
+            fingerprint_directory(&path, include_plugin_sources, visited, hasher, plugin_roots)?;
         } else {
             fingerprint_file(
                 &path,
@@ -354,7 +362,7 @@ fn fingerprint_directory(
                 include_plugin_sources,
                 visited,
                 hasher,
-                &BTreeMap::new(),
+                plugin_roots,
             )?;
         }
     }
@@ -366,6 +374,7 @@ fn fingerprint_declared_pattern(
     include_plugin_sources: bool,
     visited: &mut HashSet<PathBuf>,
     hasher: &mut Fnv64,
+    plugin_roots: &BTreeMap<String, PathBuf>,
 ) -> Result<(), String> {
     if pattern.is_file() {
         return fingerprint_file(
@@ -374,11 +383,17 @@ fn fingerprint_declared_pattern(
             include_plugin_sources,
             visited,
             hasher,
-            &BTreeMap::new(),
+            plugin_roots,
         );
     }
     if pattern.is_dir() {
-        return fingerprint_directory(pattern, include_plugin_sources, visited, hasher);
+        return fingerprint_directory(
+            pattern,
+            include_plugin_sources,
+            visited,
+            hasher,
+            plugin_roots,
+        );
     }
     let components = pattern.components().collect::<Vec<_>>();
     let Some(wildcard_index) = components.iter().position(|component| {
@@ -396,7 +411,7 @@ fn fingerprint_declared_pattern(
                 path
             });
     if root.is_dir() {
-        fingerprint_directory(&root, include_plugin_sources, visited, hasher)?;
+        fingerprint_directory(&root, include_plugin_sources, visited, hasher, plugin_roots)?;
     }
     Ok(())
 }

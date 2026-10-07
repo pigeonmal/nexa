@@ -72,6 +72,16 @@ test "soft-deleted records remain as hidden tombstones" {
         include_str!("../../../examples/archetypes/todo/components/TaskRowContent.nx"),
     )
     .expect("task row content source should be written");
+    let features = entry
+        .parent()
+        .expect("app has a parent directory")
+        .join("features");
+    fs::create_dir_all(&features).expect("feature directory should be created");
+    fs::write(
+        features.join("TodoOperations.nx"),
+        include_str!("../../../examples/archetypes/todo/features/TodoOperations.nx"),
+    )
+    .expect("Todo operations source should be written");
     let models = entry
         .parent()
         .expect("app has a parent directory")
@@ -118,6 +128,26 @@ test "soft-deleted records remain as hidden tombstones" {
         include_str!("../../../examples/archetypes/todo/storage/TodoDatabase.nx"),
     )
     .expect("shared database source should be written");
+    let screens = entry
+        .parent()
+        .expect("app has a parent directory")
+        .join("screens");
+    fs::create_dir_all(&screens).expect("screen directory should be created");
+    fs::write(
+        screens.join("Completed.nx"),
+        include_str!("../../../examples/archetypes/todo/screens/Completed.nx"),
+    )
+    .expect("completed screen source should be written");
+    fs::write(
+        screens.join("Main.nx"),
+        include_str!("../../../examples/archetypes/todo/screens/Main.nx"),
+    )
+    .expect("main screen source should be written");
+    fs::write(
+        screens.join("Theme.nx"),
+        include_str!("../../../examples/archetypes/todo/screens/Theme.nx"),
+    )
+    .expect("theme screen source should be written");
 
     let sqlite_plugin =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/sqlite");
@@ -225,6 +255,12 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("nexa_todoPersistence.nexa_fn_loadTasks()"));
     let (generated_kotlin_source, _) =
         nexa_backend_kotlin::KotlinBackend.generate_with_project_features(kotlin_module);
+    assert!(
+        generated_source
+            .contains("UINotificationFeedbackGenerator().notificationOccurred(.success)")
+    );
+    assert!(generated_source.contains(".spring(response: 0.35, dampingFraction: 0.8)"));
+    assert!(generated_kotlin_source.contains("HapticFeedbackConstants.CONFIRM"));
     let kotlin_widget = nexa_backend_kotlin::KotlinBackend
         .generate_widget_units(kotlin_module)
         .expect("Todo widget should generate an Android Glance widget");

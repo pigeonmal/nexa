@@ -918,10 +918,13 @@ fn plugin_row_mapper(ty: &Type) -> Option<String> {
             swift_string(field),
             swift_string(&format!("Query must select column `{field}` exactly once.")),
         ));
+        let (decoded, row_failure) = plugin_swift_decode(field_type, &column, field, index);
+        if let Some(row_failure) = row_failure {
+            setup.push(row_failure);
+        }
         values.push(format!(
-            "{}: {}",
+            "{}: {decoded}",
             nexa_codegen::names::struct_field_name(field),
-            plugin_swift_decode(field_type, &column, field),
         ));
     }
     Some(format!(
@@ -932,12 +935,19 @@ fn plugin_row_mapper(ty: &Type) -> Option<String> {
     ))
 }
 
-fn plugin_swift_decode(ty: &Type, index: &str, column: &str) -> String {
+fn plugin_swift_decode(
+    ty: &Type,
+    index: &str,
+    column: &str,
+    field_index: usize,
+) -> (String, Option<String>) {
     let (optional, value_type) = match ty {
         Type::Optional(inner) => (true, inner.as_ref()),
         other => (false, other),
     };
     let failure = swift_string(&format!("Row field `{column}` has an incompatible value."));
+    let row_failure_name = format!("nexaRowFailure{field_index}");
+    let row_failure = format!("let {row_failure_name} = rowFailure({failure})");
     let (getter, conversion) = match value_type {
         Type::Bool => ("boolean", None),
         Type::String => ("text", None),
@@ -953,9 +963,12 @@ fn plugin_swift_decode(ty: &Type, index: &str, column: &str) -> String {
         Type::Numeric(NumericType::UInt32) => ("integer", Some("UInt32")),
         Type::Numeric(NumericType::UInt64) => ("integer", Some("UInt64")),
         _ => {
-            return format!(
-                "try {{ () throws(Failure) -> {} in throw rowFailure({failure}) }}()",
-                crate::generator::engine::types::swift_type(ty)
+            return (
+                format!(
+                    "try {{ () throws(Failure) -> {} in throw {row_failure_name} }}()",
+                    crate::generator::engine::types::swift_type(ty)
+                ),
+                Some(row_failure),
             );
         }
     };
@@ -966,16 +979,22 @@ fn plugin_swift_decode(ty: &Type, index: &str, column: &str) -> String {
     };
     let read = format!("try row.{reader_method}({index}, {})", swift_string(column));
     match (optional, conversion) {
-        (false, Some("Float")) => format!("Float({read})"),
-        (true, Some("Float")) => format!("{read}.map {{ Float($0) }}"),
-        (false, Some(target)) => format!(
-            "try {{ () throws(Failure) -> {} in guard let converted = {target}(exactly: {read}) else {{ throw rowFailure({failure}) }}; return converted }}()",
-            crate::generator::engine::types::swift_type(ty)
+        (false, Some("Float")) => (format!("Float({read})"), None),
+        (true, Some("Float")) => (format!("{read}.map {{ Float($0) }}"), None),
+        (false, Some(target)) => (
+            format!(
+                "try {{ () throws(Failure) -> {} in guard let converted = {target}(exactly: {read}) else {{ throw {row_failure_name} }}; return converted }}()",
+                crate::generator::engine::types::swift_type(ty)
+            ),
+            Some(row_failure),
         ),
-        (true, Some(target)) => format!(
-            "{read}.map {{ raw -> {target} in guard let converted = {target}(exactly: raw) else {{ throw rowFailure({failure}) }}; return converted }}"
+        (true, Some(target)) => (
+            format!(
+                "{read}.map {{ raw -> {target} in guard let converted = {target}(exactly: raw) else {{ throw {row_failure_name} }}; return converted }}"
+            ),
+            Some(row_failure),
         ),
-        (_, None) => read,
+        (_, None) => (read, None),
     }
 }
 
@@ -1283,6 +1302,17 @@ mod tests {
         assert!(mapper.contains("row.boolean(nexaColumn1, \"enabled\")"));
         assert!(mapper.contains("row.decimal(nexaColumn2, \"ratio\")"));
         assert!(mapper.contains("row.optionalBytes(nexaColumn3, \"payload\")"));
+        assert!(mapper.contains(
+            "let nexaRowFailure0 = rowFailure(\"Row field `count` has an incompatible value.\")"
+        ));
+        let row_decoder = mapper
+            .split_once("return { row throws(Failure) in")
+            .map(|(_, decoder)| decoder)
+            .expect("mapper should return a row decoder");
+        assert!(
+            !row_decoder.contains("rowFailure("),
+            "the escaping decoder must capture a typed error value, not the non-escaping factory"
+        );
     }
 
     #[test]

@@ -1,0 +1,84 @@
+screen Completed {
+    if todoFilter(tasks, 3, "").isEmpty {
+        ContentUnavailable(title: "No completed tasks", icon: "party_popper", description: "Completed tasks will show up here.")
+    } else {
+        FastList(todoSort(todoFilter(tasks, 3, ""), sortSelection), key:.id, native: true) {
+            task, index in
+            Row(spacing: 12, padding: 8) {
+                Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
+                    Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
+                        Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
+                    }.onTap {
+                        tasks = toggleTodo(tasks, task.id)
+                        Haptics.notification(kind: Success)
+                        cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                        Task.launch(executor: TaskExecutor.Main) {
+                            await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                        }
+                    }
+                }
+                Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
+                    Row(spacing: 12) {
+                        TaskRowContent(task: task)
+                        Spacer()
+                    }
+                }.onTap {
+                    editingID = task.id
+                    taskTitle = task.title
+                    taskDescription = task.taskDescription
+                    hasDueDate = task.dueTimestamp != null
+                    dueTimestamp = task.dueTimestamp ?? Time.now()
+                    hasTime = task.hasTime
+                    priority = task.priority
+                    taskTitleFocused = editingID < 0
+                    showingTaskEditor = true
+                }.contextMenu {
+                    Button("Edit", icon: "edit") {
+                        editingID = task.id
+                        taskTitle = task.title
+                        taskDescription = task.taskDescription
+                        hasDueDate = task.dueTimestamp != null
+                        dueTimestamp = task.dueTimestamp ?? Time.now()
+                        hasTime = task.hasTime
+                        priority = task.priority
+                        taskTitleFocused = editingID < 0
+                        showingTaskEditor = true
+                    }
+                    Button("Mark Incomplete", icon: "undo") {
+                        tasks = toggleTodo(tasks, task.id)
+                        Haptics.notification(kind: Success)
+                        cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
+                        Task.launch(executor: TaskExecutor.Main) {
+                            await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                        }
+                    }
+                    Button("Delete", icon: "delete") {
+                        cancelTaskReminders(reminders, task.id, notifications)
+                        reminders = deleteTaskReminders(reminders, task.id)
+                        tasks = deleteTodo(tasks, task.id)
+                        Task.launch(executor: TaskExecutor.Main) {
+                            await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                        }
+                    }
+                }
+            }
+        }.swipeActions {
+            Button("Delete", icon: "delete", style: Borderless) {
+                cancelTaskReminders(reminders, task.id, notifications)
+                reminders = deleteTaskReminders(reminders, task.id)
+                tasks = deleteTodo(tasks, task.id)
+                Task.launch(executor: TaskExecutor.Main) {
+                    await persistTaskAndRefreshBadge(tasks, task.id, notifications)
+                }
+            }
+        }.onMove(enabled: sortSelection == "Manual") {
+            from, to - >
+            if sortSelection == "Manual" {
+                tasks.moveSubset(from, to, todoFilter(tasks, 3, ""))
+                Task.launch(executor: TaskExecutor.Main) {
+                    await todoPersistence.saveTaskOrder(tasks)
+                }
+            }
+        }
+    }
+}

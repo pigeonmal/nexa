@@ -10,7 +10,7 @@ pub mod server;
 pub mod signature_help;
 pub mod symbols;
 
-pub use code_actions::code_actions;
+pub use code_actions::{code_actions, code_actions_with_documents};
 pub use completions::get_completions;
 pub use diagnostics::check_source;
 pub use hover::get_hover;

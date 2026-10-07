@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use crate::code_actions::code_actions;
+use crate::code_actions::code_actions_with_documents;
 use crate::completions::get_document_completions;
 use nexa_compiler::IncrementalProjectCompiler;
 
@@ -425,10 +425,11 @@ impl LspServer {
                             .and_then(|document| document.get("uri"))
                             .and_then(|value| value.as_str())?;
                         let source = self.get_document(uri)?;
-                        Some(code_actions(
+                        Some(code_actions_with_documents(
                             source,
                             uri,
                             params.get("context").unwrap_or(&serde_json::Value::Null),
+                            self.documents.values().map(String::as_str),
                         ))
                     })
                     .unwrap_or_default();

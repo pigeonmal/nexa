@@ -1,0 +1,22 @@
+screen Theme {
+    FastList(TodoOptions.themeOptions, native: true) { theme, index in
+        Pressable(accessibilityLabel: theme, accessibilityValue: selectedTheme == theme ? "Selected" : "Not selected", accessibilityRole: Button) {
+            Row(spacing: 16, padding: 8) {
+                Icon(system: "circle_filled", size: 32, tint: themeTint(theme), description: "")
+                Text(theme)
+                Spacer()
+                if selectedTheme == theme {
+                    Icon(system: "check", size: 18, tint: themeTint(theme), description: "")
+                }
+            }
+        }
+        .onTap {
+            selectedTheme = theme
+            Task.launch(executor: TaskExecutor.Main) {
+                await todoPersistence.saveTheme(theme)
+                let iconApplied: Bool = await AppIcon.set(alternateIconName(theme))
+                if !iconApplied { Log.warning(message: "TODO_ALTERNATE_APP_ICON_UNAVAILABLE") }
+            }
+        }
+    }
+}

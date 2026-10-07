@@ -69,6 +69,41 @@ fn dev_cache_key_resolves_package_ids_to_local_plugin_roots() {
 }
 
 #[test]
+fn dev_cache_key_resolves_plugin_roots_in_nested_package_apps() {
+    let project = TestProject::new("nexa-dependency-cache");
+    let entry = project.write_app(
+        "plugin \"dev.example.sqlite\" as SQLite\napp Demo { body { Text(\"ready\") } }\n",
+    );
+    let plugin_root = project.path().join("plugins/sqlite");
+    let conformance_app = plugin_root.join("tests/conformance/app/App.nx");
+    fs::create_dir_all(
+        conformance_app
+            .parent()
+            .expect("conformance app has a parent"),
+    )
+    .expect("create nested conformance app");
+    fs::write(
+        plugin_root.join("plugin.config.nx"),
+        "plugin { schema: 2 id: \"dev.example.sqlite\" version: \"1.0.0\" sources { native: \"native.nxid\" } }\n",
+    )
+    .expect("write plugin manifest");
+    fs::write(
+        plugin_root.join("native.nxid"),
+        "service Database { fn close() }\n",
+    )
+    .expect("write plugin contract");
+    fs::write(
+        conformance_app,
+        "plugin \"dev.example.sqlite\" as SQLite\napp Conformance { body { Text(\"ready\") } }\n",
+    )
+    .expect("write nested conformance app");
+    let roots = BTreeMap::from([("dev.example.sqlite".to_owned(), plugin_root)]);
+
+    cache::key_with_extra_and_roots(&entry, "dev-android", &[], &roots)
+        .expect("nested app should resolve its package ID to the configured plugin root");
+}
+
+#[test]
 fn app_image_assets_invalidate_project_and_dev_cache_keys() {
     let project = TestProject::new("nexa-dependency-cache");
     let entry = project.write_app("app Demo { body { Text(\"ok\") } }\n");
