@@ -1,14 +1,17 @@
 use crossterm::{
-    cursor::MoveTo,
+    cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    execute,
+    execute, queue,
     style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
+    terminal::{
+        Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+        enable_raw_mode, size,
+    },
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     env, fs,
-    io::{self, BufRead, IsTerminal, Read},
+    io::{self, BufRead, IsTerminal, Read, Write},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
     sync::mpsc::{self, Receiver, Sender, TryRecvError},
@@ -535,7 +538,10 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
                 Some(server.address().port()),
             );
         }
-        print_dev_welcome();
+        let interactive_terminal = io::stdin().is_terminal() && io::stdout().is_terminal();
+        if !interactive_terminal {
+            print_dev_welcome();
+        }
         println!("Nexa dev server listening at ws://{}", server.address());
         build_platforms(
             &output,
@@ -544,7 +550,9 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             BuildMode::Dev,
             Some(server.address().port()),
         )?;
-        println!("Watching .nx sources. Press Ctrl-C to stop.");
+        if !interactive_terminal {
+            println!("Watching .nx sources. Press Ctrl-C to stop.");
+        }
         let watch_context = DevWatchContext {
             root: &root,
             entry: &entry,
@@ -732,53 +740,71 @@ fn watch_sources(
     let mut native_rebuild_pending = false;
     let mut active_device: Option<(String, String)> = None;
     let (device_log_sender, device_log_receiver) = mpsc::channel();
-    let mut device_log_streams = start_device_log_streams(context, &device_log_sender);
-    let mut log_deduplicator = DeviceLogDeduplicator::default();
     let (console_commands, _raw_terminal) = start_dev_console_input();
+    let mut dashboard = DevDashboard::new(context);
+    let mut device_log_streams =
+        start_device_log_streams(context, &device_log_sender, &mut dashboard);
+    let mut log_deduplicator = DeviceLogDeduplicator::default();
     loop {
         while let Ok(event) = device_log_receiver.try_recv() {
             match event {
                 DeviceLogEvent::Line(line) => {
                     for output in log_deduplicator.push(line, Instant::now()) {
-                        print_device_log(&output);
+                        dashboard.device_log(output);
                     }
                 }
                 DeviceLogEvent::Ended {
                     platform,
                     device_id,
-                } => eprintln!("[{platform}] device log stream ended ({device_id})"),
+                } => dashboard.warning(format!(
+                    "[{platform}] device log stream ended ({device_id})"
+                )),
                 DeviceLogEvent::Error {
                     platform,
                     device_id,
                     message,
-                } => eprintln!("[{platform}] device log stream failed ({device_id}): {message}"),
+                } => dashboard.warning(format!(
+                    "[{platform}] device log stream failed ({device_id}): {message}"
+                )),
             }
         }
         for output in log_deduplicator.flush_expired(Instant::now()) {
-            print_device_log(&output);
+            dashboard.device_log(output);
         }
         match console_commands.try_recv() {
             Ok(DevConsoleCommand::HotReload) => {
-                println!("Hot reloading Nexa source...");
-                match reload_or_rebuild_dev_app(context, background_tasks, compiler) {
+                dashboard.set_status("Reloading Nexa source".to_owned());
+                dashboard.info("Hot reloading Nexa source...");
+                match dashboard.with_terminal_output(|| {
+                    reload_or_rebuild_dev_app(context, background_tasks, compiler)
+                }) {
                     Ok(true) => {
-                        println!("Native app rebuilt for background task changes.");
+                        dashboard.info("Native app rebuilt for background task changes.");
                         refresh_device_log_streams(
                             context,
                             &device_log_sender,
                             &mut device_log_streams,
+                            &mut dashboard,
                         );
+                        dashboard.set_status("Watching .nx sources".to_owned());
                     }
-                    Ok(false) => println!("Nexa source reloaded in the running app."),
+                    Ok(false) => {
+                        dashboard.info("Nexa source reloaded in the running app.");
+                        dashboard.set_status("Watching .nx sources".to_owned());
+                    }
                     Err(error) => {
-                        eprintln!("{error}");
+                        dashboard.error(error.clone());
+                        dashboard.set_status("Reload failed".to_owned());
                         publish_dev_error(context.server, context.entry, context.platform, error);
                     }
                 }
             }
             Ok(DevConsoleCommand::HotRestart) => {
-                println!("Hot restarting Nexa app state...");
-                match reload_or_rebuild_dev_app(context, background_tasks, compiler) {
+                dashboard.set_status("Restarting app state".to_owned());
+                dashboard.info("Hot restarting Nexa app state...");
+                match dashboard.with_terminal_output(|| {
+                    reload_or_rebuild_dev_app(context, background_tasks, compiler)
+                }) {
                     Ok(rebuilt) => {
                         if !rebuilt {
                             context.server.publish_restart("hot restart requested");
@@ -787,29 +813,35 @@ fn watch_sources(
                                 context,
                                 &device_log_sender,
                                 &mut device_log_streams,
+                                &mut dashboard,
                             );
                         }
-                        println!("Nexa app state restarted in the running app.");
+                        dashboard.info("Nexa app state restarted in the running app.");
+                        dashboard.set_status("Watching .nx sources".to_owned());
                     }
                     Err(error) => {
-                        eprintln!("{error}");
+                        dashboard.error(error.clone());
+                        dashboard.set_status("Restart failed".to_owned());
                         publish_dev_error(context.server, context.entry, context.platform, error);
                     }
                 }
             }
             Ok(DevConsoleCommand::Rebuild) => {
-                println!("Rebuilding native app...");
-                let rebuilt = match rebuild_dev_app(context, compiler) {
-                    Ok(task_fingerprint) => {
-                        *background_tasks = task_fingerprint;
-                        println!("Native app rebuilt and relaunched.");
-                        true
-                    }
-                    Err(error) => {
-                        eprintln!("native dev rebuild failed: {error}");
-                        false
-                    }
-                };
+                dashboard.set_status("Rebuilding native app".to_owned());
+                dashboard.info("Rebuilding native app...");
+                let rebuilt =
+                    match dashboard.with_terminal_output(|| rebuild_dev_app(context, compiler)) {
+                        Ok(task_fingerprint) => {
+                            *background_tasks = task_fingerprint;
+                            dashboard.info("Native app rebuilt and relaunched.");
+                            true
+                        }
+                        Err(error) => {
+                            dashboard.error(format!("native dev rebuild failed: {error}"));
+                            dashboard.set_status("Native rebuild failed".to_owned());
+                            false
+                        }
+                    };
                 if rebuilt {
                     let dependencies = crate::config::load_plugin_dependencies(
                         &context.root.join("nexa.config.nx"),
@@ -820,50 +852,54 @@ fn watch_sources(
                         context,
                         &device_log_sender,
                         &mut device_log_streams,
+                        &mut dashboard,
                     );
                 }
                 previous = source_fingerprint(context.root, &plugin_roots)?;
                 if rebuilt {
                     native_rebuild_pending = false;
+                    dashboard.set_status("Watching .nx sources".to_owned());
                 }
+                dashboard.render();
                 continue;
             }
-            Ok(DevConsoleCommand::NextDevice) => match cycle_dev_device(context, &active_device) {
-                Ok(device) => {
-                    println!(
-                        "Selected [{}] {} ({})",
-                        device.platform, device.name, device.id
-                    );
-                    active_device = Some((device.platform.clone(), device.id.clone()));
-                    let platform = display_device_platform(&device.platform);
-                    device_log_streams.retain(|stream| stream.platform != platform);
-                    match start_device_log_stream(context, &device, device_log_sender.clone()) {
-                        Ok(stream) => device_log_streams.push(stream),
-                        Err(error) => eprintln!("warning: {error}"),
+            Ok(DevConsoleCommand::NextDevice) => {
+                match dashboard.with_terminal_output(|| cycle_dev_device(context, &active_device)) {
+                    Ok(device) => {
+                        dashboard.info(format!(
+                            "Selected [{}] {} ({})",
+                            device.platform, device.name, device.id
+                        ));
+                        dashboard.set_device(&device);
+                        active_device = Some((device.platform.clone(), device.id.clone()));
+                        let platform = display_device_platform(&device.platform);
+                        device_log_streams.retain(|stream| stream.platform != platform);
+                        match start_device_log_stream(context, &device, device_log_sender.clone()) {
+                            Ok(stream) => device_log_streams.push(stream),
+                            Err(error) => dashboard.warning(format!("warning: {error}")),
+                        }
                     }
+                    Err(error) => dashboard.warning(format!("device selector: {error}")),
                 }
-                Err(error) => eprintln!("device selector: {error}"),
-            },
+            }
             Ok(DevConsoleCommand::TogglePerformanceOverlay) => {
                 performance_overlay_enabled = !performance_overlay_enabled;
                 context
                     .server
                     .set_performance_overlay(performance_overlay_enabled);
+                dashboard.set_overlay(performance_overlay_enabled);
                 let state = if performance_overlay_enabled {
                     "on"
                 } else {
                     "off"
                 };
-                println!("Nexa performance overlay {state}.");
+                dashboard.info(format!("Nexa performance overlay {state}."));
             }
             Ok(DevConsoleCommand::ClearConsole) => {
-                let mut terminal = io::stdout();
-                execute!(terminal, Clear(ClearType::All), MoveTo(0, 0))
-                    .map_err(|error| format!("cannot clear the Nexa dev console: {error}"))?;
-                print_dev_welcome();
+                dashboard.clear();
             }
             Ok(DevConsoleCommand::Stop) => {
-                println!("Stopping Nexa dev.");
+                dashboard.finish("Stopping Nexa dev.");
                 return Ok(());
             }
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => {}
@@ -871,16 +907,17 @@ fn watch_sources(
         if let Some(request) = context.server.try_recv_editor_request()
             && let Err(error) = open_editor_location(&request.file, request.line, request.column)
         {
-            eprintln!(
+            dashboard.warning(format!(
                 "cannot open {}:{}:{} in an editor: {error}",
                 request.file, request.line, request.column
-            );
+            ));
         }
+        dashboard.render();
         thread::sleep(Duration::from_millis(350));
         let current = match source_fingerprint(context.root, &plugin_roots) {
             Ok(current) => current,
             Err(error) => {
-                eprintln!("warning: {error}");
+                dashboard.warning(format!("warning: {error}"));
                 continue;
             }
         };
@@ -899,26 +936,41 @@ fn watch_sources(
         previous = current;
         if host_changed {
             if !native_rebuild_pending {
-                println!(
-                    "Native host changes are waiting. Press 'b' to rebuild and relaunch the app."
+                dashboard.info(
+                    "Native host changes are waiting. Press 'b' to rebuild and relaunch the app.",
                 );
             }
             native_rebuild_pending = true;
+            dashboard.set_status("Native host changes waiting for rebuild".to_owned());
+            dashboard.render();
             continue;
         }
         if native_rebuild_pending {
             continue;
         }
         thread::sleep(Duration::from_millis(200));
-        match reload_or_rebuild_dev_app(context, background_tasks, compiler) {
+        dashboard.set_status("Reloading changed .nx files".to_owned());
+        match dashboard
+            .with_terminal_output(|| reload_or_rebuild_dev_app(context, background_tasks, compiler))
+        {
             Ok(true) => {
                 native_rebuild_pending = false;
-                println!("Background task changes rebuilt and relaunched the native app.");
-                refresh_device_log_streams(context, &device_log_sender, &mut device_log_streams);
+                dashboard.info("Background task changes rebuilt and relaunched the native app.");
+                refresh_device_log_streams(
+                    context,
+                    &device_log_sender,
+                    &mut device_log_streams,
+                    &mut dashboard,
+                );
+                dashboard.set_status("Watching .nx sources".to_owned());
             }
-            Ok(false) => println!("Nexa source reloaded in the running app."),
+            Ok(false) => {
+                dashboard.info("Nexa source reloaded in the running app.");
+                dashboard.set_status("Watching .nx sources".to_owned());
+            }
             Err(error) => {
-                eprintln!("{error}");
+                dashboard.error(error.clone());
+                dashboard.set_status("Reload failed".to_owned());
                 publish_dev_error(context.server, context.entry, context.platform, error);
             }
         }
@@ -945,6 +997,348 @@ enum DeviceLogEvent {
     },
 }
 
+struct DashboardLine {
+    prefix: String,
+    text: String,
+    color: Color,
+}
+
+struct DevDashboard {
+    alternate_screen: bool,
+    project_name: String,
+    targets: String,
+    server_address: String,
+    status: String,
+    overlay_enabled: bool,
+    devices: String,
+    selected_device: Option<String>,
+    lines: VecDeque<DashboardLine>,
+}
+
+impl DevDashboard {
+    const MAX_LINES: usize = 400;
+
+    fn new(context: &DevWatchContext<'_>) -> Self {
+        let mut dashboard = Self {
+            alternate_screen: false,
+            project_name: context.project_name.to_owned(),
+            targets: match context.platform {
+                "ios" => "iOS".to_owned(),
+                "android" => "Android".to_owned(),
+                _ => "iOS + Android".to_owned(),
+            },
+            server_address: context.server.address().to_string(),
+            status: "Watching .nx sources".to_owned(),
+            overlay_enabled: false,
+            devices: "Detecting devices".to_owned(),
+            selected_device: None,
+            lines: VecDeque::new(),
+        };
+        if io::stdin().is_terminal() && io::stdout().is_terminal() {
+            let mut stdout = io::stdout();
+            if execute!(stdout, EnterAlternateScreen, Hide, Clear(ClearType::All)).is_ok() {
+                dashboard.alternate_screen = true;
+            }
+        }
+        dashboard.render();
+        dashboard
+    }
+
+    fn info(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        if self.alternate_screen {
+            self.push_line("INFO", message, Color::Cyan);
+            self.render();
+        } else {
+            println!("{message}");
+        }
+    }
+
+    fn warning(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        if self.alternate_screen {
+            self.push_line("WARN", message, Color::Yellow);
+            self.render();
+        } else {
+            eprintln!("{message}");
+        }
+    }
+
+    fn error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        if self.alternate_screen {
+            self.push_line("ERROR", message, Color::Red);
+            self.render();
+        } else {
+            eprintln!("{message}");
+        }
+    }
+
+    fn device_log(&mut self, line: DeviceLogLine) {
+        if !self.alternate_screen {
+            print_device_log(&line);
+            return;
+        }
+        let color = if line.platform.contains('+') {
+            Color::Magenta
+        } else if line.platform == "iOS" {
+            Color::Cyan
+        } else {
+            Color::Green
+        };
+        self.push_line(format!("[{}]", line.platform), line.text, color);
+    }
+
+    fn push_line(&mut self, prefix: impl Into<String>, text: impl Into<String>, color: Color) {
+        self.lines.push_back(DashboardLine {
+            prefix: prefix.into(),
+            text: text.into(),
+            color,
+        });
+        while self.lines.len() > Self::MAX_LINES {
+            self.lines.pop_front();
+        }
+    }
+
+    fn set_status(&mut self, status: String) {
+        self.status = status;
+        self.render();
+    }
+
+    fn set_overlay(&mut self, enabled: bool) {
+        self.overlay_enabled = enabled;
+        self.render();
+    }
+
+    fn set_devices(&mut self, devices: &[DevDevice]) {
+        self.devices = if devices.is_empty() {
+            "No connected devices".to_owned()
+        } else {
+            devices
+                .iter()
+                .map(|device| {
+                    format!(
+                        "{}: {}",
+                        display_device_platform(&device.platform),
+                        device.name
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" · ")
+        };
+        self.render();
+    }
+
+    fn set_device(&mut self, device: &DevDevice) {
+        self.selected_device = Some(format!(
+            "{}: {}",
+            display_device_platform(&device.platform),
+            device.name
+        ));
+        self.render();
+    }
+
+    fn clear(&mut self) {
+        self.lines.clear();
+        if self.alternate_screen {
+            self.render();
+        } else if io::stdout().is_terminal() {
+            let mut stdout = io::stdout();
+            let _ = execute!(stdout, Clear(ClearType::All), MoveTo(0, 0));
+            print_dev_welcome();
+        }
+    }
+
+    fn with_terminal_output<T>(&mut self, operation: impl FnOnce() -> T) -> T {
+        let resume_dashboard = self.alternate_screen;
+        if resume_dashboard {
+            self.leave_screen();
+        }
+        let result = operation();
+        if resume_dashboard {
+            self.enter_screen();
+            self.render();
+        }
+        result
+    }
+
+    fn finish(&mut self, message: &str) {
+        self.leave_screen();
+        println!("{message}");
+    }
+
+    fn enter_screen(&mut self) {
+        if self.alternate_screen {
+            return;
+        }
+        let mut stdout = io::stdout();
+        if execute!(stdout, EnterAlternateScreen, Hide, Clear(ClearType::All)).is_ok() {
+            self.alternate_screen = true;
+        }
+    }
+
+    fn leave_screen(&mut self) {
+        if !self.alternate_screen {
+            return;
+        }
+        let mut stdout = io::stdout();
+        let _ = execute!(stdout, Show, ResetColor, LeaveAlternateScreen);
+        self.alternate_screen = false;
+    }
+
+    fn render(&self) {
+        if !self.alternate_screen {
+            return;
+        }
+        let (width, height) = size().unwrap_or((80, 24));
+        let mut stdout = io::stdout();
+        let _ = self.render_into(&mut stdout, width, height);
+    }
+
+    fn render_into(&self, stdout: &mut impl Write, width: u16, height: u16) -> io::Result<()> {
+        let width = width.max(1);
+        let height = height.max(1);
+        queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
+        if height < 6 {
+            write_dashboard_row(
+                stdout,
+                0,
+                width,
+                "NEXA DEV",
+                Color::Cyan,
+                "Resize terminal for dashboard",
+            )?;
+            return stdout.flush();
+        }
+        write_dashboard_row(
+            stdout,
+            0,
+            width,
+            "NEXA DEV",
+            Color::Cyan,
+            &format!("{} · native mobile preview", self.project_name),
+        )?;
+        write_dashboard_row(
+            stdout,
+            1,
+            width,
+            "TARGETS",
+            Color::Blue,
+            &format!("{}  |  Devices: {}", self.targets, self.devices),
+        )?;
+        let selected = self
+            .selected_device
+            .as_ref()
+            .map_or(String::new(), |device| format!("  |  Selected: {device}"));
+        let overlay = if self.overlay_enabled { "ON" } else { "OFF" };
+        let status_color = if self.status.contains("failed") {
+            Color::Red
+        } else if self.status.contains("waiting") || self.status.contains("Rebuilding") {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+        write_dashboard_row(
+            stdout,
+            2,
+            width,
+            "STATUS",
+            status_color,
+            &format!(
+                "{}  |  Performance overlay: {overlay}{selected}  |  ws://{}",
+                self.status, self.server_address
+            ),
+        )?;
+        write_dashboard_row(
+            stdout,
+            3,
+            width,
+            "",
+            Color::DarkGrey,
+            &"─".repeat(width as usize),
+        )?;
+
+        let log_rows = height.saturating_sub(6) as usize;
+        let start = self.lines.len().saturating_sub(log_rows);
+        for (index, line) in self.lines.iter().skip(start).enumerate() {
+            let row = 4usize.saturating_add(index).min(u16::MAX as usize) as u16;
+            write_dashboard_row(stdout, row, width, &line.prefix, line.color, &line.text)?;
+        }
+
+        let footer_top = height.saturating_sub(2);
+        write_dashboard_row(
+            stdout,
+            footer_top,
+            width,
+            "",
+            Color::DarkGrey,
+            &"─".repeat(width as usize),
+        )?;
+        write_dashboard_row(
+            stdout,
+            height.saturating_sub(1),
+            width,
+            "KEYS",
+            Color::Yellow,
+            "r reload  R restart  b rebuild  d device  p overlay  l clear  q quit",
+        )?;
+        stdout.flush()
+    }
+}
+
+impl Drop for DevDashboard {
+    fn drop(&mut self) {
+        self.leave_screen();
+    }
+}
+
+fn write_dashboard_row(
+    stdout: &mut impl Write,
+    row: u16,
+    width: u16,
+    prefix: &str,
+    color: Color,
+    text: &str,
+) -> io::Result<()> {
+    let prefix = sanitize_terminal_text(prefix);
+    let text = sanitize_terminal_text(text);
+    let prefix_width = prefix.chars().count().min(width as usize);
+    let separator_width = if prefix.is_empty() { 0 } else { 1 };
+    let available = width.saturating_sub(prefix_width as u16 + separator_width) as usize;
+    let prefix = clip_terminal_text(&prefix, width as usize);
+    let text = clip_terminal_text(&text, available);
+    queue!(
+        stdout,
+        MoveTo(0, row),
+        SetForegroundColor(color),
+        Print(prefix),
+        ResetColor,
+        Print(if text.is_empty() || prefix_width == 0 {
+            ""
+        } else {
+            " "
+        }),
+        Print(text),
+        Clear(ClearType::UntilNewLine)
+    )
+}
+
+fn clip_terminal_text(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
+fn sanitize_terminal_text(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if character.is_control() && character != '\t' {
+                '�'
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
 struct DeviceLogStream {
     platform: String,
     child: Child,
@@ -966,6 +1360,7 @@ impl Drop for DeviceLogStream {
 fn start_device_log_streams(
     context: &DevWatchContext<'_>,
     sender: &Sender<DeviceLogEvent>,
+    dashboard: &mut DevDashboard,
 ) -> Vec<DeviceLogStream> {
     let mut devices = Vec::new();
     if matches!(context.platform, "ios" | "all") {
@@ -979,7 +1374,9 @@ fn start_device_log_streams(
                     devices.push(device.clone());
                 }
             }
-            Err(error) => eprintln!("warning: cannot start iOS device logs: {error}"),
+            Err(error) => {
+                dashboard.warning(format!("warning: cannot start iOS device logs: {error}"))
+            }
         }
     }
     if matches!(context.platform, "android" | "all") {
@@ -989,9 +1386,12 @@ fn start_device_log_streams(
                     devices.push(device);
                 }
             }
-            Err(error) => eprintln!("warning: cannot start Android device logs: {error}"),
+            Err(error) => dashboard.warning(format!(
+                "warning: cannot start Android device logs: {error}"
+            )),
         }
     }
+    dashboard.set_devices(&devices);
 
     devices
         .iter()
@@ -999,7 +1399,7 @@ fn start_device_log_streams(
             |device| match start_device_log_stream(context, device, sender.clone()) {
                 Ok(stream) => Some(stream),
                 Err(error) => {
-                    eprintln!("warning: {error}");
+                    dashboard.warning(format!("warning: {error}"));
                     None
                 }
             },
@@ -1011,9 +1411,10 @@ fn refresh_device_log_streams(
     context: &DevWatchContext<'_>,
     sender: &Sender<DeviceLogEvent>,
     streams: &mut Vec<DeviceLogStream>,
+    dashboard: &mut DevDashboard,
 ) {
     streams.clear();
-    streams.extend(start_device_log_streams(context, sender));
+    streams.extend(start_device_log_streams(context, sender, dashboard));
 }
 
 fn start_device_log_stream(
@@ -2637,14 +3038,91 @@ fn set_flavor(current: &mut Option<String>, requested: &str) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceLogDeduplicator, DeviceLogLine, android_log_line_matches_pid, changed_paths,
-        parse_android_devices, parse_android_process_id, parse_dev_diagnostic,
-        parse_ios_simulator_devices, release_build_arguments, run, run_in_language_tests,
-        select_native_platform, source_fingerprint,
+        DashboardLine, DevDashboard, DeviceLogDeduplicator, DeviceLogLine,
+        android_log_line_matches_pid, changed_paths, clip_terminal_text, parse_android_devices,
+        parse_android_process_id, parse_dev_diagnostic, parse_ios_simulator_devices,
+        release_build_arguments, run, run_in_language_tests, sanitize_terminal_text,
+        select_native_platform, source_fingerprint, write_dashboard_row,
     };
+    use crossterm::style::Color;
     use nexa_testkit::{TempDir, TestProject};
+    use std::collections::VecDeque;
     use std::fs;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn dashboard_rows_clip_text_and_sanitize_terminal_controls() {
+        assert_eq!(clip_terminal_text("Nexa dashboard", 4), "Nexa");
+        assert_eq!(sanitize_terminal_text("ready\n\u{1b}[31m"), "ready��[31m");
+
+        let mut rendered = Vec::new();
+        write_dashboard_row(&mut rendered, 2, 32, "STATUS", Color::Green, "Watching .nx")
+            .expect("render a dashboard row");
+        let rendered = String::from_utf8(rendered).expect("dashboard output is UTF-8");
+        assert!(rendered.contains("STATUS"));
+        assert!(rendered.contains("Watching .nx"));
+    }
+
+    #[test]
+    fn dashboard_frame_shows_project_status_device_logs_and_shortcuts() {
+        let dashboard = DevDashboard {
+            alternate_screen: false,
+            project_name: "Onboarding".to_owned(),
+            targets: "iOS + Android".to_owned(),
+            server_address: "127.0.0.1:4321".to_owned(),
+            status: "Watching .nx sources".to_owned(),
+            overlay_enabled: true,
+            devices: "iOS: iPhone 17".to_owned(),
+            selected_device: Some("iOS: iPhone 17".to_owned()),
+            lines: VecDeque::from([DashboardLine {
+                prefix: "[iOS]".to_owned(),
+                text: "app connected".to_owned(),
+                color: Color::Cyan,
+            }]),
+        };
+        let mut rendered = Vec::new();
+
+        dashboard
+            .render_into(&mut rendered, 100, 12)
+            .expect("render a dashboard frame");
+        let rendered = String::from_utf8(rendered).expect("dashboard output is UTF-8");
+
+        for expected in [
+            "Onboarding",
+            "iOS + Android",
+            "Watching .nx sources",
+            "Performance overlay: ON",
+            "iPhone 17",
+            "app connected",
+            "r reload",
+            "q quit",
+        ] {
+            assert!(rendered.contains(expected), "missing {expected:?} in frame");
+        }
+    }
+
+    #[test]
+    fn dashboard_frame_handles_short_terminal_height() {
+        let dashboard = DevDashboard {
+            alternate_screen: false,
+            project_name: "Onboarding".to_owned(),
+            targets: "iOS + Android".to_owned(),
+            server_address: "127.0.0.1:4321".to_owned(),
+            status: "Watching .nx sources".to_owned(),
+            overlay_enabled: false,
+            devices: "No connected devices".to_owned(),
+            selected_device: None,
+            lines: VecDeque::new(),
+        };
+        let mut rendered = Vec::new();
+
+        dashboard
+            .render_into(&mut rendered, 40, 3)
+            .expect("render a compact terminal notice");
+        let rendered = String::from_utf8(rendered).expect("dashboard output is UTF-8");
+        assert!(rendered.contains("Resize terminal for dashboard"));
+        assert!(!rendered.contains("r reload"));
+    }
 
     #[test]
     fn android_device_logs_are_filtered_to_the_app_process() {
