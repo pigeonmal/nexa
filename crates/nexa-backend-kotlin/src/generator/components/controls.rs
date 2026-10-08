@@ -177,6 +177,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_picker,
         "androidx.compose.material3.TextButton",
     );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.material3.MaterialTheme",
+    );
     imports.add(features.uses_picker, "androidx.compose.material3.Icon");
     imports.add(
         features.uses_picker,
@@ -614,7 +618,48 @@ pub(crate) fn render_date_picker(
 
 pub(crate) fn render_picker_helper(out: &mut SourceWriter) {
     out.push_str(
-        "@Composable\ninternal fun nexaPickerMenu(\n    items: List<String>,\n    selected: String,\n    icon: ImageVector?,\n    label: String?,\n    onSelectionChanged: (String) -> Unit,\n) {\n    val expanded = remember { mutableStateOf(false) }\n    Row(verticalAlignment = Alignment.CenterVertically) {\n        if (label != null) {\n            Text(label)\n            Spacer(Modifier.weight(1f))\n        }\n        Box {\n            TextButton(onClick = { expanded.value = true }) {\n                if (icon != null) {\n                    Icon(imageVector = icon, contentDescription = selected)\n                } else {\n                    Text(selected)\n                }\n            }\n            DropdownMenu(\n                expanded = expanded.value,\n                onDismissRequest = { expanded.value = false },\n            ) {\n                items.forEach { item ->\n                    DropdownMenuItem(\n                        text = { Text(item) },\n                        onClick = {\n                            onSelectionChanged(item)\n                            expanded.value = false\n                        },\n                    )\n                }\n            }\n        }\n    }\n}\n\n",
+        r#"@Composable
+internal fun nexaPickerMenu(
+    items: List<String>,
+    selected: String,
+    icon: ImageVector?,
+    label: String?,
+    onSelectionChanged: (String) -> Unit,
+) {
+    val expanded = remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (label != null) {
+            Text(label)
+            Spacer(Modifier.weight(1f))
+        }
+        Box {
+            TextButton(onClick = { expanded.value = true }) {
+                if (icon != null) {
+                    val iconTint = if (label == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary
+                    Icon(imageVector = icon, contentDescription = selected, tint = iconTint)
+                } else {
+                    Text(selected)
+                }
+            }
+            DropdownMenu(
+                expanded = expanded.value,
+                onDismissRequest = { expanded.value = false },
+            ) {
+                items.forEach { item ->
+                    DropdownMenuItem(
+                        text = { Text(item) },
+                        onClick = {
+                            onSelectionChanged(item)
+                            expanded.value = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+"#,
     );
 }
 
@@ -1392,9 +1437,25 @@ mod tests {
     use nexa_ir::{Action, CollectionMutation, Expr, NumericType, SystemIcon, TaskExecutor, Type};
 
     use super::{
-        render_actions, render_button, render_date_picker, render_progress_bar,
-        render_progress_ring, render_slider, render_switch,
+        render_actions, render_button, render_date_picker, render_picker_helper,
+        render_progress_bar, render_progress_ring, render_slider, render_switch,
     };
+
+    #[test]
+    fn picker_icon_tint_matches_its_toolbar_or_labeled_context() {
+        let mut output = SourceWriter::new();
+
+        render_picker_helper(&mut output);
+
+        assert!(output.contains(
+            "val iconTint = if (label == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary"
+        ));
+        assert!(
+            output.contains(
+                "Icon(imageVector = icon, contentDescription = selected, tint = iconTint)"
+            )
+        );
+    }
 
     #[test]
     fn renders_button_style_size_and_shape_as_compose_parameters() {
