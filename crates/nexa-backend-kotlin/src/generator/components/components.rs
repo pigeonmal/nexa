@@ -166,6 +166,7 @@ pub(crate) fn render_node(
                 *shape,
                 tint.as_ref(),
                 actions,
+                false,
                 depth,
                 out,
             );

@@ -23,6 +23,9 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v189` | Renders Android confirmation-dialog actions as centered full-width text rows with separators to match the iOS action list. |
+| `build-v188` | Maps Bordered buttons to matching outlined shapes, padding, tint, and disabled colors across SwiftUI and Compose. |
+| `build-v186` | Sizes iOS horizontal FastList rows and emits sendable typed-throws Swift hot-reload row mappers compatible with SQLite’s error contract. |
 | `build-v179` | Attaches SwiftUI toolbar items to their containing layout so sheet navigation actions remain visible. |
 | `build-v178` | Keeps Android date picker calendar days aligned with local timestamps across timezone boundaries. |
 | `build-v177` | Insets Android form rows and adds dividers between adjacent section controls to match native settings lists. |

@@ -16,9 +16,9 @@ use crate::walk::{
     contains_scrollable, walk_actions, walk_callback_actions, walk_expression, walk_ir,
 };
 use crate::{
-    AccessibilityRole, AnimationSpec, ColorValue, Expr, ImageSource, KeyboardDismissMode, ListAxis,
-    ListPlan, Module, Node, NumericType, Permission, PermissionOpKind, State, SystemIcon, Type,
-    ViewStyle,
+    AccessibilityRole, AnimationSpec, ButtonStyle, ColorValue, Expr, ImageSource,
+    KeyboardDismissMode, ListAxis, ListPlan, Module, Node, NumericType, Permission,
+    PermissionOpKind, State, SystemIcon, Type, ViewStyle,
 };
 
 /// Everything a backend needs to know about a pruned module, computed once.
@@ -261,6 +261,7 @@ pub struct TextFacts {
 pub struct ButtonFacts {
     pub present: bool,
     pub loading: bool,
+    pub bordered: bool,
     pub custom_shape: bool,
     pub glass: bool,
 }
@@ -824,6 +825,7 @@ fn observe_node(
         Node::Button {
             icon,
             loading,
+            style,
             shape,
             tint,
             glass,
@@ -831,6 +833,7 @@ fn observe_node(
         } => {
             ui.button.present = true;
             ui.button.loading |= loading.is_some();
+            ui.button.bordered |= matches!(style, Some(ButtonStyle::Bordered));
             ui.button.custom_shape |= shape.is_some();
             ui.button.glass |= *glass;
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
@@ -1555,6 +1558,26 @@ mod tests {
 
         let facts = ModuleFacts::analyze(&module);
         assert!(facts.uses_task_launch);
+    }
+
+    #[test]
+    fn bordered_button_styles_are_reported_for_native_helper_gating() {
+        let module = empty_module(vec![Node::Button {
+            label: Expr::String("Tomorrow".to_owned()),
+            icon: None,
+            loading: None,
+            disabled: None,
+            style: Some(crate::ButtonStyle::Bordered),
+            size: None,
+            shape: Some(crate::ButtonShape::Capsule),
+            tint: None,
+            glass: false,
+            actions: Vec::new(),
+        }]);
+
+        let facts = ModuleFacts::analyze(&module);
+        assert!(facts.ui.button.present);
+        assert!(facts.ui.button.bordered);
     }
 
     #[test]

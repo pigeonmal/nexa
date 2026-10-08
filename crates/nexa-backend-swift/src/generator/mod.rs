@@ -187,6 +187,53 @@ fileprivate extension View {
 }
 "#;
 
+const NEXA_BORDERED_BUTTON_HELPER: &str = r#"fileprivate enum NexaButtonOutlineShapeKind {
+    case circle
+    case capsule
+    case roundedRectangle(CGFloat)
+}
+
+fileprivate struct NexaButtonOutlineShape: Shape {
+    let kind: NexaButtonOutlineShapeKind
+
+    func path(in rect: CGRect) -> Path {
+        switch kind {
+        case .circle:
+            Circle().path(in: rect)
+        case .capsule:
+            Capsule().path(in: rect)
+        case .roundedRectangle(let radius):
+            RoundedRectangle(cornerRadius: radius).path(in: rect)
+        }
+    }
+}
+
+fileprivate struct NexaBorderedButtonStyle: ButtonStyle {
+    let tint: Color
+    let shape: NexaButtonOutlineShape
+    let horizontalPadding: CGFloat
+    let verticalPadding: CGFloat
+    let minWidth: CGFloat
+    let minHeight: CGFloat
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let contentColor = isEnabled ? tint : tint.opacity(0.38)
+        let borderColor = isEnabled ? tint : tint.opacity(0.12)
+        configuration.label
+            .foregroundStyle(contentColor)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .frame(minWidth: minWidth, minHeight: minHeight)
+            .background(tint.opacity(configuration.isPressed ? 0.12 : 0), in: shape)
+            .overlay(shape.stroke(borderColor, lineWidth: 1))
+            .contentShape(shape)
+    }
+}
+
+"#;
+
 const NEXA_GLASS_HELPER: &str = r#"fileprivate enum NexaGlassShape {
     case circle
     case capsule
@@ -487,6 +534,9 @@ fn generate_with_analysis_mode(
             "__NEXA_SWIFT_DEFAULT_ACCENT_COLOR__",
             nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR,
         ));
+    }
+    if features.facts.ui.button.bordered {
+        preamble.push_str(NEXA_BORDERED_BUTTON_HELPER);
     }
     if features.facts.ui.button.custom_shape {
         preamble.push_str(NEXA_BUTTON_SHAPE_HELPER);

@@ -367,17 +367,10 @@ fn swift_dev_row_mapper(
     plan: &BridgePlan,
 ) -> Result<String, String> {
     let cell_type = row_cell_enum(plan, method)?;
-    let (error_type, error_case) = row_mapping_error_case(plan, method)?;
-    let payload_name = &error_case.parameters[0].name;
-    let error = format!(
-        "throw {error_type}.{}({payload_name}: \"{{message}}\")",
-        error_case.name
-    );
+    let error = "throw rowFailure(\"{message}\")";
     let cell_cases = swift_dev_row_cell_cases(cell_type);
     Ok(format!(
-        "{{ columnNames in\n                guard let nexaRowCodec = nexaCodec{row_codec_index} as? [String: Any], let nexaRowType = nexaRowCodec[\"ty\"] as? [String: Any], let nexaStruct = nexaRowType[\"Struct\"] as? [String: Any], let nexaRawFields = nexaStruct[\"fields\"] as? [[Any]] else {{ {invalid_type} }}\n                let nexaExpectedFields = nexaRawFields.compactMap {{ $0.first as? String }}\n                guard nexaExpectedFields.count == nexaRawFields.count else {{ {invalid_fields} }}\n                var nexaIndexes: [String: Int] = [:]\n                nexaIndexes.reserveCapacity(nexaExpectedFields.count)\n                for nexaField in nexaExpectedFields {{ guard let nexaIndex = columnNames.firstIndex(of: nexaField), columnNames.lastIndex(of: nexaField) == nexaIndex else {{ {missing_column} }}; nexaIndexes[nexaField] = nexaIndex }}\n                return {{ row in var nexaValues: [String: Any] = [:]; nexaValues.reserveCapacity(nexaIndexes.count); for (nexaField, nexaIndex) in nexaIndexes {{ let nexaCell = try row.value(Int32(nexaIndex)); let nexaDynamicValue: Any = {{ switch nexaCell {{\n                                    {cell_cases}\n                                    }} }}(); nexaValues[nexaField] = nexaDynamicValue }}; return NexaDevDynamicRow(fields: nexaValues) }}\n            }}",
-        invalid_type = error.replace("{message}", "Invalid hot-reload row type."),
-        invalid_fields = error.replace("{message}", "Invalid hot-reload row fields."),
+        "({{ () -> NexaRowMapper<Value, NexaDevDynamicRow, Failure> in\n            let nexaRowMetadata: (fields: [String]?, error: String) = {{\n                guard let nexaRowCodec = nexaCodec{row_codec_index} as? [String: Any], let nexaRowType = nexaRowCodec[\"ty\"] as? [String: Any], let nexaStruct = nexaRowType[\"Struct\"] as? [String: Any], let nexaRawFields = nexaStruct[\"fields\"] as? [[Any]] else {{ return (nil, \"Invalid hot-reload row type.\") }}\n                let nexaExpectedFields = nexaRawFields.compactMap {{ $0.first as? String }}\n                guard nexaExpectedFields.count == nexaRawFields.count else {{ return (nil, \"Invalid hot-reload row fields.\") }}\n                return (nexaExpectedFields, \"\")\n            }}()\n            return {{ (columnNames, rowFailure) throws(Failure) in\n                guard let nexaExpectedFields = nexaRowMetadata.fields else {{ throw rowFailure(nexaRowMetadata.error) }}\n                var nexaIndexes: [String: Int] = [:]\n                nexaIndexes.reserveCapacity(nexaExpectedFields.count)\n                for nexaField in nexaExpectedFields {{ guard let nexaIndex = columnNames.firstIndex(of: nexaField), columnNames.lastIndex(of: nexaField) == nexaIndex else {{ {missing_column} }}; nexaIndexes[nexaField] = nexaIndex }}\n                let nexaColumnIndexes = nexaIndexes\n                return {{ (row: NexaRowReader<Value, Failure>) throws(Failure) -> NexaDevDynamicRow in var nexaValues: [String: Any] = [:]; nexaValues.reserveCapacity(nexaColumnIndexes.count); for (nexaField, nexaIndex) in nexaColumnIndexes {{ let nexaCell = try row.value(Int32(nexaIndex)); let nexaDynamicValue: Any = {{ switch nexaCell {{\n                                    {cell_cases}\n                                    }} }}(); nexaValues[nexaField] = nexaDynamicValue }}; return NexaDevDynamicRow(fields: nexaValues) }}\n            }}\n        }})()",
         missing_column = error.replace(
             "{message}",
             "Row mapper requires column `\\(nexaField)` exactly once."
@@ -3831,8 +3824,11 @@ mod tests {
                 .contains("case .blob(let nexaPayload): return nexaPayload.base64EncodedString()")
         );
         assert!(generated_swift.contains("nexaIndexes.reserveCapacity(nexaExpectedFields.count)"));
+        assert!(
+            generated_swift.contains("let nexaRowMetadata: (fields: [String]?, error: String)")
+        );
         assert!(generated_swift.contains("columnNames.firstIndex(of: nexaField)"));
-        assert!(generated_swift.contains("for (nexaField, nexaIndex) in nexaIndexes"));
+        assert!(generated_swift.contains("for (nexaField, nexaIndex) in nexaColumnIndexes"));
         assert!(generated_swift.contains("try row.value(Int32(nexaIndex))"));
         assert!(generated_swift.contains("Row mapper requires column"));
         assert!(!generated_swift.contains("hot-reload SQL row"));
@@ -3865,7 +3861,11 @@ mod tests {
             swift
                 .contains("case .bytes(let nexaPayload): return nexaPayload.base64EncodedString()")
         );
-        assert!(swift.contains("ReadFailure.malformedRow(details:"));
+        assert!(swift.contains("{ (columnNames, rowFailure) throws(Failure) in"));
+        assert!(swift.contains("throw rowFailure(\""));
+        assert!(swift.contains("throws(Failure) -> NexaDevDynamicRow"));
+        assert!(swift.contains("let nexaColumnIndexes = nexaIndexes"));
+        assert!(swift.contains("try row.value(Int32(nexaIndex))"));
         assert!(!swift.contains("SQLite"));
         assert!(!swift.contains("queryFailed"));
 

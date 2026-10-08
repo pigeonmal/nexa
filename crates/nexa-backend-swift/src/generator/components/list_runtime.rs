@@ -809,9 +809,17 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
     func makeUIView(context: Context) -> UICollectionView {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
-        layout.estimatedItemSize = UICollectionViewFlowLayout.automaticSize
         if let itemExtent {
             layout.itemSize = CGSize(width: itemExtent, height: itemExtent)
+        } else {
+            let estimatedSize = UIHostingController(
+                rootView: rowContent(0).fixedSize(horizontal: true, vertical: false)
+            )
+            .sizeThatFits(in: CGSize(width: 10_000, height: 10_000))
+            layout.estimatedItemSize = CGSize(
+                width: max(1, estimatedSize.width),
+                height: max(1, estimatedSize.height)
+            )
         }
         layout.minimumLineSpacing = 0
         layout.minimumInteritemSpacing = 0
@@ -834,6 +842,23 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         collectionView.reloadData()
         context.coordinator.applyScrollPosition(to: collectionView)
         return collectionView
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView: UICollectionView,
+        context: Context
+    ) -> CGSize? {
+        guard rowCount > 0 else {
+            return CGSize(width: proposal.width ?? uiView.bounds.width, height: 0)
+        }
+
+        let estimatedHeight = itemExtent
+            ?? (uiView.collectionViewLayout as? UICollectionViewFlowLayout)?.estimatedItemSize.height
+            ?? 0
+        let layoutHeight = uiView.collectionViewLayout.collectionViewContentSize.height
+        let width = proposal.width ?? max(uiView.bounds.width, 320)
+        return CGSize(width: width, height: max(estimatedHeight, layoutHeight))
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {

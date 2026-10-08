@@ -96,55 +96,85 @@ fn render_button_modifiers(
     glass: bool,
     out: &mut SourceWriter,
 ) {
+    let bordered = matches!(style, Some(nexa_ir::ButtonStyle::Bordered));
     let min_height = if matches!(size, Some(nexa_ir::ButtonSize::Large)) {
         nexa_codegen::design_system::BUTTON_LARGE_MIN_HEIGHT
     } else {
         nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET
     };
-    if let Some(style) = style {
-        match style {
-            nexa_ir::ButtonStyle::BorderedProminent => {
-                out.push_str(".buttonStyle(.borderedProminent)")
+    if bordered {
+        let tint_expression = tint.map_or_else(
+            || nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR.to_owned(),
+            crate::generator::colors::expression_for_color,
+        );
+        let shape_kind = match shape {
+            Some(nexa_ir::ButtonShape::Circle) => ".circle".to_owned(),
+            Some(nexa_ir::ButtonShape::Rounded(radius)) => {
+                format!(".roundedRectangle({radius})")
             }
-            nexa_ir::ButtonStyle::Bordered => out.push_str(".buttonStyle(.bordered)"),
-            nexa_ir::ButtonStyle::Borderless => out.push_str(".buttonStyle(.borderless)"),
-            nexa_ir::ButtonStyle::Plain => out.push_str(".buttonStyle(.plain)"),
-        }
-    } else {
-        // Android's default Button is a filled Material button. Make Swift's
-        // implicit style explicit so an omitted style has the same meaning.
-        out.push_str(".buttonStyle(.borderedProminent)");
-    }
-    out.push_str(&format!(
-        ".frame(minWidth: {}, minHeight: {})",
-        nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-        min_height,
-    ));
-    if let Some(size) = size {
-        match size {
-            nexa_ir::ButtonSize::Small => out.push_str(".controlSize(.small)"),
-            nexa_ir::ButtonSize::Regular => out.push_str(".controlSize(.regular)"),
-            nexa_ir::ButtonSize::Large => out.push_str(".controlSize(.large)"),
-        }
-    }
-    if let Some(shape) = shape {
-        match shape {
-            nexa_ir::ButtonShape::Capsule => out.push_str(".nexaButtonShape(.capsule)"),
-            nexa_ir::ButtonShape::Circle => out.push_str(".nexaButtonShape(.circle)"),
-            nexa_ir::ButtonShape::Rounded(r) => {
-                out.push_str(&format!(".nexaButtonShape(.roundedRectangle({}))", r))
-            }
-        }
-    }
-    if let Some(tint) = tint {
+            Some(nexa_ir::ButtonShape::Capsule) | None => ".capsule".to_owned(),
+        };
+        let (horizontal, vertical) = match size {
+            Some(nexa_ir::ButtonSize::Small) => (
+                nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING,
+                nexa_codegen::design_system::BUTTON_SMALL_VERTICAL_PADDING,
+            ),
+            Some(nexa_ir::ButtonSize::Large) => (
+                nexa_codegen::design_system::BUTTON_LARGE_HORIZONTAL_PADDING,
+                nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING,
+            ),
+            Some(nexa_ir::ButtonSize::Regular) | None => (8, 8),
+        };
         out.push_str(&format!(
-            ".tint({})",
-            crate::generator::colors::expression_for_color(tint)
+            ".buttonStyle(NexaBorderedButtonStyle(tint: {tint_expression}, shape: NexaButtonOutlineShape(kind: {shape_kind}), horizontalPadding: {horizontal}, verticalPadding: {vertical}, minWidth: {}, minHeight: {min_height}))",
+            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
         ));
     } else {
-        out.push_str(".tint(");
-        out.push_str(nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR);
-        out.push(')');
+        if let Some(style) = style {
+            match style {
+                nexa_ir::ButtonStyle::BorderedProminent => {
+                    out.push_str(".buttonStyle(.borderedProminent)")
+                }
+                nexa_ir::ButtonStyle::Bordered => out.push_str(".buttonStyle(.plain)"),
+                nexa_ir::ButtonStyle::Borderless => out.push_str(".buttonStyle(.borderless)"),
+                nexa_ir::ButtonStyle::Plain => out.push_str(".buttonStyle(.plain)"),
+            }
+        } else {
+            // Android's default Button is a filled Material button. Make Swift's
+            // implicit style explicit so an omitted style has the same meaning.
+            out.push_str(".buttonStyle(.borderedProminent)");
+        }
+        out.push_str(&format!(
+            ".frame(minWidth: {}, minHeight: {})",
+            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
+            min_height,
+        ));
+        if let Some(size) = size {
+            match size {
+                nexa_ir::ButtonSize::Small => out.push_str(".controlSize(.small)"),
+                nexa_ir::ButtonSize::Regular => out.push_str(".controlSize(.regular)"),
+                nexa_ir::ButtonSize::Large => out.push_str(".controlSize(.large)"),
+            }
+        }
+        if let Some(shape) = shape {
+            match shape {
+                nexa_ir::ButtonShape::Capsule => out.push_str(".nexaButtonShape(.capsule)"),
+                nexa_ir::ButtonShape::Circle => out.push_str(".nexaButtonShape(.circle)"),
+                nexa_ir::ButtonShape::Rounded(r) => {
+                    out.push_str(&format!(".nexaButtonShape(.roundedRectangle({}))", r));
+                }
+            }
+        }
+        if let Some(tint) = tint {
+            out.push_str(&format!(
+                ".tint({})",
+                crate::generator::colors::expression_for_color(tint)
+            ));
+        } else {
+            out.push_str(".tint(");
+            out.push_str(nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR);
+            out.push(')');
+        }
     }
     if glass {
         let shape_str = match shape {
@@ -1017,6 +1047,31 @@ mod tests {
         assert!(output.contains(
             ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).tint(Color(uiColor: .systemBlue))"
         ));
+    }
+
+    #[test]
+    fn bordered_button_uses_an_outline_and_shared_content_padding() {
+        let mut output = SourceWriter::new();
+        render_button(
+            &Expr::String("Tomorrow".to_owned()),
+            None,
+            None,
+            None,
+            None,
+            Some(nexa_ir::ButtonStyle::Bordered),
+            None,
+            Some(nexa_ir::ButtonShape::Capsule),
+            None,
+            false,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            ".buttonStyle(NexaBorderedButtonStyle(tint: Color(uiColor: .systemBlue), shape: NexaButtonOutlineShape(kind: .capsule), horizontalPadding: 8, verticalPadding: 8, minWidth: 64, minHeight: 48))"
+        ));
+        assert!(!output.contains(".buttonStyle(.bordered)"));
     }
 
     #[test]

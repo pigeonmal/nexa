@@ -250,6 +250,7 @@ pub(crate) fn render_button(
     shape: Option<nexa_ir::ButtonShape>,
     tint: Option<&nexa_ir::ColorExpression>,
     actions: &[Action],
+    full_width: bool,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -257,7 +258,13 @@ pub(crate) fn render_button(
     let icon_only_circle = icon.is_some()
         && matches!(shape, Some(nexa_ir::ButtonShape::Circle))
         && is_empty_button_label(label);
-    let modifier = if icon_only_circle {
+    let modifier = if full_width {
+        format!(
+            "Modifier.fillMaxWidth().defaultMinSize(minWidth = {}.dp, minHeight = {}.dp)",
+            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
+            min_height
+        )
+    } else if icon_only_circle {
         format!("Modifier.size({min_height}.dp)")
     } else {
         format!(
@@ -1404,6 +1411,7 @@ mod tests {
             Some(nexa_ir::ButtonShape::Capsule),
             None,
             &[],
+            false,
             0,
             &mut output,
         );
@@ -1438,6 +1446,7 @@ mod tests {
             None,
             None,
             &[],
+            false,
             0,
             &mut output,
         );
@@ -1467,6 +1476,7 @@ mod tests {
             Some(nexa_ir::ButtonShape::Circle),
             None,
             &[],
+            false,
             0,
             &mut output,
         );
