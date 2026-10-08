@@ -171,48 +171,7 @@ pub(crate) fn render_node(
                 out,
             );
         }
-        Node::TextInput {
-            state,
-            placeholder,
-            keyboard,
-            secure,
-            multiline,
-            autofill,
-            return_key,
-            autocorrect,
-            capitalization,
-            focused,
-            max_length,
-            font,
-            min_lines,
-            max_lines,
-            searchable,
-            actions,
-            on_change,
-            ..
-        } => input::render_text_input(
-            input::TextInputProps {
-                state,
-                placeholder,
-                keyboard: *keyboard,
-                secure: *secure,
-                multiline: *multiline,
-                autofill: *autofill,
-                return_key: *return_key,
-                autocorrect: *autocorrect,
-                capitalization: *capitalization,
-                focused: focused.as_deref(),
-                max_length: *max_length,
-                font: *font,
-                min_lines: *min_lines,
-                max_lines: *max_lines,
-                searchable: *searchable,
-                actions,
-                on_change: on_change.as_ref(),
-            },
-            depth,
-            out,
-        ),
+        Node::TextInput { .. } => render_text_input_node(node, false, depth, out),
         Node::Switch { state, label, .. } => controls::render_switch(state, label, depth, out),
         Node::Slider {
             state,
@@ -496,6 +455,71 @@ pub(crate) fn render_node(
             }
         }
     }
+}
+
+pub(crate) fn render_node_in_row(
+    node: &Node,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    if matches!(node, Node::TextInput { .. }) {
+        render_text_input_node(node, true, depth, out);
+    } else {
+        render_node(node, module, features, depth, out);
+    }
+}
+
+fn render_text_input_node(node: &Node, weight_in_row: bool, depth: usize, out: &mut SourceWriter) {
+    let Node::TextInput {
+        state,
+        placeholder,
+        keyboard,
+        secure,
+        multiline,
+        autofill,
+        return_key,
+        autocorrect,
+        capitalization,
+        focused,
+        max_length,
+        font,
+        min_lines,
+        max_lines,
+        searchable,
+        actions,
+        on_change,
+        ..
+    } = node
+    else {
+        return;
+    };
+
+    input::render_text_input(
+        input::TextInputProps {
+            state,
+            placeholder,
+            keyboard: *keyboard,
+            secure: *secure,
+            multiline: *multiline,
+            autofill: *autofill,
+            return_key: *return_key,
+            autocorrect: *autocorrect,
+            capitalization: *capitalization,
+            focused: focused.as_deref(),
+            max_length: *max_length,
+            font: *font,
+            min_lines: *min_lines,
+            max_lines: *max_lines,
+            searchable: *searchable,
+            weight_in_row,
+            actions,
+            on_change: on_change.as_ref(),
+        },
+        depth,
+        out,
+    );
 }
 
 pub(crate) fn render_children(

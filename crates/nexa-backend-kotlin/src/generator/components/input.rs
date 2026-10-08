@@ -26,6 +26,7 @@ pub(crate) struct TextInputProps<'a> {
     pub(crate) min_lines: Option<i32>,
     pub(crate) max_lines: Option<i32>,
     pub(crate) searchable: bool,
+    pub(crate) weight_in_row: bool,
     pub(crate) actions: &'a [Action],
     pub(crate) on_change: Option<&'a TextInputChange>,
 }
@@ -115,6 +116,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         min_lines,
         max_lines,
         searchable,
+        weight_in_row,
         actions,
         on_change,
     } = props;
@@ -163,9 +165,12 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             ),
         );
     }
-    if focused.is_some() || autofill.is_some() {
+    if weight_in_row || focused.is_some() || autofill.is_some() {
         indent(out, depth + 1);
         out.push_str("modifier = Modifier");
+        if weight_in_row {
+            out.push_str(".weight(1f)");
+        }
         if let Some(focused) = focused {
             out.push('\n');
             indent(out, depth + 2);
@@ -337,6 +342,7 @@ mod tests {
                 min_lines: None,
                 max_lines: None,
                 searchable: true,
+                weight_in_row: false,
                 actions: &[],
                 on_change: None,
             },

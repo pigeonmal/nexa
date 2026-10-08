@@ -262,7 +262,17 @@ pub(crate) fn render_layout(
         .iter()
         .filter(|child| !matches!(child, Node::Toolbar { .. }))
     {
-        render_node(child, scope.module, scope.features, depth + 1, out);
+        if matches!(kind, LayoutKind::Row) {
+            super::node_renderer::render_node_in_row(
+                child,
+                scope.module,
+                scope.features,
+                depth + 1,
+                out,
+            );
+        } else {
+            render_node(child, scope.module, scope.features, depth + 1, out);
+        }
         rendered_content += 1;
         if rendered_content < children.len() - usize::from(has_toolbars) {
             out.push('\n');
@@ -528,11 +538,87 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Expr, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle};
+    use nexa_ir::{
+        Expr, KeyboardType, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle,
+    };
 
     use crate::generator::features::Features;
 
     use super::{RenderScope, render_form_section, render_layout};
+
+    #[test]
+    fn row_text_input_takes_remaining_width_instead_of_clipping_trailing_controls() {
+        let module = Module {
+            app_name: "RowInputParity".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let input = Node::TextInput {
+            state: "newComment".to_owned(),
+            placeholder: "Add comment...".to_owned(),
+            comment: None,
+            keyboard: KeyboardType::Text,
+            secure: false,
+            multiline: false,
+            autofill: None,
+            return_key: None,
+            autocorrect: None,
+            capitalization: None,
+            focused: None,
+            max_length: None,
+            font: None,
+            min_lines: None,
+            max_lines: None,
+            searchable: false,
+            actions: Vec::new(),
+            on_change: None,
+        };
+        let children = [
+            input,
+            Node::Text {
+                value: Expr::String("Trailing action".to_owned()),
+                style: TextStyle::default(),
+            },
+        ];
+        let mut output = SourceWriter::new();
+
+        render_layout(
+            LayoutKind::Row,
+            0.0,
+            &ViewStyle::default(),
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("TextField("));
+        assert!(output.contains("modifier = Modifier.weight(1f)"));
+        assert!(output.contains("Text(\"Trailing action\""));
+    }
 
     #[test]
     fn column_toolbars_share_a_leading_and_trailing_action_row() {
