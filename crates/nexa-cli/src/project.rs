@@ -1653,13 +1653,13 @@ fn android_plan(
     {
         (
             "import android.content.res.Configuration\n",
-            "        dev.nexa.core.NexaRuntimeCore.bind(this)\n        dev.nexa.core.NexaRuntimeCore.applyConfiguredOrientation(this)\n",
+            "        dev.nexa.core.NexaRuntimeCore.applyConfiguredOrientation(this)\n",
             "\n    override fun onConfigurationChanged(newConfig: Configuration) {\n        super.onConfigurationChanged(newConfig)\n        dev.nexa.core.NexaRuntimeCore.applyConfiguredOrientation(this)\n    }\n",
         )
     } else if config.orientation == "portrait" {
         (
             "",
-            "        dev.nexa.core.NexaRuntimeCore.bind(this)\n        dev.nexa.core.NexaRuntimeCore.applyConfiguredOrientation(this)\n",
+            "        dev.nexa.core.NexaRuntimeCore.applyConfiguredOrientation(this)\n",
             "",
         )
     } else {
@@ -1769,7 +1769,7 @@ fn android_plan(
         .with_file(
             format!("{source_directory}/MainActivity.kt"),
             format!(
-                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.enableEdgeToEdge\nimport androidx.activity.compose.setContent\nimport androidx.compose.foundation.isSystemInDarkTheme\nimport androidx.compose.foundation.layout.Box\nimport androidx.compose.foundation.layout.fillMaxSize\n{activity_inset_imports}import androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.Surface\nimport androidx.compose.material3.darkColorScheme\nimport androidx.compose.material3.lightColorScheme\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.Modifier\n{splash_import}{cronet_import}{remote_notification_imports}{widget_refresh_imports}{orientation_imports}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n        enableEdgeToEdge()\n{orientation_apply}{remote_notification_dispatch}{background_schedule}{activity_content}    }}{orientation_callbacks}{remote_notification_new_intent}{widget_refresh_lifecycle}}}\n"
+                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.enableEdgeToEdge\nimport androidx.activity.compose.setContent\nimport androidx.compose.foundation.isSystemInDarkTheme\nimport androidx.compose.foundation.layout.Box\nimport androidx.compose.foundation.layout.fillMaxSize\n{activity_inset_imports}import androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.Surface\nimport androidx.compose.material3.darkColorScheme\nimport androidx.compose.material3.lightColorScheme\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.Modifier\n{splash_import}{cronet_import}{remote_notification_imports}{widget_refresh_imports}{orientation_imports}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n        enableEdgeToEdge()\n        dev.nexa.core.NexaRuntimeCore.bind(this)\n{orientation_apply}{remote_notification_dispatch}{background_schedule}{activity_content}    }}{orientation_callbacks}{remote_notification_new_intent}{widget_refresh_lifecycle}}}\n"
             ),
         )
         .with_file(

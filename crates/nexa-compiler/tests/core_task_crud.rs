@@ -306,6 +306,12 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("DatePicker("));
     assert!(generated_source.contains(".navigationBarTitleDisplayMode(.inline)"));
     assert!(generated_source.contains(".presentationDragIndicator(.visible)"));
+    assert!(
+        generated_source.contains("withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {")
+    );
+    assert!(generated_source.contains("ForEach(nexa_list_rows_"));
+    assert!(generated_source.contains("ForEach(nexa_section_rows_"));
+    assert!(generated_source.contains("NexaIdentifiedListRow(id: AnyHashable("));
     assert!(generated_source.contains("ToolbarItem(placement: .navigationBarLeading)"));
     assert!(generated_source.contains("ToolbarItem(placement: .navigationBarTrailing)"));
     assert!(generated_source.contains("Picker("));
@@ -329,6 +335,7 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("todo-auto-reminder-"));
     assert!(generated_source.contains("600000"));
     assert!(generated_kotlin_source.contains("AlertDialog("));
+    assert!(generated_kotlin_source.contains("Modifier.fillMaxWidth().animateItem()"));
     assert!(generated_kotlin_source.contains("TextField("));
     assert!(generated_kotlin_source.contains("nexa_editingCommentText"));
     assert!(generated_kotlin_source.contains("nexa_commentPersistence.nexa_fn_saveComment("));

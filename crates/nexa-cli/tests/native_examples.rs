@@ -51,6 +51,32 @@ fn generate_example(project: &TestProject, example: &str, target: &str) -> PathB
     output
 }
 
+#[test]
+fn generated_android_activity_binds_runtime_before_compose_starts() {
+    let project = TestProject::new("nexa-android-runtime-bind-order");
+    let entry = project.join("App.nx");
+    fs::write(&entry, "app RuntimeBindOrder { body { Text(\"Hello\") } }")
+        .expect("write Android runtime binding fixture");
+    let output = project.join("android");
+
+    nexa_cli::generate_project(&entry, "android", &output, "RuntimeBindOrder")
+        .expect("generate Android runtime binding fixture");
+
+    let activity_path =
+        output.join("android/app/src/main/java/com/nexa/runtimebindorder/MainActivity.kt");
+    let activity = fs::read_to_string(activity_path).expect("read generated Android activity");
+    let runtime_bind = activity
+        .find("NexaRuntimeCore.bind(this)")
+        .expect("Android host should bind runtime before Compose starts");
+    let set_content = activity
+        .find("setContent {")
+        .expect("Android host should create Compose content");
+    assert!(
+        runtime_bind < set_content,
+        "runtime lifecycle callbacks must be registered before the Activity enters STARTED"
+    );
+}
+
 fn build_android_debug_if_available(android_project: &Path, host: &str) {
     if !Toolchain::should_run_native_builds() {
         return;

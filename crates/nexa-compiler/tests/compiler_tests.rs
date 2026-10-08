@@ -1808,7 +1808,7 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
         } if name == "progress"
     ));
 
-    let invalid = compile(
+    let integer = compile(
         r#"app InvalidAnimation {
             state count: Int32 = 0
             body {
@@ -1818,8 +1818,50 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
             }
         }"#,
     )
-    .expect_err("integer state cannot bind to the Float presentation animator");
-    assert!(invalid.to_string().contains("Float32 or Float64"));
+    .expect_err("integer state animation has no equivalent Compose animation mapping");
+    assert!(
+        integer
+            .to_string()
+            .contains("mutable Float32, Float64, or Array state")
+    );
+
+    let collection = compile(
+        r#"app AnimatedCollection {
+            state tasks: Array<Int32> = []
+            body {
+                Button("Add") {
+                    withAnimation(Spring(response: 0.35, damping: 0.8)) { tasks = [1] }
+                }
+            }
+        }"#,
+    )
+    .expect("compound state assignment should support native collection transitions");
+    let Node::Button { actions, .. } = &collection.body[0] else {
+        panic!("expected collection animation button");
+    };
+    let [
+        Action::WithAnimation {
+            animated_states,
+            actions: inner,
+            ..
+        },
+    ] = actions.as_slice()
+    else {
+        panic!("expected the array assignment to stay inside withAnimation");
+    };
+    let updates_task_array = matches!(
+        inner.as_slice(),
+        [Action::Assign { name, .. }] if name == "tasks"
+    ) || matches!(
+        inner.as_slice(),
+        [Action::CollectionMutation {
+            name,
+            operation: nexa_ir::CollectionMutation::Replace,
+            ..
+        }] if name == "tasks"
+    );
+    assert!(animated_states.is_empty());
+    assert!(updates_task_array);
 
     let unobserved = compile(
         r#"app UnobservedAnimation {
@@ -1853,7 +1895,11 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
         }"#,
     )
     .expect_err("empty animation blocks should be rejected");
-    assert!(empty.to_string().contains("must contain at least one"));
+    assert!(
+        empty
+            .to_string()
+            .contains("must contain at least one mutable state assignment")
+    );
 
     let side_effect = compile(
         r#"app AnimationSideEffect {
@@ -1872,7 +1918,7 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
     assert!(
         side_effect
             .to_string()
-            .contains("only supports floating-point state assignments"),
+            .contains("only supports mutable Float32, Float64, or Array state assignments"),
         "unexpected diagnostic: {side_effect}"
     );
 }

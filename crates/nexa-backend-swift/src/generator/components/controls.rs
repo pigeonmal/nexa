@@ -432,7 +432,12 @@ pub(crate) fn render_picker(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let PickerOptions { icon, label, tint, comment } = options;
+    let PickerOptions {
+        icon,
+        label,
+        tint,
+        comment,
+    } = options;
     if let Some(label) = label {
         let selected = state_name(state);
         out.line_at(depth, format_args!("Picker(selection: ${selected}) {{"));
@@ -476,7 +481,10 @@ pub(crate) fn render_picker(
         return;
     }
     if let Some(icon) = icon {
-        let tint = tint.map_or_else(|| "nil".to_owned(), crate::generator::colors::expression_for_color);
+        let tint = tint.map_or_else(
+            || "nil".to_owned(),
+            crate::generator::colors::expression_for_color,
+        );
         out.line_at(
             depth,
             format_args!(
@@ -906,13 +914,9 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
             }
             Action::WithAnimation {
                 animation,
-                animated_states,
+                animated_states: _,
                 actions,
             } => {
-                if animated_states.is_empty() {
-                    render_actions(actions, depth, out);
-                    continue;
-                }
                 indent(out, depth);
                 out.push_str("withAnimation(");
                 out.push_str(&swift_animation(*animation));
@@ -1149,8 +1153,8 @@ mod tests {
     };
 
     use super::{
-        render_actions, render_button, render_date_picker, render_picker, render_progress_bar,
-        render_progress_ring, render_slider, PickerOptions,
+        PickerOptions, render_actions, render_button, render_date_picker, render_picker,
+        render_progress_bar, render_progress_ring, render_slider,
     };
 
     #[test]

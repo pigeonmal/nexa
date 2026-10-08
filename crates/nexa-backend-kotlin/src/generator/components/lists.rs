@@ -31,6 +31,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.lazy.LazyColumn",
     );
     imports.add(
+        features.uses_linear_list,
+        "androidx.compose.foundation.layout.Box",
+    );
+    imports.add(
         features.uses_linear_list || features.uses_grid_list,
         "androidx.compose.foundation.layout.fillMaxWidth",
     );
@@ -217,6 +221,7 @@ struct FlatPieces<'a> {
 struct FlatRowContent<'a> {
     sizing: ListRowSizing,
     axis: ListAxis,
+    animate_item: bool,
     children: &'a [Node],
     swipe_actions: Option<&'a [Node]>,
     on_move: Option<&'a FastListMove>,
@@ -472,6 +477,7 @@ pub(crate) fn render_virtualized_list(
         FlatRowContent {
             sizing: row_sizing,
             axis: pieces.axis,
+            animate_item: pieces.key.is_some() && pieces.axis == ListAxis::Vertical,
             children: pieces.children,
             swipe_actions: pieces.swipe_actions,
             on_move: pieces.on_move,
@@ -635,6 +641,7 @@ fn render_sectioned_list(
     indent(out, list_depth + 3);
     out.push_str("count = sectionItems.size,\n");
     indent(out, list_depth + 3);
+    let has_stable_key = key.is_some();
     let key = key
         .map(|key| {
             render_sectioned_key(
@@ -673,6 +680,7 @@ fn render_sectioned_list(
                 .map(ListRowSizing::Fixed)
                 .unwrap_or(ListRowSizing::Content),
             axis: ListAxis::Vertical,
+            animate_item: has_stable_key,
             children,
             swipe_actions,
             on_move: None,
@@ -1269,6 +1277,26 @@ fn render_row_content_with_actions(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    if row.animate_item {
+        out.line_at(
+            depth,
+            format_args!("Box(modifier = Modifier.fillMaxWidth().animateItem()) {{"),
+        );
+        render_row_content_with_actions(
+            FlatRowContent {
+                animate_item: false,
+                ..row
+            },
+            module,
+            features,
+            depth + 1,
+            out,
+        );
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+        return;
+    }
     let Some(actions) = row.swipe_actions else {
         render_reorderable_row(row, module, features, depth, out);
         return;

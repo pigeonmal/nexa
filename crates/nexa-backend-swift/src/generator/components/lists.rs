@@ -28,7 +28,7 @@ struct OpenListConfig<'a> {
     axis: ListAxis,
     native: bool,
     row_count: String,
-    key: String,
+    row_key: Option<String>,
     item_extent: Option<f32>,
     on_end_reached: Option<&'a [Action]>,
     on_scroll: Option<&'a [Action]>,
@@ -76,22 +76,18 @@ pub(crate) fn render_virtualized_list(
             return;
         }
         ListPlan::Count { count, common } => {
-            let key = common
-                .key
-                .as_ref()
-                .map(|key| {
-                    format!(
-                        ", rowKey: {{ listPosition in AnyHashable({}) }}",
-                        render_key(key, &common.index, None, None, "listPosition")
-                    )
-                })
-                .unwrap_or_default();
+            let row_key = common.key.as_ref().map(|key| {
+                format!(
+                    "AnyHashable({})",
+                    render_key(key, &common.index, None, None, "listPosition")
+                )
+            });
             open_list(
                 OpenListConfig {
                     axis: common.axis,
                     native: common.native,
                     row_count: format!("max(0, Int({}))", expression(count)),
-                    key,
+                    row_key,
                     item_extent: common.item_extent,
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
@@ -130,28 +126,24 @@ pub(crate) fn render_virtualized_list(
                     swift_type(element_type)
                 ),
             );
-            let key = common
-                .key
-                .as_ref()
-                .map(|key| {
-                    format!(
-                        ", rowKey: {{ listPosition in AnyHashable({}) }}",
-                        render_key(
-                            key,
-                            &common.index,
-                            Some(item),
-                            Some(&collection),
-                            "listPosition"
-                        )
+            let row_key = common.key.as_ref().map(|key| {
+                format!(
+                    "AnyHashable({})",
+                    render_key(
+                        key,
+                        &common.index,
+                        Some(item),
+                        Some(&collection),
+                        "listPosition"
                     )
-                })
-                .unwrap_or_default();
+                )
+            });
             open_list(
                 OpenListConfig {
                     axis: common.axis,
                     native: common.native,
                     row_count: format!("{collection}.count"),
-                    key,
+                    row_key,
                     item_extent: common.item_extent,
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
@@ -283,6 +275,17 @@ fn render_sectioned_list(
         ),
     );
     if native {
+        let item_identity = key.map(|key| {
+            render_sectioned_key(
+                key,
+                section,
+                index,
+                item,
+                &collection,
+                "sectionPosition",
+                "itemPosition",
+            )
+        });
         indent(out, depth);
         out.push_str("List {\n");
         out.line_at(
@@ -297,14 +300,43 @@ fn render_sectioned_list(
                 swift_type(element_type)
             ),
         );
+        let identified_items = item_identity.map(|identity| {
+            let rows = format!("nexa_section_rows_{}", out.next_id());
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "let {rows} = {}.indices.map {{ itemPosition in",
+                    state_name("sectionItems")
+                ),
+            );
+            out.line_at(
+                depth + 3,
+                format_args!(
+                    "NexaIdentifiedListRow(id: AnyHashable({identity}), position: itemPosition)"
+                ),
+            );
+            out.line_at(depth + 2, format_args!("}}"));
+            rows
+        });
         out.line_at(depth + 2, format_args!("Section {{"));
-        out.line_at(
-            depth + 3,
-            format_args!(
-                "ForEach({}.indices, id: \\.self) {{ itemPosition in",
-                state_name("sectionItems")
-            ),
-        );
+        if let Some(rows) = identified_items {
+            out.line_at(
+                depth + 3,
+                format_args!("ForEach({rows}) {{ nexaSectionRow in"),
+            );
+            out.line_at(
+                depth + 4,
+                format_args!("let itemPosition = nexaSectionRow.position"),
+            );
+        } else {
+            out.line_at(
+                depth + 3,
+                format_args!(
+                    "ForEach({}.indices, id: \\.self) {{ itemPosition in",
+                    state_name("sectionItems")
+                ),
+            );
+        }
         out.line_at(
             depth + 4,
             format_args!(
@@ -481,12 +513,15 @@ fn render_sectioned_list(
 fn list_constructor(
     axis: ListAxis,
     row_count: String,
-    key: &str,
+    row_key: Option<&str>,
     item_extent: Option<f32>,
     _has_sticky_header: bool,
     reverse_layout: bool,
     page_snap: bool,
 ) -> String {
+    let key = row_key.map_or_else(String::new, |key| {
+        format!(", rowKey: {{ listPosition in {key} }}")
+    });
     let extent = item_extent
         .map(format_float)
         .unwrap_or_else(|| "nil".to_owned());
@@ -523,7 +558,7 @@ fn open_list(
         axis,
         native,
         row_count,
-        key,
+        row_key,
         item_extent,
         on_end_reached,
         on_scroll,
@@ -534,11 +569,32 @@ fn open_list(
         refresh,
     } = config;
     if native {
+        let identified_rows = row_key.map(|identity| {
+            let rows = format!("nexa_list_rows_{}", out.next_id());
+            out.line_at(
+                depth,
+                format_args!("let {rows} = (0..<({row_count})).map {{ listPosition in"),
+            );
+            out.line_at(
+                depth + 1,
+                format_args!("NexaIdentifiedListRow(id: {identity}, position: listPosition)"),
+            );
+            out.line_at(depth, format_args!("}}"));
+            rows
+        });
         out.line_at(depth, format_args!("List {{"));
-        out.line_at(
-            depth + 1,
-            format_args!("ForEach(0..<({row_count}), id: \\.self) {{ (listPosition: Int) in"),
-        );
+        if let Some(rows) = identified_rows {
+            out.line_at(depth + 1, format_args!("ForEach({rows}) {{ nexaListRow in"));
+            out.line_at(
+                depth + 2,
+                format_args!("let listPosition = nexaListRow.position"),
+            );
+        } else {
+            out.line_at(
+                depth + 1,
+                format_args!("ForEach(0..<({row_count}), id: \\.self) {{ (listPosition: Int) in"),
+            );
+        }
         return;
     }
     if on_end_reached.is_some()
@@ -552,7 +608,7 @@ fn open_list(
         let mut constructor = list_constructor(
             axis,
             row_count,
-            &key,
+            row_key.as_deref(),
             item_extent,
             sticky_header.is_some(),
             reverse_layout,
@@ -608,7 +664,7 @@ fn open_list(
         out.push_str(&list_constructor(
             axis,
             row_count,
-            &key,
+            row_key.as_deref(),
             item_extent,
             sticky_header.is_some(),
             reverse_layout,

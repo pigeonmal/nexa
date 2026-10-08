@@ -4119,7 +4119,14 @@ fn lower_actions_with_disposal_state(
                     native_aliases,
                     registries,
                 )?;
-                let animated_states = collect_animation_targets(&actions, symbols, span)?;
+                let (animated_states, has_state_assignment) =
+                    collect_animation_targets(&actions, symbols, span)?;
+                if !has_state_assignment {
+                    return Err(CompileError::new(
+                        span,
+                        "`withAnimation` must contain at least one mutable state assignment",
+                    ));
+                }
                 lowered.push(Action::WithAnimation {
                     animation,
                     animated_states,
@@ -4473,13 +4480,14 @@ fn collect_animation_targets(
     actions: &[Action],
     symbols: &HashMap<String, (Type, bool)>,
     span: Span,
-) -> Result<Vec<String>, CompileError> {
+) -> Result<(Vec<String>, bool), CompileError> {
     fn collect(
         actions: &[Action],
         symbols: &HashMap<String, (Type, bool)>,
         span: Span,
         targets: &mut Vec<String>,
         seen: &mut HashSet<String>,
+        has_state_assignment: &mut bool,
     ) -> Result<(), CompileError> {
         for action in actions {
             match action {
@@ -4490,21 +4498,22 @@ fn collect_animation_targets(
                             format!("unknown state `{name}` in `withAnimation`"),
                         ));
                     };
-                    if !mutable
-                        || !matches!(
-                            ty,
-                            Type::Numeric(NumericType::Float32 | NumericType::Float64)
-                        )
-                    {
+                    let is_float = matches!(
+                        ty,
+                        Type::Numeric(NumericType::Float32 | NumericType::Float64)
+                    );
+                    let is_array = matches!(ty, Type::Array(_));
+                    if !mutable || (!is_float && !is_array) {
                         return Err(CompileError::new(
                             span,
                             format!(
-                                "`withAnimation` currently supports assignments to mutable Float32 or Float64 state; `{name}` has type `{}`",
+                                "`withAnimation` supports mutable Float32, Float64, or Array state; `{name}` has type `{}`",
                                 type_name(ty)
                             ),
                         ));
                     }
-                    if seen.insert(name.clone()) {
+                    *has_state_assignment = true;
+                    if is_float && seen.insert(name.clone()) {
                         targets.push(name.clone());
                     }
                 }
@@ -4513,29 +4522,59 @@ fn collect_animation_targets(
                     else_branch,
                     ..
                 } => {
-                    collect(then_branch, symbols, span, targets, seen)?;
+                    collect(
+                        then_branch,
+                        symbols,
+                        span,
+                        targets,
+                        seen,
+                        has_state_assignment,
+                    )?;
                     if let Some(else_branch) = else_branch {
-                        collect(else_branch, symbols, span, targets, seen)?;
+                        collect(
+                            else_branch,
+                            symbols,
+                            span,
+                            targets,
+                            seen,
+                            has_state_assignment,
+                        )?;
                     }
                 }
                 Action::For { body, .. }
                 | Action::ForMap { body, .. }
-                | Action::While { body, .. } => collect(body, symbols, span, targets, seen)?,
+                | Action::While { body, .. } => {
+                    collect(body, symbols, span, targets, seen, has_state_assignment)?
+                }
                 Action::TryCatch {
                     body,
                     error_catches,
                     catch_body,
                 } => {
-                    collect(body, symbols, span, targets, seen)?;
+                    collect(body, symbols, span, targets, seen, has_state_assignment)?;
                     for arm in error_catches {
-                        collect(&arm.body, symbols, span, targets, seen)?;
+                        collect(
+                            &arm.body,
+                            symbols,
+                            span,
+                            targets,
+                            seen,
+                            has_state_assignment,
+                        )?;
                     }
                     if let Some(catch_body) = catch_body {
-                        collect(catch_body, symbols, span, targets, seen)?;
+                        collect(
+                            catch_body,
+                            symbols,
+                            span,
+                            targets,
+                            seen,
+                            has_state_assignment,
+                        )?;
                     }
                 }
                 Action::WithAnimation { actions, .. } => {
-                    collect(actions, symbols, span, targets, seen)?;
+                    collect(actions, symbols, span, targets, seen, has_state_assignment)?
                 }
                 Action::TaskLaunch { .. }
                 | Action::TaskCancel { .. }
@@ -4543,14 +4582,26 @@ fn collect_animation_targets(
                 | Action::NetworkStatusSubscribe { .. } => {
                     return Err(CompileError::new(
                         span,
-                        "`withAnimation` only supports floating-point state assignments and control flow around them",
+                        "`withAnimation` only supports mutable Float32, Float64, or Array state assignments and control flow around them",
                     ));
                 }
-                Action::CollectionMutation { .. } => {
-                    return Err(CompileError::new(
-                        span,
-                        "`withAnimation` supports floating-point state assignments, not collection mutations",
-                    ));
+                Action::CollectionMutation { name, .. } => {
+                    let Some((ty, mutable)) = symbols.get(name) else {
+                        return Err(CompileError::new(
+                            span,
+                            format!("unknown state `{name}` in `withAnimation`"),
+                        ));
+                    };
+                    if !mutable || !matches!(ty, Type::Array(_)) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(
+                                "`withAnimation` only supports mutations of mutable Array state; `{name}` has type `{}`",
+                                type_name(ty)
+                            ),
+                        ));
+                    }
+                    *has_state_assignment = true;
                 }
                 Action::Expression(_)
                 | Action::Let { .. }
@@ -4558,7 +4609,7 @@ fn collect_animation_targets(
                 | Action::NativePropertyAssign { .. } => {
                     return Err(CompileError::new(
                         span,
-                        "`withAnimation` only supports floating-point state assignments and control flow around them",
+                        "`withAnimation` only supports mutable Float32, Float64, or Array state assignments and control flow around them",
                     ));
                 }
                 Action::Break | Action::Continue => {}
@@ -4568,14 +4619,16 @@ fn collect_animation_targets(
     }
 
     let mut targets = Vec::new();
-    collect(actions, symbols, span, &mut targets, &mut HashSet::new())?;
-    if targets.is_empty() {
-        return Err(CompileError::new(
-            span,
-            "`withAnimation` must contain at least one mutable Float32 or Float64 state assignment",
-        ));
-    }
-    Ok(targets)
+    let mut has_state_assignment = false;
+    collect(
+        actions,
+        symbols,
+        span,
+        &mut targets,
+        &mut HashSet::new(),
+        &mut has_state_assignment,
+    )?;
+    Ok((targets, has_state_assignment))
 }
 
 pub(super) fn class_has_dispose_method(ty: &Type, functions: &FunctionSignatures) -> bool {

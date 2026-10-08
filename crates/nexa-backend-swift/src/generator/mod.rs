@@ -628,6 +628,11 @@ fn generate_with_analysis_mode(
     }
 
     units.write("app", |out| {
+        if features.uses_fast_list {
+            out.push_str(
+                "private struct NexaIdentifiedListRow: Identifiable {\n    let id: AnyHashable\n    let position: Int\n}\n\n",
+            );
+        }
         out.push_str(&format!(
             "public struct {}: View {{\n",
             nexa_codegen::names::screen_name(&module.app_name)
