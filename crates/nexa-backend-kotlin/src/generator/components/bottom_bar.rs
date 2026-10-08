@@ -122,6 +122,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_adaptive_tabs,
         "androidx.compose.foundation.layout.padding",
     );
+    imports.add(
+        features.uses_adaptive_tabs && features.uses_form,
+        "androidx.compose.foundation.background",
+    );
     imports.add(features.uses_adaptive_tabs, "androidx.compose.ui.Modifier");
     imports.add(
         features.uses_adaptive_tabs,
@@ -278,9 +282,14 @@ pub(crate) fn render_app_bottom_bar(
         );
         let toolbars = tab_toolbars(&tab.children);
         if tab.navigation_title.is_some() || tab.search_state.is_some() || !toolbars.is_empty() {
+            let content_modifier = if tab_contains_form(&tab.children) {
+                "Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)"
+            } else {
+                "Modifier.fillMaxSize()"
+            };
             out.line_at(
                 content_depth + 3,
-                format_args!("Column(modifier = Modifier.fillMaxSize()) {{"),
+                format_args!("Column(modifier = {content_modifier}) {{"),
             );
             if tab.navigation_title.is_some() || !toolbars.is_empty() {
                 out.line_at(
@@ -386,6 +395,16 @@ pub(crate) fn render_app_bottom_bar(
     if tint.is_some() {
         out.line_at(depth, format_args!("}}"));
     }
+}
+
+fn tab_contains_form(children: &[Node]) -> bool {
+    children.iter().any(|child| match child {
+        Node::Form { .. } => true,
+        Node::Appearance { children, .. }
+        | Node::Layout { children, .. }
+        | Node::Toolbar { children, .. } => tab_contains_form(children),
+        _ => false,
+    })
 }
 
 fn tab_toolbars(children: &[Node]) -> Vec<(ToolbarPlacement, &[Node])> {
@@ -594,6 +613,43 @@ mod tests {
 
         assert!(output.contains(
             "style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)"
+        ));
+        assert!(output.contains("Column(modifier = Modifier.fillMaxSize()) {"));
+    }
+
+    #[test]
+    fn form_tab_extends_grouped_surface_behind_navigation_title() {
+        let tab = BottomBarTab {
+            index: 3,
+            label: "Settings".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: None,
+            navigation_title: Some("Settings".to_owned()),
+            large_title: true,
+            search_state: None,
+            search_prompt: None,
+            children: vec![Node::Form {
+                children: Vec::new(),
+            }],
+        };
+        let mut features = Features::default();
+        features.uses_form = true;
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            &[tab],
+            &empty_module(),
+            &features,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)) {"
         ));
     }
 

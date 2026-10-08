@@ -1912,7 +1912,12 @@ internal fun NexaDevNode(
                         if (title == null) {
                             RenderChildren(children, module, store, locals, scope)
                         } else {
-                            Column(Modifier.fillMaxSize()) {
+                            val contentModifier = if (nexaDevContainsForm(children)) {
+                                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)
+                            } else {
+                                Modifier.fillMaxSize()
+                            }
+                            Column(contentModifier) {
                                 val titleStyle = if (activeTab.optBoolean("large_title")) {
                                     MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)
                                 } else {
@@ -2103,6 +2108,17 @@ internal fun NexaDevNode(
             }
         }
     }
+}
+
+private fun nexaDevContainsForm(nodes: JSONArray): Boolean {
+    for (index in 0 until nodes.length()) {
+        val node = nodes.optJSONObject(index) ?: continue
+        val kind = node.keys().asSequence().firstOrNull() ?: continue
+        if (kind == "Form") return true
+        val children = node.optJSONObject(kind)?.optJSONArray("children") ?: continue
+        if (nexaDevContainsForm(children)) return true
+    }
+    return false
 }
 
 @Composable

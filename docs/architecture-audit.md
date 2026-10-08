@@ -23,6 +23,7 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v199` | Extends Android tab backgrounds through navigation titles when their content uses a grouped `Form` surface, in both AOT and DevRuntime. |
 | `build-v198` | Aligns Android sheet titles and conditional toolbars with SwiftUI, keeps the sheet surface visible behind the toolbar, and lets row text fields leave room for trailing controls. |
 | `build-v192` | Attaches Swift alerts to a live anchor and emits confirmation actions directly with native dialog styling. |
 | `build-v190` | Matches Android large navigation title weight and scales the ContentUnavailable empty-state icon, typography, and insets to iOS. |

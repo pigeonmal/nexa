@@ -1,7 +1,7 @@
 {
   "version": 1,
   "plugins": [
-    {"alias":"Browser","id":"dev.nexa.browser","source":"path:../../../plugins/browser","revision":null,"package":null,"contentHash":"b6ab9feaeac5710b"},
+    {"alias":"Browser","id":"dev.nexa.browser","source":"path:../../../plugins/browser","revision":null,"package":null,"contentHash":"7f25690b3006dca8"},
     {"alias":"DataExtractor","id":"dev.nexa.data-extractor","source":"path:../../../plugins/data-extractor","revision":null,"package":null,"contentHash":"5387df4c494716f3"},
     {"alias":"Mail","id":"dev.nexa.mail-composer","source":"path:../../../plugins/mail-composer","revision":null,"package":null,"contentHash":"bb11946faf98fe30"},
     {"alias":"MediaPicker","id":"dev.nexa.media-picker","source":"path:../../../plugins/media-picker","revision":null,"package":null,"contentHash":"ca5f3bb2468b9f97"},
