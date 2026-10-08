@@ -961,14 +961,6 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::FORM_ROW_MIN_HEIGHT.to_string(),
             ),
             (
-                "__NEXA_FORM_BUTTON_ROW_MIN_HEIGHT__",
-                design::FORM_BUTTON_ROW_MIN_HEIGHT.to_string(),
-            ),
-            (
-                "__NEXA_FORM_MULTILINE_ROW_MIN_HEIGHT__",
-                design::FORM_MULTILINE_ROW_MIN_HEIGHT.to_string(),
-            ),
-            (
                 "__NEXA_FORM_DIVIDER_START_INSET__",
                 design::FORM_DIVIDER_START_INSET.to_string(),
             ),
@@ -2496,6 +2488,9 @@ mod tests {
             );
         }
         assert!(swift.contains("Text(label).font(.system(size: 17))"));
+        assert!(swift.contains("private let nexaDevFormRowMinHeight: CGFloat = 56"));
+        assert!(swift.contains("minHeight: nexaDevFormRowMinHeight"));
+        assert!(swift.contains(".listRowInsets(EdgeInsets("));
         assert!(swift.contains("minWidth: CGFloat(64)"));
         assert!(
             swift.contains(
@@ -2509,6 +2504,10 @@ mod tests {
         assert!(swift.contains("Color(red: 0.556863, green: 0.556863, blue: 0.576471)"));
 
         assert!(kotlin.contains("private const val nexaDevDefaultBodyFontSize = 17"));
+        assert!(kotlin.contains("private const val nexaDevFormRowMinHeight = 56"));
+        assert!(kotlin.contains("heightIn(min = nexaDevFormRowMinHeight.dp)"));
+        assert!(!kotlin.contains("nexaDevFormButtonRowMinHeight"));
+        assert!(!kotlin.contains("nexaDevFormMultilineRowMinHeight"));
         assert!(kotlin.contains("private const val nexaDevDefaultMaterialIconSize = 24"));
         assert!(kotlin.contains(
             "modifier = Modifier.size(nexaDevDefaultMaterialIconSize.dp)"

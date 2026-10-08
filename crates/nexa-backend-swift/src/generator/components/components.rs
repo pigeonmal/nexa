@@ -43,7 +43,11 @@ pub(crate) fn render_node(
         Node::Form { children } => {
             out.line_at(depth, format_args!("Form {{"));
             for (index, child) in children.iter().enumerate() {
-                render_node(child, module, features, depth + 1, out);
+                if matches!(child, Node::FormSection { .. }) {
+                    render_node(child, module, features, depth + 1, out);
+                } else {
+                    layout::render_form_row(child, &scope, depth + 1, out);
+                }
                 if index + 1 < children.len() {
                     out.push('\n');
                 }

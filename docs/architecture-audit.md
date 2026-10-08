@@ -23,6 +23,7 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v217` | Gives SwiftUI and Compose Form rows one shared 56-point/dp minimum height and removes native iOS vertical row insets. |
 | `build-v216` | Sets Android control icons to 24dp and calibrates explicitly sized Material icons. |
 | `build-v215` | Calibrates Android Material icon sizing against SwiftUI SF Symbols in controls and explicit icons. |
 | `build-v214` | Aligns Android Material icon sizing with SwiftUI SF Symbols in controls and pickers. |

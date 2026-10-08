@@ -98,7 +98,7 @@ pub(crate) fn render_form_section(
 ) {
     out.line_at(depth, format_args!("Section {{"));
     for (index, child) in children.iter().enumerate() {
-        render_node(child, scope.module, scope.features, depth + 1, out);
+        render_form_row(child, scope, depth + 1, out);
         if index + 1 < children.len() {
             out.push('\n');
         }
@@ -119,6 +119,30 @@ pub(crate) fn render_form_section(
         ));
     }
     out.push('\n');
+}
+
+pub(crate) fn render_form_row(
+    node: &Node,
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    render_node(node, scope.module, scope.features, depth, out);
+    out.line_at(
+        depth,
+        format_args!(
+            ".frame(maxWidth: .infinity, minHeight: {}, alignment: .leading)",
+            nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT,
+        ),
+    );
+    out.line_at(
+        depth,
+        format_args!(
+            ".listRowInsets(EdgeInsets(top: 0, leading: {}, bottom: 0, trailing: {}))",
+            nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+            nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+        ),
+    );
 }
 
 fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle) {
@@ -280,7 +304,7 @@ fn append_modifier(out: &mut SourceWriter, depth: usize, modifier: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::render_layout;
+    use super::{render_form_section, render_layout};
     use crate::generator::{components::RenderScope, features::Features};
     use nexa_codegen::SourceWriter;
     use nexa_ir::{Expr, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle};
@@ -338,5 +362,72 @@ mod tests {
         assert!(generated.contains("VStack(spacing: 0) {"));
         assert!(generated.contains("ToolbarItem(placement: .navigationBarTrailing)"));
         assert!(!generated.contains("EmptyView()"));
+    }
+
+    #[test]
+    fn form_section_uses_the_shared_row_minimum_and_vertical_insets() {
+        let module = Module {
+            app_name: "FormParity".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let children = [
+            Node::Text {
+                value: Expr::String("Setting".to_owned()),
+                style: TextStyle::default(),
+            },
+            Node::Button {
+                label: Expr::String("Save settings".to_owned()),
+                icon: None,
+                loading: None,
+                disabled: None,
+                style: Some(nexa_ir::ButtonStyle::Plain),
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
+                actions: Vec::new(),
+            },
+        ];
+        let mut output = SourceWriter::new();
+
+        render_form_section(None, None, None, &children, &scope, 0, &mut output);
+
+        let generated = output.finish();
+        assert_eq!(
+            generated
+                .matches(".frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)")
+                .count(),
+            children.len()
+        );
+        assert_eq!(
+            generated
+                .matches(".listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))")
+                .count(),
+            children.len()
+        );
     }
 }

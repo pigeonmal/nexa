@@ -3,7 +3,7 @@ use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Node, ToolbarPlacement, View
 
 use crate::generator::{
     colors,
-    components::{render_children, render_node},
+    components::render_node,
     features::Features,
     utils::{indent, number, spaces},
 };
@@ -397,16 +397,7 @@ pub(crate) fn render_form_section(
     );
     out.line_at(depth + 2, format_args!("Column {{"));
     for (index, child) in children.iter().enumerate() {
-        out.line_at(
-            depth + 3,
-        format_args!(
-            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = {}.dp).padding(horizontal = {}.dp), contentAlignment = Alignment.CenterStart) {{",
-            form_row_min_height(child),
-            nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
-        ),
-        );
-        render_node(child, scope.module, scope.features, depth + 4, out);
-        out.line_at(depth + 3, format_args!("}}"));
+        render_form_row(child, scope, depth + 3, out);
         if index + 1 < children.len() {
             out.line_at(
                 depth + 3,
@@ -441,30 +432,17 @@ pub(crate) fn render_form_section(
     out.line_at(depth, format_args!("}}"));
 }
 
-fn form_row_min_height(child: &Node) -> u8 {
-    if matches!(child, Node::Button { .. }) {
-        return nexa_codegen::design_system::FORM_BUTTON_ROW_MIN_HEIGHT;
-    }
-    let label = match child {
-        Node::Picker {
-            label: Some(label), ..
-        }
-        | Node::Switch { label, .. } => Some(label),
-        _ => None,
-    };
-    if label.is_some_and(expr_has_line_break) {
-        nexa_codegen::design_system::FORM_MULTILINE_ROW_MIN_HEIGHT
-    } else {
-        nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT
-    }
-}
-
-fn expr_has_line_break(expression: &nexa_ir::Expr) -> bool {
-    match expression {
-        nexa_ir::Expr::String(value) => value.contains('\n') || value.contains('\r'),
-        nexa_ir::Expr::LocalizedText { value, .. } => expr_has_line_break(value),
-        _ => false,
-    }
+fn render_form_row(node: &Node, scope: &RenderScope<'_>, depth: usize, out: &mut SourceWriter) {
+    out.line_at(
+        depth,
+        format_args!(
+            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = {}.dp).padding(horizontal = {}.dp), contentAlignment = Alignment.CenterStart) {{",
+            nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT,
+            nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+        ),
+    );
+    render_node(node, scope.module, scope.features, depth + 1, out);
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_form(
@@ -479,7 +457,16 @@ pub(crate) fn render_form(
             "Column(modifier = Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant).verticalScroll(rememberScrollState())) {{"
         ),
     );
-    render_children(children, scope.module, scope.features, depth + 1, out);
+    for (index, child) in children.iter().enumerate() {
+        if matches!(child, Node::FormSection { .. }) {
+            render_node(child, scope.module, scope.features, depth + 1, out);
+        } else {
+            render_form_row(child, scope, depth + 1, out);
+        }
+        if index + 1 < children.len() {
+            out.push('\n');
+        }
+    }
     out.line_at(depth, format_args!("}}"));
 }
 
@@ -617,7 +604,7 @@ mod tests {
 
     use crate::generator::features::Features;
 
-    use super::{RenderScope, form_row_min_height, render_form_section, render_layout};
+    use super::{RenderScope, render_form_section, render_layout};
 
     #[test]
     fn row_text_input_takes_remaining_width_instead_of_clipping_trailing_controls() {
@@ -838,20 +825,20 @@ mod tests {
             "Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 20.dp)) {"
         ));
         assert!(output.contains(
-            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
+            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
         ));
         assert!(output.contains(
             "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp), thickness = 0.5.dp"
         ));
         assert_eq!(output.as_str().matches("HorizontalDivider(").count(), 3);
-        assert!(output.contains(
-            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
-        ));
         assert!(output.contains("Surface(modifier = Modifier.fillMaxWidth()"));
         assert!(output.contains("shape = RoundedCornerShape(24.dp)"));
-        assert!(output.contains(
-            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
-        ));
+        assert_eq!(
+            output.as_str().matches("heightIn(min = 56.dp)").count(),
+            children.len()
+        );
+        assert!(!output.contains("heightIn(min = 44.dp)"));
+        assert!(!output.contains("heightIn(min = 58.dp)"));
         assert!(output.contains(
             "color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)"
         ));
@@ -861,19 +848,5 @@ mod tests {
         assert!(output.contains(
             "fontSize = 13.sp, lineHeight = 13.sp * 1.2f, letterSpacing = 0.sp, color = MaterialTheme.colorScheme.onSurfaceVariant"
         ));
-        assert_eq!(
-            form_row_min_height(&Node::Picker {
-                items: Expr::Array(Vec::new()),
-                state: "choice".to_owned(),
-                icon: None,
-                label: Some(Expr::LocalizedText {
-                    key: "reminder-label".to_owned(),
-                    value: Box::new(Expr::String("Automatic\nReminders".to_owned())),
-                    comment: None,
-                }),
-                tint: None,
-            }),
-            nexa_codegen::design_system::FORM_MULTILINE_ROW_MIN_HEIGHT
-        );
     }
 }

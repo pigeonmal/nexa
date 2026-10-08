@@ -202,8 +202,6 @@ private const val nexaDevFormSectionTopPadding = __NEXA_FORM_SECTION_TOP_PADDING
 private const val nexaDevFormSectionBottomPadding = __NEXA_FORM_SECTION_BOTTOM_PADDING__
 private const val nexaDevFormRowHorizontalInset = __NEXA_FORM_ROW_HORIZONTAL_INSET__
 private const val nexaDevFormRowMinHeight = __NEXA_FORM_ROW_MIN_HEIGHT__
-private const val nexaDevFormButtonRowMinHeight = __NEXA_FORM_BUTTON_ROW_MIN_HEIGHT__
-private const val nexaDevFormMultilineRowMinHeight = __NEXA_FORM_MULTILINE_ROW_MIN_HEIGHT__
 private const val nexaDevFormDividerStartInset = __NEXA_FORM_DIVIDER_START_INSET__
 private const val nexaDevFormDividerEndInset = __NEXA_FORM_DIVIDER_END_INSET__
 private const val nexaDevFormFooterStartInset = __NEXA_FORM_FOOTER_START_INSET__
@@ -424,13 +422,24 @@ internal fun NexaDevNode(
                     .background(background)
                     .verticalScroll(rememberScrollState()),
             ) {
-                RenderColumnChildren(
-                    fields.optJSONArray("children") ?: JSONArray(),
-                    module,
-                    store,
-                    locals,
-                    scope,
-                )
+                val children = fields.optJSONArray("children") ?: JSONArray()
+                for (index in 0 until children.length()) {
+                    androidx.compose.runtime.key(index) {
+                        val child = nexaDevNodeObject(children.opt(index))
+                        if (child.has("FormSection")) {
+                            NexaDevNode(child, module, store, locals, scope)
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxWidth()
+                                    .heightIn(min = nexaDevFormRowMinHeight.dp)
+                                    .padding(horizontal = nexaDevFormRowHorizontalInset.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                NexaDevNode(child, module, store, locals, scope)
+                            }
+                        }
+                    }
+                }
             }
         }
         "FormSection" -> {
@@ -464,28 +473,9 @@ internal fun NexaDevNode(
                         for (index in 0 until children.length()) {
                             androidx.compose.runtime.key(index) {
                                 val rowNode = nexaDevNodeObject(children.opt(index))
-                                val rowKind = rowNode.keys().asSequence().firstOrNull()
-                                val rowFields = rowKind?.let(rowNode::optJSONObject)
-                                val labelValue = if (rowKind == "Picker" || rowKind == "Switch") {
-                                    rowFields?.opt("label")
-                                } else {
-                                    null
-                                }
-                                val rowLabel = if (labelValue == null || labelValue == JSONObject.NULL) {
-                                    null
-                                } else {
-                                    store.stringify(store.evaluatePresented(labelValue, locals, scope))
-                                }
-                                val rowMinHeight = if (rowKind == "Button") {
-                                    nexaDevFormButtonRowMinHeight
-                                } else if (rowLabel?.contains('\n') == true) {
-                                    nexaDevFormMultilineRowMinHeight
-                                } else {
-                                    nexaDevFormRowMinHeight
-                                }
                                 Box(
                                     modifier = Modifier.fillMaxWidth()
-                                        .heightIn(min = rowMinHeight.dp)
+                                        .heightIn(min = nexaDevFormRowMinHeight.dp)
                                         .padding(horizontal = nexaDevFormRowHorizontalInset.dp),
                                     contentAlignment = Alignment.CenterStart,
                                 ) {

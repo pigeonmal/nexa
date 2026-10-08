@@ -36,14 +36,13 @@ pub const BUTTON_SMALL_HORIZONTAL_PADDING: u8 = 12;
 pub const BUTTON_SMALL_VERTICAL_PADDING: u8 = 4;
 pub const BUTTON_LARGE_HORIZONTAL_PADDING: u8 = 20;
 pub const BUTTON_LARGE_VERTICAL_PADDING: u8 = 12;
-/// Grouped Form geometry matched to the native iOS settings-list defaults.
+/// Grouped Form geometry shared by the SwiftUI and Compose renderers.
 pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 16;
 pub const FORM_SECTION_TOP_PADDING: u8 = 8;
 pub const FORM_SECTION_BOTTOM_PADDING: u8 = 20;
 pub const FORM_ROW_HORIZONTAL_INSET: u8 = 16;
-pub const FORM_ROW_MIN_HEIGHT: u8 = 44;
-pub const FORM_BUTTON_ROW_MIN_HEIGHT: u8 = 58;
-pub const FORM_MULTILINE_ROW_MIN_HEIGHT: u8 = 56;
+/// Shared baseline row size; content and explicit padding may expand it.
+pub const FORM_ROW_MIN_HEIGHT: u8 = 56;
 pub const FORM_DIVIDER_START_INSET: u8 = 56;
 pub const FORM_DIVIDER_END_INSET: u8 = 16;
 pub const FORM_FOOTER_START_INSET: u8 = 16;

@@ -2,6 +2,9 @@ import Foundation
 import SwiftUI
 import UIKit
 
+private let nexaDevFormRowMinHeight: CGFloat = __NEXA_FORM_ROW_MIN_HEIGHT__
+private let nexaDevFormRowHorizontalInset: CGFloat = __NEXA_FORM_ROW_HORIZONTAL_INSET__
+
 @MainActor
 private final class NexaDevDragVelocityTracker {
     private var lastTranslation = CGSize.zero
@@ -606,6 +609,7 @@ struct NexaDevNodeList: View {
     var parameters: [String: Any] = [:]
     var stateScope: String = "app"
     var rendersFormRows = false
+    var appliesFormRowMetrics = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.nexaSharedNamespace) private var nexaSharedNamespace
     @Environment(\.nexaDevContentSlot) private var contentSlot
@@ -617,7 +621,19 @@ struct NexaDevNodeList: View {
             EmptyView()
         } else if rendersFormRows {
             ForEach(nodes.indices, id: \.self) { index in
-                renderNode(nodes[index], locals: locals, scope: stateScope)
+                if appliesFormRowMetrics,
+                   (nodes[index] as? [String: Any])?.keys.first != "FormSection" {
+                    renderNode(nodes[index], locals: locals, scope: stateScope)
+                        .frame(maxWidth: .infinity, minHeight: nexaDevFormRowMinHeight, alignment: .leading)
+                        .listRowInsets(EdgeInsets(
+                            top: 0,
+                            leading: nexaDevFormRowHorizontalInset,
+                            bottom: 0,
+                            trailing: nexaDevFormRowHorizontalInset
+                        ))
+                } else {
+                    renderNode(nodes[index], locals: locals, scope: stateScope)
+                }
             }
         } else if nodes.count == 1 {
             renderNode(nodes[0], locals: locals, scope: stateScope)
@@ -651,12 +667,12 @@ struct NexaDevNodeList: View {
         case "Form":
             let children = fields["children"] as? [Any] ?? []
             return AnyView(Form {
-                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true)
+                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true, appliesFormRowMetrics: true)
             })
         case "FormSection":
             let children = fields["children"] as? [Any] ?? []
             let section = Section {
-                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true)
+                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true, appliesFormRowMetrics: true)
             } header: {
                 if let rawTitle = fields["title"], !(rawTitle is NSNull) {
                     Text(store.stringify(store.evaluate(rawTitle, locals: locals, scope: scope)))
