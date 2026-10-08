@@ -1590,6 +1590,10 @@ mod tests {
         )));
         assert!(kotlin.contains("composable(route = \"nexa_screen_1\")"));
         assert!(kotlin.contains("nexa_appPlayer.play()"));
+        assert!(kotlin.contains(
+            "Row(modifier = Modifier.fillMaxWidth().clickable { navController.navigate(\"nexa_screen_1\") }, verticalAlignment = Alignment.CenterVertically)"
+        ));
+        assert!(kotlin.contains("Icons.Filled.ChevronRight"));
     }
 
     #[test]

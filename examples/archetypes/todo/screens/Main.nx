@@ -484,22 +484,20 @@ screen Main {
                                 Picker(items: TodoOptions.autoReminderOptions, selected: autoReminderChoice, icon: "notifications", label: "Automatic\nReminders")
                             }
                             Section(footer: "ToDoList v1.0.0 (1)") {
-                                if mail.available {
-                                    Button("Send Feedback", icon: "email", style: Plain) {
-                                        Task.launch(handle: mailTask, executor: TaskExecutor.Main) {
-                                            try {
-                                                await mail.present(
-                                                ["contact@randusoft.ro"],
-                                                "ToDoList Feedback",
-                                                Locale.localized("\n\n---\nApp: ToDoList v1.0.0 (1)\nDevice: \(mail.deviceInfo)")
-                                                )
-                                            } catch {
-                                                case Mail.MailComposerError.unavailable {
-                                                }
-                                                case Mail.MailComposerError.presentationUnavailable {
-                                                }
-                                                case Mail.MailComposerError.attachmentUnavailable {
-                                                }
+                                Button("Send Feedback", icon: "email", style: Plain) {
+                                    Task.launch(handle: mailTask, executor: TaskExecutor.Main) {
+                                        try {
+                                            await mail.present(
+                                            ["contact@randusoft.ro"],
+                                            "ToDoList Feedback",
+                                            Locale.localized("\n\n---\nApp: ToDoList v1.0.0 (1)\nDevice: \(mail.deviceInfo)")
+                                            )
+                                        } catch {
+                                            case Mail.MailComposerError.unavailable {
+                                            }
+                                            case Mail.MailComposerError.presentationUnavailable {
+                                            }
+                                            case Mail.MailComposerError.attachmentUnavailable {
                                             }
                                         }
                                     }

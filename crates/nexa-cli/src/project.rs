@@ -829,6 +829,14 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::DEFAULT_BODY_FONT_SIZE.to_string(),
             ),
             (
+                "__NEXA_DEFAULT_MATERIAL_ICON_SIZE__",
+                design::DEFAULT_MATERIAL_ICON_SIZE.to_string(),
+            ),
+            (
+                "__NEXA_MATERIAL_ICON_SIZE_SCALE__",
+                design::MATERIAL_ICON_SIZE_SCALE.to_string(),
+            ),
+            (
                 "__NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__",
                 design::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
             ),
@@ -931,6 +939,78 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
             (
                 "__NEXA_DARK_SURFACE_VARIANT_ARGB__",
                 format!("0x{:08X}", design::DARK_SURFACE_VARIANT_ARGB),
+            ),
+            (
+                "__NEXA_FORM_SECTION_HORIZONTAL_INSET__",
+                design::FORM_SECTION_HORIZONTAL_INSET.to_string(),
+            ),
+            (
+                "__NEXA_FORM_SECTION_TOP_PADDING__",
+                design::FORM_SECTION_TOP_PADDING.to_string(),
+            ),
+            (
+                "__NEXA_FORM_SECTION_BOTTOM_PADDING__",
+                design::FORM_SECTION_BOTTOM_PADDING.to_string(),
+            ),
+            (
+                "__NEXA_FORM_ROW_HORIZONTAL_INSET__",
+                design::FORM_ROW_HORIZONTAL_INSET.to_string(),
+            ),
+            (
+                "__NEXA_FORM_ROW_MIN_HEIGHT__",
+                design::FORM_ROW_MIN_HEIGHT.to_string(),
+            ),
+            (
+                "__NEXA_FORM_BUTTON_ROW_MIN_HEIGHT__",
+                design::FORM_BUTTON_ROW_MIN_HEIGHT.to_string(),
+            ),
+            (
+                "__NEXA_FORM_MULTILINE_ROW_MIN_HEIGHT__",
+                design::FORM_MULTILINE_ROW_MIN_HEIGHT.to_string(),
+            ),
+            (
+                "__NEXA_FORM_DIVIDER_START_INSET__",
+                design::FORM_DIVIDER_START_INSET.to_string(),
+            ),
+            (
+                "__NEXA_FORM_DIVIDER_END_INSET__",
+                design::FORM_DIVIDER_END_INSET.to_string(),
+            ),
+            (
+                "__NEXA_FORM_FOOTER_START_INSET__",
+                design::FORM_FOOTER_START_INSET.to_string(),
+            ),
+            (
+                "__NEXA_FORM_FOOTER_FONT_SIZE__",
+                design::FORM_FOOTER_FONT_SIZE.to_string(),
+            ),
+            (
+                "__NEXA_FORM_LARGE_TITLE_TOP_PADDING__",
+                design::FORM_LARGE_TITLE_TOP_PADDING.to_string(),
+            ),
+            (
+                "__NEXA_FORM_LARGE_TITLE_FONT_SIZE__",
+                design::FORM_LARGE_TITLE_FONT_SIZE.to_string(),
+            ),
+            (
+                "__NEXA_FORM_SWITCH_OFF_TRACK_ARGB__",
+                format!("0x{:08X}", design::FORM_SWITCH_OFF_TRACK_ARGB),
+            ),
+            (
+                "__NEXA_FORM_LIGHT_SECTION_ARGB__",
+                format!("0x{:08X}", design::FORM_LIGHT_SECTION_ARGB),
+            ),
+            (
+                "__NEXA_FORM_DARK_SECTION_ARGB__",
+                format!("0x{:08X}", design::FORM_DARK_SECTION_ARGB),
+            ),
+            (
+                "__NEXA_FORM_LIGHT_SEPARATOR_ARGB__",
+                format!("0x{:08X}", design::FORM_LIGHT_SEPARATOR_ARGB),
+            ),
+            (
+                "__NEXA_FORM_DARK_SEPARATOR_ARGB__",
+                format!("0x{:08X}", design::FORM_DARK_SEPARATOR_ARGB),
             ),
             (
                 "__NEXA_LIGHT_OUTLINE_ARGB__",
@@ -2429,11 +2509,23 @@ mod tests {
         assert!(swift.contains("Color(red: 0.556863, green: 0.556863, blue: 0.576471)"));
 
         assert!(kotlin.contains("private const val nexaDevDefaultBodyFontSize = 17"));
+        assert!(kotlin.contains("private const val nexaDevDefaultMaterialIconSize = 24"));
+        assert!(kotlin.contains(
+            "modifier = Modifier.size(nexaDevDefaultMaterialIconSize.dp)"
+        ));
+        assert!(kotlin.contains("private const val nexaDevMaterialIconSizeScale = 1.2"));
+        assert!(kotlin.contains(
+            "(fields.optDouble(\"size\", 24.0) * nexaDevMaterialIconSizeScale).dp"
+        ));
         assert!(kotlin.contains("private const val nexaDevDefaultLineHeightMultiplier = 1.2f"));
         assert!(kotlin.contains("private const val nexaDevButtonMinWidth = 64"));
         assert!(kotlin.contains("private const val nexaDevButtonMinTapTarget = 48"));
         assert!(kotlin.contains("private const val nexaDevButtonLargeMinHeight = 50"));
         assert!(kotlin.contains("private const val nexaDevButtonLargeHorizontalPadding = 20"));
+        assert!(kotlin.contains("Color(0xFF1C1C1E)"));
+        assert!(kotlin.contains("Color(0xFFFFFFFF)"));
+        assert!(kotlin.contains("Color(0xFF38383A)"));
+        assert!(kotlin.contains("Color(0x493C3C43)"));
         assert!(kotlin.contains("primary = Color(0xFF007AFF)"));
         assert!(kotlin.contains(
             "lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier"

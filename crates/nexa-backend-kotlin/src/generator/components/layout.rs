@@ -390,18 +390,20 @@ pub(crate) fn render_form_section(
     out.line_at(
         depth + 1,
         format_args!(
-            "Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface) {{"
+            "Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0x{:08X}) else Color(0x{:08X}), contentColor = MaterialTheme.colorScheme.onSurface) {{",
+            nexa_codegen::design_system::FORM_DARK_SECTION_ARGB,
+            nexa_codegen::design_system::FORM_LIGHT_SECTION_ARGB,
         ),
     );
     out.line_at(depth + 2, format_args!("Column {{"));
     for (index, child) in children.iter().enumerate() {
         out.line_at(
             depth + 3,
-            format_args!(
-                "Box(modifier = Modifier.fillMaxWidth().heightIn(min = {}.dp).padding(horizontal = {}.dp), contentAlignment = Alignment.CenterStart) {{",
-                nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT,
-                nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
-            ),
+        format_args!(
+            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = {}.dp).padding(horizontal = {}.dp), contentAlignment = Alignment.CenterStart) {{",
+            form_row_min_height(child),
+            nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+        ),
         );
         render_node(child, scope.module, scope.features, depth + 4, out);
         out.line_at(depth + 3, format_args!("}}"));
@@ -409,9 +411,11 @@ pub(crate) fn render_form_section(
             out.line_at(
                 depth + 3,
                 format_args!(
-                    "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = {}.dp, end = {}.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)",
+                    "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = {}.dp, end = {}.dp), thickness = 0.5.dp, color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0x{:08X}) else Color(0x{:08X}))",
                     nexa_codegen::design_system::FORM_DIVIDER_START_INSET,
                     nexa_codegen::design_system::FORM_DIVIDER_END_INSET,
+                    nexa_codegen::design_system::FORM_DARK_SEPARATOR_ARGB,
+                    nexa_codegen::design_system::FORM_LIGHT_SEPARATOR_ARGB,
                 ),
             );
         }
@@ -425,12 +429,42 @@ pub(crate) fn render_form_section(
         out.line_at(
             depth + 1,
             format_args!(
-                "Text({}, modifier = Modifier.padding(vertical = 8.dp), style = androidx.compose.material3.MaterialTheme.typography.bodySmall)",
-                crate::generator::engine::expressions::text_expression(footer)
+                "Text({}, modifier = Modifier.padding(start = {}.dp, top = 8.dp, bottom = 8.dp), fontSize = {}.sp, lineHeight = {}.sp * {}f, letterSpacing = 0.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)",
+                crate::generator::engine::expressions::text_expression(footer),
+                nexa_codegen::design_system::FORM_FOOTER_START_INSET,
+                nexa_codegen::design_system::FORM_FOOTER_FONT_SIZE,
+                nexa_codegen::design_system::FORM_FOOTER_FONT_SIZE,
+                nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER,
             ),
         );
     }
     out.line_at(depth, format_args!("}}"));
+}
+
+fn form_row_min_height(child: &Node) -> u8 {
+    if matches!(child, Node::Button { .. }) {
+        return nexa_codegen::design_system::FORM_BUTTON_ROW_MIN_HEIGHT;
+    }
+    let label = match child {
+        Node::Picker {
+            label: Some(label), ..
+        }
+        | Node::Switch { label, .. } => Some(label),
+        _ => None,
+    };
+    if label.is_some_and(expr_has_line_break) {
+        nexa_codegen::design_system::FORM_MULTILINE_ROW_MIN_HEIGHT
+    } else {
+        nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT
+    }
+}
+
+fn expr_has_line_break(expression: &nexa_ir::Expr) -> bool {
+    match expression {
+        nexa_ir::Expr::String(value) => value.contains('\n') || value.contains('\r'),
+        nexa_ir::Expr::LocalizedText { value, .. } => expr_has_line_break(value),
+        _ => false,
+    }
 }
 
 pub(crate) fn render_form(
@@ -577,12 +611,13 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
 mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{
-        Expr, KeyboardType, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle,
+        Expr, KeyboardType, LayoutKind, Module, Node, SystemIcon, TextStyle, ToolbarPlacement,
+        ViewStyle,
     };
 
     use crate::generator::features::Features;
 
-    use super::{RenderScope, render_form_section, render_layout};
+    use super::{RenderScope, form_row_min_height, render_form_section, render_layout};
 
     #[test]
     fn row_text_input_takes_remaining_width_instead_of_clipping_trailing_controls() {
@@ -766,6 +801,18 @@ mod tests {
             features: &features,
         };
         let children = [
+            Node::Button {
+                label: Expr::String("Send Feedback".to_owned()),
+                icon: None,
+                loading: None,
+                disabled: None,
+                style: Some(nexa_ir::ButtonStyle::Plain),
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
+                actions: Vec::new(),
+            },
             Node::Text {
                 value: Expr::String("First setting".to_owned()),
                 style: TextStyle::default(),
@@ -774,13 +821,21 @@ mod tests {
                 value: Expr::String("Second setting".to_owned()),
                 style: TextStyle::default(),
             },
+            Node::Picker {
+                items: Expr::Array(vec![Expr::String("10 minutes before".to_owned())]),
+                state: "reminderChoice".to_owned(),
+                icon: Some(SystemIcon::Shared("notifications".to_owned())),
+                label: Some(Expr::String("Automatic\nReminders".to_owned())),
+                tint: None,
+            },
         ];
         let mut output = SourceWriter::new();
+        let footer = Expr::String("ToDoList v1.0.0 (1)".to_owned());
 
-        render_form_section(None, None, &children, &scope, 0, &mut output);
+        render_form_section(None, Some(&footer), &children, &scope, 0, &mut output);
 
         assert!(output.contains(
-            "Column(modifier = Modifier.fillMaxWidth().padding(start = 24.dp, top = 8.dp, end = 24.dp, bottom = 24.dp)) {"
+            "Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 20.dp)) {"
         ));
         assert!(output.contains(
             "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
@@ -788,8 +843,37 @@ mod tests {
         assert!(output.contains(
             "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp), thickness = 0.5.dp"
         ));
-        assert_eq!(output.as_str().matches("HorizontalDivider(").count(), 1);
+        assert_eq!(output.as_str().matches("HorizontalDivider(").count(), 3);
+        assert!(output.contains(
+            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
+        ));
         assert!(output.contains("Surface(modifier = Modifier.fillMaxWidth()"));
         assert!(output.contains("shape = RoundedCornerShape(24.dp)"));
+        assert!(output.contains(
+            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
+        ));
+        assert!(output.contains(
+            "color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)"
+        ));
+        assert!(output.contains(
+            "color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0xFF38383A) else Color(0x493C3C43)"
+        ));
+        assert!(output.contains(
+            "fontSize = 13.sp, lineHeight = 13.sp * 1.2f, letterSpacing = 0.sp, color = MaterialTheme.colorScheme.onSurfaceVariant"
+        ));
+        assert_eq!(
+            form_row_min_height(&Node::Picker {
+                items: Expr::Array(Vec::new()),
+                state: "choice".to_owned(),
+                icon: None,
+                label: Some(Expr::LocalizedText {
+                    key: "reminder-label".to_owned(),
+                    value: Box::new(Expr::String("Automatic\nReminders".to_owned())),
+                    comment: None,
+                }),
+                tint: None,
+            }),
+            nexa_codegen::design_system::FORM_MULTILINE_ROW_MIN_HEIGHT
+        );
     }
 }

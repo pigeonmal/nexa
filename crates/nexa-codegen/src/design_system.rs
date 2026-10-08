@@ -23,6 +23,10 @@ pub const DARK_OUTLINE_ARGB: u32 = 0xFF54_5458;
 pub const MUTED_TEXT_ARGB: u32 = 0xFF8E_8E93;
 pub const DEFAULT_ERROR_ARGB: u32 = 0xFFFF_3B30;
 pub const DEFAULT_BODY_FONT_SIZE: u8 = 17;
+/// Default Compose system icon canvas matched to the shared 24dp control size.
+pub const DEFAULT_MATERIAL_ICON_SIZE: u8 = 24;
+/// Material paths need a modest size adjustment to match SF Symbol metrics.
+pub const MATERIAL_ICON_SIZE_SCALE: f32 = 1.2;
 pub const DEFAULT_LINE_HEIGHT_MULTIPLIER: f32 = 1.2;
 pub const BUTTON_MIN_TAP_TARGET: u8 = 48;
 pub const BUTTON_MIN_WIDTH: u8 = 64;
@@ -33,13 +37,25 @@ pub const BUTTON_SMALL_VERTICAL_PADDING: u8 = 4;
 pub const BUTTON_LARGE_HORIZONTAL_PADDING: u8 = 20;
 pub const BUTTON_LARGE_VERTICAL_PADDING: u8 = 12;
 /// Grouped Form geometry matched to the native iOS settings-list defaults.
-pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 24;
+pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 16;
 pub const FORM_SECTION_TOP_PADDING: u8 = 8;
-pub const FORM_SECTION_BOTTOM_PADDING: u8 = 24;
+pub const FORM_SECTION_BOTTOM_PADDING: u8 = 20;
 pub const FORM_ROW_HORIZONTAL_INSET: u8 = 16;
 pub const FORM_ROW_MIN_HEIGHT: u8 = 44;
+pub const FORM_BUTTON_ROW_MIN_HEIGHT: u8 = 58;
+pub const FORM_MULTILINE_ROW_MIN_HEIGHT: u8 = 56;
 pub const FORM_DIVIDER_START_INSET: u8 = 56;
 pub const FORM_DIVIDER_END_INSET: u8 = 16;
+pub const FORM_FOOTER_START_INSET: u8 = 16;
+pub const FORM_FOOTER_FONT_SIZE: u8 = 13;
+pub const FORM_LARGE_TITLE_TOP_PADDING: u8 = 20;
+pub const FORM_LARGE_TITLE_FONT_SIZE: u8 = 34;
+/// Grouped Form section colors matching the native iOS system palette.
+pub const FORM_LIGHT_SECTION_ARGB: u32 = 0xFFFF_FFFF;
+pub const FORM_DARK_SECTION_ARGB: u32 = 0xFF1C_1C1E;
+pub const FORM_LIGHT_SEPARATOR_ARGB: u32 = 0x493C_3C43;
+pub const FORM_DARK_SEPARATOR_ARGB: u32 = 0xFF38_383A;
+pub const FORM_SWITCH_OFF_TRACK_ARGB: u32 = 0xFF5E_5E62;
 /// Shared gap between a system icon and its adjacent label.
 pub const ICON_LABEL_SPACING: u8 = 8;
 pub const PAGE_INDICATOR_SELECTED_SIZE: u8 = 8;

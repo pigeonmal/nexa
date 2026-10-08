@@ -346,6 +346,11 @@ pub(crate) fn render_app_bottom_bar(
             } else {
                 8
             };
+            let title_top_padding = if tab.large_title && tab.navigation_title.is_some() {
+                nexa_codegen::design_system::FORM_LARGE_TITLE_TOP_PADDING
+            } else {
+                8
+            };
             out.line_at(
                 content_depth + 3,
                 format_args!("Column(modifier = {content_modifier}) {{"),
@@ -353,7 +358,7 @@ pub(crate) fn render_app_bottom_bar(
             if tab.navigation_title.is_some() || !toolbars.is_empty() {
                 out.line_at(
                     content_depth + 4,
-                    format_args!("Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = {title_bottom_padding}.dp), verticalAlignment = Alignment.CenterVertically) {{"),
+                    format_args!("Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = {title_top_padding}.dp, end = 16.dp, bottom = {title_bottom_padding}.dp), verticalAlignment = Alignment.CenterVertically) {{"),
                 );
                 if toolbars
                     .iter()
@@ -375,9 +380,12 @@ pub(crate) fn render_app_bottom_bar(
                 if let Some(title) = &tab.navigation_title {
                     let resource = nexa_codegen::names::localization_resource_name(title);
                     let style = if tab.large_title {
-                        "MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)"
+                        format!(
+                            "MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold, fontSize = {}.sp)",
+                            nexa_codegen::design_system::FORM_LARGE_TITLE_FONT_SIZE
+                        )
                     } else {
-                        "MaterialTheme.typography.titleLarge"
+                        "MaterialTheme.typography.titleLarge".to_owned()
                     };
                     out.line_at(
                         content_depth + 5,
@@ -671,8 +679,9 @@ mod tests {
         );
 
         assert!(output.contains(
-            "style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)"
+            "style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold, fontSize = 34.sp)"
         ));
+        assert!(output.contains("top = 20.dp"));
         assert!(output.contains("bottom = 28.dp"));
         assert!(output.contains("Column(modifier = Modifier.fillMaxSize()) {"));
     }

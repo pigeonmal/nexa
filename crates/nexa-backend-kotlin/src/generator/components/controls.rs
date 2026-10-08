@@ -123,7 +123,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_button, "androidx.compose.ui.unit.dp");
     imports.add(features.uses_button, "androidx.compose.ui.unit.sp");
     imports.add(
-        features.uses_button,
+        features.uses_button || features.uses_switch || features.uses_picker,
         "androidx.compose.ui.text.font.FontWeight",
     );
     imports.add(
@@ -131,6 +131,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.CircularProgressIndicator",
     );
     imports.add(features.uses_switch, "androidx.compose.material3.Switch");
+    imports.add(
+        features.uses_switch,
+        "androidx.compose.material3.SwitchDefaults",
+    );
     imports.add(features.uses_switch, "androidx.compose.material3.Text");
     imports.add(
         features.uses_switch,
@@ -146,6 +150,8 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(features.uses_switch, "androidx.compose.ui.Alignment");
     imports.add(features.uses_switch, "androidx.compose.ui.Modifier");
+    imports.add(features.uses_switch, "androidx.compose.ui.unit.sp");
+    imports.add(features.uses_switch, "androidx.compose.ui.graphics.Color");
     imports.add(features.uses_slider, "androidx.compose.material3.Slider");
     imports.add(
         features.uses_segmented_control,
@@ -190,6 +196,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(features.uses_picker, "androidx.compose.ui.Modifier");
     imports.add(features.uses_picker, "androidx.compose.ui.unit.dp");
+    imports.add(features.uses_picker, "androidx.compose.ui.unit.sp");
     imports.add(features.uses_picker, "androidx.compose.ui.graphics.Color");
     imports.add(
         features.uses_picker,
@@ -519,8 +526,9 @@ fn render_button_content(
         out.line_at(
             depth,
             format_args!(
-                "Icon(imageVector = {}, contentDescription = null)",
-                icon.material_reference()
+                "Icon(imageVector = {}, contentDescription = null, modifier = Modifier.size({}.dp))",
+                icon.material_reference(),
+                nexa_codegen::design_system::DEFAULT_MATERIAL_ICON_SIZE,
             ),
         );
         if !is_empty_button_label(label) {
@@ -569,17 +577,21 @@ pub(crate) fn render_switch(
     out.line_at(
         depth + 1,
         format_args!(
-            "Text({}, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)",
-            crate::generator::engine::expressions::text_expression(label)
+            "Text({}, modifier = Modifier.weight(1f), fontSize = {}.sp, fontWeight = FontWeight.Normal, lineHeight = {}.sp * {}f, letterSpacing = 0.sp)",
+            crate::generator::engine::expressions::text_expression(label),
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER,
         ),
     );
     out.line_at(
         depth + 1,
         format_args!(
-            "Switch(checked = {}, onCheckedChange = {{ {} = it }}, modifier = Modifier.semantics {{ contentDescription = {} }})",
+            "Switch(checked = {}, onCheckedChange = {{ {} = it }}, modifier = Modifier.semantics {{ contentDescription = {} }}, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = MaterialTheme.colorScheme.primary, checkedBorderColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White, uncheckedTrackColor = if (MaterialTheme.colorScheme.background == Color.Black) Color(0x{:08X}) else Color(0xFFE5E5EA), uncheckedBorderColor = Color.Transparent))",
             state_name(state),
             state_name(state),
-            expression(label)
+            expression(label),
+            nexa_codegen::design_system::FORM_SWITCH_OFF_TRACK_ARGB,
         ),
     );
     out.line_at(depth, format_args!("}}"));
@@ -998,16 +1010,23 @@ internal fun nexaPickerMenu(
                 imageVector = icon,
                 contentDescription = null,
                 tint = tint ?: MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.dp),
             )
             Spacer(Modifier.width(__NEXA_ICON_LABEL_SPACING__.dp))
         }
         if (label != null) {
-            Text(label, modifier = Modifier.weight(1f))
+            Text(
+                label,
+                modifier = Modifier.weight(1f),
+                fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
+                fontWeight = FontWeight.Normal,
+                lineHeight = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
+                letterSpacing = 0.sp,
+            )
         }
         Box {
             Row(
-                modifier = Modifier.clickable { expanded.value = true }.padding(vertical = 10.dp),
+                modifier = Modifier.clickable { expanded.value = true }.padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (icon != null && label == null) {
@@ -1020,6 +1039,10 @@ internal fun nexaPickerMenu(
                     Text(
                         selected,
                         color = tint ?: MaterialTheme.colorScheme.primary,
+                        fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
+                        fontWeight = FontWeight.Normal,
+                        lineHeight = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
+                        letterSpacing = 0.sp,
                         maxLines = 1,
                         softWrap = false,
                     )
@@ -1043,6 +1066,10 @@ internal fun nexaPickerMenu(
                                 item,
                                 color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurface,
+                                fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
+                                letterSpacing = 0.sp,
                                 maxLines = 1,
                                 softWrap = false,
                             )
@@ -1059,10 +1086,24 @@ internal fun nexaPickerMenu(
 }
 
 "#;
-    out.push_str(&helper.replace(
-        "__NEXA_ICON_LABEL_SPACING__",
-        &nexa_codegen::design_system::ICON_LABEL_SPACING.to_string(),
-    ));
+    let helper = helper
+        .replace(
+            "__NEXA_ICON_LABEL_SPACING__",
+            &nexa_codegen::design_system::ICON_LABEL_SPACING.to_string(),
+        )
+        .replace(
+            "__NEXA_DEFAULT_MATERIAL_ICON_SIZE__",
+            &nexa_codegen::design_system::DEFAULT_MATERIAL_ICON_SIZE.to_string(),
+        )
+        .replace(
+            "__NEXA_DEFAULT_BODY_FONT_SIZE__",
+            &nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
+        )
+        .replace(
+            "__NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__",
+            &nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
+        );
+    out.push_str(&helper);
 }
 
 pub(crate) fn render_pressable(
@@ -1851,13 +1892,20 @@ mod tests {
 
         assert!(output.contains("if (label != null && icon != null)"));
         assert!(output.contains("Spacer(Modifier.width(8.dp))"));
-        assert!(output.contains("Text(label, modifier = Modifier.weight(1f))"));
+        assert!(output.contains(
+            "Text(\n                label,\n                modifier = Modifier.weight(1f)"
+        ));
+        assert!(
+            output.contains("fontSize = 17.sp,\n                fontWeight = FontWeight.Normal")
+        );
+        assert!(output.contains("letterSpacing = 0.sp"));
         assert!(
             output
-                .contains("Modifier.clickable { expanded.value = true }.padding(vertical = 10.dp)")
+                .contains("Modifier.clickable { expanded.value = true }.padding(vertical = 8.dp)")
         );
         assert!(!output.contains("TextButton("));
         assert!(output.contains("imageVector = Icons.Filled.UnfoldMore"));
+        assert!(output.contains("modifier = Modifier.size(24.dp)"));
         assert!(output.contains("maxLines = 1"));
         assert!(output.contains("DropdownMenu("));
         assert!(output.contains("DropdownMenuItem("));
@@ -1977,6 +2025,7 @@ mod tests {
         );
 
         assert!(output.contains("modifier = Modifier.size(48.dp)"));
+        assert!(output.contains("Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(24.dp))"));
         assert!(output.contains("contentPadding = PaddingValues(0.dp)"));
         assert!(output.contains("shape = androidx.compose.foundation.shape.CircleShape"));
     }
@@ -1989,8 +2038,12 @@ mod tests {
         render_switch("openLinksInApp", &label, 0, &mut output);
 
         assert!(output.contains("Row(modifier = Modifier.fillMaxWidth()"));
-        assert!(output.contains("Text(\"Open Links In App\", modifier = Modifier.weight(1f)"));
+        assert!(output.contains(
+            "Text(\"Open Links In App\", modifier = Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp)"
+        ));
         assert!(output.contains("Switch(checked = nexa_openLinksInApp"));
+        assert!(output.contains("uncheckedThumbColor = Color.White"));
+        assert!(output.contains("uncheckedTrackColor = if (MaterialTheme.colorScheme.background == Color.Black) Color(0xFF5E5E62)"));
     }
 
     #[test]

@@ -89,7 +89,7 @@ Use `platform ios { ... }` and `platform android { ... }` when an app needs to r
 |---|---|---|---|
 | `home` | `house.fill` | `Filled.Home` | `house`, `house.fill` |
 | `search` | `magnifyingglass` | `Filled.Search` | `magnifyingglass` |
-| `inbox` | `tray` | `Filled.Inbox` | `tray` |
+| `inbox` | `tray.fill` | `Filled.Inbox` | `tray`, `tray.fill` |
 | `person` | `person` | `Filled.Person` | `person.fill` |
 | `people` | `person.2` | `Filled.Group` | `person.2.fill` |
 | `favorite` | `heart` | `Outlined.FavoriteBorder` | `heart` |
@@ -114,22 +114,22 @@ Use `platform ios { ... }` and `platform android { ... }` when an app needs to r
 | `submit` | `arrow.up.circle.fill` | `AutoMirrored.Filled.Send` | `arrow.up.circle.fill` |
 | `volume_up` | `speaker.wave.2.fill` | `Filled.VolumeUp` | `speaker.wave.2.fill` |
 | `volume_off` | `speaker.slash.fill` | `AutoMirrored.Filled.VolumeOff` | `speaker.slash.fill` |
-| `calendar` | `calendar` | `Filled.CalendarMonth` | `calendar` |
+| `calendar` | `calendar` | `Outlined.CalendarMonth` | `calendar` |
 | `calendar_circle` | `calendar.circle` | `Filled.CalendarMonth` | `calendar.circle` |
 | `event_add` | `calendar.badge.plus` | `Filled.EventAvailable` | `calendar.badge.plus` |
-| `sun` | `sun.max` | `Filled.WbSunny` | `sun.max` |
+| `sun` | `sun.max.fill` | `Filled.WbSunny` | `sun.max` |
 | `event_done` | `calendar.badge.checkmark` | `Filled.EventAvailable` | `calendar.badge.checkmark` |
 | `calendar_time` | `calendar.badge.clock` | `Filled.Event` | `calendar.badge.clock` |
 | `sun_filled` | `sun.max.fill` | `Filled.WbSunny` | `sun.max.fill` |
 | `sunrise` | `sunrise` | `Filled.WbTwilight` | `sunrise` |
-| `settings` | `gearshape` | `Filled.Settings` | `gearshape.fill`, `gearshape` |
+| `settings` | `gearshape.fill` | `Filled.Settings` | `gearshape.fill`, `gearshape` |
 | `sort` | `arrow.up.arrow.down` | `Filled.Sort` | `arrow.up.arrow.down` |
-| `notifications` | `bell` | `Filled.Notifications` | `bell` |
+| `notifications` | `bell.fill` | `Filled.Notifications` | `bell`, `bell.fill` |
 | `notifications_active` | `bell.badge.fill` | `Filled.NotificationsActive` | `bell.badge`, `bell.badge.fill` |
 | `checklist` | `checklist` | `Filled.AssignmentTurnedIn` | `checklist` |
 | `circle` | `circle` | `Filled.RadioButtonUnchecked` | `circle` |
 | `circle_filled` | `circle.fill` | `Filled.Circle` | `circle.fill` |
-| `star` | `star` | `Filled.Star` | `star` |
+| `star` | `star.fill` | `Filled.Star` | `star` |
 | `star_filled` | `star.fill` | `Filled.Star` | `star.fill` |
 | `flag` | `flag` | `Filled.Flag` | `—` |
 | `flag_filled` | `flag.fill` | `Filled.Flag` | `flag.fill` |
@@ -142,20 +142,20 @@ Use `platform ios { ... }` and `platform android { ... }` when an app needs to r
 | `clock` | `clock` | `Filled.Schedule` | `clock.fill`, `clock` |
 | `map` | `map` | `Filled.Map` | `map.fill`, `map` |
 | `location` | `location` | `Filled.LocationOn` | `location.fill`, `location` |
-| `email` | `envelope` | `Filled.Email` | `envelope.fill`, `envelope` |
+| `email` | `envelope.fill` | `Filled.Email` | `envelope.fill`, `envelope` |
 | `phone` | `phone` | `Filled.Call` | `phone.fill`, `phone` |
 | `link` | `link` | `Filled.Link` | `link` |
 | `visibility` | `eye` | `Filled.Visibility` | `eye.fill`, `eye` |
 | `visibility_off` | `eye.slash` | `Filled.VisibilityOff` | `eye.slash` |
 | `lock` | `lock` | `Filled.Lock` | `lock.fill`, `lock` |
-| `security` | `lock.shield` | `Filled.GppGood` | `lock.shield` |
-| `document` | `doc.text` | `Filled.Description` | `doc.text` |
+| `security` | `checkmark.shield.fill` | `Filled.GppGood` | `lock.shield`, `checkmark.shield.fill` |
+| `document` | `doc.text.fill` | `Filled.Description` | `doc.text`, `doc.text.fill` |
 | `language` | `globe` | `Filled.Language` | `safari` |
-| `palette` | `paintpalette` | `Filled.Palette` | `paintpalette` |
+| `palette` | `paintpalette.fill` | `Filled.Palette` | `paintpalette`, `paintpalette.fill` |
 | `code` | `chevron.left.forwardslash.chevron.right` | `Filled.Code` | `curlybraces` |
 | `party_popper` | `party.popper` | `Filled.Celebration` | `party.popper` |
 | `speedometer` | `speedometer` | `Filled.Speed` | `speedometer` |
-| `waving_hand` | `hand.wave` | `Filled.WavingHand` | `hand.wave` |
+| `waving_hand` | `hand.wave.fill` | `Filled.WavingHand` | `hand.wave`, `hand.wave.fill` |
 | `arrow_back` | `arrow.left` | `AutoMirrored.Filled.ArrowBack` | `arrow_back` |
 | `arrow_forward` | `arrow.right` | `AutoMirrored.Filled.ArrowForward` | `arrow_forward` |
 | `arrow_up` | `arrow.up` | `Filled.ArrowUpward` | `arrow_upward` |

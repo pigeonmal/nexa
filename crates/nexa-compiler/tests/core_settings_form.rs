@@ -49,7 +49,7 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
     assert!(swift.contains("Picker(selection: $nexa_startPage)"));
     assert!(swift.contains("} label: { Label {"));
     assert!(swift.contains("Text(\"Start Page\")"));
-    assert!(swift.contains("Image(systemName: \"star\")"));
+    assert!(swift.contains("Image(systemName: \"star.fill\")"));
     assert!(swift.contains("Text(nexa_switchLabel)"));
 
     let kotlin_module = compile_file_with_warnings_for_target(&entry, Target::Kotlin)

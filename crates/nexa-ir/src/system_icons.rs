@@ -58,7 +58,13 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
         "Search",
         &["magnifyingglass"],
     ),
-    icon("inbox", "tray", "Filled", "Inbox", &["tray"]),
+    icon(
+        "inbox",
+        "tray.fill",
+        "Filled",
+        "Inbox",
+        &["tray", "tray.fill"],
+    ),
     icon("person", "person", "Filled", "Person", &["person.fill"]),
     icon("people", "person.2", "Filled", "Group", &["person.2.fill"]),
     icon(
@@ -188,7 +194,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "calendar",
         "calendar",
-        "Filled",
+        "Outlined",
         "CalendarMonth",
         &["calendar"],
     ),
@@ -206,7 +212,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
         "EventAvailable",
         &["calendar.badge.plus"],
     ),
-    icon("sun", "sun.max", "Filled", "WbSunny", &["sun.max"]),
+    icon("sun", "sun.max.fill", "Filled", "WbSunny", &["sun.max"]),
     icon(
         "event_done",
         "calendar.badge.checkmark",
@@ -231,7 +237,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon("sunrise", "sunrise", "Filled", "WbTwilight", &["sunrise"]),
     icon(
         "settings",
-        "gearshape",
+        "gearshape.fill",
         "Filled",
         "Settings",
         &["gearshape.fill", "gearshape"],
@@ -245,10 +251,10 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     ),
     icon(
         "notifications",
-        "bell",
+        "bell.fill",
         "Filled",
         "Notifications",
-        &["bell"],
+        &["bell", "bell.fill"],
     ),
     icon(
         "notifications_active",
@@ -278,7 +284,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
         "Circle",
         &["circle.fill"],
     ),
-    icon("star", "star", "Filled", "Star", &["star"]),
+    icon("star", "star.fill", "Filled", "Star", &["star"]),
     icon("star_filled", "star.fill", "Filled", "Star", &["star.fill"]),
     icon("flag", "flag", "Filled", "Flag", &[]),
     icon("flag_filled", "flag.fill", "Filled", "Flag", &["flag.fill"]),
@@ -335,7 +341,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     ),
     icon(
         "email",
-        "envelope",
+        "envelope.fill",
         "Filled",
         "Email",
         &["envelope.fill", "envelope"],
@@ -359,25 +365,25 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon("lock", "lock", "Filled", "Lock", &["lock.fill", "lock"]),
     icon(
         "security",
-        "lock.shield",
+        "checkmark.shield.fill",
         "Filled",
         "GppGood",
-        &["lock.shield"],
+        &["lock.shield", "checkmark.shield.fill"],
     ),
     icon(
         "document",
-        "doc.text",
+        "doc.text.fill",
         "Filled",
         "Description",
-        &["doc.text"],
+        &["doc.text", "doc.text.fill"],
     ),
     icon("language", "globe", "Filled", "Language", &["safari"]),
     icon(
         "palette",
-        "paintpalette",
+        "paintpalette.fill",
         "Filled",
         "Palette",
-        &["paintpalette"],
+        &["paintpalette", "paintpalette.fill"],
     ),
     icon(
         "code",
@@ -402,10 +408,10 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     ),
     icon(
         "waving_hand",
-        "hand.wave",
+        "hand.wave.fill",
         "Filled",
         "WavingHand",
-        &["hand.wave"],
+        &["hand.wave", "hand.wave.fill"],
     ),
     // Common navigation, editing, media, and status icons. Keep names
     // semantic and stable so app source never needs either native spelling.
@@ -1365,6 +1371,30 @@ mod tests {
         assert_eq!(icon.material_namespace, "Filled");
         assert_eq!(icon.material_name, "NotificationsActive");
         assert!(icon.aliases.contains(&"bell.badge"));
+    }
+
+    #[test]
+    fn settings_icons_match_the_filled_material_weight_on_ios() {
+        for (name, sf_symbol) in [
+            ("star", "star.fill"),
+            ("palette", "paintpalette.fill"),
+            ("notifications", "bell.fill"),
+            ("email", "envelope.fill"),
+            ("waving_hand", "hand.wave.fill"),
+            ("document", "doc.text.fill"),
+            ("security", "checkmark.shield.fill"),
+            ("inbox", "tray.fill"),
+            ("sun", "sun.max.fill"),
+            ("settings", "gearshape.fill"),
+        ] {
+            let icon = shared_icon(name).expect("settings icon is in the shared catalog");
+            assert_eq!(icon.sf_symbol, sf_symbol, "wrong SF Symbol for {name}");
+            assert_eq!(icon.material_namespace, "Filled", "wrong style for {name}");
+        }
+        assert_eq!(
+            shared_icon("calendar").unwrap().material_namespace,
+            "Outlined"
+        );
     }
 
     #[test]

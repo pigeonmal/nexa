@@ -23,6 +23,12 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v216` | Sets Android control icons to 24dp and calibrates explicitly sized Material icons. |
+| `build-v215` | Calibrates Android Material icon sizing against SwiftUI SF Symbols in controls and explicit icons. |
+| `build-v214` | Aligns Android Material icon sizing with SwiftUI SF Symbols in controls and pickers. |
+| `build-v213` | Aligns Android Settings geometry, shared icons, navigation cues, switches, footer, and Form row heights with SwiftUI defaults. |
+| `build-v210` | Gives Android Form picker and switch labels the shared 17sp regular text metrics used by iOS defaults. |
+| `build-v209` | Matches Android grouped Form section and separator colors to the native iOS dark and light palettes. |
 | `build-v208` | Uses one shared icon-to-label gap for Android pickers and buttons, matching the Todo settings rows. |
 | `build-v207` | Aligns Android grouped Form surfaces, section spacing, navigation links, and plain button colors and insets with iOS defaults. |
 | `build-v206` | Removes Android Material button sizing that added a trailing inset to default pickers. |

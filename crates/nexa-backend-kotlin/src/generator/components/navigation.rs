@@ -72,6 +72,39 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         "androidx.compose.foundation.clickable",
     );
     imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.foundation.layout.Row",
+    );
+    imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.ui.Alignment",
+    );
+    imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.material3.Icon",
+    );
+    imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.material3.MaterialTheme",
+    );
+    imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.material.icons.Icons",
+    );
+    imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.material.icons.filled.ChevronRight",
+    );
+    imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.foundation.layout.size",
+    );
+    imports.add(features.uses_navigation_link, "androidx.compose.ui.unit.dp");
+    imports.add(
         features.uses_navigation_back,
         "androidx.compose.material3.Text",
     );
@@ -116,17 +149,33 @@ pub(crate) fn render_link(
     }
     let route = route_value(scope.module, destination, arguments);
     let click_handler = guard.map_or_else(
-        || format!("Modifier.clickable {{ navController.navigate({route}) }}"),
+        || format!("Modifier.fillMaxWidth().clickable {{ navController.navigate({route}) }}"),
         |guard| {
             format!(
-                "Modifier.clickable(enabled = {}, onClick = {{ navController.navigate({route}) }})",
+                "Modifier.fillMaxWidth().clickable(enabled = {}, onClick = {{ navController.navigate({route}) }})",
                 crate::generator::engine::expressions::expression(guard)
             )
         },
     );
-    out.line_at(depth, format_args!("Box(modifier = {click_handler}) {{"));
-    render_children(children, scope.module, scope.features, depth + 1, out);
+    out.line_at(
+        depth,
+        format_args!(
+            "Row(modifier = {click_handler}, verticalAlignment = Alignment.CenterVertically) {{"
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("Box(modifier = Modifier.weight(1f)) {{"),
+    );
+    render_children(children, scope.module, scope.features, depth + 2, out);
     out.push('\n');
+    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "Icon(imageVector = Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)"
+        ),
+    );
     indent(out, depth);
     out.push('}');
 }

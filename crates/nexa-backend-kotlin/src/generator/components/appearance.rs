@@ -95,14 +95,24 @@ pub(crate) fn render_theme_start(mode: &Expr, depth: usize, out: &mut SourceWrit
     );
     out.line_at(
         depth + 2,
-        format_args!("val nexaAppearanceWindow = (nexaAppearanceContext as? android.app.Activity)?.window"),
+        format_args!(
+            "val nexaAppearanceWindow = (nexaAppearanceContext as? android.app.Activity)?.window"
+        ),
     );
-    out.line_at(depth + 2, format_args!("nexaAppearanceWindow?.let {{ window ->"));
+    out.line_at(
+        depth + 2,
+        format_args!("nexaAppearanceWindow?.let {{ window ->"),
+    );
     out.line_at(
         depth + 3,
-        format_args!("if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {{"),
+        format_args!(
+            "if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {{"
+        ),
     );
-    out.line_at(depth + 4, format_args!("window.isNavigationBarContrastEnforced = false"));
+    out.line_at(
+        depth + 4,
+        format_args!("window.isNavigationBarContrastEnforced = false"),
+    );
     out.line_at(depth + 3, format_args!("}}"));
     out.line_at(
         depth + 3,
@@ -110,7 +120,9 @@ pub(crate) fn render_theme_start(mode: &Expr, depth: usize, out: &mut SourceWrit
     );
     out.line_at(
         depth + 3,
-        format_args!("val nexaAppearanceInsetsController = WindowCompat.getInsetsController(window, {view})"),
+        format_args!(
+            "val nexaAppearanceInsetsController = WindowCompat.getInsetsController(window, {view})"
+        ),
     );
     out.line_at(
         depth + 3,

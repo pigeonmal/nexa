@@ -1277,7 +1277,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "Label(nexa_fn_taskReminderButtonLabel(), systemImage: \"bell\").font(.system(size: 17))"
+            "Label(nexa_fn_taskReminderButtonLabel(), systemImage: \"bell.fill\").font(.system(size: 17))"
         ));
         assert!(!output.contains("Label { Text(nexa_fn_taskReminderButtonLabel()) }"));
     }

@@ -32,11 +32,36 @@ pub(crate) fn render(
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
+    let material_size = size * nexa_codegen::design_system::MATERIAL_ICON_SIZE_SCALE;
     out.push_str(&format!(
         "Icon(imageVector = {}, contentDescription = {}, modifier = Modifier.size({}.dp), tint = {})",
         icon.material_reference(),
         kotlin_string(description),
-        crate::generator::engine::utils::number(size),
+        crate::generator::engine::utils::number(material_size),
         colors::expression_for_color(tint),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::{Color, ColorExpression, ColorValue, SystemIcon};
+
+    use super::render;
+
+    #[test]
+    fn system_icon_size_scales_to_match_swiftui_symbol_metrics() {
+        let icon = SystemIcon::Shared("palette".to_owned());
+        let tint = ColorExpression::Static(ColorValue::Static(Color {
+            red: 255,
+            green: 0,
+            blue: 0,
+            alpha: 255,
+        }));
+        let mut output = SourceWriter::new();
+
+        render(&icon, "", 20.0, &tint, 0, &mut output);
+
+        assert!(output.finish().contains("Modifier.size(24.dp)"));
+    }
 }

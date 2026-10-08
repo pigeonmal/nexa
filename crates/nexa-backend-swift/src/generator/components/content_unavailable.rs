@@ -70,7 +70,7 @@ mod tests {
         let swift = out.finish();
         assert!(swift.contains("if #available(iOS 17.0, *)"));
         assert!(swift.contains("ContentUnavailableView {"));
-        assert!(swift.contains("Image(systemName: \"tray\")"));
+        assert!(swift.contains("Image(systemName: \"tray.fill\")"));
         assert!(swift.contains("} else {\n    VStack(spacing: 8)"));
     }
 }

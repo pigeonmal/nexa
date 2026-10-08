@@ -113,6 +113,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -186,6 +187,8 @@ import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
 
 private const val nexaDevDefaultBodyFontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__
+private const val nexaDevDefaultMaterialIconSize = __NEXA_DEFAULT_MATERIAL_ICON_SIZE__
+private const val nexaDevMaterialIconSizeScale = __NEXA_MATERIAL_ICON_SIZE_SCALE__
 private const val nexaDevDefaultLineHeightMultiplier = __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f
 private const val nexaDevButtonMinWidth = __NEXA_BUTTON_MIN_WIDTH__
 private const val nexaDevButtonMinTapTarget = __NEXA_BUTTON_MIN_TAP_TARGET__
@@ -194,6 +197,19 @@ private const val nexaDevButtonSmallHorizontalPadding = __NEXA_BUTTON_SMALL_HORI
 private const val nexaDevButtonSmallVerticalPadding = __NEXA_BUTTON_SMALL_VERTICAL_PADDING__
 private const val nexaDevButtonLargeHorizontalPadding = __NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__
 private const val nexaDevButtonLargeVerticalPadding = __NEXA_BUTTON_LARGE_VERTICAL_PADDING__
+private const val nexaDevFormSectionHorizontalInset = __NEXA_FORM_SECTION_HORIZONTAL_INSET__
+private const val nexaDevFormSectionTopPadding = __NEXA_FORM_SECTION_TOP_PADDING__
+private const val nexaDevFormSectionBottomPadding = __NEXA_FORM_SECTION_BOTTOM_PADDING__
+private const val nexaDevFormRowHorizontalInset = __NEXA_FORM_ROW_HORIZONTAL_INSET__
+private const val nexaDevFormRowMinHeight = __NEXA_FORM_ROW_MIN_HEIGHT__
+private const val nexaDevFormButtonRowMinHeight = __NEXA_FORM_BUTTON_ROW_MIN_HEIGHT__
+private const val nexaDevFormMultilineRowMinHeight = __NEXA_FORM_MULTILINE_ROW_MIN_HEIGHT__
+private const val nexaDevFormDividerStartInset = __NEXA_FORM_DIVIDER_START_INSET__
+private const val nexaDevFormDividerEndInset = __NEXA_FORM_DIVIDER_END_INSET__
+private const val nexaDevFormFooterStartInset = __NEXA_FORM_FOOTER_START_INSET__
+private const val nexaDevFormFooterFontSize = __NEXA_FORM_FOOTER_FONT_SIZE__
+private const val nexaDevFormLargeTitleTopPadding = __NEXA_FORM_LARGE_TITLE_TOP_PADDING__
+private const val nexaDevFormLargeTitleFontSize = __NEXA_FORM_LARGE_TITLE_FONT_SIZE__
 private const val nexaDevPageIndicatorSelectedSize = __NEXA_PAGE_INDICATOR_SELECTED_SIZE__
 private const val nexaDevPageIndicatorUnselectedSize = __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__
 private const val nexaDevPageIndicatorSpacing = __NEXA_PAGE_INDICATOR_SPACING__
@@ -420,10 +436,10 @@ internal fun NexaDevNode(
         "FormSection" -> {
             Column(
                 Modifier.fillMaxWidth().padding(
-                    start = 24.dp,
-                    top = 8.dp,
-                    end = 24.dp,
-                    bottom = 24.dp,
+                    start = nexaDevFormSectionHorizontalInset.dp,
+                    top = nexaDevFormSectionTopPadding.dp,
+                    end = nexaDevFormSectionHorizontalInset.dp,
+                    bottom = nexaDevFormSectionBottomPadding.dp,
                 ),
             ) {
                 if (!fields.isNull("title")) {
@@ -438,23 +454,43 @@ internal fun NexaDevNode(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
                     color = if (MaterialTheme.colorScheme.background == Color.Black) {
-                        MaterialTheme.colorScheme.surfaceVariant
+                        Color(__NEXA_FORM_DARK_SECTION_ARGB__)
                     } else {
-                        MaterialTheme.colorScheme.surface
+                        Color(__NEXA_FORM_LIGHT_SECTION_ARGB__)
                     },
                     contentColor = MaterialTheme.colorScheme.onSurface,
                 ) {
                     Column {
                         for (index in 0 until children.length()) {
                             androidx.compose.runtime.key(index) {
+                                val rowNode = nexaDevNodeObject(children.opt(index))
+                                val rowKind = rowNode.keys().asSequence().firstOrNull()
+                                val rowFields = rowKind?.let(rowNode::optJSONObject)
+                                val labelValue = if (rowKind == "Picker" || rowKind == "Switch") {
+                                    rowFields?.opt("label")
+                                } else {
+                                    null
+                                }
+                                val rowLabel = if (labelValue == null || labelValue == JSONObject.NULL) {
+                                    null
+                                } else {
+                                    store.stringify(store.evaluatePresented(labelValue, locals, scope))
+                                }
+                                val rowMinHeight = if (rowKind == "Button") {
+                                    nexaDevFormButtonRowMinHeight
+                                } else if (rowLabel?.contains('\n') == true) {
+                                    nexaDevFormMultilineRowMinHeight
+                                } else {
+                                    nexaDevFormRowMinHeight
+                                }
                                 Box(
                                     modifier = Modifier.fillMaxWidth()
-                                        .heightIn(min = 44.dp)
-                                        .padding(horizontal = 16.dp),
+                                        .heightIn(min = rowMinHeight.dp)
+                                        .padding(horizontal = nexaDevFormRowHorizontalInset.dp),
                                     contentAlignment = Alignment.CenterStart,
                                 ) {
                                     NexaDevNode(
-                                        nexaDevNodeObject(children.opt(index)),
+                                        rowNode,
                                         module,
                                         store,
                                         locals,
@@ -463,9 +499,16 @@ internal fun NexaDevNode(
                                 }
                                 if (index + 1 < children.length()) {
                                     HorizontalDivider(
-                                        modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(
+                                            start = nexaDevFormDividerStartInset.dp,
+                                            end = nexaDevFormDividerEndInset.dp,
+                                        ),
                                         thickness = 0.5.dp,
-                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                        color = if (MaterialTheme.colorScheme.background == Color.Black) {
+                                            Color(__NEXA_FORM_DARK_SEPARATOR_ARGB__)
+                                        } else {
+                                            Color(__NEXA_FORM_LIGHT_SEPARATOR_ARGB__)
+                                        },
                                     )
                                 }
                             }
@@ -475,8 +518,15 @@ internal fun NexaDevNode(
                 if (!fields.isNull("footer")) {
                     Text(
                         store.stringify(store.evaluatePresented(fields.opt("footer"), locals, scope)),
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(
+                            start = nexaDevFormFooterStartInset.dp,
+                            top = 8.dp,
+                            bottom = 8.dp,
+                        ),
+                        fontSize = nexaDevFormFooterFontSize.sp,
+                        lineHeight = nexaDevFormFooterFontSize.sp * nexaDevDefaultLineHeightMultiplier,
+                        letterSpacing = 0.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -796,7 +846,7 @@ internal fun NexaDevNode(
             Icon(
                 imageVector = icon,
                 contentDescription = fields.optString("description").takeIf(String::isNotEmpty),
-                modifier = modifier.size(fields.optDouble("size", 24.0).dp),
+                modifier = modifier.size((fields.optDouble("size", 24.0) * nexaDevMaterialIconSizeScale).dp),
                 tint = tint ?: Color.White,
             )
         }
@@ -864,7 +914,13 @@ internal fun NexaDevNode(
                 if (loading) {
                     CircularProgressIndicator()
                 } else {
-                    if (icon != null) Icon(imageVector = icon, contentDescription = null)
+                    if (icon != null) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(nexaDevDefaultMaterialIconSize.dp),
+                        )
+                    }
                     if (icon != null && label.isNotEmpty()) Spacer(Modifier.width(8.dp))
                     Text(
                         label,
@@ -1434,8 +1490,29 @@ internal fun NexaDevNode(
             val state = fields.optString("state")
             val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
             Row {
-                Text(label)
-                Switch(checked = store.state(state, scope) as? Boolean ?: false, onCheckedChange = { store.setState(state, it, scope) })
+                Text(
+                    label,
+                    fontSize = nexaDevDefaultBodyFontSize.sp,
+                    fontWeight = FontWeight.Normal,
+                    lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier,
+                    letterSpacing = 0.sp,
+                )
+                Switch(
+                    checked = store.state(state, scope) as? Boolean ?: false,
+                    onCheckedChange = { store.setState(state, it, scope) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        checkedBorderColor = MaterialTheme.colorScheme.primary,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = if (MaterialTheme.colorScheme.background == Color.Black) {
+                            Color(__NEXA_FORM_SWITCH_OFF_TRACK_ARGB__)
+                        } else {
+                            Color(0xFFE5E5EA)
+                        },
+                        uncheckedBorderColor = Color.Transparent,
+                    ),
+                )
             }
         }
         "Slider" -> {
@@ -1505,7 +1582,13 @@ internal fun NexaDevNode(
             val expanded = remember(state, scope) { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (label != null) {
-                    Text(label)
+                    Text(
+                        label,
+                        fontSize = nexaDevDefaultBodyFontSize.sp,
+                        fontWeight = FontWeight.Normal,
+                        lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier,
+                        letterSpacing = 0.sp,
+                    )
                     Spacer(Modifier.weight(1f))
                 }
                 Box {
@@ -1525,7 +1608,7 @@ internal fun NexaDevNode(
                         null
                     }
                     Row(
-                        modifier = Modifier.clickable { expanded.value = true }.padding(vertical = 10.dp),
+                modifier = Modifier.clickable { expanded.value = true }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (pickerIcon != null) {
@@ -1533,9 +1616,17 @@ internal fun NexaDevNode(
                                 imageVector = pickerIcon,
                                 contentDescription = selected,
                                 tint = tint ?: MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(nexaDevDefaultMaterialIconSize.dp),
                             )
                         } else {
-                            Text(selected, color = tint ?: MaterialTheme.colorScheme.primary)
+                            Text(
+                                selected,
+                                color = tint ?: MaterialTheme.colorScheme.primary,
+                                fontSize = nexaDevDefaultBodyFontSize.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier,
+                                letterSpacing = 0.sp,
+                            )
                             Spacer(Modifier.width(4.dp))
                             Icon(
                                 imageVector = Icons.Filled.UnfoldMore,
@@ -1556,6 +1647,10 @@ internal fun NexaDevNode(
                                         item,
                                         color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
                                             else MaterialTheme.colorScheme.onSurface,
+                                        fontSize = nexaDevDefaultBodyFontSize.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier,
+                                        letterSpacing = 0.sp,
                                     )
                                 },
                                 onClick = {
@@ -1951,9 +2046,14 @@ internal fun NexaDevNode(
                                 Modifier.fillMaxSize()
                             }
                             Column(contentModifier) {
-                                val titleBottomPadding = if (activeTab.optBoolean("large_title")) 28.dp else 8.dp
+                                val largeTitle = activeTab.optBoolean("large_title")
+                                val titleTopPadding = if (largeTitle) nexaDevFormLargeTitleTopPadding.dp else 8.dp
+                                val titleBottomPadding = if (largeTitle) 28.dp else 8.dp
                                 val titleStyle = if (activeTab.optBoolean("large_title")) {
-                                    MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)
+                                    MaterialTheme.typography.headlineLarge.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = nexaDevFormLargeTitleFontSize.sp,
+                                    )
                                 } else {
                                     MaterialTheme.typography.titleLarge
                                 }
@@ -1961,7 +2061,7 @@ internal fun NexaDevNode(
                                     title,
                                     modifier = Modifier.fillMaxWidth().padding(
                                         start = 16.dp,
-                                        top = 8.dp,
+                                        top = titleTopPadding,
                                         end = 16.dp,
                                         bottom = titleBottomPadding,
                                     ),
@@ -2134,10 +2234,20 @@ internal fun NexaDevNode(
             } else {
                 val controller = LocalNexaDevNavController.current
                 val route = store.encodeScreenRoute(destination, fields.optJSONArray("arguments") ?: JSONArray(), locals, scope)
-                Box(
-                    Modifier.clickable(enabled = enabled) { controller?.navigate(route) },
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable(enabled = enabled) { controller?.navigate(route) },
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RenderChildren(children, module, store, locals, scope)
+                    Box(Modifier.weight(1f)) {
+                        RenderChildren(children, module, store, locals, scope)
+                    }
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
