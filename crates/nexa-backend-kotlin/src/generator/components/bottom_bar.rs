@@ -155,6 +155,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.facts.ui.bottom_bar.navigation_title,
         "androidx.compose.material3.MaterialTheme",
     );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.ui.text.font.FontWeight",
+    );
     imports.add(features.uses_tab_badge, "androidx.compose.material3.Badge");
 }
 
@@ -297,9 +301,14 @@ pub(crate) fn render_app_bottom_bar(
                 }
                 if let Some(title) = &tab.navigation_title {
                     let resource = nexa_codegen::names::localization_resource_name(title);
+                    let style = if tab.large_title {
+                        "MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)"
+                    } else {
+                        "MaterialTheme.typography.titleLarge"
+                    };
                     out.line_at(
                         content_depth + 5,
-                        format_args!("Text(stringResource(R.string.{resource}), style = MaterialTheme.typography.headlineLarge)"),
+                        format_args!("Text(stringResource(R.string.{resource}), style = {style})"),
                     );
                 }
                 if toolbars
@@ -504,15 +513,14 @@ pub(crate) fn render_page_pager(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::Module;
+    use nexa_ir::{BottomBarTab, Module};
 
     use crate::generator::features::Features;
 
-    use super::render_page_pager;
+    use super::{render_app_bottom_bar, render_page_pager};
 
-    #[test]
-    fn page_pager_gives_each_page_a_full_size_centered_native_canvas() {
-        let module = Module {
+    fn empty_module() -> Module {
+        Module {
             app_name: "PagerParity".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
@@ -534,7 +542,44 @@ mod tests {
             on_active: None,
             on_inactive: None,
             on_background: None,
+        }
+    }
+
+    #[test]
+    fn large_navigation_title_uses_bold_headline_typography() {
+        let tab = BottomBarTab {
+            index: 0,
+            label: "Today".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: None,
+            navigation_title: Some("Today".to_owned()),
+            large_title: true,
+            search_state: None,
+            search_prompt: None,
+            children: Vec::new(),
         };
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            &[tab],
+            &empty_module(),
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)"
+        ));
+    }
+
+    #[test]
+    fn page_pager_gives_each_page_a_full_size_centered_native_canvas() {
+        let module = empty_module();
         let features = Features::default();
         let mut output = SourceWriter::new();
 

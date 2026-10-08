@@ -98,24 +98,24 @@ pub(crate) fn render_node(
             out.line_at(
                 depth,
                 format_args!(
-                    "Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {{"
+                    "Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {{"
                 ),
             );
             out.line_at(
                 depth + 1,
                 format_args!(
-                    "Icon(imageVector = {}, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)",
+                    "Icon(imageVector = {}, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)",
                     icon.material_reference()
                 ),
             );
             out.line_at(
                 depth + 1,
-                format_args!("Spacer(modifier = Modifier.height(8.dp))"),
+                format_args!("Spacer(modifier = Modifier.height(16.dp))"),
             );
             out.line_at(
                 depth + 1,
                 format_args!(
-                    "Text({}, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)",
+                    "Text({}, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.Center)",
                     crate::generator::engine::expressions::text_expression(title)
                 ),
             );
@@ -126,7 +126,7 @@ pub(crate) fn render_node(
             out.line_at(
                 depth + 1,
                 format_args!(
-                    "Text({}, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)",
+                    "Text({}, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)",
                     crate::generator::engine::expressions::text_expression(description)
                 ),
             );

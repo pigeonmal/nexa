@@ -14,6 +14,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(enabled, "androidx.compose.material3.Text");
     imports.add(enabled, "androidx.compose.ui.Alignment");
     imports.add(enabled, "androidx.compose.ui.Modifier");
+    imports.add(enabled, "androidx.compose.ui.text.font.FontWeight");
     imports.add(enabled, "androidx.compose.ui.text.style.TextAlign");
     imports.add(enabled, "androidx.compose.ui.unit.dp");
 }

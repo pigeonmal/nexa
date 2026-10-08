@@ -758,10 +758,17 @@ mod tests {
 
         let kotlin = generate(&module);
         assert!(kotlin.contains("import androidx.compose.material3.Icon"));
-        assert!(kotlin.contains("Column(modifier = Modifier.fillMaxSize().padding(32.dp)"));
+        assert!(kotlin.contains(
+            "Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 32.dp)"
+        ));
+        assert!(kotlin.contains("modifier = Modifier.size(48.dp)"));
         assert!(kotlin.contains("Icons.Filled.Inbox"));
-        assert!(kotlin.contains("Text(\"Inbox is empty\""));
-        assert!(kotlin.contains("Text(\"Tasks you add will appear here.\""));
+        assert!(kotlin.contains(
+            "Text(\"Inbox is empty\", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)"
+        ));
+        assert!(kotlin.contains(
+            "Text(\"Tasks you add will appear here.\", style = MaterialTheme.typography.bodyLarge"
+        ));
     }
 
     #[test]
