@@ -88,6 +88,63 @@ pub(crate) fn render_button(
     render_button_modifiers(style, size, shape, tint, glass, out);
 }
 
+pub(crate) fn render_confirmation_action_button(
+    button: &Node,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let Node::Button {
+        label,
+        icon,
+        loading,
+        disabled,
+        actions,
+        ..
+    } = button
+    else {
+        return;
+    };
+
+    indent(out, depth);
+    out.push_str("Button(action: {");
+    if actions.is_empty() {
+        out.push_str(" }) {");
+    } else {
+        out.push('\n');
+        render_actions(actions, depth + 1, out);
+        indent(out, depth);
+        out.push_str("}) {");
+    }
+    out.push('\n');
+    if let Some(loading) = loading {
+        out.line_at(depth + 1, format_args!("if {} {{", expression(loading)));
+        indent(out, depth + 2);
+        out.push_str("ProgressView()\n");
+        indent(out, depth + 1);
+        out.push_str("} else {\n");
+        render_button_label(label, None, icon.as_ref(), depth + 2, out);
+        indent(out, depth + 1);
+        out.push('}');
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+        out.push_str(".disabled(");
+        out.push_str(&expression(loading));
+        if let Some(disabled) = disabled {
+            out.push_str(" || ");
+            out.push_str(&expression(disabled));
+        }
+        out.push(')');
+        return;
+    }
+    render_button_label(label, None, icon.as_ref(), depth + 1, out);
+    indent(out, depth);
+    out.push('}');
+    if let Some(disabled) = disabled {
+        out.push_str(&format!(".disabled({})", expression(disabled)));
+    }
+}
+
 fn render_button_modifiers(
     style: Option<nexa_ir::ButtonStyle>,
     size: Option<nexa_ir::ButtonSize>,

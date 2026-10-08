@@ -23,7 +23,7 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
-| `build-v191` | Gives unlabeled Android picker icons a neutral toolbar tint while preserving the accent tint for labeled settings pickers. |
+| `build-v192` | Attaches Swift alerts to a live anchor and emits confirmation actions directly with native dialog styling. |
 | `build-v190` | Matches Android large navigation title weight and scales the ContentUnavailable empty-state icon, typography, and insets to iOS. |
 | `build-v189` | Renders Android confirmation-dialog actions as centered full-width text rows with separators to match the iOS action list. |
 | `build-v188` | Maps Bordered buttons to matching outlined shapes, padding, tint, and disabled colors across SwiftUI and Compose. |
