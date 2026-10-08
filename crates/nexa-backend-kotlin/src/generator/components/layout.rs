@@ -72,7 +72,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(features.uses_box, "androidx.compose.foundation.layout.Box");
     imports.add(
-        features.uses_alignment || features.uses_column || features.uses_box,
+        features.uses_alignment || features.uses_column || features.uses_box || features.uses_form,
         "androidx.compose.ui.Alignment",
     );
     imports.add(
@@ -152,7 +152,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.widthIn",
     );
     imports.add(
-        features.uses_height_in,
+        features.uses_height_in || features.uses_form,
         "androidx.compose.foundation.layout.heightIn",
     );
     imports.add(features.uses_modifier, "androidx.compose.ui.Modifier");
@@ -371,14 +371,18 @@ pub(crate) fn render_form_section(
     out.line_at(
         depth,
         format_args!(
-            "Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {{"
+            "Column(modifier = Modifier.fillMaxWidth().padding(start = {}.dp, top = {}.dp, end = {}.dp, bottom = {}.dp)) {{",
+            nexa_codegen::design_system::FORM_SECTION_HORIZONTAL_INSET,
+            nexa_codegen::design_system::FORM_SECTION_TOP_PADDING,
+            nexa_codegen::design_system::FORM_SECTION_HORIZONTAL_INSET,
+            nexa_codegen::design_system::FORM_SECTION_BOTTOM_PADDING,
         ),
     );
     if let Some(title) = title {
         out.line_at(
             depth + 1,
             format_args!(
-                "Text({}, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = androidx.compose.material3.MaterialTheme.typography.titleSmall)",
+                "Text({}, modifier = Modifier.padding(vertical = 8.dp), style = androidx.compose.material3.MaterialTheme.typography.titleSmall)",
                 crate::generator::engine::expressions::text_expression(title)
             ),
         );
@@ -386,14 +390,18 @@ pub(crate) fn render_form_section(
     out.line_at(
         depth + 1,
         format_args!(
-            "Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface) {{"
+            "Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface) {{"
         ),
     );
     out.line_at(depth + 2, format_args!("Column {{"));
     for (index, child) in children.iter().enumerate() {
         out.line_at(
             depth + 3,
-            format_args!("Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {{"),
+            format_args!(
+                "Box(modifier = Modifier.fillMaxWidth().heightIn(min = {}.dp).padding(horizontal = {}.dp), contentAlignment = Alignment.CenterStart) {{",
+                nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT,
+                nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+            ),
         );
         render_node(child, scope.module, scope.features, depth + 4, out);
         out.line_at(depth + 3, format_args!("}}"));
@@ -401,7 +409,9 @@ pub(crate) fn render_form_section(
             out.line_at(
                 depth + 3,
                 format_args!(
-                    "HorizontalDivider(modifier = Modifier.padding(start = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)"
+                    "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = {}.dp, end = {}.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)",
+                    nexa_codegen::design_system::FORM_DIVIDER_START_INSET,
+                    nexa_codegen::design_system::FORM_DIVIDER_END_INSET,
                 ),
             );
         }
@@ -415,7 +425,7 @@ pub(crate) fn render_form_section(
         out.line_at(
             depth + 1,
             format_args!(
-                "Text({}, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = androidx.compose.material3.MaterialTheme.typography.bodySmall)",
+                "Text({}, modifier = Modifier.padding(vertical = 8.dp), style = androidx.compose.material3.MaterialTheme.typography.bodySmall)",
                 crate::generator::engine::expressions::text_expression(footer)
             ),
         );
@@ -769,14 +779,17 @@ mod tests {
 
         render_form_section(None, None, &children, &scope, 0, &mut output);
 
-        assert!(
-            output.contains("Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))")
-        );
         assert!(output.contains(
-            "HorizontalDivider(modifier = Modifier.padding(start = 16.dp), thickness = 0.5.dp"
+            "Column(modifier = Modifier.fillMaxWidth().padding(start = 24.dp, top = 8.dp, end = 24.dp, bottom = 24.dp)) {"
+        ));
+        assert!(output.contains(
+            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
+        ));
+        assert!(output.contains(
+            "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp), thickness = 0.5.dp"
         ));
         assert_eq!(output.as_str().matches("HorizontalDivider(").count(), 1);
         assert!(output.contains("Surface(modifier = Modifier.fillMaxWidth()"));
-        assert!(output.contains("shape = RoundedCornerShape(12.dp)"));
+        assert!(output.contains("shape = RoundedCornerShape(24.dp)"));
     }
 }

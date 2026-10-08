@@ -1,6 +1,6 @@
 //! Shared visual defaults used by native backends to keep generated apps aligned.
 
-use nexa_ir::{FontWeight, TextFontStyle};
+use nexa_ir::{ButtonShape, FontWeight, TextFontStyle};
 
 pub const DEFAULT_ACCENT_ARGB: u32 = 0xFF00_7AFF;
 pub const DARK_ACCENT_ARGB: u32 = 0xFF0A_84FF;
@@ -26,11 +26,22 @@ pub const DEFAULT_BODY_FONT_SIZE: u8 = 17;
 pub const DEFAULT_LINE_HEIGHT_MULTIPLIER: f32 = 1.2;
 pub const BUTTON_MIN_TAP_TARGET: u8 = 48;
 pub const BUTTON_MIN_WIDTH: u8 = 64;
+pub const DEFAULT_BUTTON_SHAPE: ButtonShape = ButtonShape::Capsule;
 pub const BUTTON_LARGE_MIN_HEIGHT: u8 = 50;
 pub const BUTTON_SMALL_HORIZONTAL_PADDING: u8 = 12;
 pub const BUTTON_SMALL_VERTICAL_PADDING: u8 = 4;
 pub const BUTTON_LARGE_HORIZONTAL_PADDING: u8 = 20;
 pub const BUTTON_LARGE_VERTICAL_PADDING: u8 = 12;
+/// Grouped Form geometry matched to the native iOS settings-list defaults.
+pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 24;
+pub const FORM_SECTION_TOP_PADDING: u8 = 8;
+pub const FORM_SECTION_BOTTOM_PADDING: u8 = 24;
+pub const FORM_ROW_HORIZONTAL_INSET: u8 = 16;
+pub const FORM_ROW_MIN_HEIGHT: u8 = 44;
+pub const FORM_DIVIDER_START_INSET: u8 = 56;
+pub const FORM_DIVIDER_END_INSET: u8 = 16;
+/// Shared gap between a system icon and its adjacent label.
+pub const ICON_LABEL_SPACING: u8 = 8;
 pub const PAGE_INDICATOR_SELECTED_SIZE: u8 = 8;
 pub const PAGE_INDICATOR_UNSELECTED_SIZE: u8 = 6;
 pub const PAGE_INDICATOR_SPACING: u8 = 8;

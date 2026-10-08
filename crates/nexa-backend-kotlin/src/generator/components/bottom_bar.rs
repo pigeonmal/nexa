@@ -126,6 +126,18 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_adaptive_tabs && features.uses_form,
         "androidx.compose.foundation.background",
     );
+    imports.add(
+        features.uses_adaptive_tabs && features.uses_form,
+        "androidx.compose.runtime.SideEffect",
+    );
+    imports.add(
+        features.uses_adaptive_tabs && features.uses_form,
+        "androidx.compose.ui.platform.LocalView",
+    );
+    imports.add(
+        features.uses_adaptive_tabs && features.uses_form,
+        "androidx.compose.ui.graphics.toArgb",
+    );
     imports.add(features.uses_adaptive_tabs, "androidx.compose.ui.Modifier");
     imports.add(
         features.uses_adaptive_tabs,
@@ -217,6 +229,7 @@ pub(crate) fn render_app_bottom_bar(
         out.line_at(depth, format_args!(")"));
     }
     let content_depth = depth + usize::from(tint.is_some());
+    let has_grouped_surface_tab = tabs.iter().any(|tab| tab_contains_form(&tab.children));
     if let Some(tint) = tint {
         let tint = crate::generator::colors::expression_for_color(tint);
         out.line_at(
@@ -280,12 +293,58 @@ pub(crate) fn render_app_bottom_bar(
                 kotlin_string(&format!("nexa-tab-{}", tab.index))
             ),
         );
+        if has_grouped_surface_tab {
+            let tab_status_color = if tab_contains_form(&tab.children) {
+                "(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)"
+            } else {
+                "MaterialTheme.colorScheme.background"
+            };
+            out.line_at(
+                content_depth + 3,
+                format_args!("val nexaTabBackdropView{} = LocalView.current", tab.index),
+            );
+            out.line_at(
+                content_depth + 3,
+                format_args!(
+                    "val nexaTabBackdropColor{} = {tab_status_color}.toArgb()",
+                    tab.index
+                ),
+            );
+            out.line_at(content_depth + 3, format_args!("SideEffect {{"));
+            out.line_at(
+                content_depth + 4,
+                format_args!(
+                    "var nexaTabBackdropContext{}: android.content.Context = nexaTabBackdropView{}.context",
+                    tab.index, tab.index
+                ),
+            );
+            out.line_at(
+                content_depth + 4,
+                format_args!(
+                    "while (nexaTabBackdropContext{} is android.content.ContextWrapper && nexaTabBackdropContext{} !is android.app.Activity) nexaTabBackdropContext{} = nexaTabBackdropContext{}.baseContext",
+                    tab.index, tab.index, tab.index, tab.index
+                ),
+            );
+            out.line_at(
+                content_depth + 4,
+                format_args!(
+                    "(nexaTabBackdropContext{} as? android.app.Activity)?.window?.decorView?.setBackgroundColor(nexaTabBackdropColor{})",
+                    tab.index, tab.index
+                ),
+            );
+            out.line_at(content_depth + 3, format_args!("}}"));
+        }
         let toolbars = tab_toolbars(&tab.children);
         if tab.navigation_title.is_some() || tab.search_state.is_some() || !toolbars.is_empty() {
             let content_modifier = if tab_contains_form(&tab.children) {
-                "Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)"
+                "Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)"
             } else {
                 "Modifier.fillMaxSize()"
+            };
+            let title_bottom_padding = if tab.large_title && tab.navigation_title.is_some() {
+                28
+            } else {
+                8
             };
             out.line_at(
                 content_depth + 3,
@@ -294,7 +353,7 @@ pub(crate) fn render_app_bottom_bar(
             if tab.navigation_title.is_some() || !toolbars.is_empty() {
                 out.line_at(
                     content_depth + 4,
-                    format_args!("Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {{"),
+                    format_args!("Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = {title_bottom_padding}.dp), verticalAlignment = Alignment.CenterVertically) {{"),
                 );
                 if toolbars
                     .iter()
@@ -614,6 +673,7 @@ mod tests {
         assert!(output.contains(
             "style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)"
         ));
+        assert!(output.contains("bottom = 28.dp"));
         assert!(output.contains("Column(modifier = Modifier.fillMaxSize()) {"));
     }
 
@@ -649,7 +709,10 @@ mod tests {
         );
 
         assert!(output.contains(
-            "Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)) {"
+            "Column(modifier = Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)) {"
+        ));
+        assert!(output.contains(
+            "val nexaTabBackdropColor3 = (if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant).toArgb()"
         ));
     }
 

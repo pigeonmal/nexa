@@ -64,8 +64,12 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         "androidx.compose.ui.platform.LocalContext",
     );
     imports.add(
-        features.uses_navigation_link || features.uses_navigation_back,
+        features.uses_navigation_back,
         "androidx.compose.material3.TextButton",
+    );
+    imports.add(
+        features.uses_navigation_link,
+        "androidx.compose.foundation.clickable",
     );
     imports.add(
         features.uses_navigation_back,
@@ -110,19 +114,17 @@ pub(crate) fn render_link(
         render_children(children, scope.module, scope.features, depth, out);
         return;
     }
-    out.line_at(
-        depth,
-        format_args!(
-            "TextButton(onClick = {{ navController.navigate({}) }}{}) {{",
-            route_value(scope.module, destination, arguments),
-            guard.map_or(String::new(), |guard| {
-                format!(
-                    ", enabled = {}",
-                    crate::generator::engine::expressions::expression(guard)
-                )
-            })
-        ),
+    let route = route_value(scope.module, destination, arguments);
+    let click_handler = guard.map_or_else(
+        || format!("Modifier.clickable {{ navController.navigate({route}) }}"),
+        |guard| {
+            format!(
+                "Modifier.clickable(enabled = {}, onClick = {{ navController.navigate({route}) }})",
+                crate::generator::engine::expressions::expression(guard)
+            )
+        },
     );
+    out.line_at(depth, format_args!("Box(modifier = {click_handler}) {{"));
     render_children(children, scope.module, scope.features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
@@ -246,7 +248,10 @@ pub(crate) fn render_navigation_stack(
                 themed_content_depth + 3,
                 format_args!("title = {{ Text({}) }},", kotlin_string(&screen.name)),
             );
-            out.line_at(themed_content_depth + 3, format_args!("navigationIcon = {{"));
+            out.line_at(
+                themed_content_depth + 3,
+                format_args!("navigationIcon = {{"),
+            );
             out.line_at(
                 themed_content_depth + 4,
                 format_args!("IconButton(onClick = {{ navController.popBackStack() }}) {{"),
@@ -259,7 +264,10 @@ pub(crate) fn render_navigation_stack(
             out.line_at(themed_content_depth + 3, format_args!("}},"));
             out.line_at(themed_content_depth + 2, format_args!(")"));
             out.line_at(themed_content_depth + 1, format_args!("}},"));
-            out.line_at(themed_content_depth + 1, format_args!("content = {{ innerPadding ->"));
+            out.line_at(
+                themed_content_depth + 1,
+                format_args!("content = {{ innerPadding ->"),
+            );
             out.line_at(
                 themed_content_depth + 2,
                 format_args!("Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {{"),

@@ -48,6 +48,9 @@ measurable costs; do not turn stylistic preferences into findings.
   string or swallow a failure.
 - Verify feature-gated imports, frameworks, and resources. A capability absent from optimized IR
   must not add native dependencies or runtime code.
+- Treat Android parity as the default for every shared component change: compare the same `.nx` and
+  IR path in Compose, then align SwiftUI colors, metrics, spacing, sizing, and interaction behavior.
+  Record any platform-only behavior as an intentional exception with a specific native reason.
 
 ## Performance evidence
 

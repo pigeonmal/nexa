@@ -43,7 +43,7 @@ fn project_features_from_analysis(
         uses_network: features.uses_network_transport(),
         uses_network_connectivity: features.uses_network_connectivity,
         uses_remote_image: features.uses_remote_image,
-        uses_system_icons: !features.facts.ui.system_icons.is_empty(),
+        uses_system_icons: !features.facts.ui.system_icons.is_empty() || features.uses_picker,
         uses_coroutines: features.uses_network_transport()
             || features.uses_file_async
             || features.uses_permission_request

@@ -26,6 +26,14 @@ nexa check            # type-checks both targets and reports grammar and type er
 `nexa check` is the arbiter. If it passes, the syntax is real; if it fails, the error names the
 exact option or value that is wrong. Never claim a construct works without having run it.
 
+## Cross-platform parity is implicit
+
+Treat every shared `.nx` feature and component as an iOS/Android feature by default. Its behavior,
+colors, typography, spacing, sizing, alignment, and interaction affordances should match across
+both generated apps without the user having to ask. Preview or inspect both targets when changing
+UI. Use `platform ios` / `platform android` only for a deliberate, requested difference or a real
+native constraint, and keep that branch limited to the difference.
+
 ## Reading order
 
 | Need | Read |

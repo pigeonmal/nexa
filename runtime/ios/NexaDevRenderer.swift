@@ -605,6 +605,7 @@ struct NexaDevNodeList: View {
     var focusedField: FocusState<String?>.Binding
     var parameters: [String: Any] = [:]
     var stateScope: String = "app"
+    var rendersFormRows = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.nexaSharedNamespace) private var nexaSharedNamespace
     @Environment(\.nexaDevContentSlot) private var contentSlot
@@ -614,6 +615,10 @@ struct NexaDevNodeList: View {
         let locals = store.locals(scope: stateScope, parameters: parameters)
         if nodes.isEmpty {
             EmptyView()
+        } else if rendersFormRows {
+            ForEach(nodes.indices, id: \.self) { index in
+                renderNode(nodes[index], locals: locals, scope: stateScope)
+            }
         } else if nodes.count == 1 {
             renderNode(nodes[0], locals: locals, scope: stateScope)
         } else {
@@ -646,12 +651,12 @@ struct NexaDevNodeList: View {
         case "Form":
             let children = fields["children"] as? [Any] ?? []
             return AnyView(Form {
-                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
+                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true)
             })
         case "FormSection":
             let children = fields["children"] as? [Any] ?? []
             let section = Section {
-                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
+                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true)
             } header: {
                 if let rawTitle = fields["title"], !(rawTitle is NSNull) {
                     Text(store.stringify(store.evaluate(rawTitle, locals: locals, scope: scope)))
@@ -991,7 +996,7 @@ struct NexaDevNodeList: View {
             if shapeFields["Circle"] != nil { shape = .circle }
             else if let radius = shapeFields["Rounded"] as? Double { shape = .rounded(radius) }
             else { shape = .capsule }
-            if fields["shape"] != nil { button = AnyView(button.nexaDevButtonShape(shape)) }
+            button = AnyView(button.nexaDevButtonShape(shape))
             let tint: Color? = {
                 guard let tintValue = fields["tint"] as? [String: Any] else { return nil }
                 if let dynamic = tintValue["Dynamic"] {

@@ -418,29 +418,40 @@ internal fun NexaDevNode(
             }
         }
         "FormSection" -> {
-            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Column(
+                Modifier.fillMaxWidth().padding(
+                    start = 24.dp,
+                    top = 8.dp,
+                    end = 24.dp,
+                    bottom = 24.dp,
+                ),
+            ) {
                 if (!fields.isNull("title")) {
                     Text(
                         store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope)),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(vertical = 8.dp),
                         style = MaterialTheme.typography.titleSmall,
                     )
                 }
                 val children = fields.optJSONArray("children") ?: JSONArray()
                 Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
                     color = if (MaterialTheme.colorScheme.background == Color.Black) {
                         MaterialTheme.colorScheme.surfaceVariant
                     } else {
                         MaterialTheme.colorScheme.surface
                     },
+                    contentColor = MaterialTheme.colorScheme.onSurface,
                 ) {
                     Column {
                         for (index in 0 until children.length()) {
                             androidx.compose.runtime.key(index) {
                                 Box(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                        .heightIn(min = 44.dp)
+                                        .padding(horizontal = 16.dp),
+                                    contentAlignment = Alignment.CenterStart,
                                 ) {
                                     NexaDevNode(
                                         nexaDevNodeObject(children.opt(index)),
@@ -452,7 +463,7 @@ internal fun NexaDevNode(
                                 }
                                 if (index + 1 < children.length()) {
                                     HorizontalDivider(
-                                        modifier = Modifier.padding(start = 16.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp),
                                         thickness = 0.5.dp,
                                         color = MaterialTheme.colorScheme.outlineVariant,
                                     )
@@ -464,7 +475,7 @@ internal fun NexaDevNode(
                 if (!fields.isNull("footer")) {
                     Text(
                         store.stringify(store.evaluatePresented(fields.opt("footer"), locals, scope)),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(vertical = 8.dp),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -854,8 +865,14 @@ internal fun NexaDevNode(
                     CircularProgressIndicator()
                 } else {
                     if (icon != null) Icon(imageVector = icon, contentDescription = null)
+                    if (icon != null && label.isNotEmpty()) Spacer(Modifier.width(8.dp))
                     Text(
                         label,
+                        color = if (style == "Plain" || style == "Borderless") {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            Color.Unspecified
+                        },
                         fontSize = nexaDevDefaultBodyFontSize.sp,
                         fontWeight = FontWeight.Normal,
                         lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier,
@@ -876,7 +893,7 @@ internal fun NexaDevNode(
                     colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                         contentColor = tint ?: Color.Unspecified,
                     ),
-                    contentPadding = contentPadding ?: androidx.compose.material3.ButtonDefaults.TextButtonContentPadding,
+                    contentPadding = contentPadding ?: PaddingValues(0.dp),
                     content = buttonContent,
                 )
                 "Bordered" -> OutlinedButton(
@@ -1491,54 +1508,64 @@ internal fun NexaDevNode(
                     Text(label)
                     Spacer(Modifier.weight(1f))
                 }
-                androidx.compose.material3.TextButton(onClick = { expanded.value = true }) {
+                Box {
                     val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
-                    if (iconSelection.has("shared") || iconSelection.has("sf_symbol")) {
+                    val pickerIcon = if (iconSelection.has("shared") || iconSelection.has("sf_symbol")) {
                         val iconName = if (iconSelection.has("shared")) {
                             iconSelection.optString("shared")
                         } else {
                             iconSelection.optString("sf_symbol")
                         }
-                        val icon = if (iconSelection.has("shared")) {
+                        if (iconSelection.has("shared")) {
                             nexaDevSharedMaterialIcon(iconName)
                         } else {
                             nexaDevSfAliasMaterialIcon(iconName) ?: Icons.Filled.Star
                         }
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = selected,
-                            tint = tint ?: MaterialTheme.colorScheme.onSurface,
-                        )
                     } else {
-                        Text(selected, color = tint ?: MaterialTheme.colorScheme.primary)
+                        null
                     }
-                }
-            }
-            if (expanded.value) {
-                AlertDialog(
-                    onDismissRequest = { expanded.value = false },
-                    title = { Text(label ?: "Select an option") },
-                    text = {
-                        Column {
+                    Row(
+                        modifier = Modifier.clickable { expanded.value = true }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (pickerIcon != null) {
+                            Icon(
+                                imageVector = pickerIcon,
+                                contentDescription = selected,
+                                tint = tint ?: MaterialTheme.colorScheme.onSurface,
+                            )
+                        } else {
+                            Text(selected, color = tint ?: MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Filled.UnfoldMore,
+                                contentDescription = null,
+                                tint = tint ?: MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = expanded.value,
+                        onDismissRequest = { expanded.value = false },
+                    ) {
                         options.forEach { item ->
-                            TextButton(
-                                modifier = Modifier.fillMaxWidth(),
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        item,
+                                        color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurface,
+                                    )
+                                },
                                 onClick = {
                                     store.setState(state, item, scope)
                                     expanded.value = false
                                 },
-                            ) {
-                                Text(
-                                    item,
-                                    color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
+                            )
                         }
-                        }
-                    },
-                    confirmButton = {},
-                )
+                    }
+                }
             }
         }
         "DatePicker" -> {
@@ -1913,11 +1940,18 @@ internal fun NexaDevNode(
                             RenderChildren(children, module, store, locals, scope)
                         } else {
                             val contentModifier = if (nexaDevContainsForm(children)) {
-                                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)
+                                Modifier.fillMaxSize().background(
+                                    if (MaterialTheme.colorScheme.background == Color.Black) {
+                                        MaterialTheme.colorScheme.background
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    },
+                                )
                             } else {
                                 Modifier.fillMaxSize()
                             }
                             Column(contentModifier) {
+                                val titleBottomPadding = if (activeTab.optBoolean("large_title")) 28.dp else 8.dp
                                 val titleStyle = if (activeTab.optBoolean("large_title")) {
                                     MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)
                                 } else {
@@ -1925,7 +1959,12 @@ internal fun NexaDevNode(
                                 }
                                 Text(
                                     title,
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(
+                                        start = 16.dp,
+                                        top = 8.dp,
+                                        end = 16.dp,
+                                        bottom = titleBottomPadding,
+                                    ),
                                     style = titleStyle,
                                 )
                                 RenderChildren(children, module, store, locals, scope)
@@ -2095,7 +2134,9 @@ internal fun NexaDevNode(
             } else {
                 val controller = LocalNexaDevNavController.current
                 val route = store.encodeScreenRoute(destination, fields.optJSONArray("arguments") ?: JSONArray(), locals, scope)
-                androidx.compose.material3.TextButton(onClick = { controller?.navigate(route) }) {
+                Box(
+                    Modifier.clickable(enabled = enabled) { controller?.navigate(route) },
+                ) {
                     RenderChildren(children, module, store, locals, scope)
                 }
             }

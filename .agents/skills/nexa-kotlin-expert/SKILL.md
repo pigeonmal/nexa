@@ -47,6 +47,9 @@ measurable costs; do not turn stylistic preferences into findings.
   app-facing boundaries, no broad `Any` containers where the `.nxid` contract has a static type.
 - Verify feature-gated Gradle dependencies, resources, and runtime helpers. A capability absent
   from optimized IR must not add a dependency to the generated app.
+- Treat iOS parity as the default for every shared component change: compare the same `.nx` and IR
+  path in SwiftUI, then align Compose colors, metrics, spacing, sizing, and interaction behavior.
+  Record any platform-only behavior as an intentional exception with a specific native reason.
 
 ## Compose phase and measurement
 

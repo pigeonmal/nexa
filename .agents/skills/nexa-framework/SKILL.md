@@ -57,6 +57,14 @@ CI runs these gates in the `docs` job.
 - **Deterministic scaffolding.** CLI templates and generated projects must be idempotent: the same
   input produces byte-identical output.
 
+## Cross-platform parity is the default
+
+Every new or changed shared feature and component must have matching behavior and visual defaults
+on iOS and Android without the app author having to request parity. Use shared design tokens and
+layout values, then compare the SwiftUI and Compose output (and both DevRuntime hosts when they
+render the feature). Add a platform-specific variation only when the app author explicitly asks
+for it or a native constraint requires it; document that difference and keep its effect narrow.
+
 ## Framework boundaries
 
 - Core must serve arbitrary apps. No product-specific models, labels, storage rules, or workflow

@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Expr, Module, Node};
+use nexa_ir::{Module, Node};
 
 use crate::generator::features::Features;
 use crate::generator::{components::render_children, utils::indent};
@@ -10,10 +10,6 @@ pub(crate) fn render_bottom_sheet(
     state: &str,
     partial: bool,
     large_only: bool,
-    _title: Option<&Expr>,
-    children: &[Node],
-    module: &Module,
-    features: &Features,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -40,10 +36,6 @@ pub(crate) fn render_bottom_sheet(
         out.push_str(&format!(
             ".presentationDetents({detents}).presentationDragIndicator(.visible)"
         ));
-    } else {
-        out.line_at(depth + 1, format_args!("AnyView(Group {{"));
-        render_children(children, module, features, depth + 2, out);
-        out.line_at(depth + 1, format_args!("}})"));
     }
     out.push('\n');
     indent(out, depth);
@@ -115,4 +107,38 @@ fn bottom_sheet_content_name(state: &str) -> String {
         "nexa_bottom_sheet_{}",
         state_name(state).trim_start_matches("nexa_")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bottom_sheet_content_name, render_bottom_sheet};
+    use nexa_codegen::SourceWriter;
+
+    #[test]
+    fn full_screen_sheet_uses_its_typed_content_helper_once() {
+        let mut output = SourceWriter::new();
+
+        render_bottom_sheet("editorVisible", false, false, 0, &mut output);
+
+        assert_eq!(
+            output
+                .as_str()
+                .matches(&format!("{}()", bottom_sheet_content_name("editorVisible")))
+                .count(),
+            1
+        );
+        assert!(output.contains(".fullScreenCover(isPresented:"));
+        assert!(!output.contains("AnyView"));
+    }
+
+    #[test]
+    fn partial_sheet_keeps_its_native_detents_and_typed_content() {
+        let mut output = SourceWriter::new();
+
+        render_bottom_sheet("editorVisible", true, false, 0, &mut output);
+
+        assert!(output.contains(".sheet(isPresented:"));
+        assert!(output.contains(".presentationDetents([.medium, .large])"));
+        assert!(!output.contains("AnyView"));
+    }
 }

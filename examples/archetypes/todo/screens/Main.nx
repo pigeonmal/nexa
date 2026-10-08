@@ -471,7 +471,7 @@ screen Main {
                             Section {
                                 Picker(items: TodoOptions.startPageOptions, selected: startPageSelection, icon: "star", label: "Start Page")
                                 NavigationLink(destination: Theme) {
-                                    Row(spacing: 16) {
+                                    Row(spacing: 8) {
                                         Icon(system: "palette", size: 20, tint: themeTint(selectedTheme), description: "")
                                         Text("Theme")
                                         Spacer()

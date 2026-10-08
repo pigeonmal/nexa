@@ -181,6 +181,7 @@ fn render_button_modifiers(
     glass: bool,
     out: &mut SourceWriter,
 ) {
+    let resolved_shape = shape.unwrap_or(nexa_codegen::design_system::DEFAULT_BUTTON_SHAPE);
     let bordered = matches!(style, Some(nexa_ir::ButtonStyle::Bordered));
     let min_height = if matches!(size, Some(nexa_ir::ButtonSize::Large)) {
         nexa_codegen::design_system::BUTTON_LARGE_MIN_HEIGHT
@@ -192,12 +193,12 @@ fn render_button_modifiers(
             || nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR.to_owned(),
             crate::generator::colors::expression_for_color,
         );
-        let shape_kind = match shape {
-            Some(nexa_ir::ButtonShape::Circle) => ".circle".to_owned(),
-            Some(nexa_ir::ButtonShape::Rounded(radius)) => {
+        let shape_kind = match resolved_shape {
+            nexa_ir::ButtonShape::Circle => ".circle".to_owned(),
+            nexa_ir::ButtonShape::Rounded(radius) => {
                 format!(".roundedRectangle({radius})")
             }
-            Some(nexa_ir::ButtonShape::Capsule) | None => ".capsule".to_owned(),
+            nexa_ir::ButtonShape::Capsule => ".capsule".to_owned(),
         };
         let (horizontal, vertical) = match size {
             Some(nexa_ir::ButtonSize::Small) => (
@@ -241,13 +242,11 @@ fn render_button_modifiers(
                 nexa_ir::ButtonSize::Large => out.push_str(".controlSize(.large)"),
             }
         }
-        if let Some(shape) = shape {
-            match shape {
-                nexa_ir::ButtonShape::Capsule => out.push_str(".nexaButtonShape(.capsule)"),
-                nexa_ir::ButtonShape::Circle => out.push_str(".nexaButtonShape(.circle)"),
-                nexa_ir::ButtonShape::Rounded(r) => {
-                    out.push_str(&format!(".nexaButtonShape(.roundedRectangle({}))", r));
-                }
+        match resolved_shape {
+            nexa_ir::ButtonShape::Capsule => out.push_str(".nexaButtonShape(.capsule)"),
+            nexa_ir::ButtonShape::Circle => out.push_str(".nexaButtonShape(.circle)"),
+            nexa_ir::ButtonShape::Rounded(r) => {
+                out.push_str(&format!(".nexaButtonShape(.roundedRectangle({}))", r));
             }
         }
         if let Some(tint) = tint {
@@ -262,10 +261,10 @@ fn render_button_modifiers(
         }
     }
     if glass {
-        let shape_str = match shape {
-            Some(nexa_ir::ButtonShape::Circle) => ".circle",
-            Some(nexa_ir::ButtonShape::Rounded(r)) => &format!(".rounded({})", r),
-            _ => ".capsule",
+        let shape_str = match resolved_shape {
+            nexa_ir::ButtonShape::Circle => ".circle",
+            nexa_ir::ButtonShape::Rounded(r) => &format!(".rounded({})", r),
+            nexa_ir::ButtonShape::Capsule => ".capsule",
         };
         if let Some(tint) = tint {
             out.push_str(&format!(
@@ -1220,7 +1219,7 @@ mod tests {
         assert!(output.contains("Button(\"Skip\", action: {})"));
         assert!(output.contains(".font(.system(size: 17))"));
         assert!(output.contains(
-            ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).tint(Color(uiColor: .systemBlue))"
+            ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).nexaButtonShape(.capsule).tint(Color(uiColor: .systemBlue))"
         ));
     }
 

@@ -23,6 +23,15 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v208` | Uses one shared icon-to-label gap for Android pickers and buttons, matching the Todo settings rows. |
+| `build-v207` | Aligns Android grouped Form surfaces, section spacing, navigation links, and plain button colors and insets with iOS defaults. |
+| `build-v206` | Removes Android Material button sizing that added a trailing inset to default pickers. |
+| `build-v205` | Matches Android Form row minimum height and trailing picker inset to the native iOS Form defaults. |
+| `build-v204` | Matches Android large-title bottom spacing to the native iOS navigation title before Form content. |
+| `build-v203` | Replaces the Android Picker modal with an anchored dropdown. |
+| `build-v202` | Adds the iOS-style double-chevron selection indicator to default Android pickers. |
+| `build-v201` | Matches Android's default `FormSection` corner radius to the grouped iOS form appearance. |
+| `build-v200` | Keeps Android edge-to-edge status-bar backdrop aligned with the active bottom-bar tab surface, including grouped `Form` tabs. |
 | `build-v199` | Extends Android tab backgrounds through navigation titles when their content uses a grouped `Form` surface, in both AOT and DevRuntime. |
 | `build-v198` | Aligns Android sheet titles and conditional toolbars with SwiftUI, keeps the sheet surface visible behind the toolbar, and lets row text fields leave room for trailing controls. |
 | `build-v192` | Attaches Swift alerts to a live anchor and emits confirmation actions directly with native dialog styling. |

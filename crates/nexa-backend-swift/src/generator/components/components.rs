@@ -392,19 +392,8 @@ pub(crate) fn render_node(
             state,
             partial,
             large_only,
-            title,
-            children,
-        } => sheets::render_bottom_sheet(
-            state,
-            *partial,
-            *large_only,
-            title.as_ref(),
-            children,
-            module,
-            features,
-            depth,
-            out,
-        ),
+            ..
+        } => sheets::render_bottom_sheet(state, *partial, *large_only, depth, out),
         Node::Dialog {
             state,
             title,

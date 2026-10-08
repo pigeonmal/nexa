@@ -109,6 +109,14 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_button,
+        "androidx.compose.foundation.layout.Spacer",
+    );
+    imports.add(
+        features.uses_button,
+        "androidx.compose.foundation.layout.width",
+    );
+    imports.add(
+        features.uses_button,
         "androidx.compose.foundation.layout.size",
     );
     imports.add(features.uses_button, "androidx.compose.ui.Modifier");
@@ -157,11 +165,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_picker,
-        "androidx.compose.foundation.layout.Column",
-    );
-    imports.add(
-        features.uses_picker,
-        "androidx.compose.foundation.layout.fillMaxWidth",
+        "androidx.compose.foundation.layout.Box",
     );
     imports.add(
         features.uses_picker,
@@ -173,19 +177,31 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_picker,
+        "androidx.compose.foundation.layout.padding",
+    );
+    imports.add(
+        features.uses_picker,
         "androidx.compose.foundation.layout.size",
     );
     imports.add(features.uses_picker, "androidx.compose.ui.Alignment");
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.foundation.clickable",
+    );
     imports.add(features.uses_picker, "androidx.compose.ui.Modifier");
     imports.add(features.uses_picker, "androidx.compose.ui.unit.dp");
     imports.add(features.uses_picker, "androidx.compose.ui.graphics.Color");
     imports.add(
         features.uses_picker,
-        "androidx.compose.material3.AlertDialog",
+        "androidx.compose.material3.DropdownMenu",
     );
     imports.add(
         features.uses_picker,
-        "androidx.compose.material3.TextButton",
+        "androidx.compose.material3.DropdownMenuItem",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.material.icons.filled.UnfoldMore",
     );
     imports.add(
         features.uses_picker,
@@ -363,7 +379,7 @@ pub(crate) fn render_button(
         out.push_str("CircularProgressIndicator()\n");
         indent(out, depth + 1);
         out.push_str("} else {\n");
-        render_button_content(label, icon, depth + 2, out);
+        render_button_content(label, icon, style, depth + 2, out);
         indent(out, depth + 1);
         out.push('}');
         out.push('\n');
@@ -392,7 +408,7 @@ pub(crate) fn render_button(
     }
     append_button_options(style, size, shape, tint, icon_only_circle, out);
     out.push_str(") {\n");
-    render_button_content(label, icon, depth + 1, out);
+    render_button_content(label, icon, style, depth + 1, out);
     indent(out, depth);
     out.push('}');
 }
@@ -430,6 +446,7 @@ fn append_button_options(
     icon_only_circle: bool,
     out: &mut SourceWriter,
 ) {
+    let shape = shape.unwrap_or(nexa_codegen::design_system::DEFAULT_BUTTON_SHAPE);
     if let Some(tint) = tint {
         let color = crate::generator::colors::expression_for_color(tint);
         match style {
@@ -450,30 +467,22 @@ fn append_button_options(
             }
         }
     }
-    if let Some(shape) = shape {
-        let expression = match shape {
-            nexa_ir::ButtonShape::Capsule => {
-                "androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)".to_owned()
-            }
-            nexa_ir::ButtonShape::Circle => {
-                "androidx.compose.foundation.shape.CircleShape".to_owned()
-            }
-            nexa_ir::ButtonShape::Rounded(radius) => format!(
-                "androidx.compose.foundation.shape.RoundedCornerShape({}.dp)",
-                crate::generator::utils::number(radius)
-            ),
-        };
-        out.push_str(&format!(", shape = {expression}"));
-    } else {
-        out.push_str(
-            ", shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)",
-        );
-    }
+    let expression = match shape {
+        nexa_ir::ButtonShape::Capsule => {
+            "androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)".to_owned()
+        }
+        nexa_ir::ButtonShape::Circle => "androidx.compose.foundation.shape.CircleShape".to_owned(),
+        nexa_ir::ButtonShape::Rounded(radius) => format!(
+            "androidx.compose.foundation.shape.RoundedCornerShape({}.dp)",
+            crate::generator::utils::number(radius)
+        ),
+    };
+    out.push_str(&format!(", shape = {expression}"));
     let borderless = matches!(
         style,
         Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
     );
-    let padding = if icon_only_circle {
+    let padding = if icon_only_circle || borderless {
         Some((0, 0))
     } else {
         match size {
@@ -481,7 +490,6 @@ fn append_button_options(
                 nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING,
                 nexa_codegen::design_system::BUTTON_SMALL_VERTICAL_PADDING,
             )),
-            Some(nexa_ir::ButtonSize::Regular) if borderless => Some((0, 0)),
             Some(nexa_ir::ButtonSize::Regular) | None => Some((8, 8)),
             Some(nexa_ir::ButtonSize::Large) => Some((
                 nexa_codegen::design_system::BUTTON_LARGE_HORIZONTAL_PADDING,
@@ -503,6 +511,7 @@ fn append_button_options(
 fn render_button_content(
     label: &Expr,
     icon: Option<&SystemIcon>,
+    style: Option<nexa_ir::ButtonStyle>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -514,12 +523,30 @@ fn render_button_content(
                 icon.material_reference()
             ),
         );
+        if !is_empty_button_label(label) {
+            out.line_at(
+                depth,
+                format_args!(
+                    "Spacer(Modifier.width({}.dp))",
+                    nexa_codegen::design_system::ICON_LABEL_SPACING
+                ),
+            );
+        }
     }
+    let text_color = if matches!(
+        style,
+        Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
+    ) {
+        ", color = MaterialTheme.colorScheme.onSurface"
+    } else {
+        ""
+    };
     out.line_at(
         depth,
         format_args!(
-            "Text({}, fontSize = {}.sp, fontWeight = FontWeight.Normal, lineHeight = {}.sp * {}f, letterSpacing = 0.sp, maxLines = 1, softWrap = false)",
+            "Text({}{}, fontSize = {}.sp, fontWeight = FontWeight.Normal, lineHeight = {}.sp * {}f, letterSpacing = 0.sp, maxLines = 1, softWrap = false)",
             expression(label),
+            text_color,
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
             nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER,
@@ -955,8 +982,7 @@ pub(crate) fn render_date_picker(
 }
 
 pub(crate) fn render_picker_helper(out: &mut SourceWriter) {
-    out.push_str(
-        r#"@Composable
+    let helper = r#"@Composable
 internal fun nexaPickerMenu(
     items: List<String>,
     selected: String,
@@ -974,60 +1000,69 @@ internal fun nexaPickerMenu(
                 tint = tint ?: MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp),
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(__NEXA_ICON_LABEL_SPACING__.dp))
         }
         if (label != null) {
             Text(label, modifier = Modifier.weight(1f))
         }
-        TextButton(onClick = { expanded.value = true }) {
-            if (icon != null && label == null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = selected,
-                    tint = tint ?: MaterialTheme.colorScheme.onSurface,
-                )
-            } else {
-                Text(
-                    selected,
-                    color = tint ?: MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    softWrap = false,
-                )
+        Box {
+            Row(
+                modifier = Modifier.clickable { expanded.value = true }.padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (icon != null && label == null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = selected,
+                        tint = tint ?: MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    Text(
+                        selected,
+                        color = tint ?: MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.UnfoldMore,
+                        contentDescription = null,
+                        tint = tint ?: MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
-        }
-    }
-    if (expanded.value) {
-        AlertDialog(
-            onDismissRequest = { expanded.value = false },
-            title = { Text(label ?: "Select an option") },
-            text = {
-                Column {
+            DropdownMenu(
+                expanded = expanded.value,
+                onDismissRequest = { expanded.value = false },
+            ) {
                 items.forEach { item ->
-                    TextButton(
-                        modifier = Modifier.fillMaxWidth(),
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                item,
+                                color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        },
                         onClick = {
                             onSelectionChanged(item)
                             expanded.value = false
                         },
-                    ) {
-                        Text(
-                            item,
-                            color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                    }
+                    )
                 }
-                }
-            },
-            confirmButton = {},
-        )
+            }
+        }
     }
 }
 
-"#,
-    );
+"#;
+    out.push_str(&helper.replace(
+        "__NEXA_ICON_LABEL_SPACING__",
+        &nexa_codegen::design_system::ICON_LABEL_SPACING.to_string(),
+    ));
 }
 
 pub(crate) fn render_pressable(
@@ -1815,23 +1850,25 @@ mod tests {
         render_picker_helper(&mut output);
 
         assert!(output.contains("if (label != null && icon != null)"));
-        assert!(output.contains("Spacer(Modifier.width(12.dp))"));
+        assert!(output.contains("Spacer(Modifier.width(8.dp))"));
         assert!(output.contains("Text(label, modifier = Modifier.weight(1f))"));
-        assert!(output.contains(
-            "color = tint ?: MaterialTheme.colorScheme.primary,\n                    maxLines = 1"
-        ));
-        assert!(output.contains("AlertDialog("));
-        assert!(output.contains("if (item == selected) tint ?: MaterialTheme.colorScheme.primary"));
         assert!(
-            output.contains(
-                "contentDescription = selected,\n                    tint = tint ?: MaterialTheme.colorScheme.onSurface"
-            )
+            output
+                .contains("Modifier.clickable { expanded.value = true }.padding(vertical = 10.dp)")
         );
-        assert!(!output.contains("DropdownMenu("));
+        assert!(!output.contains("TextButton("));
+        assert!(output.contains("imageVector = Icons.Filled.UnfoldMore"));
+        assert!(output.contains("maxLines = 1"));
+        assert!(output.contains("DropdownMenu("));
+        assert!(output.contains("DropdownMenuItem("));
+        assert!(output.contains("if (item == selected) tint ?: MaterialTheme.colorScheme.primary"));
+        assert!(output.contains("contentDescription = selected"));
+        assert!(output.contains("tint = tint ?: MaterialTheme.colorScheme.onSurface"));
+        assert!(!output.contains("AlertDialog("));
     }
 
     #[test]
-    fn picker_renders_dynamic_tint_and_a_sheet_preserving_choice_dialog() {
+    fn picker_renders_dynamic_tint_and_an_anchored_dropdown() {
         let items = Expr::Array(vec![Expr::String("None".to_owned())]);
         let tint = nexa_ir::ColorExpression::Dynamic(Expr::State(
             "priorityTint".to_owned(),
@@ -1877,11 +1914,9 @@ mod tests {
             "TextButton(\n    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 50.dp),\n    onClick = { }"
         ));
         assert!(output.contains(
-            "Text(\"Skip\", fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp, maxLines = 1, softWrap = false)"
+            "Text(\"Skip\", color = MaterialTheme.colorScheme.onSurface, fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp, maxLines = 1, softWrap = false)"
         ));
-        assert!(
-            output.contains("contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)")
-        );
+        assert!(output.contains("contentPadding = PaddingValues(0.dp)"));
         assert!(output.contains(
             "shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
         ));
@@ -1911,6 +1946,9 @@ mod tests {
         assert!(
             output.contains("contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)")
         );
+        assert!(output.contains(
+            "shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
+        ));
         assert!(output.contains("maxLines = 1, softWrap = false"));
     }
 

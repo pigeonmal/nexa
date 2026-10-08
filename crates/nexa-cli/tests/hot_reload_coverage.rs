@@ -1060,3 +1060,16 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
         );
     }
 }
+
+#[test]
+fn development_button_shape_defaults_match_on_both_platforms() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+
+    assert!(swift.contains("button = AnyView(button.nexaDevButtonShape(shape))"));
+    assert!(!swift.contains("if fields[\"shape\"] != nil"));
+    assert!(kotlin.contains("shape = buttonShape ?: RoundedCornerShape(percent = 50)"));
+}

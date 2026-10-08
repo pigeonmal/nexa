@@ -574,7 +574,7 @@ fn generate_with_analysis_mode(
     if features.facts.ui.button.bordered {
         preamble.push_str(NEXA_BORDERED_BUTTON_HELPER);
     }
-    if features.facts.ui.button.custom_shape {
+    if features.facts.ui.button.present {
         preamble.push_str(NEXA_BUTTON_SHAPE_HELPER);
     }
     if features.facts.ui.style.glass || features.facts.ui.button.glass {

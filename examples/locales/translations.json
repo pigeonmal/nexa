@@ -2,16 +2,24 @@
   "format": 1,
   "sourceLanguage": "en",
   "strings": {
-    "Conditional content enters from the bottom.": {
-      "source": "Conditional content enters from the bottom.",
+    "Haptics": {
+      "source": "Haptics",
       "translations": {}
     },
-    "The layout expands with a configured spring.": {
-      "source": "The layout expands with a configured spring.",
+    "Heavy impact": {
+      "source": "Heavy impact",
       "translations": {}
     },
-    "Toggle details": {
-      "source": "Toggle details",
+    "Light impact": {
+      "source": "Light impact",
+      "translations": {}
+    },
+    "Selection": {
+      "source": "Selection",
+      "translations": {}
+    },
+    "Success": {
+      "source": "Success",
       "translations": {}
     }
   }
