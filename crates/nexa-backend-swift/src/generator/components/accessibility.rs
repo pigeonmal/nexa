@@ -34,6 +34,7 @@ pub(crate) fn render_accessibility(
         indent(out, depth + 1);
         let label = match label {
             Expr::String(value) => swift_string(value),
+            Expr::LocalizedText { .. } => expression(label),
             value => format!("Text({})", expression(value)),
         };
         out.push_str(&format!(".accessibilityLabel({label})"));
@@ -43,6 +44,7 @@ pub(crate) fn render_accessibility(
         indent(out, depth + 1);
         let hint = match hint {
             Expr::String(value) => swift_string(value),
+            Expr::LocalizedText { .. } => expression(hint),
             value => format!("Text({})", expression(value)),
         };
         out.push_str(&format!(".accessibilityHint({hint})"));
@@ -52,6 +54,7 @@ pub(crate) fn render_accessibility(
         indent(out, depth + 1);
         let value = match value {
             Expr::String(value) => swift_string(value),
+            Expr::LocalizedText { .. } => expression(value),
             value => format!("Text({})", expression(value)),
         };
         out.push_str(&format!(".accessibilityValue({value})"));

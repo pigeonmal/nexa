@@ -388,7 +388,7 @@ fn kotlin_dev_row_mapper(
     let error = "throw rowFailure(\"{message}\")";
     let cell_cases = kotlin_dev_row_cell_cases(cell_type);
     Ok(format!(
-        "{{ columnNames, rowFailure ->\n                val nexaRowCodec = nexaCodec{row_codec_index} as? JSONObject ?: run {{ {invalid_type} }}\n                val nexaRowType = nexaRowCodec.optJSONObject(\"ty\")?.optJSONObject(\"Struct\") ?: run {{ {invalid_type} }}\n                val nexaRawFields = nexaRowType.optJSONArray(\"fields\") ?: run {{ {invalid_fields} }}\n                val nexaExpectedFields = (0 until nexaRawFields.length()).mapNotNull {{ nexaRawFields.optJSONArray(it)?.optString(0)?.takeIf(String::isNotEmpty) }}\n                if (nexaExpectedFields.size != nexaRawFields.length()) {{ {invalid_fields} }}\n                val nexaIndexes = HashMap<String, Int>(nexaExpectedFields.size)\n                nexaExpectedFields.forEach {{ nexaField -> val nexaIndex = columnNames.indexOf(nexaField); if (nexaIndex < 0 || columnNames.lastIndexOf(nexaField) != nexaIndex) {{ {missing_column} }}; nexaIndexes[nexaField] = nexaIndex }}\n                {{ row -> val nexaValues = HashMap<String, Any>(nexaIndexes.size); nexaIndexes.forEach {{ (nexaField, nexaIndex) -> val nexaCell = row.value(nexaIndex); val nexaDynamicValue: Any = when (nexaCell) {{\n                            {cell_cases}\n                        }}; nexaValues[nexaField] = nexaDynamicValue }}; NexaDevDynamicRow(nexaValues) }}\n            }}",
+        "{{ columnNames, rowFailure ->\n                val nexaRowCodec = nexaCodec{row_codec_index} as? JSONObject ?: run {{ {invalid_type} }}\n                val nexaRowType = nexaRowCodec.optJSONObject(\"ty\")?.optJSONObject(\"Struct\") ?: run {{ {invalid_type} }}\n                val nexaRawFields = nexaRowType.optJSONArray(\"fields\") ?: run {{ {invalid_fields} }}\n                val nexaExpectedFields = (0 until nexaRawFields.length()).mapNotNull {{ nexaRawFields.optJSONArray(it)?.optString(0)?.takeIf(String::isNotEmpty) }}\n                if (nexaExpectedFields.size != nexaRawFields.length()) {{ {invalid_fields} }}\n                val nexaIndexes = HashMap<String, Int>(nexaExpectedFields.size)\n                nexaExpectedFields.forEach {{ nexaField -> val nexaIndex = columnNames.indexOf(nexaField); if (nexaIndex < 0 || columnNames.lastIndexOf(nexaField) != nexaIndex) {{ {missing_column} }}; nexaIndexes[nexaField] = nexaIndex }}\n                val nexaMapRow: (NexaRowReader<Value>) -> NexaDevDynamicRow = {{ row -> val nexaValues = HashMap<String, Any>(nexaIndexes.size); nexaIndexes.forEach {{ (nexaField, nexaIndex) -> val nexaCell = row.value(nexaIndex); val nexaDynamicValue: Any = when (nexaCell) {{\n                            {cell_cases}\n                        }}; nexaValues[nexaField] = nexaDynamicValue }}; NexaDevDynamicRow(nexaValues) }}\n                nexaMapRow\n            }}",
         invalid_type = error.replace("{message}", "Invalid hot-reload row type."),
         invalid_fields = error.replace("{message}", "Invalid hot-reload row fields."),
         missing_column = error.replace(
@@ -1885,7 +1885,7 @@ fn kotlin_encode_dev_value(
         BridgeType::Optional(inner) => {
             let local = format!("nexaEncodeOptional{depth}");
             format!(
-                "{value}?.let {{ {local} -> {} }} ?: JSONObject.NULL",
+                "({value}?.let {{ {local} -> {} }} ?: JSONObject.NULL)",
                 kotlin_encode_dev_value(plan, inner, &local, namespace, depth + 1)?
             )
         }
@@ -2535,7 +2535,7 @@ fn kotlin_error_payload_value(
         BridgeType::Optional(inner) => {
             let local = format!("nexaErrorOptional{depth}");
             format!(
-                "{value}?.let {{ {local} -> {} }} ?: JSONObject.NULL",
+                "({value}?.let {{ {local} -> {} }} ?: JSONObject.NULL)",
                 nested(inner, &local)?
             )
         }
@@ -3773,7 +3773,7 @@ mod tests {
         assert!(generated.contains("nexaReceiver.getString(nexaArg0)"));
         assert!(generated.contains("?.toInt()?.toUInt()"));
         assert!(generated.contains(
-            "result?.let { nexaEncodeOptional0 -> nexaEncodeOptional0 } ?: JSONObject.NULL"
+            "(result?.let { nexaEncodeOptional0 -> nexaEncodeOptional0 } ?: JSONObject.NULL)"
         ));
     }
 
@@ -3806,7 +3806,7 @@ mod tests {
         assert!(kotlin.contains(".map { nexaEncodeSet1 -> nexaEncodeSet1 }.toSet()"));
         assert!(kotlin.contains("(nexaEncodeMapEntry1.key).toString()"));
         assert!(kotlin.contains(
-            "result?.let { nexaEncodeOptional0 -> nexaEncodeOptional0 } ?: JSONObject.NULL"
+            "(result?.let { nexaEncodeOptional0 -> nexaEncodeOptional0 } ?: JSONObject.NULL)"
         ));
         assert!(swift.contains("NexaDevValueCodec.transformPair(nexaRaw0"));
         assert!(kotlin.contains("NexaDevValueCodec.transformPair(nexaRaw0"));
@@ -3976,7 +3976,7 @@ mod tests {
         );
         assert!(kotlin.contains("\"ids\" to error.ids.map"));
         assert!(kotlin.contains("\"counts\" to error.counts.entries.associate"));
-        assert!(kotlin.contains("\"note\" to error.note?.let"));
+        assert!(kotlin.contains("\"note\" to (error.note?.let"));
         assert!(kotlin.contains("throw nexaDevFailureStorageStoreError(error)"));
     }
 

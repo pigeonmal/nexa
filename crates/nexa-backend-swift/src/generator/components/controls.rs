@@ -68,6 +68,34 @@ pub(crate) fn render_button(
         render_button_modifiers(style, size, shape, tint, glass, out);
         return;
     }
+    if icon.is_none()
+        && comment.is_none()
+        && !has_localized_comment(label)
+        && matches!(
+            label,
+            nexa_ir::Expr::String(_) | nexa_ir::Expr::LocalizedText { .. }
+        )
+    {
+        indent(out, depth);
+        out.push_str(&format!("Button({}, action: {{", expression(label)));
+        if actions.is_empty() {
+            out.push_str("})");
+        } else {
+            out.push('\n');
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push_str("})");
+        }
+        out.push_str(&format!(
+            ".font(.system(size: {}))",
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+        ));
+        if let Some(disabled) = disabled {
+            out.push_str(&format!(".disabled({})", expression(disabled)));
+        }
+        render_button_modifiers(style, size, shape, tint, glass, out);
+        return;
+    }
     indent(out, depth);
     out.push_str("Button(action: {");
     if actions.is_empty() {
@@ -260,12 +288,27 @@ fn render_button_label(
 ) {
     indent(out, depth);
     if let Some(icon) = icon {
-        out.push_str(&format!(
-            "Label {{ {} }} icon: {{ Image(systemName: {}) }}.font(.system(size: {}))\n",
-            crate::generator::expressions::localized_text_view(label, comment),
-            swift_string(&icon.sf_symbol_name()),
-            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
-        ));
+        if comment.is_none() && is_empty_button_label(label) {
+            out.push_str(&format!(
+                "Image(systemName: {}).font(.system(size: {}))\n",
+                swift_string(&icon.sf_symbol_name()),
+                nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            ));
+        } else if comment.is_none() && !has_localized_comment(label) {
+            out.push_str(&format!(
+                "Label({}, systemImage: {}).font(.system(size: {}))\n",
+                crate::generator::engine::expressions::text_expression(label),
+                swift_string(&icon.sf_symbol_name()),
+                nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            ));
+        } else {
+            out.push_str(&format!(
+                "Label {{ {} }} icon: {{ Image(systemName: {}) }}.font(.system(size: {}))\n",
+                crate::generator::expressions::localized_text_view(label, comment),
+                swift_string(&icon.sf_symbol_name()),
+                nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            ));
+        }
     } else {
         out.push_str(&format!(
             "{}.font(.system(size: {}))\n",
@@ -273,6 +316,28 @@ fn render_button_label(
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
         ));
     }
+}
+
+fn is_empty_button_label(label: &nexa_ir::Expr) -> bool {
+    match label {
+        nexa_ir::Expr::String(text) => text.is_empty(),
+        nexa_ir::Expr::LocalizedText {
+            value,
+            comment: None,
+            ..
+        } => matches!(value.as_ref(), nexa_ir::Expr::String(text) if text.is_empty()),
+        _ => false,
+    }
+}
+
+fn has_localized_comment(label: &nexa_ir::Expr) -> bool {
+    matches!(
+        label,
+        nexa_ir::Expr::LocalizedText {
+            comment: Some(_),
+            ..
+        }
+    )
 }
 
 pub(crate) fn render_switch(
@@ -352,15 +417,22 @@ pub(crate) fn render_segmented_control(
     out.push_str("}.pickerStyle(.segmented).labelsHidden()");
 }
 
+#[derive(Default)]
+pub(crate) struct PickerOptions<'a> {
+    pub icon: Option<&'a SystemIcon>,
+    pub label: Option<&'a nexa_ir::Expr>,
+    pub tint: Option<&'a nexa_ir::ColorExpression>,
+    pub comment: Option<&'a str>,
+}
+
 pub(crate) fn render_picker(
     items: &nexa_ir::Expr,
     state: &str,
-    icon: Option<&SystemIcon>,
-    label: Option<&nexa_ir::Expr>,
-    comment: Option<&str>,
+    options: PickerOptions<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let PickerOptions { icon, label, tint, comment } = options;
     if let Some(label) = label {
         let selected = state_name(state);
         out.line_at(depth, format_args!("Picker(selection: ${selected}) {{"));
@@ -395,39 +467,25 @@ pub(crate) fn render_picker(
                 ),
             );
         }
+        if let Some(tint) = tint {
+            out.push_str(&format!(
+                ".tint({})",
+                crate::generator::colors::expression_for_color(tint)
+            ));
+        }
         return;
     }
     if let Some(icon) = icon {
-        let selected = state_name(state);
-        out.line_at(depth, format_args!("Menu {{"));
-        out.line_at(
-            depth + 1,
-            format_args!("ForEach({}, id: \\.self) {{ item in", expression(items)),
-        );
-        out.line_at(
-            depth + 2,
-            format_args!("Button {{ {selected} = item }} label: {{"),
-        );
-        out.line_at(depth + 3, format_args!("if item == {selected} {{"));
-        out.line_at(
-            depth + 4,
-            format_args!("Label(item, systemImage: \"checkmark\")"),
-        );
-        out.line_at(depth + 3, format_args!("}} else {{"));
-        out.line_at(depth + 4, format_args!("Text(item)"));
-        out.line_at(depth + 3, format_args!("}}"));
-        out.line_at(depth + 2, format_args!("}}"));
-        out.line_at(depth + 1, format_args!("}}"));
+        let tint = tint.map_or_else(|| "nil".to_owned(), crate::generator::colors::expression_for_color);
         out.line_at(
             depth,
             format_args!(
-                "}} label: {{ Image(systemName: {}) }}",
+                "NexaPickerMenu(selection: ${}, items: {}, icon: {}, tint: {tint})",
+                state_name(state),
+                expression(items),
                 swift_string(&icon.sf_symbol_name())
             ),
         );
-        out.push_str(&format!(
-            ".accessibilityLabel(\"Choose an option\").accessibilityValue({selected})"
-        ));
         return;
     }
     out.line_at(
@@ -442,6 +500,12 @@ pub(crate) fn render_picker(
     out.line_at(depth + 1, format_args!("}}"));
     indent(out, depth);
     out.push_str("}.pickerStyle(.menu).labelsHidden()");
+    if let Some(tint) = tint {
+        out.push_str(&format!(
+            ".tint({})",
+            crate::generator::colors::expression_for_color(tint)
+        ));
+    }
 }
 
 pub(crate) fn render_date_picker(
@@ -452,28 +516,32 @@ pub(crate) fn render_date_picker(
 ) {
     let timestamp = state_name(timestamp_state);
     let has_time = state_name(has_time_state);
-    out.line_at(depth, format_args!("VStack(spacing: 8) {{"));
     out.line_at(
-        depth + 1,
-        format_args!("Toggle(\"Time\", isOn: ${has_time})"),
+        depth,
+        format_args!("VStack(alignment: .leading, spacing: 12) {{"),
     );
     out.line_at(
         depth + 1,
-        format_args!("DatePicker(\"Select Date\", selection: Binding("),
+        format_args!("Toggle(\"Include time\", isOn: ${has_time})"),
     );
+    out.line_at(depth + 1, format_args!("HStack(spacing: 12) {{"));
     out.line_at(
         depth + 2,
-        format_args!("get: {{ Date(timeIntervalSince1970: TimeInterval({timestamp}) / 1000) }},"),
+        format_args!(
+            "DatePicker(\"Date\", selection: nexaDatePickerBinding(${timestamp}), displayedComponents: [.date])"
+        ),
     );
+    out.line_at(depth + 3, format_args!(".datePickerStyle(.compact)"));
+    out.line_at(depth + 2, format_args!("if {has_time} {{"));
     out.line_at(
-        depth + 2,
-        format_args!("set: {{ {timestamp} = Int64(($0.timeIntervalSince1970 * 1000).rounded()) }}"),
+        depth + 3,
+        format_args!(
+            "DatePicker(\"Time\", selection: nexaDatePickerBinding(${timestamp}), displayedComponents: [.hourAndMinute])"
+        ),
     );
-    out.line_at(
-        depth + 1,
-        format_args!("), displayedComponents: {has_time} ? [.date, .hourAndMinute] : [.date])"),
-    );
-    out.line_at(depth + 2, format_args!(".datePickerStyle(.graphical)"));
+    out.line_at(depth + 4, format_args!(".datePickerStyle(.compact)"));
+    out.line_at(depth + 2, format_args!("}}"));
+    out.line_at(depth + 1, format_args!("}}"));
     out.line_at(depth + 1, format_args!("}}"));
 }
 
@@ -1075,11 +1143,56 @@ fn render_swift_error_catches(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Action, CollectionMutation, Expr, NumericType, TaskExecutor, Type};
+    use nexa_ir::{
+        Action, CollectionMutation, ColorExpression, Expr, NumericType, SystemIcon, TaskExecutor,
+        Type,
+    };
 
     use super::{
-        render_actions, render_button, render_progress_bar, render_progress_ring, render_slider,
+        render_actions, render_button, render_date_picker, render_picker, render_progress_bar,
+        render_progress_ring, render_slider, PickerOptions,
     };
+
+    #[test]
+    fn icon_picker_uses_the_selected_dynamic_tint() {
+        let items = Expr::Array(vec![Expr::String("High".to_owned())]);
+        let tint = ColorExpression::Dynamic(Expr::State("priorityTint".to_owned(), Type::String));
+        let mut output = SourceWriter::new();
+
+        render_picker(
+            &items,
+            "priority",
+            PickerOptions {
+                icon: Some(&SystemIcon::Shared("flag_filled".to_owned())),
+                label: None,
+                tint: Some(&tint),
+                comment: None,
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "NexaPickerMenu(selection: $nexa_priority, items: [\"High\"], icon: \"flag.fill\", tint: nexaColor(hex: nexa_priorityTint))"
+        ));
+    }
+
+    #[test]
+    fn date_pickers_share_a_small_timestamp_binding_helper() {
+        let mut output = SourceWriter::new();
+
+        render_date_picker("dueAt", "includeTime", 0, &mut output);
+
+        assert!(output.contains(
+            "DatePicker(\"Date\", selection: nexaDatePickerBinding($nexa_dueAt), displayedComponents: [.date])"
+        ));
+        assert!(output.contains(
+            "DatePicker(\"Time\", selection: nexaDatePickerBinding($nexa_dueAt), displayedComponents: [.hourAndMinute])"
+        ));
+        assert!(!output.contains("selection: Binding("));
+        assert!(output.contains("if nexa_includeTime {"));
+        assert!(!output.contains("if $nexa_includeTime {"));
+    }
 
     #[test]
     fn borderless_button_uses_shared_label_metrics_and_tap_target() {
@@ -1100,10 +1213,70 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("Text(\"Skip\").font(.system(size: 17))"));
+        assert!(output.contains("Button(\"Skip\", action: {})"));
+        assert!(output.contains(".font(.system(size: 17))"));
         assert!(output.contains(
             ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).tint(Color(uiColor: .systemBlue))"
         ));
+    }
+
+    #[test]
+    fn icon_only_button_uses_a_direct_image_label() {
+        let mut output = SourceWriter::new();
+        render_button(
+            &Expr::LocalizedText {
+                key: String::new(),
+                value: Box::new(Expr::String(String::new())),
+                comment: None,
+            },
+            None,
+            Some(&SystemIcon::Shared("close".to_owned())),
+            None,
+            None,
+            Some(nexa_ir::ButtonStyle::Plain),
+            None,
+            None,
+            None,
+            false,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("Image(systemName: \"xmark\").font(.system(size: 17))"));
+        assert!(!output.contains("Label { Text(\"\") }"));
+    }
+
+    #[test]
+    fn icon_button_uses_the_native_string_label_initializer() {
+        let mut output = SourceWriter::new();
+        render_button(
+            &Expr::Call {
+                name: "taskReminderButtonLabel".to_owned(),
+                arguments: Vec::new(),
+                return_type: Type::String,
+                is_async: false,
+                is_throwing: false,
+                is_constructor: false,
+            },
+            None,
+            Some(&SystemIcon::Shared("notifications".to_owned())),
+            None,
+            None,
+            Some(nexa_ir::ButtonStyle::Bordered),
+            None,
+            None,
+            None,
+            false,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "Label(nexa_fn_taskReminderButtonLabel(), systemImage: \"bell\").font(.system(size: 17))"
+        ));
+        assert!(!output.contains("Label { Text(nexa_fn_taskReminderButtonLabel()) }"));
     }
 
     #[test]
@@ -1152,7 +1325,8 @@ mod tests {
 
         assert!(output.contains(".frame(minWidth: 64, minHeight: 50).controlSize(.large)"));
         assert!(output.contains(".tint(Color(uiColor: .systemBlue))"));
-        assert!(output.contains("Text(\"Enable Notifications\").font(.system(size: 17))"));
+        assert!(output.contains("Button(\"Enable Notifications\", action: {})"));
+        assert!(output.contains(".font(.system(size: 17))"));
     }
 
     #[test]

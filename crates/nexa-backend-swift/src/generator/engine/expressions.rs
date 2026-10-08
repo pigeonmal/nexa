@@ -1149,6 +1149,23 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
             field_type: Type::String,
             ..
         }
+        | Expr::Call {
+            return_type: Type::String,
+            ..
+        }
+        | Expr::NativeCall {
+            return_type: Type::String,
+            ..
+        }
+        | Expr::TimeCall {
+            return_type: Type::String,
+            ..
+        }
+        | Expr::Conditional {
+            value_type: Type::String,
+            ..
+        }
+        | Expr::Concat(..)
         | Expr::String(_)
         | Expr::Interpolation(_) => expression(expr),
         _ => format!("String(describing: {})", expression(expr)),
@@ -1175,7 +1192,7 @@ pub(crate) fn localized_text_view(expr: &Expr, comment: Option<&str>) -> String 
 
 #[cfg(test)]
 mod tests {
-    use super::{PluginCodec, expression, plugin_row_mapper};
+    use super::{PluginCodec, expression, plugin_row_mapper, text_expression};
     use nexa_ir::{
         ArithmeticOp, CollectionTransform, CollectionUtilityKind, Expr, MemberKind, NumericType,
         TimeMethod, Type,
@@ -1208,6 +1225,24 @@ mod tests {
         };
 
         assert_eq!(expression(&conditional), "(true ? \"ready\" : \"waiting\")");
+        assert_eq!(
+            text_expression(&conditional),
+            "(true ? \"ready\" : \"waiting\")"
+        );
+    }
+
+    #[test]
+    fn typed_string_calls_are_not_wrapped_in_string_describing() {
+        let call = Expr::Call {
+            name: "taskCommentButtonLabel".to_owned(),
+            arguments: Vec::new(),
+            return_type: Type::String,
+            is_async: false,
+            is_throwing: false,
+            is_constructor: false,
+        };
+
+        assert_eq!(text_expression(&call), "nexa_fn_taskCommentButtonLabel()");
     }
 
     #[test]

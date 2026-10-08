@@ -655,9 +655,7 @@ screen Main {
                     KeyboardAware {
                         Column(spacing: 12, padding: 16) {
                             Toolbar(placement: Leading) {
-                                Button("", icon: "flag_filled", accessibilityLabel: "Priority", accessibilityValue: priority, style: Plain, tint: priority == "None"?"#8E8E93": taskPriorityTint(priority)) {
-                                    showingPriorityPicker = true
-                                }
+                                Picker(items: ["None", "Highest", "High", "Normal", "Low"], selected: priority, icon: "flag_filled", tint: priority == "None"?"#8E8E93": taskPriorityTint(priority), accessibilityLabel: "Priority", accessibilityValue: priority)
                             }
                             Toolbar(placement: Trailing) {
                                 Button("", icon: "submit", style: Plain, size: Large, accessibilityLabel: "Save task", disabled: taskTitle.trimmed == "") {
@@ -665,7 +663,7 @@ screen Main {
                                         if editingID < 0 {
                                             let createdTaskID = nextTaskID
                                             tasks.append(makeTask(createdTaskID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority, nextTaskSortOrder(tasks)))
-                                            if autoReminderChoice != "None" && hasDueDate && hasTime && dueTimestamp - autoReminderOffset(autoReminderChoice) > Time.now() {
+                                            if shouldCreateAutoReminder(autoReminderChoice, hasDueDate, hasTime, dueTimestamp) {
                                                 let createdReminderID = nextReminderID
                                                 let autoReminderIdentifier = "todo-auto-reminder-\(createdReminderID)"
                                                 reminders.append(ReminderItem(createdReminderID, createdTaskID, autoReminderIdentifier, "Task reminder", dueTimestamp - autoReminderOffset(autoReminderChoice), false))
@@ -708,74 +706,69 @@ screen Main {
                                 }
                             }
                             if dateMatchLabel(detectedDate) != "" &&!hasDueDate &&!dateSuggestionDismissed {
-                                Row(spacing: 6, padding: 12, background: "#F5EDFF", cornerRadius: 18) {
+                                Row(spacing: 8, padding: 12, background: "#F5EDFF", cornerRadius: 18) {
                                     Icon(system: "star", size: 16, tint: "#8E44AD", description: "")
-                                    Text(dateMatchLabel(detectedDate), fontSize: 14)
+                                    SuggestedDateLabel(label: dateMatchLabel(detectedDate))
                                     Spacer()
                                     Button("", icon: "check_circle_filled", accessibilityLabel: "Accept detected date", style: Plain, tint: "#20BF6B") {
+                                        let choice = todoDateSuggestionChoice(detectedDate, dueTimestamp)
                                         hasDueDate = true
-                                        hasTime = detectedDate?.hasTime ?? false
-                                        dueTimestamp = detectedDate?.timestampMillis ?? dueTimestamp
-                                        if detectedDate?.timestampMillis == null ||!(detectedDate?.timePrecisionAvailable ?? false) {
-                                            pickerTimestamp = dueTimestamp
-                                            pickerHasTime = hasTime
-                                            showingDatePicker = true
-                                        }
-                                        detectedDate = null
+                                        hasTime = choice.hasTime
+                                        dueTimestamp = choice.timestamp
+                                        pickerTimestamp = choice.timestamp
+                                        pickerHasTime = hasTime
+                                        showingDatePicker = choice.needsPicker
                                     }
                                     Button("", icon: "close", accessibilityLabel: "Dismiss detected date", style: Plain, tint: "#8E8E93") {
                                         dateSuggestionDismissed = true
-                                        detectedDate = null
                                     }
                                 }
                             }
                             TextInput(value: taskDescription, placeholder: "Description", multiline: true, maxLength: 1200, font: Body, minLines: 1, maxLines: 3)
-                            FastList(count: hasDueDate?5: 4, axis: Horizontal) {
+                            FastList(count: 1, axis: Horizontal) {
                                 index in
-                                if index == 0 {
-                                    Button("Today", icon: "calendar", style: Bordered, shape: Capsule, tint: hasDueDate && Time.startOfDay(dueTimestamp) == Time.startOfDay(Time.now())?"#20BF6B": "#8E8E93", accessibilityLabel: "Today", accessibilityValue: hasDueDate && Time.startOfDay(dueTimestamp) == Time.startOfDay(Time.now())?"Selected": "") {
-                                        hasDueDate = true
-                                        dueTimestamp = Time.startOfDay(Time.now())
-                                        hasTime = false
-                                        detectedDate = null
-                                    }
-                                } else if index == 1 {
-                                    Button("Tomorrow", icon: "sunrise", style: Bordered, shape: Capsule, tint: hasDueDate && Time.startOfDay(dueTimestamp) == Time.addCalendarDays(Time.startOfDay(Time.now()), 1)?"#F39C12": "#8E8E93", accessibilityLabel: "Tomorrow", accessibilityValue: hasDueDate && Time.startOfDay(dueTimestamp) == Time.addCalendarDays(Time.startOfDay(Time.now()), 1)?"Selected": "") {
-                                        hasDueDate = true
-                                        dueTimestamp = Time.addCalendarDays(Time.startOfDay(Time.now()), 1)
-                                        hasTime = false
-                                        detectedDate = null
-                                    }
-                                } else if index == 2 {
-                                    Button("Next Week", icon: "event_add", style: Bordered, shape: Capsule, tint: hasDueDate && Time.startOfDay(dueTimestamp) == Time.addCalendarDays(Time.startOfDay(Time.now()), 7)?"#8E44AD": "#8E8E93", accessibilityLabel: "Next Week", accessibilityValue: hasDueDate && Time.startOfDay(dueTimestamp) == Time.addCalendarDays(Time.startOfDay(Time.now()), 7)?"Selected": "") {
-                                        hasDueDate = true
-                                        dueTimestamp = Time.addCalendarDays(Time.startOfDay(Time.now()), 7)
-                                        hasTime = false
-                                        detectedDate = null
-                                    }
-                                } else if index == 3 {
-                                    Button(hasDueDate?todoDateLabel(dueTimestamp): "Pick Date", icon: "calendar_time", style: Bordered, shape: Capsule, tint: hasDueDate &&!isTodoQuickDate(hasDueDate, dueTimestamp)?"#0984E3": "#8E8E93", accessibilityLabel: hasDueDate?todoDateLabel(dueTimestamp): "Pick Date", accessibilityValue: hasDueDate &&!isTodoQuickDate(hasDueDate, dueTimestamp)?"Selected": "") {
-                                        detectedDate = null
-                                        pickerTimestamp = dueTimestamp
-                                        pickerHasTime = hasTime
-                                        showingDatePicker = true
-                                    }
-                                } else {
-                                    Button("Clear", icon: "close", style: Bordered, shape: Capsule, tint: "#E74C3C") {
-                                        hasDueDate = false
-                                        hasTime = false
-                                        dateSuggestionDismissed = false
-                                        Task.launch(handle: dateExtractionTask, executor: TaskExecutor.Main) {
-                                            if !hasDueDate &&!dateSuggestionDismissed {
-                                                detectedDate = firstDetectedDate(await dataExtractor.extract(taskTitle))
+                                Row(spacing: 8) {
+                                        Button("Today", icon: "calendar", style: Bordered, shape: Capsule, tint: isTodoTodaySelected(hasDueDate, dueTimestamp)?"#20BF6B": "#8E8E93", accessibilityLabel: "Today", accessibilityValue: isTodoTodaySelected(hasDueDate, dueTimestamp)?"Selected": "") {
+                                            hasDueDate = true
+                                            dueTimestamp = todoTodayStart()
+                                            hasTime = false
+                                            detectedDate = null
+                                        }
+                                        Button("Tomorrow", icon: "sunrise", style: Bordered, shape: Capsule, tint: isTodoTomorrowSelected(hasDueDate, dueTimestamp)?"#F39C12": "#8E8E93", accessibilityLabel: "Tomorrow", accessibilityValue: isTodoTomorrowSelected(hasDueDate, dueTimestamp)?"Selected": "") {
+                                            hasDueDate = true
+                                            dueTimestamp = todoTomorrowStart()
+                                            hasTime = false
+                                            detectedDate = null
+                                        }
+                                        Button("Next Week", icon: "event_add", style: Bordered, shape: Capsule, tint: isTodoNextWeekSelected(hasDueDate, dueTimestamp)?"#8E44AD": "#8E8E93", accessibilityLabel: "Next Week", accessibilityValue: isTodoNextWeekSelected(hasDueDate, dueTimestamp)?"Selected": "") {
+                                            hasDueDate = true
+                                            dueTimestamp = todoNextWeekStart()
+                                            hasTime = false
+                                            detectedDate = null
+                                        }
+                                        Button(todoQuickPickDateLabel(hasDueDate, dueTimestamp), icon: "calendar_time", style: Bordered, shape: Capsule, tint: isTodoCustomDateSelected(hasDueDate, dueTimestamp)?"#0984E3": "#8E8E93", accessibilityLabel: todoQuickPickDateLabel(hasDueDate, dueTimestamp), accessibilityValue: isTodoCustomDateSelected(hasDueDate, dueTimestamp)?"Selected": "") {
+                                            detectedDate = null
+                                            pickerTimestamp = dueTimestamp
+                                            pickerHasTime = hasTime
+                                            showingDatePicker = true
+                                        }
+                                        if hasDueDate {
+                                            Button("Clear", icon: "close", style: Bordered, shape: Capsule, tint: "#E74C3C") {
+                                                hasDueDate = false
+                                                hasTime = false
+                                                dateSuggestionDismissed = false
+                                                Task.launch(handle: dateExtractionTask, executor: TaskExecutor.Main) {
+                                                    if !hasDueDate &&!dateSuggestionDismissed {
+                                                        detectedDate = firstDetectedDate(await dataExtractor.extract(taskTitle))
+                                                    }
+                                                }
                                             }
                                         }
-                                    }
                                 }
                             }
                             Row(spacing: 8) {
                                 Spacer()
-                                Button(taskCommentLabel(findTask(tasks, editingID)), icon: "comment", style: Bordered) {
+                                Button(taskCommentButtonLabel(tasks, editingID), icon: "comment", style: Bordered) {
                                     if editingID < 0 {
                                         tasks.append(makeTask(nextTaskID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority, nextTaskSortOrder(tasks)))
                                         editingID = nextTaskID
@@ -789,7 +782,7 @@ screen Main {
                                     showingTaskEditor = false
                                     showingComments = true
                                 }
-                                Button(taskReminderLabel(findTask(tasks, editingID)), icon: "notifications", style: Bordered) {
+                                Button(taskReminderButtonLabel(tasks, editingID), icon: "notifications", style: Bordered) {
                                     if editingID < 0 {
                                         tasks.append(makeTask(nextTaskID, taskTitle, taskDescription, hasDueDate?dueTimestamp: null, hasTime, priority, nextTaskSortOrder(tasks)))
                                         editingID = nextTaskID
@@ -803,7 +796,7 @@ screen Main {
                                     reminderTitle = ""
                                     reminderStatus = ""
                                     reminderHasTime = true
-                                    reminderTimestamp = hasDueDate?dueTimestamp: Time.now() + 3600000
+                                    reminderTimestamp = initialTaskReminderTimestamp(hasDueDate, dueTimestamp)
                                     addingReminder = false
                                     returnToEditorAfterOverlay = true
                                     showingTaskEditor = false
@@ -812,43 +805,17 @@ screen Main {
                                 Spacer()
                             }
 
-                            ConfirmationDialog(isPresented: showingPriorityPicker, title: "Select Priority") {
-                                Button("None") {
-                                    priority = "None"
-                                    showingPriorityPicker = false
-                                }
-                                Button("Highest") {
-                                    priority = "Highest"
-                                    showingPriorityPicker = false
-                                }
-                                Button("High") {
-                                    priority = "High"
-                                    showingPriorityPicker = false
-                                }
-                                Button("Normal") {
-                                    priority = "Normal"
-                                    showingPriorityPicker = false
-                                }
-                                Button("Low") {
-                                    priority = "Low"
-                                    showingPriorityPicker = false
-                                }
-                                Button("Cancel") {
-                                    showingPriorityPicker = false
-                                }
-                            }
                         }
                     }
                 }
 
                 BottomSheet(isPresented: showingDatePicker, partial: true, largeOnly: true, title: "Pick Date") {
                     Column {
-                        Toolbar(placement: Leading) {
+                        Row(spacing: 8) {
                             Button("Cancel", style: Borderless) {
                                 showingDatePicker = false
                             }
-                        }
-                        Toolbar(placement: Trailing) {
+                            Spacer()
                             Button("Done", style: BorderedProminent) {
                                 dueTimestamp = pickerTimestamp
                                 hasTime = pickerHasTime

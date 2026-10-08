@@ -105,13 +105,15 @@ pub(crate) fn render_virtualized_list(
                 depth,
                 out,
             );
-            out.line_at(
-                depth + 1,
-                format_args!(
-                    "let {}: Int32 = Int32(listPosition)",
-                    state_name(&common.index)
-                ),
-            );
+            if row_references_binding(&common.children, &common.index) {
+                out.line_at(
+                    depth + 1,
+                    format_args!(
+                        "let {}: Int32 = Int32(listPosition)",
+                        state_name(&common.index)
+                    ),
+                );
+            }
         }
         ListPlan::Items {
             collection,
@@ -163,13 +165,15 @@ pub(crate) fn render_virtualized_list(
                 depth,
                 out,
             );
-            out.line_at(
-                depth + 1,
-                format_args!(
-                    "let {}: Int32 = Int32(clamping: listPosition)",
-                    state_name(&common.index)
-                ),
-            );
+            if row_references_binding(&common.children, &common.index) {
+                out.line_at(
+                    depth + 1,
+                    format_args!(
+                        "let {}: Int32 = Int32(clamping: listPosition)",
+                        state_name(&common.index)
+                    ),
+                );
+            }
             out.line_at(
                 depth + 1,
                 format_args!(
@@ -234,6 +238,19 @@ pub(crate) fn render_virtualized_list(
     }
     indent(out, depth);
     out.push('}');
+}
+
+fn row_references_binding(children: &[Node], binding: &str) -> bool {
+    let mut found = false;
+    nexa_ir::walk::walk_ir(children, &mut |_| {}, &mut |expression| {
+        if matches!(
+            expression,
+            Expr::State(name, _) | Expr::AnimatedState(name, _) if name == binding
+        ) {
+            found = true;
+        }
+    });
+    found
 }
 
 fn render_sectioned_list(
@@ -674,4 +691,26 @@ fn replace_identifier(source: &str, identifier: &str, replacement: &str) -> Stri
     }
     result.push_str(&source[cursor..]);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_ir::{Expr, Node, NumericType, TextStyle, Type};
+
+    use super::row_references_binding;
+
+    #[test]
+    fn list_index_binding_is_only_emitted_when_the_row_uses_it() {
+        let plain_row = [Node::Text {
+            value: Expr::String("Quick dates".to_owned()),
+            style: TextStyle::default(),
+        }];
+        assert!(!row_references_binding(&plain_row, "index"));
+
+        let indexed_row = [Node::Text {
+            value: Expr::State("index".to_owned(), Type::Numeric(NumericType::Int32)),
+            style: TextStyle::default(),
+        }];
+        assert!(row_references_binding(&indexed_row, "index"));
+    }
 }

@@ -893,8 +893,9 @@ fn observe_node(
         Node::SegmentedControl { .. } => {
             ui.segmented_control_present = true;
         }
-        Node::Picker { icon, .. } => {
+        Node::Picker { icon, tint, .. } => {
             ui.picker_present = true;
+            ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
             if let Some(icon) = icon {
                 ui.system_icons.insert(icon.clone());
             }
@@ -1021,6 +1022,8 @@ fn observe_node(
                 if tab.search_state.is_some() {
                     ui.text_input.present = true;
                     ui.text_input.searchable = true;
+                    ui.text_input.submit = true;
+                    ui.text_input.capitalization = true;
                     ui.system_icons
                         .insert(SystemIcon::Shared("search".to_owned()));
                 }
@@ -1608,6 +1611,34 @@ mod tests {
                 .system_icons
                 .contains(&SystemIcon::Shared("inbox".to_owned()))
         );
+    }
+
+    #[test]
+    fn bottom_bar_search_state_enables_search_keyboard_features() {
+        let module = empty_module(vec![Node::AppBottomBar {
+            state: "selectedTab".to_owned(),
+            tint: None,
+            tabs: vec![BottomBarTab {
+                index: 4,
+                label: "Search".to_owned(),
+                comment: None,
+                icon: None,
+                badge: None,
+                role: Some("search".to_owned()),
+                navigation_title: Some("Search".to_owned()),
+                large_title: true,
+                search_state: Some("searchQuery".to_owned()),
+                search_prompt: Some("Search tasks...".to_owned()),
+                children: Vec::new(),
+            }],
+        }]);
+
+        let facts = ModuleFacts::analyze(&module);
+
+        assert!(facts.ui.text_input.present);
+        assert!(facts.ui.text_input.searchable);
+        assert!(facts.ui.text_input.submit);
+        assert!(facts.ui.text_input.capitalization);
     }
 
     #[test]

@@ -73,12 +73,14 @@ pub(crate) fn render_node(
             };
             out.line_at(depth, format_args!("EmptyView()"));
             out.line_at(depth, format_args!(".toolbar {{"));
-            out.line_at(
-                depth + 1,
-                format_args!("ToolbarItemGroup(placement: {placement}) {{"),
-            );
-            render_children(children, module, features, depth + 2, out);
-            out.line_at(depth + 1, format_args!("}}"));
+            for child in children {
+                out.line_at(
+                    depth + 1,
+                    format_args!("ToolbarItem(placement: {placement}) {{"),
+                );
+                render_node(child, module, features, depth + 2, out);
+                out.line_at(depth + 1, format_args!("}}"));
+            }
             out.line_at(depth, format_args!("}}"));
         }
         Node::Text { value, style } => {
@@ -249,6 +251,7 @@ pub(crate) fn render_node(
                 min_lines: *min_lines,
                 max_lines: *max_lines,
                 searchable: *searchable,
+                horizontal_padding: None,
                 actions,
                 on_change: on_change.as_ref(),
             },
@@ -273,12 +276,16 @@ pub(crate) fn render_node(
             state,
             icon,
             label,
+            tint,
         } => controls::render_picker(
             items,
             state,
-            icon.as_ref(),
-            label.as_ref(),
-            None,
+            controls::PickerOptions {
+                icon: icon.as_ref(),
+                label: label.as_ref(),
+                tint: tint.as_ref(),
+                comment: None,
+            },
             depth,
             out,
         ),

@@ -73,15 +73,17 @@ pub(crate) fn render_layout(
         .collect::<Vec<_>>();
     if !toolbars.is_empty() {
         out.push('\n');
+        out.line_at(depth, format_args!(".toolbar {{"));
         for toolbar in toolbars {
-            super::bottom_bar::render_navigation_toolbar(
+            super::bottom_bar::render_navigation_toolbar_items(
                 toolbar,
                 scope.module,
                 scope.features,
-                depth,
+                depth + 1,
                 out,
             );
         }
+        out.line_at(depth, format_args!("}}"));
     }
 }
 
@@ -281,7 +283,7 @@ mod tests {
     use super::render_layout;
     use crate::generator::{components::RenderScope, features::Features};
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{LayoutKind, Module, Node, ToolbarPlacement, ViewStyle};
+    use nexa_ir::{Expr, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle};
 
     #[test]
     fn layout_attaches_toolbar_to_the_container_instead_of_an_empty_child() {
@@ -315,7 +317,10 @@ mod tests {
         };
         let children = [Node::Toolbar {
             placement: ToolbarPlacement::Trailing,
-            children: Vec::new(),
+            children: vec![Node::Text {
+                value: Expr::String("Toolbar action".to_owned()),
+                style: TextStyle::default(),
+            }],
         }];
         let mut output = SourceWriter::new();
 
@@ -330,8 +335,8 @@ mod tests {
         );
 
         let generated = output.finish();
-        assert!(generated.contains("VStack(spacing: 0) {\n\n}\n.toolbar {"));
-        assert!(generated.contains("ToolbarItemGroup(placement: .navigationBarTrailing)"));
+        assert!(generated.contains("VStack(spacing: 0) {"));
+        assert!(generated.contains("ToolbarItem(placement: .navigationBarTrailing)"));
         assert!(!generated.contains("EmptyView()"));
     }
 }

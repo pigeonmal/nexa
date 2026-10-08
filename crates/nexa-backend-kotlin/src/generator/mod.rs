@@ -721,6 +721,12 @@ mod tests {
             kotlin.contains("MaterialTheme(colorScheme = remember(\"dark\", nexaSystemDarkTheme")
         );
         assert!(kotlin.contains(
+            "Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground)"
+        ));
+        assert!(kotlin.contains("window.decorView.setBackgroundColor(nexaAppearanceStatusColor"));
+        assert!(kotlin.contains(".isAppearanceLightNavigationBars = "));
+        assert!(kotlin.contains("window.isNavigationBarContrastEnforced = false"));
+        assert!(kotlin.contains(
             "Text(\"Hello\", fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp)"
         ));
         assert!(!kotlin.contains("nexaColorFromHex("));
@@ -925,6 +931,97 @@ mod tests {
             kotlin
                 .contains("LocalNexaAnimatedVisibilityScope provides nexaAnimatedVisibilityScope")
         );
+    }
+
+    #[test]
+    fn navigation_destinations_get_a_title_and_in_app_back_action() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "NavigationParity".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: vec![State {
+                name: "appearanceMode".to_owned(),
+                ty: Type::String,
+                initial: Expr::String("system".to_owned()),
+                mutable: true,
+            }],
+            screens: vec![
+                Screen {
+                    id: ScreenId(0),
+                    name: "Home".to_owned(),
+                    parameters: Vec::new(),
+                    states: Vec::new(),
+                    body: vec![Node::Appearance {
+                        mode: Expr::State("appearanceMode".to_owned(), Type::String),
+                        children: vec![Node::Text {
+                            value: Expr::String("Home".to_owned()),
+                            style: TextStyle::default(),
+                        }],
+                    }],
+                    status_bar: None,
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+                Screen {
+                    id: ScreenId(1),
+                    name: "Task Details".to_owned(),
+                    parameters: Vec::new(),
+                    states: Vec::new(),
+                    body: vec![Node::Text {
+                        value: Expr::String("Details".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                    status_bar: None,
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+            ],
+            components: Vec::new(),
+            body: vec![Node::NavigationStack {
+                root: ScreenId(0),
+                arguments: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        let root = kotlin
+            .split("composable(route = \"nexa_screen_0\")")
+            .nth(1)
+            .expect("root destination exists")
+            .split("composable(route = \"nexa_screen_1\")")
+            .next()
+            .expect("root destination ends before the pushed destination");
+        let destination = kotlin
+            .split("composable(route = \"nexa_screen_1\")")
+            .nth(1)
+            .expect("pushed destination exists");
+
+        assert!(!root.contains("Scaffold("));
+        assert!(destination.contains("Scaffold("));
+        assert!(destination.contains("title = { Text(\"Task Details\") }"));
+        assert!(destination.contains(
+            "MaterialTheme(colorScheme = remember(nexa_appearanceMode, nexaSystemDarkTheme"
+        ));
+        assert!(destination.contains("navController.popBackStack()"));
+        assert!(destination.contains("contentDescription = \"Back\""));
+        assert!(destination.contains("Modifier.fillMaxSize().padding(innerPadding)"));
+        assert!(kotlin.contains("import androidx.compose.material3.TopAppBar\n"));
     }
 
     #[test]

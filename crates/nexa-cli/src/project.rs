@@ -1740,13 +1740,27 @@ fn android_plan(
     let dark_colors = nexa_codegen::design_system::kotlin_color_scheme(true);
     let light_colors = nexa_codegen::design_system::kotlin_color_scheme(false);
     let default_colors = format!("if (isSystemInDarkTheme()) {dark_colors} else {light_colors}");
+    let (activity_surface, activity_safe_insets, activity_inset_imports) =
+        if project_features.uses_bottom_bar {
+            (
+                "Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent)",
+                "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top))",
+                "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
+            )
+        } else {
+            (
+                "Surface(modifier = Modifier.fillMaxSize())",
+                "Modifier.fillMaxSize().safeDrawingPadding()",
+                "import androidx.compose.foundation.layout.safeDrawingPadding\n",
+            )
+        };
     let activity_content = if install_play_services_cronet {
         format!(
-            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{\n                MaterialTheme(\n                    colorScheme = {default_colors},\n                ) {{\n                    Surface(modifier = Modifier.fillMaxSize()) {{\n                        Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {{\n                            {compose_root}\n                        }}\n                    }}\n                }}\n            }}\n        }}\n"
+            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{\n                MaterialTheme(\n                    colorScheme = {default_colors},\n                ) {{\n                    {activity_surface} {{\n                        Box(modifier = {activity_safe_insets}) {{\n                            {compose_root}\n                        }}\n                    }}\n                }}\n            }}\n        }}\n"
         )
     } else {
         format!(
-            "        setContent {{\n            MaterialTheme(\n                colorScheme = {default_colors},\n            ) {{\n                Surface(modifier = Modifier.fillMaxSize()) {{\n                    Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {{\n                        {compose_root}\n                    }}\n                }}\n            }}\n        }}\n"
+            "        setContent {{\n            MaterialTheme(\n                colorScheme = {default_colors},\n            ) {{\n                {activity_surface} {{\n                    Box(modifier = {activity_safe_insets}) {{\n                        {compose_root}\n                    }}\n                }}\n            }}\n        }}\n"
         )
     };
     let mut plan = ProjectPlan::android(app_name)
@@ -1755,7 +1769,7 @@ fn android_plan(
         .with_file(
             format!("{source_directory}/MainActivity.kt"),
             format!(
-                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.enableEdgeToEdge\nimport androidx.activity.compose.setContent\nimport androidx.compose.foundation.isSystemInDarkTheme\nimport androidx.compose.foundation.layout.Box\nimport androidx.compose.foundation.layout.fillMaxSize\nimport androidx.compose.foundation.layout.safeDrawingPadding\nimport androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.Surface\nimport androidx.compose.material3.darkColorScheme\nimport androidx.compose.material3.lightColorScheme\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.Modifier\n{splash_import}{cronet_import}{remote_notification_imports}{widget_refresh_imports}{orientation_imports}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n        enableEdgeToEdge()\n{orientation_apply}{remote_notification_dispatch}{background_schedule}{activity_content}    }}{orientation_callbacks}{remote_notification_new_intent}{widget_refresh_lifecycle}}}\n"
+                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.enableEdgeToEdge\nimport androidx.activity.compose.setContent\nimport androidx.compose.foundation.isSystemInDarkTheme\nimport androidx.compose.foundation.layout.Box\nimport androidx.compose.foundation.layout.fillMaxSize\n{activity_inset_imports}import androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.Surface\nimport androidx.compose.material3.darkColorScheme\nimport androidx.compose.material3.lightColorScheme\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.Modifier\n{splash_import}{cronet_import}{remote_notification_imports}{widget_refresh_imports}{orientation_imports}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n        enableEdgeToEdge()\n{orientation_apply}{remote_notification_dispatch}{background_schedule}{activity_content}    }}{orientation_callbacks}{remote_notification_new_intent}{widget_refresh_lifecycle}}}\n"
             ),
         )
         .with_file(
@@ -2426,6 +2440,12 @@ mod tests {
         ));
         assert!(kotlin.contains("contentAlignment = Alignment.Center"));
         assert!(kotlin.contains("propagateMinConstraints = true"));
+        assert!(
+            kotlin.contains(
+                "val badge = (tab.opt(\"badge\") as? String)?.takeIf(String::isNotEmpty)"
+            )
+        );
+        assert!(!kotlin.contains("tab.optString(\"badge\")"));
         assert!(kotlin.contains("Modifier.fillMaxWidth()"));
         assert!(kotlin.contains(
             "nexaDevPageIndicatorSpacing.dp,\n                        Alignment.CenterHorizontally,"

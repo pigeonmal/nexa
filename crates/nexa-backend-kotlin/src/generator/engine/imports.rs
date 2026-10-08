@@ -166,13 +166,28 @@ mod tests {
         features.uses_picker = true;
         let imports = render_features(&features);
 
-        assert!(imports.contains("import androidx.compose.foundation.layout.Box\n"));
-        assert!(imports.contains("import androidx.compose.material3.DropdownMenu\n"));
-        assert!(imports.contains("import androidx.compose.material3.DropdownMenuItem\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.width\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.size\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.Column\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.fillMaxWidth\n"));
+        assert!(imports.contains("import androidx.compose.ui.unit.dp\n"));
+        assert!(imports.contains("import androidx.compose.ui.graphics.Color\n"));
+        assert!(imports.contains("import androidx.compose.material3.AlertDialog\n"));
         assert!(imports.contains("import androidx.compose.material3.TextButton\n"));
         assert!(imports.contains("import androidx.compose.runtime.mutableStateOf\n"));
         assert!(imports.contains("import androidx.compose.runtime.remember\n"));
         assert!(!imports.contains("import androidx.compose.material3.SegmentedButton\n"));
+    }
+
+    #[test]
+    fn text_input_imports_are_gated_to_text_input_usage() {
+        let mut features = Features::default();
+        features.uses_text_input = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import androidx.compose.material3.TextFieldDefaults\n"));
+        assert!(imports.contains("import androidx.compose.ui.graphics.Color\n"));
+        assert!(!render_features(&Features::default()).contains("TextFieldDefaults"));
     }
 
     #[test]

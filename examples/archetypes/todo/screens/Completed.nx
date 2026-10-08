@@ -1,8 +1,9 @@
 screen Completed {
-    if todoFilter(tasks, 3, "").isEmpty {
-        ContentUnavailable(title: "No completed tasks", icon: "party_popper", description: "Completed tasks will show up here.")
-    } else {
-        FastList(todoSort(todoFilter(tasks, 3, ""), sortSelection), key:.id, native: true) {
+    Appearance(mode: appearanceMode) {
+        if todoFilter(tasks, 3, "").isEmpty {
+            ContentUnavailable(title: "No completed tasks", icon: "party_popper", description: "Completed tasks will show up here.")
+        } else {
+            FastList(todoSort(todoFilter(tasks, 3, ""), sortSelection), key:.id, native: true) {
             task, index in
             TaskListRow() {
                 Row(spacing: 12) {
@@ -80,6 +81,7 @@ screen Completed {
                 Task.launch(executor: TaskExecutor.Main) {
                     await todoPersistence.saveTaskOrder(tasks)
                 }
+            }
             }
         }
     }

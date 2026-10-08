@@ -351,6 +351,10 @@ public object NexaRuntimeCore {
     @Volatile private var applicationContext: android.content.Context? = null
     @Volatile private var foregroundActivity: java.lang.ref.WeakReference<android.app.Activity>? = null
     @Volatile private var orientationPolicy: String = "all"
+    private val activityLifecycleLock = Any()
+    private var lifecycleApplication: android.app.Application? = null
+    private var startedActivityCount = 0
+    private var pendingAppBackgroundAction: (() -> Unit)? = null
     private val widgetRefreshHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
     private val widgetRefreshLock = Any()
     @Volatile private var pendingWidgetRefresh: Runnable? = null
@@ -365,6 +369,7 @@ public object NexaRuntimeCore {
                 orientationPolicy = "all"
             }
         }
+        trackActivityLifecycle(application)
         var current: android.content.Context? = context
         while (current != null) {
             if (current is android.app.Activity) {
@@ -379,6 +384,64 @@ public object NexaRuntimeCore {
 
     public fun context(): android.content.Context = requireNotNull(applicationContext) {
         "NexaRuntime.bind must run before a native API call"
+    }
+
+    /** Applies launcher icon changes after the current app session leaves the foreground. */
+    public fun whenAppBackgrounded(action: () -> Unit) {
+        val runImmediately = synchronized(activityLifecycleLock) {
+            if (startedActivityCount == 0) {
+                true
+            } else {
+                pendingAppBackgroundAction = action
+                false
+            }
+        }
+        if (runImmediately) action()
+    }
+
+    private fun trackActivityLifecycle(context: android.content.Context) {
+        val application = context as? android.app.Application ?: return
+        val shouldRegister = synchronized(activityLifecycleLock) {
+            if (lifecycleApplication === application) {
+                false
+            } else {
+                lifecycleApplication = application
+                true
+            }
+        }
+        if (!shouldRegister) return
+
+        application.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) = Unit
+
+            override fun onActivityStarted(activity: android.app.Activity) {
+                synchronized(activityLifecycleLock) { startedActivityCount++ }
+            }
+
+            override fun onActivityResumed(activity: android.app.Activity) = Unit
+
+            override fun onActivityPaused(activity: android.app.Activity) = Unit
+
+            override fun onActivityStopped(activity: android.app.Activity) {
+                val pending = synchronized(activityLifecycleLock) {
+                    if (startedActivityCount > 0) startedActivityCount--
+                    if (startedActivityCount == 0 && !activity.isChangingConfigurations) {
+                        pendingAppBackgroundAction.also { pendingAppBackgroundAction = null }
+                    } else {
+                        null
+                    }
+                }
+                try {
+                    pending?.invoke()
+                } catch (_: Exception) {
+                    // Background icon updates must not crash the app lifecycle.
+                }
+            }
+
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, state: android.os.Bundle) = Unit
+
+            override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+        })
     }
 
     /** Coalesces widget reload requests and targets this app's registered providers. */

@@ -41,14 +41,16 @@ public object NexaRuntime {{
         } ?: return false
         if (activities.none { it.name == target }) return false
         val prefix = "$packageName.NexaIcon"
-        activities.filter { it.name.startsWith(prefix) }.forEach { activity ->
-            val enabled = activity.name == target
-            packageManager.setComponentEnabledSetting(
-                android.content.ComponentName(packageName, activity.name),
-                if (enabled) android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                android.content.pm.PackageManager.DONT_KILL_APP,
-            )
+        dev.nexa.core.NexaRuntimeCore.whenAppBackgrounded {
+            activities.filter { it.name.startsWith(prefix) }.forEach { activity ->
+                val enabled = activity.name == target
+                packageManager.setComponentEnabledSetting(
+                    android.content.ComponentName(packageName, activity.name),
+                    if (enabled) android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                    else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP,
+                )
+            }
         }
         return true
     }

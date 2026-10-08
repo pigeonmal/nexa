@@ -1,9 +1,12 @@
 app PickerSmoke {
     state sizes: Array<String> = ["Small", "Medium", "Large"]
     state selectedSize: String = "Medium"
+    state dueAt: Int64 = 1791446400000
+    state includeTime: Bool = true
 
     body {
-        Picker(items: sizes, selected: selectedSize)
+        Picker(items: sizes, selected: selectedSize, icon: "flag_filled", tint: "#6750A4")
         Text(selectedSize)
+        DatePicker(timestamp: dueAt, hasTime: includeTime)
     }
 }

@@ -2,6 +2,12 @@ import "../models/TaskItem.nx"
 import "../models/ReminderItem.nx"
 import "../storage/TodoPersistence.nx"
 
+struct TodoDateSuggestionChoice {
+    timestamp: Int64,
+    hasTime: Bool,
+    needsPicker: Bool
+}
+
 fn firstDetectedDate(matches: Array<DataExtractor.ExtractedData>) -> DataExtractor.ExtractedData? {
     for detected in matches {
         if isDetectedDate(detected.kind) { return detected }
@@ -67,6 +73,18 @@ fn taskCommentLabel(task: TaskItem?) -> String {
 fn taskReminderLabel(task: TaskItem?) -> String {
     let count: Int32 = task?.reminderCount ?? 0
     return count == 0 ? "Reminders" : "Reminders (\(count))"
+}
+
+fn taskCommentButtonLabel(items: Array<TaskItem>, id: Int32) -> String {
+    return taskCommentLabel(findTask(items, id))
+}
+
+fn taskReminderButtonLabel(items: Array<TaskItem>, id: Int32) -> String {
+    return taskReminderLabel(findTask(items, id))
+}
+
+fn initialTaskReminderTimestamp(hasDueDate: Bool, dueTimestamp: Int64) -> Int64 {
+    return hasDueDate ? dueTimestamp : Time.now() + 3600000
 }
 
 fn makeTask(id: Int32, title: String, description: String, dueTimestamp: Int64?, hasTime: Bool, priority: String, sortOrder: Int32) -> TaskItem {
@@ -208,6 +226,14 @@ fn dateMatchLabel(match: DataExtractor.ExtractedData?) -> String {
     return match?.text ?? ""
 }
 
+fn todoDateSuggestionChoice(match: DataExtractor.ExtractedData?, fallbackTimestamp: Int64) -> TodoDateSuggestionChoice {
+    return TodoDateSuggestionChoice(
+        match?.timestampMillis ?? fallbackTimestamp,
+        match?.hasTime ?? false,
+        match?.timestampMillis == null || !(match?.timePrecisionAvailable ?? false)
+    )
+}
+
 fn themeTint(theme: String) -> String {
     return theme == "Vanadyl Blue" ? "#0984E3"
         : (theme == "Skirret Green" ? "#20BF6B"
@@ -226,6 +252,38 @@ fn isTodoQuickDate(hasDueDate: Bool, timestamp: Int64) -> Bool {
         || date == Time.addCalendarDays(today, 7)
 }
 
+fn todoTodayStart() -> Int64 {
+    return Time.startOfDay(Time.now())
+}
+
+fn todoTomorrowStart() -> Int64 {
+    return Time.addCalendarDays(todoTodayStart(), 1)
+}
+
+fn todoNextWeekStart() -> Int64 {
+    return Time.addCalendarDays(todoTodayStart(), 7)
+}
+
+fn isTodoTodaySelected(hasDueDate: Bool, timestamp: Int64) -> Bool {
+    return hasDueDate && Time.startOfDay(timestamp) == todoTodayStart()
+}
+
+fn isTodoTomorrowSelected(hasDueDate: Bool, timestamp: Int64) -> Bool {
+    return hasDueDate && Time.startOfDay(timestamp) == todoTomorrowStart()
+}
+
+fn isTodoNextWeekSelected(hasDueDate: Bool, timestamp: Int64) -> Bool {
+    return hasDueDate && Time.startOfDay(timestamp) == todoNextWeekStart()
+}
+
+fn isTodoCustomDateSelected(hasDueDate: Bool, timestamp: Int64) -> Bool {
+    return hasDueDate && !isTodoQuickDate(hasDueDate, timestamp)
+}
+
+fn todoQuickPickDateLabel(hasDueDate: Bool, timestamp: Int64) -> String {
+    return hasDueDate ? todoDateLabel(timestamp) : "Pick Date"
+}
+
 fn alternateIconName(theme: String) -> String? {
     return theme == "Vanadyl Blue" ? "IconBlue"
         : (theme == "Skirret Green" ? "IconGreen"
@@ -239,6 +297,11 @@ fn autoReminderOffset(selection: String) -> Int64 {
     return selection == "10 minutes before" ? 600000
         : (selection == "30 minutes before" ? 1800000
         : (selection == "1 hour before" ? 3600000 : 0))
+}
+
+fn shouldCreateAutoReminder(selection: String, hasDueDate: Bool, hasTime: Bool, dueTimestamp: Int64) -> Bool {
+    return selection != "None" && hasDueDate && hasTime
+        && dueTimestamp - autoReminderOffset(selection) > Time.now()
 }
 
 class TodoOptions {

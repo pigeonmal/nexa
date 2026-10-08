@@ -5,6 +5,7 @@ import "components/TaskListRow.nx"
 import "storage/TodoPersistence.nx"
 import "widgets/Tasks.nx"
 import "components/CommentPanel.nx"
+import "components/SuggestedDateLabel.nx"
 import "features/TodoOperations.nx"
 import "screens/Theme.nx"
 import "screens/Completed.nx"
@@ -55,7 +56,6 @@ app TodoArchetype {
     state hasTime: Bool = false
     state priority: String = "None"
     state showingTaskEditor: Bool = false
-    state showingPriorityPicker: Bool = false
     state showingDatePicker: Bool = false
     state pickerTimestamp: Int64 = Time.now()
     state pickerHasTime: Bool = false

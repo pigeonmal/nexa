@@ -630,7 +630,7 @@ pub struct TabDecl {
     pub large_title: Option<Expr>,
     /// Optional text state that a native navigation search field edits.
     pub searchable: Option<Expr>,
-    /// Native search field prompt. Used together with `searchable`.
+    /// Placeholder shown by the search field rendered for a searchable tab.
     pub search_prompt: Option<Expr>,
     pub children: Vec<Node>,
     pub span: Span,

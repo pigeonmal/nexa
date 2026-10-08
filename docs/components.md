@@ -155,3 +155,34 @@ app TaskTypographyPreview {
     }
 }
 ```
+
+### Selection and date controls
+
+`Picker` binds a `String` state to native selection UI on both platforms. Use
+`icon` for an icon-only picker and pass `tint` when its selected icon should
+reflect the current value, such as a task priority. Android presents its
+choices in a centered Material dialog; selecting an option leaves the parent
+bottom sheet open. iOS uses a native menu.
+
+`DatePicker(timestamp:, hasTime:)` stores a local date and time as epoch
+milliseconds. It shows compact date and optional time controls: Android opens
+centered Material date/time dialogs, while iOS uses compact native pickers.
+Both stay within the app's date editor flow so the user can still cancel or
+confirm the enclosing sheet.
+
+```nx
+app PriorityControl {
+    state priorities: Array<String> = ["None", "High", "Normal", "Low"]
+    state priority: String = "Normal"
+    state priorityTint: String = "#FFCC00"
+    state dueAt: Int64 = 1791446400000
+    state includeTime: Bool = false
+
+    body {
+        Column(spacing: 12, padding: 16) {
+            Picker(items: priorities, selected: priority, icon: "flag_filled", tint: priorityTint)
+            DatePicker(timestamp: dueAt, hasTime: includeTime)
+        }
+    }
+}
+```

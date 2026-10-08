@@ -1,9 +1,14 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{BottomBarTab, Module, Node, ToolbarPlacement};
+use nexa_ir::{
+    BottomBarTab, Capitalization, KeyboardType, Module, Node, ReturnKeyType, ToolbarPlacement,
+};
 
 use crate::generator::{
-    components::{render_children, render_node},
+    components::{
+        input::{self, TextInputProps},
+        render_children, render_node,
+    },
     features::Features,
     utils::{indent, kotlin_string},
 };
@@ -337,17 +342,32 @@ pub(crate) fn render_app_bottom_bar(
                 out.line_at(content_depth + 4, format_args!("}}"));
             }
             if let Some(search_state) = &tab.search_state {
-                let prompt = nexa_codegen::names::localization_resource_name(
-                    tab.search_prompt.as_deref().unwrap_or("Search"),
-                );
-                out.line_at(
+                input::render_text_input(
+                    TextInputProps {
+                        state: search_state,
+                        placeholder: tab.search_prompt.as_deref().unwrap_or("Search"),
+                        keyboard: KeyboardType::Text,
+                        secure: false,
+                        multiline: false,
+                        autofill: None,
+                        return_key: Some(ReturnKeyType::Search),
+                        autocorrect: Some(false),
+                        capitalization: Some(Capitalization::None),
+                        focused: None,
+                        max_length: None,
+                        font: None,
+                        min_lines: None,
+                        max_lines: Some(1),
+                        searchable: true,
+                        horizontal_padding: Some(16),
+                        weight_in_row: false,
+                        actions: &[],
+                        on_change: None,
+                    },
                     content_depth + 4,
-                    format_args!(
-                        "TextField(value = {}, onValueChange = {{ {} = it }}, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), placeholder = {{ Text(stringResource(R.string.{prompt})) }}, singleLine = true)",
-                        state_name(search_state),
-                        state_name(search_state)
-                    ),
+                    out,
                 );
+                out.push('\n');
             }
             let content_children = without_tab_toolbars(&tab.children);
             render_children(&content_children, module, features, content_depth + 4, out);
@@ -513,7 +533,7 @@ pub(crate) fn render_page_pager(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{BottomBarTab, Module};
+    use nexa_ir::{BottomBarTab, Module, Node};
 
     use crate::generator::features::Features;
 
@@ -575,6 +595,44 @@ mod tests {
         assert!(output.contains(
             "style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)"
         ));
+    }
+
+    #[test]
+    fn searchable_tab_uses_the_shared_text_input_renderer() {
+        let tab = BottomBarTab {
+            index: 4,
+            label: "Search".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: Some("search".to_owned()),
+            navigation_title: Some("Search".to_owned()),
+            large_title: true,
+            search_state: Some("query".to_owned()),
+            search_prompt: Some("Search tasks...".to_owned()),
+            children: Vec::new(),
+        };
+        let mut module = empty_module();
+        module.body = vec![Node::AppBottomBar {
+            state: "selectedTab".to_owned(),
+            tint: None,
+            tabs: vec![tab.clone()],
+        }];
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            &[tab],
+            &module,
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("leadingIcon = { Icon(imageVector = Icons.Filled.Search"));
+        assert!(output.contains("modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)"));
+        assert!(output.contains("imeAction = ImeAction.Search"));
     }
 
     #[test]

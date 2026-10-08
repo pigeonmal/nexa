@@ -1,8 +1,8 @@
 use std::{fs, path::Path};
 
 use nexa_ir::{
-    AccessibilityRole, Action, ArithmeticOp, AutofillType, CollectionMutation, Expr, ListPlan,
-    MemberKind, Node, NumericType, ReturnKeyType, Type,
+    AccessibilityRole, Action, ArithmeticOp, AutofillType, CollectionMutation, ColorExpression,
+    Expr, ListPlan, MemberKind, Node, NumericType, ReturnKeyType, Type,
     walk::{walk_actions, walk_ir},
 };
 
@@ -2469,6 +2469,32 @@ fn picker_lowers_a_string_array_and_mutable_string_binding() {
         "#,
     );
     assert!(invalid.is_err(), "picker options must be Array<String>");
+}
+
+#[test]
+fn picker_tint_lowers_a_runtime_color_expression() {
+    let module = compile(
+        r##"
+        app PriorityPicker {
+            state options: Array<String> = ["None", "High"]
+            state selected: String = "High"
+            state priorityTint: String = "#FF9500"
+
+            body {
+                Picker(items: options, selected: selected, icon: "flag_filled", tint: priorityTint)
+            }
+        }
+        "##,
+    )
+    .expect("Picker should accept a runtime tint color");
+
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::Picker {
+            tint: Some(ColorExpression::Dynamic(Expr::State(name, Type::String))),
+            ..
+        }) if name == "priorityTint"
+    ));
 }
 
 #[test]

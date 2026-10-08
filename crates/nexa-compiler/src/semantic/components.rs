@@ -861,11 +861,16 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
                 .transpose()?
                 .map(|value| localize_ui_text(value, comment.clone()));
+            let tint = args
+                .remove("tint")
+                .map(|value| lower_color_expression(value, "Picker tint", cx))
+                .transpose()?;
             Ok(Node::Picker {
                 items,
                 state,
                 icon,
                 label,
+                tint,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "DatePicker" => {

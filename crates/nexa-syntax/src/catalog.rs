@@ -166,7 +166,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "Picker",
         summary: "Selects one string option from a native menu",
-        snippet: "Picker(items: ${1:options}, selected: ${2:selectedOption}, icon: \"${3:sort}\")",
+        snippet: "Picker(items: ${1:options}, selected: ${2:selectedOption}, icon: \"${3:sort}\", tint: \"${4:#6750A4}\")",
         probe: "app P { state options: Array<String> = [\"Small\", \"Medium\", \"Large\"]\n state selected: String = \"Medium\"\n body { Picker(items: options, selected: selected) } }",
     },
     ComponentEntry {
@@ -1282,6 +1282,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             req("selected"),
             opt("icon"),
             opt("label"),
+            opt("tint"),
             opt("comment"),
         ],
         exclusive: &[],

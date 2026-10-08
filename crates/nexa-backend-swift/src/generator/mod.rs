@@ -123,6 +123,55 @@ private struct NexaDragGestureView<Content: View>: View {
 
 "#;
 
+const NEXA_PICKER_MENU_HELPER: &str = r#"private struct NexaPickerMenu: View {
+    @Binding var selection: String
+    let items: [String]
+    let icon: String
+    let tint: Color?
+
+    var body: some View {
+        Menu {
+            ForEach(items, id: \.self) { item in
+                Button { selection = item } label: {
+                    if item == selection {
+                        Label(item, systemImage: "checkmark")
+                    } else {
+                        Text(item)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: icon)
+                .foregroundStyle(tint ?? Color.accentColor)
+        }
+        .accessibilityLabel("Choose an option")
+        .accessibilityValue(selection)
+    }
+}
+
+"#;
+
+const NEXA_LIMITED_TEXT_BINDING_HELPER: &str = r#"private func nexaLimitedTextBinding(
+    _ binding: Binding<String>,
+    _ limit: Int
+) -> Binding<String> {
+    Binding(
+        get: { binding.wrappedValue },
+        set: { binding.wrappedValue = String($0.prefix(limit)) }
+    )
+}
+
+"#;
+
+const NEXA_DATE_PICKER_BINDING_HELPER: &str = r#"private func nexaDatePickerBinding(_ timestamp: Binding<Int64>) -> Binding<Date> {
+    Binding<Date>(
+        get: { Date(timeIntervalSince1970: TimeInterval(timestamp.wrappedValue) / 1000) },
+        set: { timestamp.wrappedValue = Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
+    )
+}
+
+"#;
+
 const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"private func nexaColor(hex: String) -> Color {
     let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
     guard let value = UInt64(digits, radix: 16) else { return __NEXA_SWIFT_DEFAULT_ACCENT_COLOR__ }
@@ -273,28 +322,6 @@ fileprivate extension View {
             case .rounded(let r):
                 self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: CGFloat(r)))
             }
-        }
-    }
-
-}
-"#;
-
-const NEXA_SEARCH_ACTIVATION_HELPER: &str = r#"fileprivate extension View {
-    @ViewBuilder
-    func nexaAvoidHidingSearchToolbar() -> some View {
-        if #available(iOS 17.1, *) {
-            self.searchPresentationToolbarBehavior(.avoidHidingContent)
-        } else {
-            self
-        }
-    }
-
-    @ViewBuilder
-    func nexaSearchActivation() -> some View {
-        if #available(iOS 26.0, *) {
-            self.tabViewSearchActivation(.searchTabSelection)
-        } else {
-            self
         }
     }
 
@@ -521,6 +548,15 @@ fn generate_with_analysis_mode(
     // Each unit becomes its own file, so every file needs the full import
     // block and the shared native-object storage helper.
     let mut preamble = String::new();
+    if features.facts.ui.picker_present {
+        preamble.push_str(NEXA_PICKER_MENU_HELPER);
+    }
+    if features.facts.ui.text_input.present {
+        preamble.push_str(NEXA_LIMITED_TEXT_BINDING_HELPER);
+    }
+    if features.facts.ui.date_picker_present {
+        preamble.push_str(NEXA_DATE_PICKER_BINDING_HELPER);
+    }
     if module_has_native_object_state(module) {
         preamble.push_str(
             "@MainActor\nprivate final class NexaNativeObjectStorage<Value>: ObservableObject {\n    @Published var value: Value\n\n    init(makeValue: () -> Value) {\n        value = makeValue()\n    }\n}\n\n",
@@ -543,9 +579,6 @@ fn generate_with_analysis_mode(
     }
     if features.facts.ui.style.glass || features.facts.ui.button.glass {
         preamble.push_str(NEXA_GLASS_HELPER);
-    }
-    if features.facts.ui.bottom_bar.search_role {
-        preamble.push_str(NEXA_SEARCH_ACTIVATION_HELPER);
     }
     if features.facts.capabilities.uses_locale_api {
         preamble.push_str(NEXA_LOCALE_HELPER);
@@ -746,6 +779,7 @@ fn generate_with_analysis_mode(
             out.push_str("\n        .environment(\\.nexaSharedNamespace, nexaSharedNamespace)");
         }
         out.push_str("\n    }\n");
+        components::sheets::render_bottom_sheet_helpers(&module.body, module, &features, out);
         components::bottom_bar::render_bottom_bar_helpers(&module.body, module, &features, out);
         if !module.screens.is_empty() {
             for screen in &module.screens {

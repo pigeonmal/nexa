@@ -815,6 +815,8 @@ pub enum Node {
         state: String,
         icon: Option<SystemIcon>,
         label: Option<Expr>,
+        #[serde(default)]
+        tint: Option<ColorExpression>,
     },
     DatePicker {
         timestamp_state: String,
@@ -987,7 +989,7 @@ pub struct BottomBarTab {
     /// Use the native large title presentation when a navigation title exists.
     #[serde(default)]
     pub large_title: bool,
-    /// Mutable string state bound to the native navigation search field.
+    /// Mutable string state bound to the search field rendered for this tab.
     #[serde(default)]
     pub search_state: Option<String>,
     /// Native navigation search prompt.

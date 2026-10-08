@@ -1,0 +1,5 @@
+component SuggestedDateLabel(label: String) {
+    body {
+        Text(label, fontSize: 14)
+    }
+}

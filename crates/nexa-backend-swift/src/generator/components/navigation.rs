@@ -423,6 +423,7 @@ pub(crate) fn render_screen_view(
     );
     status_bar::render(screen.status_bar.or(module.status_bar), 2, out);
     out.push_str("\n    }\n");
+    super::sheets::render_bottom_sheet_helpers(&screen.body, module, features, out);
     super::bottom_bar::render_bottom_bar_helpers(&screen.body, module, features, out);
     out.push_str("}\n");
 }

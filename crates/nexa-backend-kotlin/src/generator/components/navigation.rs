@@ -3,7 +3,7 @@ use nexa_codegen::names::{navigation_route_name, state_name};
 use nexa_ir::{Expr, Module, Node, ScreenId, Type};
 
 use crate::generator::{
-    components::render_children,
+    components::{appearance, render_children},
     engine::types::kotlin_type,
     expressions::text_expression,
     features::Features,
@@ -24,6 +24,41 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         context.has_navigation,
         "androidx.compose.runtime.LaunchedEffect",
     );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.foundation.layout.Box",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.foundation.layout.fillMaxSize",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.foundation.layout.padding",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.material3.IconButton",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.material3.Scaffold",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.material3.TopAppBar",
+    );
+    imports.add(context.has_navigation, "androidx.compose.material3.Text");
+    imports.add(context.has_navigation, "androidx.compose.ui.Modifier");
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.ui.semantics.contentDescription",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.ui.semantics.semantics",
+    );
+    imports.add(context.has_navigation, "androidx.compose.ui.unit.sp");
     imports.add(
         context.has_navigation,
         "androidx.compose.ui.platform.LocalContext",
@@ -102,6 +137,7 @@ pub(crate) fn render_navigation_stack(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let app_appearance_mode = appearance::module_mode(module, root);
     indent(out, depth);
     out.push_str("val navController = rememberNavController()\n");
     indent(out, depth);
@@ -190,18 +226,52 @@ pub(crate) fn render_navigation_stack(
                 depth + 2,
                 format_args!("val nexaAnimatedVisibilityScope = this"),
             );
-            out.line_at(
-                depth + 2,
-                format_args!(
-                    "CompositionLocalProvider(LocalNexaAnimatedVisibilityScope provides nexaAnimatedVisibilityScope) {{"
-                ),
-            );
-            render_children(&screen.body, module, features, depth + 3, out);
-            out.push('\n');
-            indent(out, depth + 2);
-            out.push('}');
+        }
+        let theme_depth = depth + 2;
+        let themed_content_depth = if app_appearance_mode.is_some() {
+            theme_depth + 2
         } else {
-            render_children(&screen.body, module, features, depth + 2, out);
+            theme_depth
+        };
+        if let Some(mode) = &app_appearance_mode {
+            appearance::render_theme_start(mode, theme_depth, out);
+        }
+        if screen.id == root {
+            render_screen_body(screen, module, features, themed_content_depth, out);
+        } else {
+            out.line_at(themed_content_depth, format_args!("Scaffold("));
+            out.line_at(themed_content_depth + 1, format_args!("topBar = {{"));
+            out.line_at(themed_content_depth + 2, format_args!("TopAppBar("));
+            out.line_at(
+                themed_content_depth + 3,
+                format_args!("title = {{ Text({}) }},", kotlin_string(&screen.name)),
+            );
+            out.line_at(themed_content_depth + 3, format_args!("navigationIcon = {{"));
+            out.line_at(
+                themed_content_depth + 4,
+                format_args!("IconButton(onClick = {{ navController.popBackStack() }}) {{"),
+            );
+            out.line_at(
+                themed_content_depth + 5,
+                format_args!("Text(\"‹\", modifier = Modifier.semantics {{ contentDescription = \"Back\" }}, fontSize = 32.sp)"),
+            );
+            out.line_at(themed_content_depth + 4, format_args!("}}"));
+            out.line_at(themed_content_depth + 3, format_args!("}},"));
+            out.line_at(themed_content_depth + 2, format_args!(")"));
+            out.line_at(themed_content_depth + 1, format_args!("}},"));
+            out.line_at(themed_content_depth + 1, format_args!("content = {{ innerPadding ->"));
+            out.line_at(
+                themed_content_depth + 2,
+                format_args!("Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {{"),
+            );
+            render_screen_body(screen, module, features, themed_content_depth + 3, out);
+            out.push('\n');
+            out.line_at(themed_content_depth + 2, format_args!("}}"));
+            out.line_at(themed_content_depth + 1, format_args!("}}"));
+            out.line_at(themed_content_depth, format_args!(")"));
+        }
+        if app_appearance_mode.is_some() {
+            appearance::render_theme_end(theme_depth, out);
         }
         if screen.on_appear.is_some() || screen.on_disappear.is_some() {
             out.push('\n');
@@ -240,6 +310,29 @@ pub(crate) fn render_navigation_stack(
     out.push('}');
     out.push('\n');
     render_deep_link_dispatch(module, depth, out);
+}
+
+fn render_screen_body(
+    screen: &nexa_ir::Screen,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    if features.uses_shared_elements {
+        out.line_at(
+            depth,
+            format_args!(
+                "CompositionLocalProvider(LocalNexaAnimatedVisibilityScope provides nexaAnimatedVisibilityScope) {{"
+            ),
+        );
+        render_children(&screen.body, module, features, depth + 1, out);
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+    } else {
+        render_children(&screen.body, module, features, depth, out);
+    }
 }
 
 fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWriter) {

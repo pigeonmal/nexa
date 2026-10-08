@@ -1396,6 +1396,13 @@ struct NexaDevNodeList: View {
             let iconSelection = fields["icon"] as? [String: String] ?? [:]
             let icon = iconSelection["sf_symbol"] ?? iconSelection["shared"].flatMap(nexaDevSharedIconSymbol)
             let label = fields["label"].map { store.stringify(store.evaluate($0, locals: locals, scope: scope)) }
+            let tint: Color? = {
+                guard let tintValue = fields["tint"] as? [String: Any] else { return nil }
+                if let dynamic = tintValue["Dynamic"] {
+                    return devHexColor(store.stringify(store.evaluate(dynamic, locals: locals, scope: scope)))
+                }
+                return devColor(tintValue, isDark: colorScheme == .dark)
+            }()
             if let label {
                 return AnyView(Picker(selection: Binding(
                     get: { store.value(name, scope: scope) as? String ?? "" },
@@ -1410,7 +1417,7 @@ struct NexaDevNodeList: View {
                     } else {
                         Text(label)
                     }
-                })
+                }.tint(tint))
             }
             if let icon {
                 return AnyView(Menu {
@@ -1427,6 +1434,7 @@ struct NexaDevNodeList: View {
                     }
                 } label: {
                     Image(systemName: icon)
+                        .foregroundStyle(tint ?? Color.accentColor)
                 }
                 .accessibilityLabel("Choose an option")
                 .accessibilityValue(store.value(name, scope: scope) as? String ?? ""))
@@ -1438,25 +1446,39 @@ struct NexaDevNodeList: View {
                 ForEach(items, id: \.self) { item in
                     Text(item).tag(item)
                 }
-            }.pickerStyle(.menu).labelsHidden())
+            }.pickerStyle(.menu).labelsHidden().tint(tint))
         case "DatePicker":
             let timestampName = fields["timestamp_state"] as? String ?? ""
             let hasTimeName = fields["has_time_state"] as? String ?? ""
             return AnyView(VStack(spacing: 8) {
-                Toggle("Time", isOn: Binding(
+                Toggle("Include time", isOn: Binding(
                     get: { (store.value(hasTimeName, scope: scope) as? Bool) ?? false },
                     set: { store.setValue(hasTimeName, value: $0, scope: scope) }
                 ))
-                DatePicker("Select Date", selection: Binding(
-                    get: {
-                        let milliseconds = (store.value(timestampName, scope: scope) as? NSNumber)?.int64Value ?? 0
-                        return Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
-                    },
-                    set: { date in
-                        store.setValue(timestampName, value: Int64((date.timeIntervalSince1970 * 1000).rounded()), scope: scope)
+                HStack(spacing: 12) {
+                    DatePicker("Date", selection: Binding(
+                        get: {
+                            let milliseconds = (store.value(timestampName, scope: scope) as? NSNumber)?.int64Value ?? 0
+                            return Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+                        },
+                        set: { date in
+                            store.setValue(timestampName, value: Int64((date.timeIntervalSince1970 * 1000).rounded()), scope: scope)
+                        }
+                    ), displayedComponents: [.date])
+                        .datePickerStyle(.compact)
+                    if (store.value(hasTimeName, scope: scope) as? Bool) ?? false {
+                        DatePicker("Time", selection: Binding(
+                            get: {
+                                let milliseconds = (store.value(timestampName, scope: scope) as? NSNumber)?.int64Value ?? 0
+                                return Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+                            },
+                            set: { date in
+                                store.setValue(timestampName, value: Int64((date.timeIntervalSince1970 * 1000).rounded()), scope: scope)
+                            }
+                        ), displayedComponents: [.hourAndMinute])
+                            .datePickerStyle(.compact)
                     }
-                ), displayedComponents: ((store.value(hasTimeName, scope: scope) as? Bool) ?? false) ? [.date, .hourAndMinute] : [.date])
-                    .datePickerStyle(.graphical)
+                }
             })
         case "SystemIcon":
             let icon = fields["icon"] as? [String: String] ?? [:]

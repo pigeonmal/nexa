@@ -1565,11 +1565,15 @@ fn development_runtime_renders_pickers_on_both_platforms() {
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"Picker\":"));
     assert!(swift.contains(".pickerStyle(.menu)"));
+    assert!(swift.contains(".datePickerStyle(.compact)"));
+    assert!(swift.contains("Toggle(\"Include time\""));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"Picker\" ->"));
-    assert!(kotlin.contains("DropdownMenuItem("));
+    assert!(kotlin.contains("AlertDialog("));
     assert!(kotlin.contains("store.setState(state, item, scope)"));
+    assert!(kotlin.contains("DatePickerDialog("));
+    assert!(kotlin.contains("Text(\"Include time\""));
 }
 
 #[test]
@@ -1600,4 +1604,12 @@ fn development_runtime_renders_bottom_tabs_on_both_platforms() {
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"AppBottomBar\" ->"));
     assert!(kotlin.contains("NavigationSuiteScaffold("));
+    let activity = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),
+    )
+    .expect("read Android bottom-bar activity");
+    assert!(activity.contains(
+        "WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)"
+    ));
+    assert!(activity.contains("color = Color.Transparent"));
 }

@@ -28,6 +28,7 @@ pub(crate) struct TextInputProps<'a> {
     pub(crate) min_lines: Option<i32>,
     pub(crate) max_lines: Option<i32>,
     pub(crate) searchable: bool,
+    pub(crate) horizontal_padding: Option<u32>,
     pub(crate) actions: &'a [Action],
     pub(crate) on_change: Option<&'a TextInputChange>,
 }
@@ -50,6 +51,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         min_lines,
         max_lines,
         searchable,
+        horizontal_padding,
         actions,
         on_change,
     } = props;
@@ -67,6 +69,10 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         indent(out, depth + 1);
     }
     let control = if secure { "SecureField" } else { "TextField" };
+    let binding = max_length.map_or_else(
+        || format!("${}", state_name(state)),
+        |limit| format!("nexaLimitedTextBinding(${},{limit})", state_name(state)),
+    );
     let placeholder = match comment {
         Some(comment) => format!(
             "Text({}, comment: {})",
@@ -77,14 +83,10 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     };
     if multiline {
         out.push_str(&format!(
-            "TextField({placeholder}, text: ${}, axis: .vertical)",
-            state_name(state)
+            "TextField({placeholder}, text: {binding}, axis: .vertical)"
         ));
     } else {
-        out.push_str(&format!(
-            "{control}({placeholder}, text: ${})",
-            state_name(state)
-        ));
+        out.push_str(&format!("{control}({placeholder}, text: {binding})"));
     }
     if let Some(font) = font {
         let font = match font {
@@ -163,28 +165,16 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         indent(out, depth + 1);
         out.push('}');
     }
-    if let Some(max_length) = max_length {
-        out.push_str(&format!(
-            "\n{}.onChange(of: {}) {{ newValue in\n",
-            "    ".repeat(depth + 1),
-            state_name(state)
-        ));
-        out.line_at(
-            depth + 2,
-            format_args!(
-                "if newValue.count > {} {{ {} = String(newValue.prefix(Int({}))) }}",
-                max_length,
-                state_name(state),
-                max_length
-            ),
-        );
-        indent(out, depth + 1);
-        out.push('}');
-    }
     if searchable {
         out.push('\n');
         indent(out, depth);
         out.push('}');
+    }
+    if let Some(horizontal_padding) = horizontal_padding {
+        out.push_str(&format!(
+            "\n{}.padding(.horizontal, {horizontal_padding})",
+            "    ".repeat(depth)
+        ));
     }
 }
 
@@ -252,6 +242,7 @@ mod tests {
                 min_lines: None,
                 max_lines: None,
                 searchable: true,
+                horizontal_padding: None,
                 actions: &[],
                 on_change: None,
             },
@@ -264,5 +255,40 @@ mod tests {
         assert!(source.contains("Image(systemName: \"magnifyingglass\")"));
         assert!(source.contains("TextField(\"Search items\", text: $nexa_query)"));
         assert!(!source.contains("EmptyView().searchable"));
+    }
+
+    #[test]
+    fn maximum_length_is_enforced_by_the_binding_setter() {
+        let mut output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "description",
+                placeholder: "Description",
+                comment: None,
+                keyboard: KeyboardType::Text,
+                secure: false,
+                multiline: true,
+                autofill: None,
+                return_key: None,
+                autocorrect: None,
+                capitalization: None,
+                focused: None,
+                max_length: Some(1200),
+                font: None,
+                min_lines: None,
+                max_lines: Some(3),
+                searchable: false,
+                horizontal_padding: None,
+                actions: &[],
+                on_change: None,
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "TextField(\"Description\", text: nexaLimitedTextBinding($nexa_description,1200), axis: .vertical)"
+        ));
+        assert!(!output.contains(".onChange(of: nexa_description)"));
     }
 }

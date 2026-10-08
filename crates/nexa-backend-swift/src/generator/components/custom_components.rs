@@ -166,7 +166,9 @@ fn render_component(
         2,
         out,
     );
-    out.push_str("\n    }\n}\n");
+    out.push_str("\n    }");
+    super::sheets::render_bottom_sheet_helpers(&component.body, module, features, out);
+    out.push_str("\n}\n");
 }
 
 fn component_has_content_slot(component: &Component) -> bool {

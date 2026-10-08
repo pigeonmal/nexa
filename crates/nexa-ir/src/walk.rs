@@ -204,10 +204,15 @@ pub fn walk_ir(
                 walk_expression(progress, visit_expression)
             }
             Node::SegmentedControl { items, .. } => walk_expression(items, visit_expression),
-            Node::Picker { items, label, .. } => {
+            Node::Picker {
+                items, label, tint, ..
+            } => {
                 walk_expression(items, visit_expression);
                 if let Some(label) = label {
                     walk_expression(label, visit_expression);
+                }
+                if let Some(crate::ColorExpression::Dynamic(color)) = tint {
+                    walk_expression(color, visit_expression);
                 }
             }
             Node::Button {
@@ -1153,10 +1158,15 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             visitor.visit_expr(progress)
         }
         Node::SegmentedControl { items, .. } => visitor.visit_expr(items),
-        Node::Picker { items, label, .. } => {
+        Node::Picker {
+            items, label, tint, ..
+        } => {
             visitor.visit_expr(items);
             if let Some(label) = label {
                 visitor.visit_expr(label);
+            }
+            if let Some(crate::ColorExpression::Dynamic(color)) = tint {
+                visitor.visit_expr(color);
             }
         }
         Node::DatePicker { .. } => {}
@@ -1760,11 +1770,18 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             state,
             icon,
             label,
+            tint,
         } => Some(Node::Picker {
             items: folder.fold_expr(items),
             state,
             icon,
             label: label.map(|label| folder.fold_expr(label)),
+            tint: tint.map(|tint| match tint {
+                crate::ColorExpression::Dynamic(color) => {
+                    crate::ColorExpression::Dynamic(folder.fold_expr(color))
+                }
+                other => other,
+            }),
         }),
         Node::DatePicker {
             timestamp_state,

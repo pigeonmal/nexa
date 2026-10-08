@@ -26,6 +26,7 @@ pub(crate) struct TextInputProps<'a> {
     pub(crate) min_lines: Option<i32>,
     pub(crate) max_lines: Option<i32>,
     pub(crate) searchable: bool,
+    pub(crate) horizontal_padding: Option<u32>,
     pub(crate) weight_in_row: bool,
     pub(crate) actions: &'a [Action],
     pub(crate) on_change: Option<&'a TextInputChange>,
@@ -80,10 +81,32 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_text_input,
         "androidx.compose.material3.TextField",
     );
+    imports.add(
+        features.uses_text_input,
+        "androidx.compose.material3.TextFieldDefaults",
+    );
     imports.add(features.uses_text_input, "androidx.compose.material3.Text");
     imports.add(
-        features.uses_text_input_autofill || features.uses_focus,
+        features.uses_text_input,
+        "androidx.compose.ui.graphics.Color",
+    );
+    imports.add(
+        features.uses_text_input_autofill
+            || features.uses_focus
+            || features.uses_text_input_searchable,
         "androidx.compose.ui.Modifier",
+    );
+    imports.add(
+        features.uses_text_input_searchable,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_text_input_searchable,
+        "androidx.compose.foundation.layout.padding",
+    );
+    imports.add(
+        features.uses_text_input_searchable,
+        "androidx.compose.ui.unit.dp",
     );
     imports.add(
         features.uses_text_input_autofill,
@@ -116,6 +139,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         min_lines,
         max_lines,
         searchable,
+        horizontal_padding,
         weight_in_row,
         actions,
         on_change,
@@ -165,9 +189,14 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             ),
         );
     }
-    if weight_in_row || focused.is_some() || autofill.is_some() {
+    if weight_in_row || focused.is_some() || autofill.is_some() || horizontal_padding.is_some() {
         indent(out, depth + 1);
         out.push_str("modifier = Modifier");
+        if let Some(horizontal_padding) = horizontal_padding {
+            out.push_str(&format!(
+                ".fillMaxWidth().padding(horizontal = {horizontal_padding}.dp)"
+            ));
+        }
         if weight_in_row {
             out.push_str(".weight(1f)");
         }
@@ -211,6 +240,23 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         out.line_at(depth + 1, format_args!("maxLines = {max_lines},"));
     }
     out.line_at(depth + 1, format_args!("singleLine = {},", !multiline));
+    out.line_at(
+        depth + 1,
+        format_args!("colors = TextFieldDefaults.colors("),
+    );
+    for color in [
+        "focusedContainerColor",
+        "unfocusedContainerColor",
+        "disabledContainerColor",
+        "errorContainerColor",
+        "focusedIndicatorColor",
+        "unfocusedIndicatorColor",
+        "disabledIndicatorColor",
+        "errorIndicatorColor",
+    ] {
+        out.line_at(depth + 2, format_args!("{color} = Color.Transparent,"));
+    }
+    out.line_at(depth + 1, format_args!("),"));
     indent(out, depth + 1);
     out.push_str("keyboardOptions = KeyboardOptions(\n");
     out.line_at(
@@ -342,6 +388,7 @@ mod tests {
                 min_lines: None,
                 max_lines: None,
                 searchable: true,
+                horizontal_padding: None,
                 weight_in_row: false,
                 actions: &[],
                 on_change: None,
@@ -354,5 +401,15 @@ mod tests {
             "leadingIcon = { Icon(imageVector = Icons.Filled.Search, contentDescription = null) }"
         ));
         assert!(output.as_str().contains("imeAction = ImeAction.Search"));
+        assert!(
+            output
+                .as_str()
+                .contains("focusedContainerColor = Color.Transparent")
+        );
+        assert!(
+            output
+                .as_str()
+                .contains("unfocusedIndicatorColor = Color.Transparent")
+        );
     }
 }

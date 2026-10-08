@@ -77,6 +77,11 @@ test "soft-deleted records remain as hidden tombstones" {
         include_str!("../../../examples/archetypes/todo/components/TaskListRow.nx"),
     )
     .expect("platform-specific task list row source should be written");
+    fs::write(
+        components.join("SuggestedDateLabel.nx"),
+        include_str!("../../../examples/archetypes/todo/components/SuggestedDateLabel.nx"),
+    )
+    .expect("suggested date label source should be written");
     let features = entry
         .parent()
         .expect("app has a parent directory")
@@ -301,8 +306,8 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("DatePicker("));
     assert!(generated_source.contains(".navigationBarTitleDisplayMode(.inline)"));
     assert!(generated_source.contains(".presentationDragIndicator(.visible)"));
-    assert!(generated_source.contains("ToolbarItemGroup(placement: .navigationBarLeading)"));
-    assert!(generated_source.contains("ToolbarItemGroup(placement: .navigationBarTrailing)"));
+    assert!(generated_source.contains("ToolbarItem(placement: .navigationBarLeading)"));
+    assert!(generated_source.contains("ToolbarItem(placement: .navigationBarTrailing)"));
     assert!(generated_source.contains("Picker("));
     assert!(generated_source.contains("nexa_source.sorted {"));
     assert!(generated_source.contains("MediaPickerControl"));
@@ -331,8 +336,12 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_kotlin_source.contains("nexa_fn_deleteReminder(nexa_reminders"));
     assert!(generated_kotlin_source.contains("ON_RESUME"));
     assert!(
-        generated_kotlin_source.contains("Modifier.semantics { contentDescription = \"Time\" }")
+        generated_kotlin_source
+            .contains("Modifier.semantics { contentDescription = \"Include time\" }")
     );
+    assert!(generated_kotlin_source.contains("OutlinedButton(modifier = Modifier.weight(1f)"));
+    assert!(generated_kotlin_source.contains("DatePickerDialog("));
+    assert!(generated_kotlin_source.contains("text = { TimePicker(state = nexaTimePickerState"));
     assert!(generated_kotlin_source.contains("isLocalPending"));
     assert!(generated_kotlin_source.contains("scheduleLocalAt"));
     assert!(generated_kotlin_source.contains("cancelLocal"));

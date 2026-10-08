@@ -3,7 +3,10 @@ use nexa_codegen::names::state_name;
 use nexa_ir::{BottomBarTab, Module, Node, ToolbarPlacement, walk::walk_ir};
 
 use crate::generator::{
-    components::render_children,
+    components::{
+        input::{self, TextInputProps},
+        render_children,
+    },
     features::Features,
     utils::{indent, swift_string},
 };
@@ -23,7 +26,37 @@ pub(crate) fn render_bottom_bar_helpers(
                     out.push_str(&format!(
                         "\n    @ViewBuilder\n    private func {prefix}_{i}() -> some View {{\n"
                     ));
-                    out.push_str("        Group {\n");
+                    if let Some(search_state) = &tab.search_state {
+                        out.push_str("        VStack(spacing: 0) {\n");
+                        input::render_text_input(
+                            TextInputProps {
+                                state: search_state,
+                                placeholder: tab.search_prompt.as_deref().unwrap_or("Search"),
+                                comment: None,
+                                keyboard: nexa_ir::KeyboardType::Text,
+                                secure: false,
+                                multiline: false,
+                                autofill: None,
+                                return_key: Some(nexa_ir::ReturnKeyType::Search),
+                                autocorrect: Some(false),
+                                capitalization: Some(nexa_ir::Capitalization::None),
+                                focused: None,
+                                max_length: None,
+                                font: None,
+                                min_lines: None,
+                                max_lines: Some(1),
+                                searchable: true,
+                                horizontal_padding: Some(16),
+                                actions: &[],
+                                on_change: None,
+                            },
+                            3,
+                            out,
+                        );
+                        out.push('\n');
+                    } else {
+                        out.push_str("        Group {\n");
+                    }
                     let content: Vec<_> = tab
                         .children
                         .iter()
@@ -171,7 +204,6 @@ pub(crate) fn render_app_bottom_bar(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let has_search = tabs.iter().any(|t| t.role.as_deref() == Some("search"));
     let prefix = format!("nexa_{}_tab", state_name(state));
 
     out.line_at(depth, format_args!("if #available(iOS 18.0, *) {{"));
@@ -189,11 +221,6 @@ pub(crate) fn render_app_bottom_bar(
             ".tint({})",
             crate::generator::colors::expression_for_color(tint)
         ));
-    }
-    if has_search {
-        out.push('\n');
-        indent(out, depth + 1);
-        out.push_str(".nexaSearchActivation()");
     }
     render_app_tab_navigation_modifiers(state, tabs, module, features, depth + 1, out);
     out.push('\n');
@@ -249,18 +276,6 @@ fn render_app_tab_navigation_modifiers(
         }
     }
 
-    if let Some((tab, search_state)) = tabs
-        .iter()
-        .find_map(|tab| tab.search_state.as_deref().map(|state| (tab, state)))
-    {
-        let prompt = tab.search_prompt.as_deref().unwrap_or("Search");
-        out.push_str(&format!(
-            "\n.searchable(text: ${}, prompt: String(localized: {}))\n.nexaAvoidHidingSearchToolbar()",
-            state_name(search_state),
-            swift_string(prompt)
-        ));
-    }
-
     if tabs
         .iter()
         .any(|tab| !collect_navigation_toolbars(&tab.children).is_empty())
@@ -302,7 +317,7 @@ fn collect_navigation_toolbars(nodes: &[Node]) -> Vec<Node> {
     toolbars
 }
 
-fn render_navigation_toolbar_items(
+pub(crate) fn render_navigation_toolbar_items(
     node: &Node,
     module: &Module,
     features: &Features,
@@ -320,15 +335,14 @@ fn render_navigation_toolbar_items(
         ToolbarPlacement::Leading => ".navigationBarLeading",
         ToolbarPlacement::Trailing => ".navigationBarTrailing",
     };
-    out.line_at(
-        depth,
-        format_args!("ToolbarItemGroup(placement: {placement}) {{"),
-    );
     for child in children {
+        out.line_at(
+            depth,
+            format_args!("ToolbarItem(placement: {placement}) {{"),
+        );
         crate::generator::components::render_node(child, module, features, depth + 1, out);
-        out.push('\n');
+        out.line_at(depth, format_args!("}}"));
     }
-    out.line_at(depth, format_args!("}}"));
 }
 
 fn render_modern_tab_ref(
@@ -407,8 +421,54 @@ fn swift_tab_label(tab: &BottomBarTab) -> String {
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
+    use nexa_ir::{BottomBarTab, Module, Node};
 
-    use super::render_page_pager;
+    use crate::generator::engine::features::Features;
+
+    use super::{render_bottom_bar_helpers, render_page_pager};
+
+    fn empty_module_with_search_tab() -> Module {
+        let tab = BottomBarTab {
+            index: 4,
+            label: "Search".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: Some("search".to_owned()),
+            navigation_title: Some("Search".to_owned()),
+            large_title: true,
+            search_state: Some("query".to_owned()),
+            search_prompt: Some("Search tasks...".to_owned()),
+            children: Vec::new(),
+        };
+        Module {
+            app_name: "SearchParity".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::AppBottomBar {
+                state: "selectedTab".to_owned(),
+                tint: None,
+                tabs: vec![tab],
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        }
+    }
 
     #[test]
     fn page_indicator_uses_the_shared_dynamic_default_accent() {
@@ -420,5 +480,18 @@ mod tests {
             ".fill({selected} == Int32(index) ? Color(uiColor: .systemBlue) :"
         )));
         assert!(output.contains("HStack(spacing: 8)"));
+    }
+
+    #[test]
+    fn searchable_tab_renders_a_visible_native_text_input() {
+        let module = empty_module_with_search_tab();
+        let mut output = SourceWriter::new();
+        render_bottom_bar_helpers(&module.body, &module, &Features::default(), &mut output);
+
+        assert!(output.contains("VStack(spacing: 0) {"));
+        assert!(output.contains("Image(systemName: \"magnifyingglass\")"));
+        assert!(output.contains("TextField(\"Search tasks...\", text: $nexa_query)"));
+        assert!(output.contains(".padding(.horizontal, 16)"));
+        assert!(!output.contains(".searchable(text:"));
     }
 }

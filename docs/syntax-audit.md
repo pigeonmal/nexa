@@ -263,11 +263,11 @@ Reference: components.md#datepicker
 
 Selects one string option from a native menu
 
-Signature: `Picker(items, selected, icon:, label:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Picker(items, selected, icon:, label:, tint:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `items`, `selected`
 
-Optional options: `icon`, `label`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `icon`, `label`, `tint`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 

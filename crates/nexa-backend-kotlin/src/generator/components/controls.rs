@@ -153,25 +153,35 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_picker,
-        "androidx.compose.foundation.layout.Box",
+        "androidx.compose.foundation.layout.Row",
     );
     imports.add(
         features.uses_picker,
-        "androidx.compose.foundation.layout.Row",
+        "androidx.compose.foundation.layout.Column",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.foundation.layout.fillMaxWidth",
     );
     imports.add(
         features.uses_picker,
         "androidx.compose.foundation.layout.Spacer",
     );
-    imports.add(features.uses_picker, "androidx.compose.ui.Alignment");
-    imports.add(features.uses_picker, "androidx.compose.ui.Modifier");
     imports.add(
         features.uses_picker,
-        "androidx.compose.material3.DropdownMenu",
+        "androidx.compose.foundation.layout.width",
     );
     imports.add(
         features.uses_picker,
-        "androidx.compose.material3.DropdownMenuItem",
+        "androidx.compose.foundation.layout.size",
+    );
+    imports.add(features.uses_picker, "androidx.compose.ui.Alignment");
+    imports.add(features.uses_picker, "androidx.compose.ui.Modifier");
+    imports.add(features.uses_picker, "androidx.compose.ui.unit.dp");
+    imports.add(features.uses_picker, "androidx.compose.ui.graphics.Color");
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.material3.AlertDialog",
     );
     imports.add(
         features.uses_picker,
@@ -197,7 +207,39 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_date_picker,
+        "androidx.compose.material3.DatePickerDialog",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.AlertDialog",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.OutlinedButton",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.TextButton",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.material3.MaterialTheme",
+    );
+    imports.add(
+        features.uses_date_picker,
         "androidx.compose.foundation.layout.Column",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.foundation.layout.Row",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.foundation.layout.Spacer",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.foundation.layout.width",
     );
     imports.add(
         features.uses_date_picker,
@@ -219,6 +261,17 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_date_picker,
         "androidx.compose.runtime.LaunchedEffect",
     );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.runtime.mutableStateOf",
+    );
+    imports.add(
+        features.uses_date_picker,
+        "androidx.compose.runtime.remember",
+    );
+    imports.add(features.uses_date_picker, "androidx.compose.ui.Alignment");
+    imports.add(features.uses_date_picker, "androidx.compose.ui.Modifier");
+    imports.add(features.uses_date_picker, "androidx.compose.ui.unit.dp");
     imports.add(features.uses_date_picker, "java.util.Calendar");
     imports.add(features.uses_date_picker, "java.util.TimeZone");
     imports.add(
@@ -230,7 +283,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.CircularProgressIndicator",
     );
     imports.add(
-        features.uses_button || features.uses_segmented_control || features.uses_picker,
+        features.uses_button
+            || features.uses_segmented_control
+            || features.uses_picker
+            || features.uses_date_picker,
         "androidx.compose.material3.Text",
     );
     imports.add(
@@ -587,16 +643,21 @@ pub(crate) fn render_picker(
     state: &str,
     icon: Option<&SystemIcon>,
     label: Option<&Expr>,
+    tint: Option<&nexa_ir::ColorExpression>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     let selected = state_name(state);
     let icon = icon.map_or_else(|| "null".to_owned(), SystemIcon::material_reference);
     let label = label.map_or_else(|| "null".to_owned(), expression);
+    let tint = tint.map_or_else(
+        || "null".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
     out.line_at(
         depth,
         format_args!(
-            "nexaPickerMenu({}, {selected}, {icon}, {label}) {{ {selected} = it }}",
+            "nexaPickerMenu({}, {selected}, {icon}, {label}, {tint}) {{ {selected} = it }}",
             expression(items),
         ),
     );
@@ -610,10 +671,287 @@ pub(crate) fn render_date_picker(
 ) {
     let timestamp = state_name(timestamp_state);
     let has_time = state_name(has_time_state);
-    let pad = "    ".repeat(depth);
-    out.push_str(&format!(
-        "Column {{\n{pad}    val nexaDatePickerLocalDate = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}\n{pad}    val nexaDatePickerInitialMillis = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{\n{pad}        clear()\n{pad}        set(nexaDatePickerLocalDate.get(Calendar.YEAR), nexaDatePickerLocalDate.get(Calendar.MONTH), nexaDatePickerLocalDate.get(Calendar.DAY_OF_MONTH))\n{pad}    }}.timeInMillis\n{pad}    val nexaDatePickerState = rememberDatePickerState(initialSelectedDateMillis = nexaDatePickerInitialMillis)\n{pad}    val nexaTimePickerState = rememberTimePickerState()\n{pad}    Switch(checked = {has_time}, onCheckedChange = {{ {has_time} = it }}, modifier = Modifier.semantics {{ contentDescription = \"Time\" }})\n{pad}    DatePicker(state = nexaDatePickerState, title = {{ Text(\"Select Date\") }})\n{pad}    if ({has_time}) TimePicker(state = nexaTimePickerState)\n{pad}    LaunchedEffect({timestamp}) {{\n{pad}        val localDate = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}\n{pad}        nexaDatePickerState.selectedDateMillis = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{\n{pad}            clear()\n{pad}            set(localDate.get(Calendar.YEAR), localDate.get(Calendar.MONTH), localDate.get(Calendar.DAY_OF_MONTH))\n{pad}        }}.timeInMillis\n{pad}    }}\n{pad}    LaunchedEffect(nexaDatePickerState.selectedDateMillis, nexaTimePickerState.hour, nexaTimePickerState.minute, {has_time}) {{\n{pad}        nexaDatePickerState.selectedDateMillis?.let {{ selectedMillis ->\n{pad}            val selectedDate = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{ timeInMillis = selectedMillis }}\n{pad}            val calendar = Calendar.getInstance().apply {{\n{pad}                clear()\n{pad}                set(selectedDate.get(Calendar.YEAR), selectedDate.get(Calendar.MONTH), selectedDate.get(Calendar.DAY_OF_MONTH), if ({has_time}) nexaTimePickerState.hour else 0, if ({has_time}) nexaTimePickerState.minute else 0)\n{pad}            }}\n{pad}            {timestamp} = calendar.timeInMillis\n{pad}        }}\n{pad}    }}\n{pad}}}"
-    ));
+    let suffix = out.next_id();
+    let date_state = format!("nexaDatePickerState{suffix}");
+    let time_state = format!("nexaTimePickerState{suffix}");
+    let date_dialog = format!("nexaShowDateDialog{suffix}");
+    let time_dialog = format!("nexaShowTimeDialog{suffix}");
+    let local_date = format!("nexaDatePickerLocalDate{suffix}");
+    let initial_millis = format!("nexaDatePickerInitialMillis{suffix}");
+    let local_time = format!("nexaTimePickerInitialDate{suffix}");
+
+    out.line_at(depth, format_args!("Column {{"));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "val {local_date} = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "val {initial_millis} = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{"
+        ),
+    );
+    out.line_at(depth + 2, format_args!("clear()"));
+    out.line_at(
+        depth + 2,
+        format_args!("set({local_date}.get(Calendar.YEAR), {local_date}.get(Calendar.MONTH), {local_date}.get(Calendar.DAY_OF_MONTH))"),
+    );
+    out.line_at(depth + 1, format_args!("}}.timeInMillis"));
+    out.line_at(
+        depth + 1,
+        format_args!("val {date_state} = rememberDatePickerState(initialSelectedDateMillis = {initial_millis})"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "val {local_time} = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("val {time_state} = rememberTimePickerState(initialHour = {local_time}.get(Calendar.HOUR_OF_DAY), initialMinute = {local_time}.get(Calendar.MINUTE))"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("val {date_dialog} = remember {{ mutableStateOf(false) }}"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("val {time_dialog} = remember {{ mutableStateOf(false) }}"),
+    );
+
+    out.line_at(
+        depth + 1,
+        format_args!("Row(verticalAlignment = Alignment.CenterVertically) {{"),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!("Text(\"Include time\", modifier = Modifier.weight(1f))"),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!("Switch(checked = {has_time}, onCheckedChange = {{ enabled ->"),
+    );
+    out.line_at(depth + 3, format_args!("{has_time} = enabled"));
+    out.line_at(depth + 3, format_args!("if (!enabled) {{"));
+    out.line_at(
+        depth + 4,
+        format_args!("val calendar = Calendar.getInstance().apply {{"),
+    );
+    out.line_at(depth + 5, format_args!("timeInMillis = {timestamp}"));
+    out.line_at(depth + 5, format_args!("set(Calendar.HOUR_OF_DAY, 0)"));
+    out.line_at(depth + 5, format_args!("set(Calendar.MINUTE, 0)"));
+    out.line_at(depth + 5, format_args!("set(Calendar.SECOND, 0)"));
+    out.line_at(depth + 5, format_args!("set(Calendar.MILLISECOND, 0)"));
+    out.line_at(depth + 4, format_args!("}}"));
+    out.line_at(
+        depth + 4,
+        format_args!("{timestamp} = calendar.timeInMillis"),
+    );
+    out.line_at(depth + 3, format_args!("}}"));
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "}}, modifier = Modifier.semantics {{ contentDescription = \"Include time\" }})"
+        ),
+    );
+    out.line_at(depth + 1, format_args!("}}"));
+
+    out.line_at(
+        depth + 1,
+        format_args!("Row(verticalAlignment = Alignment.CenterVertically) {{"),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!("OutlinedButton(modifier = Modifier.weight(1f), onClick = {{"),
+    );
+    out.line_at(
+        depth + 3,
+        format_args!(
+            "val localDate = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
+        ),
+    );
+    out.line_at(
+        depth + 3,
+        format_args!("{date_state}.selectedDateMillis = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{"),
+    );
+    out.line_at(depth + 4, format_args!("clear()"));
+    out.line_at(
+        depth + 4,
+        format_args!("set(localDate.get(Calendar.YEAR), localDate.get(Calendar.MONTH), localDate.get(Calendar.DAY_OF_MONTH))"),
+    );
+    out.line_at(depth + 3, format_args!("}}.timeInMillis"));
+    out.line_at(depth + 3, format_args!("{date_dialog}.value = true"));
+    out.line_at(depth + 2, format_args!("}}) {{"));
+    out.line_at(depth + 3, format_args!("Column {{"));
+    out.line_at(
+        depth + 4,
+        format_args!("Text(\"Date\", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)"),
+    );
+    out.line_at(
+        depth + 4,
+        format_args!("Text(java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date({timestamp})))"),
+    );
+    out.line_at(depth + 3, format_args!("}}"));
+    out.line_at(depth + 2, format_args!("}}"));
+
+    out.line_at(depth + 2, format_args!("if ({has_time}) {{"));
+    out.line_at(depth + 3, format_args!("Spacer(Modifier.width(8.dp))"));
+    out.line_at(
+        depth + 3,
+        format_args!("OutlinedButton(modifier = Modifier.weight(1f), onClick = {{"),
+    );
+    out.line_at(
+        depth + 4,
+        format_args!(
+            "val localTime = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
+        ),
+    );
+    out.line_at(
+        depth + 4,
+        format_args!("{time_state}.hour = localTime.get(Calendar.HOUR_OF_DAY)"),
+    );
+    out.line_at(
+        depth + 4,
+        format_args!("{time_state}.minute = localTime.get(Calendar.MINUTE)"),
+    );
+    out.line_at(depth + 4, format_args!("{time_dialog}.value = true"));
+    out.line_at(depth + 3, format_args!("}}) {{"));
+    out.line_at(depth + 4, format_args!("Column {{"));
+    out.line_at(
+        depth + 5,
+        format_args!("Text(\"Time\", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)"),
+    );
+    out.line_at(
+        depth + 5,
+        format_args!("Text(java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date({timestamp})))"),
+    );
+    out.line_at(depth + 4, format_args!("}}"));
+    out.line_at(depth + 3, format_args!("}}"));
+    out.line_at(depth + 2, format_args!("}}"));
+    out.line_at(depth + 1, format_args!("}}"));
+
+    out.line_at(depth + 1, format_args!("if ({date_dialog}.value) {{"));
+    out.line_at(depth + 2, format_args!("DatePickerDialog("));
+    out.line_at(
+        depth + 3,
+        format_args!("onDismissRequest = {{ {date_dialog}.value = false }},"),
+    );
+    out.line_at(depth + 3, format_args!("confirmButton = {{"));
+    out.line_at(depth + 4, format_args!("TextButton(onClick = {{"));
+    out.line_at(
+        depth + 5,
+        format_args!("{date_state}.selectedDateMillis?.let {{ selectedMillis ->"),
+    );
+    out.line_at(
+        depth + 6,
+        format_args!("val selectedDate = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{ timeInMillis = selectedMillis }}"),
+    );
+    out.line_at(
+        depth + 6,
+        format_args!("val calendar = Calendar.getInstance().apply {{"),
+    );
+    out.line_at(depth + 7, format_args!("clear()"));
+    out.line_at(
+        depth + 7,
+        format_args!("set(selectedDate.get(Calendar.YEAR), selectedDate.get(Calendar.MONTH), selectedDate.get(Calendar.DAY_OF_MONTH), if ({has_time}) {time_state}.hour else 0, if ({has_time}) {time_state}.minute else 0)"),
+    );
+    out.line_at(depth + 6, format_args!("}}"));
+    out.line_at(
+        depth + 6,
+        format_args!("{timestamp} = calendar.timeInMillis"),
+    );
+    out.line_at(depth + 5, format_args!("}}"));
+    out.line_at(depth + 5, format_args!("{date_dialog}.value = false"));
+    out.line_at(depth + 4, format_args!("}}) {{ Text(\"Done\") }}"));
+    out.line_at(depth + 3, format_args!("}},"));
+    out.line_at(
+        depth + 3,
+        format_args!("dismissButton = {{ TextButton(onClick = {{ {date_dialog}.value = false }}) {{ Text(\"Cancel\") }} }},"),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!(
+            ") {{ DatePicker(state = {date_state}, title = {{ Text(\"Select date\") }}) }}"
+        ),
+    );
+    out.line_at(depth + 1, format_args!("}}"));
+
+    out.line_at(depth + 1, format_args!("if ({time_dialog}.value) {{"));
+    out.line_at(depth + 2, format_args!("AlertDialog("));
+    out.line_at(
+        depth + 3,
+        format_args!("onDismissRequest = {{ {time_dialog}.value = false }},"),
+    );
+    out.line_at(
+        depth + 3,
+        format_args!("title = {{ Text(\"Select time\") }},"),
+    );
+    out.line_at(
+        depth + 3,
+        format_args!("text = {{ TimePicker(state = {time_state}) }},"),
+    );
+    out.line_at(depth + 3, format_args!("confirmButton = {{"));
+    out.line_at(depth + 4, format_args!("TextButton(onClick = {{"));
+    out.line_at(
+        depth + 5,
+        format_args!("val calendar = Calendar.getInstance().apply {{"),
+    );
+    out.line_at(depth + 6, format_args!("timeInMillis = {timestamp}"));
+    out.line_at(
+        depth + 6,
+        format_args!("set(Calendar.HOUR_OF_DAY, {time_state}.hour)"),
+    );
+    out.line_at(
+        depth + 6,
+        format_args!("set(Calendar.MINUTE, {time_state}.minute)"),
+    );
+    out.line_at(depth + 6, format_args!("set(Calendar.SECOND, 0)"));
+    out.line_at(depth + 6, format_args!("set(Calendar.MILLISECOND, 0)"));
+    out.line_at(depth + 5, format_args!("}}"));
+    out.line_at(
+        depth + 5,
+        format_args!("{timestamp} = calendar.timeInMillis"),
+    );
+    out.line_at(depth + 5, format_args!("{time_dialog}.value = false"));
+    out.line_at(depth + 4, format_args!("}}) {{ Text(\"Done\") }}"));
+    out.line_at(depth + 3, format_args!("}},"));
+    out.line_at(
+        depth + 3,
+        format_args!("dismissButton = {{ TextButton(onClick = {{ {time_dialog}.value = false }}) {{ Text(\"Cancel\") }} }},"),
+    );
+    out.line_at(depth + 2, format_args!(")"));
+    out.line_at(depth + 1, format_args!("}}"));
+
+    out.line_at(depth + 1, format_args!("LaunchedEffect({timestamp}) {{"));
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "val localDate = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
+        ),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!("{date_state}.selectedDateMillis = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{"),
+    );
+    out.line_at(depth + 3, format_args!("clear()"));
+    out.line_at(
+        depth + 3,
+        format_args!("set(localDate.get(Calendar.YEAR), localDate.get(Calendar.MONTH), localDate.get(Calendar.DAY_OF_MONTH))"),
+    );
+    out.line_at(depth + 2, format_args!("}}.timeInMillis"));
+    out.line_at(
+        depth + 2,
+        format_args!("{time_state}.hour = localDate.get(Calendar.HOUR_OF_DAY)"),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!("{time_state}.minute = localDate.get(Calendar.MINUTE)"),
+    );
+    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_picker_helper(out: &mut SourceWriter) {
@@ -624,38 +962,67 @@ internal fun nexaPickerMenu(
     selected: String,
     icon: ImageVector?,
     label: String?,
+    tint: Color?,
     onSelectionChanged: (String) -> Unit,
 ) {
     val expanded = remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (label != null) {
-            Text(label)
-            Spacer(Modifier.weight(1f))
+        if (label != null && icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint ?: MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(12.dp))
         }
-        Box {
-            TextButton(onClick = { expanded.value = true }) {
-                if (icon != null) {
-                    val iconTint = if (label == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary
-                    Icon(imageVector = icon, contentDescription = selected, tint = iconTint)
-                } else {
-                    Text(selected)
-                }
+        if (label != null) {
+            Text(label, modifier = Modifier.weight(1f))
+        }
+        TextButton(onClick = { expanded.value = true }) {
+            if (icon != null && label == null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = selected,
+                    tint = tint ?: MaterialTheme.colorScheme.onSurface,
+                )
+            } else {
+                Text(
+                    selected,
+                    color = tint ?: MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
-            DropdownMenu(
-                expanded = expanded.value,
-                onDismissRequest = { expanded.value = false },
-            ) {
+        }
+    }
+    if (expanded.value) {
+        AlertDialog(
+            onDismissRequest = { expanded.value = false },
+            title = { Text(label ?: "Select an option") },
+            text = {
+                Column {
                 items.forEach { item ->
-                    DropdownMenuItem(
-                        text = { Text(item) },
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
                         onClick = {
                             onSelectionChanged(item)
                             expanded.value = false
                         },
-                    )
+                    ) {
+                        Text(
+                            item,
+                            color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
                 }
-            }
-        }
+                }
+            },
+            confirmButton = {},
+        )
     }
 }
 
@@ -1437,24 +1804,53 @@ mod tests {
     use nexa_ir::{Action, CollectionMutation, Expr, NumericType, SystemIcon, TaskExecutor, Type};
 
     use super::{
-        render_actions, render_button, render_date_picker, render_picker_helper,
+        render_actions, render_button, render_date_picker, render_picker, render_picker_helper,
         render_progress_bar, render_progress_ring, render_slider, render_switch,
     };
 
     #[test]
-    fn picker_icon_tint_matches_its_toolbar_or_labeled_context() {
+    fn picker_keeps_labeled_selection_visible_and_marks_the_active_option() {
         let mut output = SourceWriter::new();
 
         render_picker_helper(&mut output);
 
+        assert!(output.contains("if (label != null && icon != null)"));
+        assert!(output.contains("Spacer(Modifier.width(12.dp))"));
+        assert!(output.contains("Text(label, modifier = Modifier.weight(1f))"));
         assert!(output.contains(
-            "val iconTint = if (label == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary"
+            "color = tint ?: MaterialTheme.colorScheme.primary,\n                    maxLines = 1"
         ));
+        assert!(output.contains("AlertDialog("));
+        assert!(output.contains("if (item == selected) tint ?: MaterialTheme.colorScheme.primary"));
         assert!(
             output.contains(
-                "Icon(imageVector = icon, contentDescription = selected, tint = iconTint)"
+                "contentDescription = selected,\n                    tint = tint ?: MaterialTheme.colorScheme.onSurface"
             )
         );
+        assert!(!output.contains("DropdownMenu("));
+    }
+
+    #[test]
+    fn picker_renders_dynamic_tint_and_a_sheet_preserving_choice_dialog() {
+        let items = Expr::Array(vec![Expr::String("None".to_owned())]);
+        let tint = nexa_ir::ColorExpression::Dynamic(Expr::State(
+            "priorityTint".to_owned(),
+            nexa_ir::Type::String,
+        ));
+        let mut output = SourceWriter::new();
+
+        render_picker(
+            &items,
+            "priority",
+            Some(&SystemIcon::Shared("flag_filled".to_owned())),
+            None,
+            Some(&tint),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("nexaColorFromHex(nexa_priorityTint)"));
+        assert!(output.contains("nexaPickerMenu(listOf(\"None\"), nexa_priority, Icons.Filled.Flag, null, nexaColorFromHex(nexa_priorityTint))"));
     }
 
     #[test]
@@ -1566,8 +1962,11 @@ mod tests {
         render_date_picker("reminderTimestamp", "reminderHasTime", 0, &mut output);
 
         assert!(output.contains("Calendar.getInstance(TimeZone.getTimeZone(\"UTC\"))"));
-        assert!(output.contains("nexaDatePickerState.selectedDateMillis = Calendar.getInstance"));
-        assert!(output.contains("set(selectedDate.get(Calendar.YEAR), selectedDate.get(Calendar.MONTH), selectedDate.get(Calendar.DAY_OF_MONTH)"));
+        assert!(output.contains("OutlinedButton(modifier = Modifier.weight(1f)"));
+        assert!(output.contains("DatePickerDialog("));
+        assert!(output.contains("AlertDialog("));
+        assert!(output.contains("nexaDatePickerState0.selectedDateMillis = Calendar.getInstance"));
+        assert!(output.contains("set(localDate.get(Calendar.YEAR), localDate.get(Calendar.MONTH), localDate.get(Calendar.DAY_OF_MONTH)"));
         assert!(output.contains("reminderTimestamp = calendar.timeInMillis"));
     }
 

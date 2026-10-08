@@ -79,6 +79,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
@@ -117,6 +118,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -140,6 +142,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
@@ -149,6 +153,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.res.painterResource
@@ -177,6 +182,7 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
 
 private const val nexaDevDefaultBodyFontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__
@@ -356,12 +362,52 @@ internal fun NexaDevNode(
                     else -> nexaDevDefaultColorScheme(systemDark)
                 }
             }
+            val appearanceView = LocalView.current
+            val statusBarColor = scheme.background
+            val navigationBarColor = scheme.surfaceContainer
+            SideEffect {
+                var context: android.content.Context = appearanceView.context
+                while (context is android.content.ContextWrapper && context !is android.app.Activity) {
+                    context = context.baseContext
+                }
+                val window = (context as? android.app.Activity)?.window
+                if (window != null) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        window.isNavigationBarContrastEnforced = false
+                    }
+                    window.decorView.setBackgroundColor(statusBarColor.toArgb())
+                    val controller = WindowCompat.getInsetsController(window, appearanceView)
+                    controller.isAppearanceLightStatusBars = statusBarColor.luminance() > 0.5f
+                    controller.isAppearanceLightNavigationBars = navigationBarColor.luminance() > 0.5f
+                }
+            }
             MaterialTheme(colorScheme = scheme) {
-                NexaDevNodeList(fields.optJSONArray("children") ?: JSONArray(), module, store, parameters = locals, scope = scope)
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = scheme.background,
+                    contentColor = scheme.onBackground,
+                ) {
+                    NexaDevNodeList(
+                        fields.optJSONArray("children") ?: JSONArray(),
+                        module,
+                        store,
+                        parameters = locals,
+                        scope = scope,
+                    )
+                }
             }
         }
         "Form" -> {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            val background = if (MaterialTheme.colorScheme.background == Color.Black) {
+                MaterialTheme.colorScheme.background
+            } else {
+                Color(0xFFF2F2F7)
+            }
+            Column(
+                Modifier.fillMaxSize()
+                    .background(background)
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 RenderColumnChildren(
                     fields.optJSONArray("children") ?: JSONArray(),
                     module,
@@ -380,13 +426,41 @@ internal fun NexaDevNode(
                         style = MaterialTheme.typography.titleSmall,
                     )
                 }
-                RenderColumnChildren(
-                    fields.optJSONArray("children") ?: JSONArray(),
-                    module,
-                    store,
-                    locals,
-                    scope,
-                )
+                val children = fields.optJSONArray("children") ?: JSONArray()
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (MaterialTheme.colorScheme.background == Color.Black) {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                ) {
+                    Column {
+                        for (index in 0 until children.length()) {
+                            androidx.compose.runtime.key(index) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                ) {
+                                    NexaDevNode(
+                                        nexaDevNodeObject(children.opt(index)),
+                                        module,
+                                        store,
+                                        locals,
+                                        scope,
+                                    )
+                                }
+                                if (index + 1 < children.length()) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 16.dp),
+                                        thickness = 0.5.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 if (!fields.isNull("footer")) {
                     Text(
                         store.stringify(store.evaluatePresented(fields.opt("footer"), locals, scope)),
@@ -1404,78 +1478,209 @@ internal fun NexaDevNode(
             val options = (store.evaluatePresented(fields.opt("items"), locals, scope) as? List<*>)
                 ?.filterIsInstance<String>()
                 ?: emptyList()
+            val tintValue = fields.optJSONObject("tint") ?: JSONObject()
+            val dynamicTint = tintValue.opt("Dynamic")
+            val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
+                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope) ?: ""))
+            } else {
+                nexaDevColor(tintValue, isSystemInDarkTheme())
+            }
             val expanded = remember(state, scope) { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (label != null) {
                     Text(label)
                     Spacer(Modifier.weight(1f))
                 }
-                Box {
-                    androidx.compose.material3.TextButton(onClick = { expanded.value = true }) {
-                        val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
-                        if (iconSelection.has("shared") || iconSelection.has("sf_symbol")) {
-                            val iconName = if (iconSelection.has("shared")) {
-                                iconSelection.optString("shared")
-                            } else {
-                                iconSelection.optString("sf_symbol")
-                            }
-                            val icon = if (iconSelection.has("shared")) {
-                                nexaDevSharedMaterialIcon(iconName)
-                            } else {
-                                nexaDevSfAliasMaterialIcon(iconName) ?: Icons.Filled.Star
-                            }
-                            Icon(imageVector = icon, contentDescription = selected)
+                androidx.compose.material3.TextButton(onClick = { expanded.value = true }) {
+                    val iconSelection = fields.optJSONObject("icon") ?: JSONObject()
+                    if (iconSelection.has("shared") || iconSelection.has("sf_symbol")) {
+                        val iconName = if (iconSelection.has("shared")) {
+                            iconSelection.optString("shared")
                         } else {
-                            Text(selected)
+                            iconSelection.optString("sf_symbol")
                         }
+                        val icon = if (iconSelection.has("shared")) {
+                            nexaDevSharedMaterialIcon(iconName)
+                        } else {
+                            nexaDevSfAliasMaterialIcon(iconName) ?: Icons.Filled.Star
+                        }
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = selected,
+                            tint = tint ?: MaterialTheme.colorScheme.onSurface,
+                        )
+                    } else {
+                        Text(selected, color = tint ?: MaterialTheme.colorScheme.primary)
                     }
-                    DropdownMenu(
-                        expanded = expanded.value,
-                        onDismissRequest = { expanded.value = false },
-                    ) {
+                }
+            }
+            if (expanded.value) {
+                AlertDialog(
+                    onDismissRequest = { expanded.value = false },
+                    title = { Text(label ?: "Select an option") },
+                    text = {
+                        Column {
                         options.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(item) },
+                            TextButton(
+                                modifier = Modifier.fillMaxWidth(),
                                 onClick = {
                                     store.setState(state, item, scope)
                                     expanded.value = false
                                 },
-                            )
+                            ) {
+                                Text(
+                                    item,
+                                    color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                         }
-                    }
-                }
+                        }
+                    },
+                    confirmButton = {},
+                )
             }
         }
         "DatePicker" -> {
             val timestampName = fields.optString("timestamp_state")
             val hasTimeName = fields.optString("has_time_state")
-            var timestamp by remember(timestampName, scope) {
-                mutableLongStateOf((store.state(timestampName, scope) as? Number)?.toLong() ?: 0L)
-            }
-            var hasTime by remember(hasTimeName, scope) {
-                mutableStateOf(store.state(hasTimeName, scope) as? Boolean ?: false)
-            }
-            val datePickerState = rememberDatePickerState(initialSelectedDateMillis = timestamp)
-            val timePickerState = rememberTimePickerState()
-            LaunchedEffect(timestamp, hasTime) {
-                store.setState(timestampName, timestamp, scope)
-                store.setState(hasTimeName, hasTime, scope)
-            }
+            val timestamp = (store.state(timestampName, scope) as? Number)?.toLong() ?: 0L
+            val hasTime = store.state(hasTimeName, scope) as? Boolean ?: false
+            val initialDate = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+            val initialDateMillis = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply {
+                clear()
+                set(
+                    initialDate.get(java.util.Calendar.YEAR),
+                    initialDate.get(java.util.Calendar.MONTH),
+                    initialDate.get(java.util.Calendar.DAY_OF_MONTH),
+                )
+            }.timeInMillis
+            val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialDateMillis)
+            val timePickerState = rememberTimePickerState(
+                initialHour = initialDate.get(java.util.Calendar.HOUR_OF_DAY),
+                initialMinute = initialDate.get(java.util.Calendar.MINUTE),
+            )
+            val dateDialog = remember(timestampName, scope) { mutableStateOf(false) }
+            val timeDialog = remember(timestampName, scope) { mutableStateOf(false) }
+            val writeTimestamp: (Long) -> Unit = { store.setState(timestampName, it, scope) }
             Column {
-                Switch(checked = hasTime, onCheckedChange = { hasTime = it })
-                DatePicker(state = datePickerState, title = { Text("Select Date") })
-                if (hasTime) TimePicker(state = timePickerState)
-                LaunchedEffect(datePickerState.selectedDateMillis, timePickerState.hour, timePickerState.minute, hasTime) {
-                    datePickerState.selectedDateMillis?.let { selectedMillis ->
-                        val calendar = java.util.Calendar.getInstance().apply {
-                            timeInMillis = selectedMillis
-                            set(java.util.Calendar.HOUR_OF_DAY, if (hasTime) timePickerState.hour else 0)
-                            set(java.util.Calendar.MINUTE, if (hasTime) timePickerState.minute else 0)
-                            set(java.util.Calendar.SECOND, 0)
-                            set(java.util.Calendar.MILLISECOND, 0)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Include time", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = hasTime,
+                        onCheckedChange = { enabled ->
+                            store.setState(hasTimeName, enabled, scope)
+                            if (!enabled) {
+                                val calendar = java.util.Calendar.getInstance().apply {
+                                    timeInMillis = timestamp
+                                    set(java.util.Calendar.HOUR_OF_DAY, 0)
+                                    set(java.util.Calendar.MINUTE, 0)
+                                    set(java.util.Calendar.SECOND, 0)
+                                    set(java.util.Calendar.MILLISECOND, 0)
+                                }
+                                writeTimestamp(calendar.timeInMillis)
+                            }
                         }
-                        timestamp = calendar.timeInMillis
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            val localDate = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+                            datePickerState.selectedDateMillis = java.util.Calendar.getInstance(
+                                java.util.TimeZone.getTimeZone("UTC"),
+                            ).apply {
+                                clear()
+                                set(
+                                    localDate.get(java.util.Calendar.YEAR),
+                                    localDate.get(java.util.Calendar.MONTH),
+                                    localDate.get(java.util.Calendar.DAY_OF_MONTH),
+                                )
+                            }.timeInMillis
+                            dateDialog.value = true
+                        },
+                    ) {
+                        Column {
+                            Text("Date", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(timestamp)))
+                        }
                     }
+                    if (hasTime) {
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                val localTime = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+                                timePickerState.hour = localTime.get(java.util.Calendar.HOUR_OF_DAY)
+                                timePickerState.minute = localTime.get(java.util.Calendar.MINUTE)
+                                timeDialog.value = true
+                            },
+                        ) {
+                            Column {
+                                Text("Time", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(timestamp)))
+                            }
+                        }
+                    }
+                }
+                if (dateDialog.value) {
+                    DatePickerDialog(
+                        onDismissRequest = { dateDialog.value = false },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    datePickerState.selectedDateMillis?.let { selectedMillis ->
+                                        val selectedDate = java.util.Calendar.getInstance(
+                                            java.util.TimeZone.getTimeZone("UTC"),
+                                        ).apply { timeInMillis = selectedMillis }
+                                        val calendar = java.util.Calendar.getInstance().apply {
+                                            clear()
+                                            set(
+                                                selectedDate.get(java.util.Calendar.YEAR),
+                                                selectedDate.get(java.util.Calendar.MONTH),
+                                                selectedDate.get(java.util.Calendar.DAY_OF_MONTH),
+                                                if (hasTime) timePickerState.hour else 0,
+                                                if (hasTime) timePickerState.minute else 0,
+                                            )
+                                        }
+                                        writeTimestamp(calendar.timeInMillis)
+                                    }
+                                    dateDialog.value = false
+                                },
+                            ) { Text("Done") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { dateDialog.value = false }) { Text("Cancel") }
+                        },
+                    ) {
+                        DatePicker(state = datePickerState, title = { Text("Select date") })
+                    }
+                }
+                if (timeDialog.value) {
+                    AlertDialog(
+                        onDismissRequest = { timeDialog.value = false },
+                        title = { Text("Select time") },
+                        text = { TimePicker(state = timePickerState) },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    val calendar = java.util.Calendar.getInstance().apply {
+                                        timeInMillis = timestamp
+                                        set(java.util.Calendar.HOUR_OF_DAY, timePickerState.hour)
+                                        set(java.util.Calendar.MINUTE, timePickerState.minute)
+                                        set(java.util.Calendar.SECOND, 0)
+                                        set(java.util.Calendar.MILLISECOND, 0)
+                                    }
+                                    writeTimestamp(calendar.timeInMillis)
+                                    timeDialog.value = false
+                                },
+                            ) { Text("Done") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { timeDialog.value = false }) { Text("Cancel") }
+                        },
+                    )
                 }
             }
         }
@@ -1673,7 +1878,7 @@ internal fun NexaDevNode(
                         val tabIndex = tab.optInt("index", index)
                         val label = tab.optString("label")
                         val iconSelection = tab.optJSONObject("icon") ?: JSONObject()
-                        val badge = tab.optString("badge").takeIf(String::isNotEmpty)
+                        val badge = (tab.opt("badge") as? String)?.takeIf(String::isNotEmpty)
                         val tabIcon = when {
                             iconSelection.has("shared") -> nexaDevSharedMaterialIcon(iconSelection.optString("shared"))
                             iconSelection.has("sf_symbol") -> nexaDevSfAliasMaterialIcon(iconSelection.optString("sf_symbol"))
@@ -1702,7 +1907,25 @@ internal fun NexaDevNode(
                 if (activeTab != null) {
                     val activeIndex = activeTab.optInt("index", 0)
                     tabStateHolder.SaveableStateProvider(key = "nexa-tab-$activeIndex") {
-                        RenderChildren(activeTab.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
+                        val title = activeTab.optString("navigation_title").takeIf(String::isNotEmpty)
+                        val children = activeTab.optJSONArray("children") ?: JSONArray()
+                        if (title == null) {
+                            RenderChildren(children, module, store, locals, scope)
+                        } else {
+                            Column(Modifier.fillMaxSize()) {
+                                val titleStyle = if (activeTab.optBoolean("large_title")) {
+                                    MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)
+                                } else {
+                                    MaterialTheme.typography.titleLarge
+                                }
+                                Text(
+                                    title,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                    style = titleStyle,
+                                )
+                                RenderChildren(children, module, store, locals, scope)
+                            }
+                        }
                     }
                 }
             }

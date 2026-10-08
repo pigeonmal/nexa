@@ -119,6 +119,21 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.HorizontalDivider",
     );
     imports.add(
+        features.uses_form,
+        "androidx.compose.material3.MaterialTheme",
+    );
+    imports.add(features.uses_form, "androidx.compose.material3.Surface");
+    imports.add(features.uses_form, "androidx.compose.foundation.background");
+    imports.add(
+        features.uses_form,
+        "androidx.compose.foundation.layout.Column",
+    );
+    imports.add(
+        features.uses_form,
+        "androidx.compose.foundation.shape.RoundedCornerShape",
+    );
+    imports.add(features.uses_form, "androidx.compose.ui.graphics.Color");
+    imports.add(
         features.uses_padding,
         "androidx.compose.foundation.layout.padding",
     );
@@ -355,7 +370,9 @@ pub(crate) fn render_form_section(
 ) {
     out.line_at(
         depth,
-        format_args!("Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {{"),
+        format_args!(
+            "Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {{"
+        ),
     );
     if let Some(title) = title {
         out.line_at(
@@ -366,23 +383,34 @@ pub(crate) fn render_form_section(
             ),
         );
     }
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface) {{"
+        ),
+    );
+    out.line_at(depth + 2, format_args!("Column {{"));
     for (index, child) in children.iter().enumerate() {
         out.line_at(
-            depth + 1,
+            depth + 3,
             format_args!("Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {{"),
         );
-        render_node(child, scope.module, scope.features, depth + 2, out);
-        out.line_at(depth + 1, format_args!("}}"));
+        render_node(child, scope.module, scope.features, depth + 4, out);
+        out.line_at(depth + 3, format_args!("}}"));
         if index + 1 < children.len() {
             out.line_at(
-                depth + 1,
-                format_args!("HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))"),
+                depth + 3,
+                format_args!(
+                    "HorizontalDivider(modifier = Modifier.padding(start = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)"
+                ),
             );
         }
         if index + 1 < children.len() || footer.is_some() {
             out.push('\n');
         }
     }
+    out.line_at(depth + 2, format_args!("}}"));
+    out.line_at(depth + 1, format_args!("}}"));
     if let Some(footer) = footer {
         out.line_at(
             depth + 1,
@@ -402,9 +430,9 @@ pub(crate) fn render_form(
     out: &mut SourceWriter,
 ) {
     out.line_at(
-        depth,
-        format_args!(
-            "Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {{"
+            depth,
+            format_args!(
+            "Column(modifier = Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant).verticalScroll(rememberScrollState())) {{"
         ),
     );
     render_children(children, scope.module, scope.features, depth + 1, out);
@@ -744,9 +772,11 @@ mod tests {
         assert!(
             output.contains("Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))")
         );
-        assert!(
-            output.contains("HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))")
-        );
+        assert!(output.contains(
+            "HorizontalDivider(modifier = Modifier.padding(start = 16.dp), thickness = 0.5.dp"
+        ));
         assert_eq!(output.as_str().matches("HorizontalDivider(").count(), 1);
+        assert!(output.contains("Surface(modifier = Modifier.fillMaxWidth()"));
+        assert!(output.contains("shape = RoundedCornerShape(12.dp)"));
     }
 }
