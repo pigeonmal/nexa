@@ -73,7 +73,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Badge
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -99,17 +98,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.Slider
@@ -313,6 +307,15 @@ internal fun openNexaUrl(context: Context, value: String) {
     val uri = Uri.parse(value)
     if (uri.scheme !in setOf("https", "http", "mailto", "tel")) return
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+}
+
+private fun nexaDevHasDialogMessage(expression: Any?): Boolean {
+    val encoded = expression as? JSONObject ?: return true
+    encoded.optJSONObject("LocalizedText")?.let { localized ->
+        return nexaDevHasDialogMessage(localized.opt("value"))
+    }
+    if (encoded.has("String")) return encoded.optString("String").isNotEmpty()
+    return true
 }
 
 @Composable
@@ -895,7 +898,7 @@ internal fun NexaDevNode(
                 loading = loading,
                 disabled = disabled,
                 iconOnlyCircle = icon != null && buttonShape == CircleShape && label.isEmpty(),
-                fullWidth = false,
+                fullWidth = fields.optBoolean("__nexa_full_width", false),
                 onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) },
             )
         }
@@ -1929,72 +1932,60 @@ internal fun NexaDevNode(
         "BottomSheet" -> {
             val state = fields.optString("state")
             val isPresented = store.state(state, scope) as? Boolean ?: false
-            if (isPresented) {
-                val children = fields.optJSONArray("children") ?: JSONArray()
-                val partial = fields.optBoolean("partial", true)
-                val rawTitle = fields.opt("title")
-                val title = if (partial && rawTitle != null && rawTitle != JSONObject.NULL) {
-                    store.stringify(store.evaluatePresented(rawTitle, locals, scope))
-                } else {
-                    null
-                }
-                if (partial) {
-                    ModalBottomSheet(
-                        onDismissRequest = { store.setState(state, false, scope) },
-                        sheetState = rememberModalBottomSheetState(
-                            skipPartiallyExpanded = fields.optBoolean("large_only", false),
-                        ),
-                    ) {
-                        if (title != null) {
-                            val leading = nexaDevSheetToolbarNodes(children, "Leading")
-                            val trailing = nexaDevSheetToolbarNodes(children, "Trailing")
-                            androidx.compose.material3.CenterAlignedTopAppBar(
-                                title = { Text(title, style = MaterialTheme.typography.titleMedium) },
-                                navigationIcon = {
-                                    RenderChildren(leading, module, store, locals, scope)
-                                },
-                                actions = {
-                                    RenderChildren(trailing, module, store, locals, scope)
-                                },
-                                colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = Color.Transparent,
-                                ),
-                                windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-                            )
-                            RenderChildren(
-                                nexaDevWithoutSheetToolbars(children),
-                                module,
-                                store,
-                                locals,
-                                scope,
-                            )
-                        } else {
-                            RenderChildren(children, module, store, locals, scope)
-                        }
-                    }
-                } else {
-                    Dialog(
-                        onDismissRequest = { store.setState(state, false, scope) },
-                        properties = DialogProperties(usePlatformDefaultWidth = false),
-                    ) {
-                        Surface(modifier = Modifier.fillMaxSize(), shape = RectangleShape) {
-                            RenderChildren(children, module, store, locals, scope)
-                        }
-                    }
-                }
+            val children = fields.optJSONArray("children") ?: JSONArray()
+            val partial = fields.optBoolean("partial", true)
+            val rawTitle = fields.opt("title")
+            val title = if (partial && rawTitle != null && rawTitle != JSONObject.NULL) {
+                store.stringify(store.evaluatePresented(rawTitle, locals, scope))
+            } else {
+                null
             }
+            val hasTitle = title != null
+            val leading = if (hasTitle) nexaDevSheetToolbarNodes(children, "Leading") else JSONArray()
+            val trailing = if (hasTitle) nexaDevSheetToolbarNodes(children, "Trailing") else JSONArray()
+            val content = if (hasTitle) nexaDevWithoutSheetToolbars(children) else children
+            NexaBottomSheetPrimitive(
+                isPresented = isPresented,
+                partial = partial,
+                largeOnly = fields.optBoolean("large_only", false),
+                title = title,
+                onDismissRequest = { store.setState(state, false, scope) },
+                navigationIcon = { RenderChildren(leading, module, store, locals, scope) },
+                actions = { RenderChildren(trailing, module, store, locals, scope) },
+                content = { RenderChildren(content, module, store, locals, scope) },
+            )
         }
         "Dialog" -> {
             val state = fields.optString("state")
             if (store.state(state, scope) as? Boolean == true) {
                 val title = store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope))
                 val message = store.stringify(store.evaluatePresented(fields.opt("message"), locals, scope))
-                AlertDialog(
+                val children = fields.optJSONArray("children") ?: JSONArray()
+                val inputs = JSONArray()
+                val actions = JSONArray()
+                for (index in 0 until children.length()) {
+                    val child = children.optJSONObject(index) ?: continue
+                    when {
+                        child.has("TextInput") -> inputs.put(child)
+                        child.has("Button") -> actions.put(child)
+                    }
+                }
+                val hasMessage = nexaDevHasDialogMessage(fields.opt("message"))
+                NexaAlertDialogPrimitive(
                     onDismissRequest = { store.setState(state, false, scope) },
                     title = { Text(title) },
-                    text = { Text(message) },
+                    text = {
+                        if (inputs.length() == 0) {
+                            Text(message)
+                        } else {
+                            Column {
+                                if (hasMessage) Text(message)
+                                RenderChildren(inputs, module, store, locals, scope)
+                            }
+                        }
+                    },
                     confirmButton = {
-                        RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
+                        RenderChildren(actions, module, store, locals, scope)
                     },
                 )
             }
@@ -2003,15 +1994,26 @@ internal fun NexaDevNode(
             val state = fields.optString("state")
             if (store.state(state, scope) as? Boolean == true) {
                 val title = store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope))
-                AlertDialog(
+                val children = fields.optJSONArray("children") ?: JSONArray()
+                NexaConfirmationDialogPrimitive(
+                    title = title,
                     onDismissRequest = { store.setState(state, false, scope) },
-                    title = { Text(title) },
-                    confirmButton = {
-                        Column {
-                            RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
-                        }
-                    },
-                )
+                ) {
+                    for (index in 0 until children.length()) {
+                        if (index > 0) NexaDialogActionDividerPrimitive()
+                        val child = children.optJSONObject(index) ?: continue
+                        val actionNode = child.optJSONObject("Button")?.let { button ->
+                            val wrapped = JSONObject(child.toString())
+                            val fieldsForAction = wrapped.getJSONObject("Button")
+                            if (!fieldsForAction.has("style") || fieldsForAction.isNull("style")) {
+                                fieldsForAction.put("style", "Borderless")
+                            }
+                            fieldsForAction.put("__nexa_full_width", true)
+                            wrapped
+                        } ?: child
+                        NexaDevNode(actionNode, module, store, locals, scope)
+                    }
+                }
             }
         }
         "NavigationStack" -> RenderNavigationStack(fields, module, store, locals, scope)

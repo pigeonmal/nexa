@@ -566,6 +566,38 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
             "Android DevRuntime does not dispatch through {call}"
         );
     }
+
+    for (declaration, call) in [
+        (
+            "internal fun NexaBottomSheetPrimitive(",
+            "NexaBottomSheetPrimitive(",
+        ),
+        (
+            "internal fun NexaAlertDialogPrimitive(",
+            "NexaAlertDialogPrimitive(",
+        ),
+        (
+            "internal fun NexaConfirmationDialogPrimitive(",
+            "NexaConfirmationDialogPrimitive(",
+        ),
+        (
+            "internal fun NexaDialogActionDividerPrimitive()",
+            "NexaDialogActionDividerPrimitive()",
+        ),
+    ] {
+        assert!(
+            kotlin_release.contains(declaration),
+            "Android AOT host omitted {declaration}"
+        );
+        assert!(
+            kotlin_dev.contains(declaration),
+            "Android DevRuntime host omitted {declaration}"
+        );
+        assert!(
+            kotlin_runtime.contains(call),
+            "Android DevRuntime does not dispatch through {call}"
+        );
+    }
 }
 
 fn assert_runtime_dispatch(runtime: &str, enum_name: &str, variant: &str, platform: &str) {

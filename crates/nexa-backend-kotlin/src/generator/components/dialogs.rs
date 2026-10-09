@@ -14,27 +14,9 @@ use super::RenderScope;
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_dialog,
-        "androidx.compose.material3.AlertDialog",
-    );
-    imports.add(
-        features.uses_dialog,
         "androidx.compose.foundation.layout.Column",
     );
-    imports.add(
-        features.uses_dialog,
-        "androidx.compose.foundation.layout.fillMaxWidth",
-    );
-    imports.add(
-        features.uses_dialog,
-        "androidx.compose.material3.HorizontalDivider",
-    );
-    imports.add(
-        features.uses_dialog,
-        "androidx.compose.material3.MaterialTheme",
-    );
-    imports.add(features.uses_dialog, "androidx.compose.ui.Alignment");
-    imports.add(features.uses_dialog, "androidx.compose.ui.Modifier");
-    imports.add(features.uses_dialog, "androidx.compose.ui.unit.dp");
+    imports.add(features.uses_dialog, "androidx.compose.material3.Text");
 }
 
 pub(crate) fn render_dialog(
@@ -60,7 +42,7 @@ pub(crate) fn render_dialog(
         .collect::<Vec<_>>();
     out.line_at(depth, format_args!("if ({state_name}) {{"));
     indent(out, depth + 1);
-    out.push_str("AlertDialog(\n");
+    out.push_str("NexaAlertDialogPrimitive(\n");
     out.line_at(
         depth + 2,
         format_args!("onDismissRequest = {{ {state_name} = false }},"),
@@ -104,25 +86,16 @@ pub(crate) fn render_confirmation_dialog(
 ) {
     let state = state_name(state);
     out.line_at(depth, format_args!("if ({state}) {{"));
-    out.line_at(depth + 1, format_args!("AlertDialog("));
+    out.line_at(depth + 1, format_args!("NexaConfirmationDialogPrimitive("));
+    out.line_at(depth + 2, format_args!("title = {},", expression(title)));
     out.line_at(
         depth + 2,
         format_args!("onDismissRequest = {{ {state} = false }},"),
     );
-    out.line_at(
-        depth + 2,
-        format_args!("title = {{ Text({}) }},", expression(title)),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("text = {{ Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {{"),
-    );
-    render_confirmation_actions(children, scope, depth + 3, out);
+    out.line_at(depth + 1, format_args!(") {{"));
+    render_confirmation_actions(children, scope, depth + 2, out);
     out.push('\n');
-    indent(out, depth + 2);
-    out.push_str("}},\n");
-    out.line_at(depth + 2, format_args!("confirmButton = {{}},"));
-    out.line_at(depth + 1, format_args!(")"));
+    out.line_at(depth + 1, format_args!("}}"));
     out.line_at(depth, format_args!("}}"));
 }
 
@@ -171,10 +144,7 @@ fn render_confirmation_actions(
         }
         if index + 1 < children.len() {
             out.push('\n');
-            out.line_at(
-                depth,
-                format_args!("HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)"),
-            );
+            out.line_at(depth, format_args!("NexaDialogActionDividerPrimitive()"));
         }
     }
 }
@@ -189,7 +159,7 @@ mod tests {
     use super::{RenderScope, render_confirmation_dialog};
 
     #[test]
-    fn confirmation_dialog_actions_render_as_centered_text_rows() {
+    fn confirmation_dialog_routes_actions_through_shared_primitives() {
         let module = Module {
             app_name: "ConfirmationDialog".to_owned(),
             plugins: Vec::new(),
@@ -242,14 +212,13 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains(
-            "text = { Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {"
-        ));
+        assert!(output.contains("NexaConfirmationDialogPrimitive("));
+        assert!(output.contains("title = \"Select Priority\""));
         assert!(output.contains("NexaButtonPrimitive("));
         assert!(output.contains("style = \"Borderless\""));
         assert!(output.contains("fullWidth = true"));
-        assert!(output.contains("HorizontalDivider(thickness = 0.5.dp"));
-        assert!(output.contains("confirmButton = {},"));
+        assert!(output.contains("NexaDialogActionDividerPrimitive()"));
+        assert!(!output.contains("AlertDialog("));
         assert!(
             !output.contains(
                 "modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)"

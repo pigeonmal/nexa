@@ -2,42 +2,12 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Expr, Module, Node, ToolbarPlacement, WhenCase};
 
-use crate::generator::engine::expressions::text_expression;
-use crate::generator::{
-    components::render_children, engine::features::Features, engine::utils::indent,
-};
+use crate::generator::{components::render_children, engine::features::Features};
 
 use crate::generator::engine::imports::ImportSet;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    imports.add(
-        features.uses_bottom_sheet,
-        "androidx.compose.material3.ModalBottomSheet",
-    );
-    imports.add(
-        features.uses_bottom_sheet_full_screen,
-        "androidx.compose.ui.window.Dialog",
-    );
-    imports.add(
-        features.uses_bottom_sheet_full_screen,
-        "androidx.compose.ui.window.DialogProperties",
-    );
-    imports.add(
-        features.uses_bottom_sheet_full_screen,
-        "androidx.compose.material3.Surface",
-    );
-    imports.add(
-        features.uses_bottom_sheet_full_screen,
-        "androidx.compose.foundation.layout.fillMaxSize",
-    );
-    imports.add(
-        features.uses_bottom_sheet_full_screen,
-        "androidx.compose.ui.graphics.RectangleShape",
-    );
-    imports.add(
-        features.uses_bottom_sheet_partial,
-        "androidx.compose.material3.rememberModalBottomSheetState",
-    );
+    let _ = (features, imports);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -52,97 +22,47 @@ pub(crate) fn render_bottom_sheet(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    if !partial {
-        out.line_at(depth, format_args!("if ({}) {{", state_name(state)));
-        out.line_at(
-            depth + 1,
-            format_args!(
-                "Dialog(onDismissRequest = {{ {} = false }}, properties = DialogProperties(usePlatformDefaultWidth = false)) {{",
-                state_name(state)
-            ),
-        );
-        out.line_at(
-            depth + 2,
-            format_args!("Surface(modifier = Modifier.fillMaxSize(), shape = RectangleShape) {{"),
-        );
-        render_children(children, module, features, depth + 3, out);
-        out.push('\n');
-        out.line_at(depth + 2, format_args!("}}"));
-        out.line_at(depth + 1, format_args!("}}"));
-        out.line_at(depth, format_args!("}}"));
-        return;
-    }
-    out.line_at(depth, format_args!("if ({}) {{", state_name(state)));
-    indent(out, depth + 1);
-    if partial {
-        out.push_str("ModalBottomSheet(\n");
-        out.line_at(
-            depth + 2,
-            format_args!("onDismissRequest = {{ {} = false }},", state_name(state)),
-        );
-        indent(out, depth + 2);
-        out.push_str(if large_only {
-            "sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),\n"
-        } else {
-            "sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),\n"
-        });
-        indent(out, depth + 1);
-        out.push_str(") {\n");
-    }
-    if let Some(title) = title {
-        let leading = sheet_toolbar_nodes(children, ToolbarPlacement::Leading);
-        let trailing = sheet_toolbar_nodes(children, ToolbarPlacement::Trailing);
-        let content = remove_sheet_toolbars(children);
-        render_sheet_top_bar(title, &leading, &trailing, module, features, depth + 2, out);
-        render_children(&content, module, features, depth + 2, out);
-    } else {
-        render_children(children, module, features, depth + 2, out);
-    }
-    out.push('\n');
-    indent(out, depth + 1);
-    out.push_str("}\n");
-    indent(out, depth);
-    out.push('}');
-}
-
-fn render_sheet_top_bar(
-    title: &Expr,
-    leading: &[Node],
-    trailing: &[Node],
-    module: &Module,
-    features: &Features,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    out.line_at(
-        depth,
-        format_args!("androidx.compose.material3.CenterAlignedTopAppBar("),
-    );
+    let state = state_name(state);
+    let sheet_title = title.filter(|_| partial);
+    out.line_at(depth, format_args!("NexaBottomSheetPrimitive("));
+    out.line_at(depth + 1, format_args!("isPresented = {state},"));
+    out.line_at(depth + 1, format_args!("partial = {partial},"));
+    out.line_at(depth + 1, format_args!("largeOnly = {large_only},"));
     out.line_at(
         depth + 1,
         format_args!(
-            "title = {{ Text({}, style = MaterialTheme.typography.titleMedium) }},",
-            text_expression(title)
+            "title = {},",
+            sheet_title.map_or_else(
+                || "null".to_owned(),
+                crate::generator::expressions::expression
+            )
         ),
     );
+    out.line_at(
+        depth + 1,
+        format_args!("onDismissRequest = {{ {state} = false }},"),
+    );
 
-    for (slot, items) in [("navigationIcon", leading), ("actions", trailing)] {
-        if items.is_empty() {
-            continue;
-        }
-        out.line_at(depth + 1, format_args!("{slot} = {{"));
-        render_children(items, module, features, depth + 2, out);
+    if sheet_title.is_some() {
+        let leading = sheet_toolbar_nodes(children, ToolbarPlacement::Leading);
+        let trailing = sheet_toolbar_nodes(children, ToolbarPlacement::Trailing);
+        let content = remove_sheet_toolbars(children);
+        out.line_at(depth + 1, format_args!("navigationIcon = {{"));
+        render_children(&leading, module, features, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}},"));
+        out.line_at(depth + 1, format_args!("actions = {{"));
+        render_children(&trailing, module, features, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}},"));
+        out.line_at(depth + 1, format_args!("content = {{"));
+        render_children(&content, module, features, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}},"));
+    } else {
+        out.line_at(depth + 1, format_args!("navigationIcon = {{ }},"));
+        out.line_at(depth + 1, format_args!("actions = {{ }},"));
+        out.line_at(depth + 1, format_args!("content = {{"));
+        render_children(children, module, features, depth + 2, out);
         out.line_at(depth + 1, format_args!("}},"));
     }
-
-    out.line_at(
-        depth + 1,
-        format_args!("colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),"),
-    );
     out.line_at(depth, format_args!(")"));
 }
 
@@ -377,12 +297,12 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("CenterAlignedTopAppBar("));
-        assert!(output.contains(
-            "title = { Text(\"Comments\", style = MaterialTheme.typography.titleMedium) },"
-        ));
+        assert!(output.contains("NexaBottomSheetPrimitive("));
+        assert!(output.contains("partial = true"));
+        assert!(output.contains("title = \"Comments\","));
         assert!(output.contains("navigationIcon = {"));
         assert!(output.contains("actions = {"));
+        assert!(output.contains("content = {"));
         assert!(output.contains("NexaTextPrimitive(text = \"Back\", fontSize ="));
         assert!(output.contains("NexaTextPrimitive(text = \"Done\", fontSize ="));
         assert_eq!(
@@ -400,13 +320,6 @@ mod tests {
             1
         );
         assert!(output.contains("NexaTextPrimitive(text = \"Body\", fontSize ="));
-        assert!(output.contains(
-            "windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"
-        ));
-        assert!(
-            output
-                .contains("TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)")
-        );
     }
 
     #[test]

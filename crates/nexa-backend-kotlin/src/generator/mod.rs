@@ -361,6 +361,103 @@ internal fun NexaButtonPrimitive(
 }
 
 @androidx.compose.runtime.Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+internal fun NexaBottomSheetPrimitive(
+    isPresented: Boolean,
+    partial: Boolean,
+    largeOnly: Boolean,
+    title: String?,
+    onDismissRequest: () -> Unit,
+    navigationIcon: @androidx.compose.runtime.Composable () -> Unit,
+    actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    if (!isPresented) return
+    if (partial) {
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = onDismissRequest,
+            sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+                skipPartiallyExpanded = largeOnly,
+            ),
+        ) {
+            if (title != null) {
+                androidx.compose.material3.CenterAlignedTopAppBar(
+                    title = {
+                        androidx.compose.material3.Text(
+                            title,
+                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                        )
+                    },
+                    navigationIcon = navigationIcon,
+                    actions = actions,
+                    colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
+                    windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+                )
+            }
+            content()
+        }
+    } else {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = onDismissRequest,
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            androidx.compose.material3.Surface(
+                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                shape = androidx.compose.ui.graphics.RectangleShape,
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaAlertDialogPrimitive(
+    onDismissRequest: () -> Unit,
+    title: @androidx.compose.runtime.Composable () -> Unit,
+    text: @androidx.compose.runtime.Composable () -> Unit,
+    confirmButton: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = title,
+        text = text,
+        confirmButton = confirmButton,
+    )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaConfirmationDialogPrimitive(
+    title: String,
+    onDismissRequest: () -> Unit,
+    actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { androidx.compose.material3.Text(title) },
+        text = {
+            androidx.compose.foundation.layout.Column(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+            ) {
+                actions()
+            }
+        },
+        confirmButton = {},
+    )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaDialogActionDividerPrimitive() {
+    androidx.compose.material3.HorizontalDivider(
+        thickness = androidx.compose.ui.unit.Dp(0.5f),
+        color = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant,
+    )
+}
+
+@androidx.compose.runtime.Composable
 internal fun NexaTextInputPrimitive(
     value: String,
     onValueChange: (String) -> Unit,
@@ -1353,6 +1450,22 @@ mod tests {
         assert!(primitives.contains("onTimestampChanged(calendar.timeInMillis)"));
         assert!(primitives.contains("LaunchedEffect(timestamp)"));
         assert!(primitives.contains("key(identity)"));
+    }
+
+    #[test]
+    fn shared_presentation_primitives_own_sheets_and_dialog_layout() {
+        let primitives = shared_component_primitives();
+
+        assert!(primitives.contains("internal fun NexaBottomSheetPrimitive("));
+        assert!(primitives.contains("ModalBottomSheet("));
+        assert!(primitives.contains("CenterAlignedTopAppBar("));
+        assert!(primitives.contains("internal fun NexaAlertDialogPrimitive("));
+        assert!(primitives.contains("internal fun NexaConfirmationDialogPrimitive("));
+        assert!(
+            primitives
+                .contains("horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally")
+        );
+        assert!(primitives.contains("internal fun NexaDialogActionDividerPrimitive()"));
     }
 
     #[test]
