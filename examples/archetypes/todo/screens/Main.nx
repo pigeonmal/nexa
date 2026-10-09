@@ -483,7 +483,7 @@ screen Main {
                             Section {
                                 Picker(items: TodoOptions.autoReminderOptions, selected: autoReminderChoice, icon: "notifications", label: "Automatic\nReminders")
                             }
-                            Section(footer: "ToDoList v1.0.0 (1)") {
+                            Section(footer: "ToDoList v1.0.0") {
                                 Button("Send Feedback", icon: "email", style: Plain) {
                                     Task.launch(handle: mailTask, executor: TaskExecutor.Main) {
                                         try {

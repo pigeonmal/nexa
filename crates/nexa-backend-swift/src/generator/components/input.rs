@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::{
-    Action, AutofillType, Capitalization, KeyboardType, ReturnKeyType, SystemIcon, TextInputChange,
+    Action, AutofillType, Capitalization, KeyboardType, ReturnKeyType, TextInputChange,
     TextInputFont,
 };
 
@@ -55,20 +55,6 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         actions,
         on_change,
     } = props;
-    indent(out, depth);
-    if searchable {
-        let search_symbol = SystemIcon::Shared("search".to_owned()).sf_symbol_name();
-        out.push_str("HStack(spacing: 8) {\n");
-        out.line_at(
-            depth + 1,
-            format_args!(
-                "Image(systemName: {}).foregroundStyle(.secondary)",
-                swift_string(&search_symbol)
-            ),
-        );
-        indent(out, depth + 1);
-    }
-    let control = if secure { "SecureField" } else { "TextField" };
     let binding = max_length.map_or_else(
         || format!("${}", state_name(state)),
         |limit| format!("nexaLimitedTextBinding(${},{limit})", state_name(state)),
@@ -79,15 +65,12 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             swift_string(placeholder),
             swift_string(comment)
         ),
-        None => swift_string(placeholder),
+        None => format!("Text({})", swift_string(placeholder)),
     };
-    if multiline {
-        out.push_str(&format!(
-            "TextField({placeholder}, text: {binding}, axis: .vertical)"
-        ));
-    } else {
-        out.push_str(&format!("{control}({placeholder}, text: {binding})"));
-    }
+    indent(out, depth);
+    out.push_str(&format!(
+        "NexaTextInputPrimitive(text: {binding}, placeholder: {placeholder}, secure: {secure}, multiline: {multiline}, searchable: {searchable})"
+    ));
     if let Some(font) = font {
         let font = match font {
             TextInputFont::Body => ".body",
@@ -163,11 +146,6 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         ));
         render_actions(&change.actions, depth + 2, out);
         indent(out, depth + 1);
-        out.push('}');
-    }
-    if searchable {
-        out.push('\n');
-        indent(out, depth);
         out.push('}');
     }
     if let Some(horizontal_padding) = horizontal_padding {
@@ -251,9 +229,8 @@ mod tests {
         );
 
         let source = output.as_str();
-        assert!(source.contains("HStack(spacing: 8)"));
-        assert!(source.contains("Image(systemName: \"magnifyingglass\")"));
-        assert!(source.contains("TextField(\"Search items\", text: $nexa_query)"));
+        assert!(source.contains("NexaTextInputPrimitive(text: $nexa_query"));
+        assert!(source.contains("searchable: true"));
         assert!(!source.contains("EmptyView().searchable"));
     }
 
@@ -287,7 +264,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "TextField(\"Description\", text: nexaLimitedTextBinding($nexa_description,1200), axis: .vertical)"
+            "NexaTextInputPrimitive(text: nexaLimitedTextBinding($nexa_description,1200)"
         ));
         assert!(!output.contains(".onChange(of: nexa_description)"));
     }

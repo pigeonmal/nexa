@@ -73,39 +73,12 @@ pub(crate) fn render_node(
             out.line_at(
                 depth,
                 format_args!(
-                    "Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {{"
+                    "NexaContentUnavailablePrimitive(title = {}, description = {}, icon = {})",
+                    crate::generator::engine::expressions::text_expression(title),
+                    crate::generator::engine::expressions::text_expression(description),
+                    icon.material_reference(),
                 ),
             );
-            out.line_at(
-                depth + 1,
-                format_args!(
-                    "Icon(imageVector = {}, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)",
-                    icon.material_reference()
-                ),
-            );
-            out.line_at(
-                depth + 1,
-                format_args!("Spacer(modifier = Modifier.height(16.dp))"),
-            );
-            out.line_at(
-                depth + 1,
-                format_args!(
-                    "Text({}, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.Center)",
-                    crate::generator::engine::expressions::text_expression(title)
-                ),
-            );
-            out.line_at(
-                depth + 1,
-                format_args!("Spacer(modifier = Modifier.height(8.dp))"),
-            );
-            out.line_at(
-                depth + 1,
-                format_args!(
-                    "Text({}, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)",
-                    crate::generator::engine::expressions::text_expression(description)
-                ),
-            );
-            out.line_at(depth, format_args!("}}"));
         }
         Node::Spacer => out.line_at(
             depth,
@@ -114,7 +87,7 @@ pub(crate) fn render_node(
         Node::Divider { color, thickness } => out.line_at(
             depth,
             format_args!(
-                "HorizontalDivider(color = {}, thickness = {}.dp)",
+                "NexaDividerPrimitive(color = {}, thickness = {}.dp)",
                 crate::generator::colors::expression(*color),
                 super::super::engine::utils::number(*thickness)
             ),
@@ -209,29 +182,15 @@ pub(crate) fn render_node(
             direction,
             height,
         } => {
-            let (brush, colors) = match direction {
-                nexa_ir::GradientDirection::TopToBottom => ("Brush.verticalGradient", "start_end"),
-                nexa_ir::GradientDirection::BottomToTop => ("Brush.verticalGradient", "end_start"),
-                nexa_ir::GradientDirection::LeadingToTrailing => {
-                    ("Brush.horizontalGradient", "start_end")
-                }
-                nexa_ir::GradientDirection::TrailingToLeading => {
-                    ("Brush.horizontalGradient", "end_start")
-                }
-            };
-            let (first, second) = if colors == "start_end" {
-                (*start_color, *end_color)
-            } else {
-                (*end_color, *start_color)
-            };
             out.line_at(
                 depth,
                 format_args!(
-                    "Box(modifier = Modifier.fillMaxWidth().height({}.dp).background({}(colors = listOf({}, {}))))",
+                    "NexaLinearGradientPrimitive(startColor = {}, endColor = {}, horizontal = {}, reversed = {}, height = {}.dp)",
+                    crate::generator::engine::colors::expression(*start_color),
+                    crate::generator::engine::colors::expression(*end_color),
+                    matches!(direction, nexa_ir::GradientDirection::LeadingToTrailing | nexa_ir::GradientDirection::TrailingToLeading),
+                    matches!(direction, nexa_ir::GradientDirection::BottomToTop | nexa_ir::GradientDirection::TrailingToLeading),
                     crate::generator::engine::utils::number(*height),
-                    brush,
-                    crate::generator::engine::colors::expression(first),
-                    crate::generator::engine::colors::expression(second),
                 ),
             );
         }

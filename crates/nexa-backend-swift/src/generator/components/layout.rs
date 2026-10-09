@@ -19,38 +19,40 @@ pub(crate) fn render_layout(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let layout = match kind {
-        LayoutKind::Column => "VStack",
-        LayoutKind::Row => "HStack",
-        LayoutKind::Stack => "ZStack",
-    };
     indent(out, depth);
-    let alignment = style.alignment.map(|alignment| match (kind, alignment) {
-        (LayoutKind::Row, Alignment::Start) => ".top",
-        (LayoutKind::Row, Alignment::Center) => ".center",
-        (LayoutKind::Row, Alignment::End) => ".bottom",
-        (LayoutKind::Stack, Alignment::Start) => ".topLeading",
-        (LayoutKind::Stack, Alignment::Center) => ".center",
-        (LayoutKind::Stack, Alignment::End) => ".bottomTrailing",
-        (_, Alignment::Start) => ".leading",
-        (_, Alignment::Center) => ".center",
-        (_, Alignment::End) => ".trailing",
-    });
-    // Compose layouts use zero spacing by default; passing the IR value here
-    // avoids SwiftUI's system-defined spacing drifting between platforms.
-    let has_spacing = !matches!(kind, LayoutKind::Stack);
-    match (alignment, has_spacing) {
-        (Some(alignment), true) => out.push_str(&format!(
+    let (layout, alignment) = match kind {
+        LayoutKind::Column => (
+            "NexaColumnPrimitive",
+            match style.alignment.unwrap_or(Alignment::Center) {
+                Alignment::Start => ".leading",
+                Alignment::Center => ".center",
+                Alignment::End => ".trailing",
+            },
+        ),
+        LayoutKind::Row => (
+            "NexaRowPrimitive",
+            match style.alignment.unwrap_or(Alignment::Center) {
+                Alignment::Start => ".top",
+                Alignment::Center => ".center",
+                Alignment::End => ".bottom",
+            },
+        ),
+        LayoutKind::Stack => (
+            "NexaStackPrimitive",
+            match style.alignment.unwrap_or(Alignment::Center) {
+                Alignment::Start => ".topLeading",
+                Alignment::Center => ".center",
+                Alignment::End => ".bottomTrailing",
+            },
+        ),
+    };
+    if matches!(kind, LayoutKind::Stack) {
+        out.push_str(&format!("{layout}(alignment: {alignment}) {{\n"));
+    } else {
+        out.push_str(&format!(
             "{layout}(alignment: {alignment}, spacing: {}) {{\n",
             number(spacing)
-        )),
-        (Some(alignment), false) => {
-            out.push_str(&format!("{layout}(alignment: {alignment}) {{\n"));
-        }
-        (None, true) => {
-            out.push_str(&format!("{layout}(spacing: {}) {{\n", number(spacing)));
-        }
-        (None, false) => out.push_str(&format!("{layout} {{\n")),
+        ));
     }
     let content_children = children
         .iter()
@@ -127,22 +129,16 @@ pub(crate) fn render_form_row(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    render_node(node, scope.module, scope.features, depth, out);
     out.line_at(
         depth,
         format_args!(
-            ".frame(maxWidth: .infinity, minHeight: {}, alignment: .leading)",
+            "NexaFormRowPrimitive(minHeight: {}, horizontalInset: {}) {{",
             nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT,
-        ),
-    );
-    out.line_at(
-        depth,
-        format_args!(
-            ".listRowInsets(EdgeInsets(top: 0, leading: {}, bottom: 0, trailing: {}))",
-            nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
             nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
         ),
     );
+    render_node(node, scope.module, scope.features, depth + 1, out);
+    out.line_at(depth, format_args!("}}"));
 }
 
 fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle) {
@@ -359,7 +355,7 @@ mod tests {
         );
 
         let generated = output.finish();
-        assert!(generated.contains("VStack(spacing: 0) {"));
+        assert!(generated.contains("NexaColumnPrimitive(alignment: .center, spacing: 0) {"));
         assert!(generated.contains("ToolbarItem(placement: .navigationBarTrailing)"));
         assert!(!generated.contains("EmptyView()"));
     }
@@ -419,13 +415,7 @@ mod tests {
         let generated = output.finish();
         assert_eq!(
             generated
-                .matches(".frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)")
-                .count(),
-            children.len()
-        );
-        assert_eq!(
-            generated
-                .matches(".listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))")
+                .matches("NexaFormRowPrimitive(minHeight: 56, horizontalInset: 16) {")
                 .count(),
             children.len()
         );

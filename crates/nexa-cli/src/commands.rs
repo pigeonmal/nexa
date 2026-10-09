@@ -513,10 +513,13 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             super::project::run(&project_args)?;
             return build_platforms(&output, &project_name, &platform, BuildMode::Dev, None);
         }
+        let dependencies = crate::config::load_plugin_dependencies(&root.join("nexa.config.nx"))?;
+        let mut plugin_roots = crate::dependencies::resolve(&root, &dependencies)?.plugin_roots;
         let mut dev_compiler = nexa_compiler::IncrementalProjectCompiler::default();
         let modules = super::project::compile_dev_modules_with_compiler(
             &entry,
             &platform,
+            &plugin_roots,
             &mut dev_compiler,
         )?;
         let mut background_tasks = background_task_fingerprint(&modules)?;
@@ -562,7 +565,12 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             project_args: &project_args,
             server: &server,
         };
-        watch_sources(&watch_context, &mut background_tasks, &mut dev_compiler)
+        watch_sources(
+            &watch_context,
+            &mut background_tasks,
+            &mut dev_compiler,
+            &mut plugin_roots,
+        )
     } else {
         super::project::run(&project_args)?;
         build_platforms(&output, &project_name, &platform, BuildMode::Release, None)
@@ -730,12 +738,9 @@ fn watch_sources(
     context: &DevWatchContext<'_>,
     background_tasks: &mut String,
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
+    plugin_roots: &mut HashMap<String, PathBuf>,
 ) -> Result<(), String> {
-    let dependencies =
-        crate::config::load_plugin_dependencies(&context.root.join("nexa.config.nx"))?;
-    let resolved = crate::dependencies::resolve(context.root, &dependencies)?;
-    let mut plugin_roots = resolved.plugin_roots.into_values().collect::<Vec<_>>();
-    let mut previous = source_fingerprint(context.root, &plugin_roots)?;
+    let mut previous = fingerprint_dev_sources(context.root, plugin_roots)?;
     let mut performance_overlay_enabled = false;
     let mut native_rebuild_pending = false;
     let mut active_device: Option<(String, String)> = None;
@@ -776,7 +781,7 @@ fn watch_sources(
                 dashboard.set_status("Reloading Nexa source".to_owned());
                 dashboard.info("Hot reloading Nexa source...");
                 match dashboard.with_terminal_output(|| {
-                    reload_or_rebuild_dev_app(context, background_tasks, compiler)
+                    reload_or_rebuild_dev_app(context, background_tasks, compiler, plugin_roots)
                 }) {
                     Ok(true) => {
                         dashboard.info("Native app rebuilt for background task changes.");
@@ -803,7 +808,7 @@ fn watch_sources(
                 dashboard.set_status("Restarting app state".to_owned());
                 dashboard.info("Hot restarting Nexa app state...");
                 match dashboard.with_terminal_output(|| {
-                    reload_or_rebuild_dev_app(context, background_tasks, compiler)
+                    reload_or_rebuild_dev_app(context, background_tasks, compiler, plugin_roots)
                 }) {
                     Ok(rebuilt) => {
                         if !rebuilt {
@@ -829,25 +834,21 @@ fn watch_sources(
             Ok(DevConsoleCommand::Rebuild) => {
                 dashboard.set_status("Rebuilding native app".to_owned());
                 dashboard.info("Rebuilding native app...");
-                let rebuilt =
-                    match dashboard.with_terminal_output(|| rebuild_dev_app(context, compiler)) {
-                        Ok(task_fingerprint) => {
-                            *background_tasks = task_fingerprint;
-                            dashboard.info("Native app rebuilt and relaunched.");
-                            true
-                        }
-                        Err(error) => {
-                            dashboard.error(format!("native dev rebuild failed: {error}"));
-                            dashboard.set_status("Native rebuild failed".to_owned());
-                            false
-                        }
-                    };
+                let rebuilt = match dashboard
+                    .with_terminal_output(|| rebuild_dev_app(context, compiler, plugin_roots))
+                {
+                    Ok(task_fingerprint) => {
+                        *background_tasks = task_fingerprint;
+                        dashboard.info("Native app rebuilt and relaunched.");
+                        true
+                    }
+                    Err(error) => {
+                        dashboard.error(format!("native dev rebuild failed: {error}"));
+                        dashboard.set_status("Native rebuild failed".to_owned());
+                        false
+                    }
+                };
                 if rebuilt {
-                    let dependencies = crate::config::load_plugin_dependencies(
-                        &context.root.join("nexa.config.nx"),
-                    )?;
-                    let resolved = crate::dependencies::resolve(context.root, &dependencies)?;
-                    plugin_roots = resolved.plugin_roots.into_values().collect();
                     refresh_device_log_streams(
                         context,
                         &device_log_sender,
@@ -855,7 +856,7 @@ fn watch_sources(
                         &mut dashboard,
                     );
                 }
-                previous = source_fingerprint(context.root, &plugin_roots)?;
+                previous = fingerprint_dev_sources(context.root, plugin_roots)?;
                 if rebuilt {
                     native_rebuild_pending = false;
                     dashboard.set_status("Watching .nx sources".to_owned());
@@ -914,7 +915,7 @@ fn watch_sources(
         }
         dashboard.render();
         thread::sleep(Duration::from_millis(350));
-        let current = match source_fingerprint(context.root, &plugin_roots) {
+        let current = match fingerprint_dev_sources(context.root, plugin_roots) {
             Ok(current) => current,
             Err(error) => {
                 dashboard.warning(format!("warning: {error}"));
@@ -930,7 +931,7 @@ fn watch_sources(
                 .is_some_and(|name| name == "nexa.lock" || name == "nexa.config.nx")
                 || is_native_asset(path)
                 || plugin_roots
-                    .iter()
+                    .values()
                     .any(|plugin_root| path.starts_with(plugin_root))
         });
         previous = current;
@@ -950,9 +951,9 @@ fn watch_sources(
         }
         thread::sleep(Duration::from_millis(200));
         dashboard.set_status("Reloading changed .nx files".to_owned());
-        match dashboard
-            .with_terminal_output(|| reload_or_rebuild_dev_app(context, background_tasks, compiler))
-        {
+        match dashboard.with_terminal_output(|| {
+            reload_or_rebuild_dev_app(context, background_tasks, compiler, plugin_roots)
+        }) {
             Ok(true) => {
                 native_rebuild_pending = false;
                 dashboard.info("Background task changes rebuilt and relaunched the native app.");
@@ -1881,10 +1882,12 @@ fn reload_or_rebuild_dev_app(
     context: &DevWatchContext<'_>,
     background_tasks: &mut String,
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
+    plugin_roots: &mut HashMap<String, PathBuf>,
 ) -> Result<bool, String> {
     let modules = super::project::compile_dev_modules_with_compiler(
         context.entry,
         context.platform,
+        plugin_roots,
         compiler,
     )?;
     let next_fingerprint = background_task_fingerprint(&modules)?;
@@ -1892,7 +1895,7 @@ fn reload_or_rebuild_dev_app(
         println!(
             "Background task declarations or actions changed; rebuilding the native host because the OS runs compiled handlers."
         );
-        *background_tasks = rebuild_dev_app(context, compiler)?;
+        *background_tasks = rebuild_dev_app(context, compiler, plugin_roots)?;
         return Ok(true);
     }
     for (target, module) in modules {
@@ -1904,10 +1907,16 @@ fn reload_or_rebuild_dev_app(
 fn rebuild_dev_app(
     context: &DevWatchContext<'_>,
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
+    plugin_roots: &mut HashMap<String, PathBuf>,
 ) -> Result<String, String> {
+    let dependencies =
+        crate::config::load_plugin_dependencies(&context.root.join("nexa.config.nx"))?;
+    let refreshed_plugin_roots =
+        crate::dependencies::resolve(context.root, &dependencies)?.plugin_roots;
     let modules = super::project::compile_dev_modules_with_compiler(
         context.entry,
         context.platform,
+        &refreshed_plugin_roots,
         compiler,
     )?;
     let task_fingerprint = background_task_fingerprint(&modules)?;
@@ -1922,7 +1931,16 @@ fn rebuild_dev_app(
     for (target, module) in modules {
         context.server.publish_module(target, module)?;
     }
+    *plugin_roots = refreshed_plugin_roots;
     Ok(task_fingerprint)
+}
+
+fn fingerprint_dev_sources(
+    root: &Path,
+    plugin_roots: &HashMap<String, PathBuf>,
+) -> Result<BTreeMap<PathBuf, (u64, u64)>, String> {
+    let plugin_paths = plugin_roots.values().cloned().collect::<Vec<_>>();
+    source_fingerprint(root, &plugin_paths)
 }
 
 fn background_task_fingerprint(

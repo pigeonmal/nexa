@@ -404,9 +404,7 @@
     },
     "Open Links In App": {
       "source": "Open Links In App",
-      "translations": {
-        "ro": "Deschide Link-urile în Aplicație"
-      }
+      "translations": {}
     },
     "Pick Date": {
       "source": "Pick Date",
@@ -588,8 +586,8 @@
         "ro": "Temă"
       }
     },
-    "ToDoList v1.0.0 (1)": {
-      "source": "ToDoList v1.0.0 (1)",
+    "ToDoList v1.0.0": {
+      "source": "ToDoList v1.0.0",
       "translations": {}
     },
     "Today": {

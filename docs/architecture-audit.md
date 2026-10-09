@@ -23,6 +23,11 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v222` | Renders Android toolbar navigation links as compact icon actions instead of full-width rows. |
+| `build-v221` | Keeps Android large-title placement consistent across tabs and restores native large-title scrolling on iOS. |
+| `build-v220` | Reduces Android large-title app bar height on tabs without toolbar actions. |
+| `build-v219` | Collapses Android large navigation titles and centers them as tab content scrolls. |
+| `build-v218` | Matches default Android Bordered button tint and disabled alpha to dynamic iOS system blue. |
 | `build-v217` | Gives SwiftUI and Compose Form rows one shared 56-point/dp minimum height and removes native iOS vertical row insets. |
 | `build-v216` | Sets Android control icons to 24dp and calibrates explicitly sized Material icons. |
 | `build-v215` | Calibrates Android Material icon sizing against SwiftUI SF Symbols in controls and explicit icons. |

@@ -383,11 +383,23 @@ mod tests {
         ));
         assert!(output.contains("navigationIcon = {"));
         assert!(output.contains("actions = {"));
-        assert!(output.contains("Text(\"Back\", fontSize ="));
-        assert!(output.contains("Text(\"Done\", fontSize ="));
-        assert_eq!(output.as_str().matches("Text(\"Back\",").count(), 1);
-        assert_eq!(output.as_str().matches("Text(\"Done\",").count(), 1);
-        assert!(output.contains("Text(\"Body\", fontSize ="));
+        assert!(output.contains("NexaTextPrimitive(text = \"Back\", fontSize ="));
+        assert!(output.contains("NexaTextPrimitive(text = \"Done\", fontSize ="));
+        assert_eq!(
+            output
+                .as_str()
+                .matches("NexaTextPrimitive(text = \"Back\",")
+                .count(),
+            1
+        );
+        assert_eq!(
+            output
+                .as_str()
+                .matches("NexaTextPrimitive(text = \"Done\",")
+                .count(),
+            1
+        );
+        assert!(output.contains("NexaTextPrimitive(text = \"Body\", fontSize ="));
         assert!(output.contains(
             "windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"
         ));
@@ -450,12 +462,12 @@ mod tests {
             assert_eq!(
                 output
                     .as_str()
-                    .matches(&format!("Text(\"{label}\", "))
+                    .matches(&format!("NexaTextPrimitive(text = \"{label}\", "))
                     .count(),
                 1
             );
         }
-        assert!(output.contains("Text(\"Reminder form\", "));
-        assert!(output.contains("Text(\"Reminder list\", "));
+        assert!(output.contains("NexaTextPrimitive(text = \"Reminder form\", "));
+        assert!(output.contains("NexaTextPrimitive(text = \"Reminder list\", "));
     }
 }

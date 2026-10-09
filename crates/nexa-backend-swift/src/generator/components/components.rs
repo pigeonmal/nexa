@@ -88,81 +88,7 @@ pub(crate) fn render_node(
             out.line_at(depth, format_args!("}}"));
         }
         Node::Text { value, style } => {
-            out.text_at(
-                depth,
-                format_args!(
-                    "{}",
-                    crate::generator::expressions::localized_text_view(value, None)
-                ),
-            );
-            if let Some(alignment) = style.alignment {
-                let alignment = match alignment {
-                    nexa_ir::TextAlignment::Leading => ".leading",
-                    nexa_ir::TextAlignment::Center => ".center",
-                    nexa_ir::TextAlignment::Trailing => ".trailing",
-                };
-                out.push_str(&format!(
-                    "\n{}.multilineTextAlignment({alignment})",
-                    "    ".repeat(depth + 1)
-                ));
-            }
-            if let Some(color) = style.color {
-                out.push_str(&format!(
-                    "\n{}.foregroundStyle({})",
-                    "    ".repeat(depth + 1),
-                    colors::expression(color)
-                ));
-            }
-            if let Some(font_style) = style.font_style {
-                out.push_str(&format!(
-                    "\n{}.font({})",
-                    "    ".repeat(depth + 1),
-                    swift_text_font_style(font_style)
-                ));
-            }
-            if let Some(font_size) = style.font_size {
-                out.push_str(&format!(
-                    "\n{}.font(.system(size: {}))",
-                    "    ".repeat(depth + 1),
-                    number(font_size)
-                ));
-            }
-            if let Some(font_weight) = style.font_weight {
-                out.push_str(&format!(
-                    "\n{}.fontWeight({})",
-                    "    ".repeat(depth + 1),
-                    swift_font_weight(font_weight)
-                ));
-            }
-            if let Some(line_limit) = style.line_limit {
-                out.push_str(&format!(
-                    "\n{}.lineLimit({line_limit})",
-                    "    ".repeat(depth + 1)
-                ));
-            }
-            if let Some(line_height) = style.line_height {
-                out.push_str(&format!(
-                    "\n{}.lineSpacing({})",
-                    "    ".repeat(depth + 1),
-                    number(line_height)
-                ));
-            }
-            if let Some(letter_spacing) = style.letter_spacing {
-                out.push_str(&format!(
-                    "\n{}.tracking({})",
-                    "    ".repeat(depth + 1),
-                    number(letter_spacing)
-                ));
-            }
-            if style.strikethrough {
-                out.push_str(&format!("\n{}.strikethrough()", "    ".repeat(depth + 1)));
-            }
-            if style.selectable {
-                out.push_str(&format!(
-                    "\n{}.textSelection(.enabled)",
-                    "    ".repeat(depth + 1)
-                ));
-            }
+            render_text(value, style, depth, out);
             if let Some(padding) = style.padding {
                 out.push_str(&format!(
                     "\n{}.padding({})",
@@ -178,16 +104,14 @@ pub(crate) fn render_node(
             description,
         } => content_unavailable::render(title, icon, description, depth, out),
         Node::Spacer => out.line_at(depth, format_args!("Spacer()")),
-        Node::Divider { color, thickness } => {
-            out.line_at(depth, format_args!("Divider()"));
-            out.push_str(&format!(
-                "\n{}.overlay({})\n{}.frame(height: {})",
-                "    ".repeat(depth + 1),
+        Node::Divider { color, thickness } => out.line_at(
+            depth,
+            format_args!(
+                "NexaDividerPrimitive(color: {}, thickness: {})",
                 colors::expression(*color),
-                "    ".repeat(depth + 1),
-                number(*thickness)
-            ));
-        }
+                number(*thickness),
+            ),
+        ),
         Node::Button {
             label,
             icon,
@@ -335,7 +259,7 @@ pub(crate) fn render_node(
             out.line_at(
                 depth,
                 format_args!(
-                    "LinearGradient(colors: [{}, {}], startPoint: {}, endPoint: {}).frame(maxWidth: .infinity).frame(height: {}).allowsHitTesting(false)",
+                    "NexaLinearGradientPrimitive(colors: [{}, {}], startPoint: {}, endPoint: {}, height: {})",
                     crate::generator::engine::colors::expression(*start_color),
                     crate::generator::engine::colors::expression(*end_color),
                     start,
@@ -581,6 +505,59 @@ pub(crate) fn render_node(
             }
         }
     }
+}
+
+fn render_text(
+    value: &nexa_ir::Expr,
+    style: &nexa_ir::TextStyle,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let alignment = style
+        .alignment
+        .map(|alignment| match alignment {
+            nexa_ir::TextAlignment::Leading => ".leading",
+            nexa_ir::TextAlignment::Center => ".center",
+            nexa_ir::TextAlignment::Trailing => ".trailing",
+        })
+        .unwrap_or("nil");
+    let font = if let Some(size) = style.font_size {
+        format!(".system(size: {})", number(size))
+    } else {
+        style
+            .font_style
+            .map(swift_text_font_style)
+            .unwrap_or("nil")
+            .to_owned()
+    };
+    let color = style
+        .color
+        .map(colors::expression)
+        .unwrap_or_else(|| "nil".to_owned());
+    let weight = style.font_weight.map(swift_font_weight).unwrap_or("nil");
+    let line_limit = style
+        .line_limit
+        .map(|value| value.to_string())
+        .unwrap_or("nil".to_owned());
+    let line_spacing = style.line_height.map(number).unwrap_or("nil".to_owned());
+    let tracking = style.letter_spacing.map(number).unwrap_or("nil".to_owned());
+    let text = crate::generator::expressions::localized_text_view(value, None);
+
+    out.line_at(depth, format_args!("NexaTextPrimitive("));
+    out.line_at(depth + 1, format_args!("text: {text},"));
+    out.line_at(depth + 1, format_args!("alignment: {alignment},"));
+    out.line_at(depth + 1, format_args!("color: {color},"));
+    out.line_at(depth + 1, format_args!("font: {font},"));
+    out.line_at(depth + 1, format_args!("weight: {weight},"));
+    out.line_at(depth + 1, format_args!("lineLimit: {line_limit},"));
+    out.line_at(depth + 1, format_args!("lineSpacing: {line_spacing},"));
+    out.line_at(depth + 1, format_args!("tracking: {tracking},"));
+    out.line_at(
+        depth + 1,
+        format_args!("strikethrough: {},", style.strikethrough),
+    );
+    out.line_at(depth + 1, format_args!("selectable: {}", style.selectable));
+    out.line_at(depth, format_args!(")"));
 }
 
 fn swift_transition(transition: ViewTransition) -> &'static str {

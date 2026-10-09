@@ -489,8 +489,9 @@ mod tests {
         render_bottom_bar_helpers(&module.body, &module, &Features::default(), &mut output);
 
         assert!(output.contains("VStack(spacing: 0) {"));
-        assert!(output.contains("Image(systemName: \"magnifyingglass\")"));
-        assert!(output.contains("TextField(\"Search tasks...\", text: $nexa_query)"));
+        assert!(output.contains("NexaTextInputPrimitive(text: $nexa_query"));
+        assert!(output.contains("placeholder: Text(\"Search tasks...\")"));
+        assert!(output.contains("searchable: true"));
         assert!(output.contains(".padding(.horizontal, 16)"));
         assert!(!output.contains(".searchable(text:"));
     }

@@ -4,7 +4,7 @@ use nexa_ir::SystemIcon;
 use crate::generator::{
     colors,
     engine::{features::Features, imports::ImportSet},
-    utils::{indent, kotlin_string},
+    utils::kotlin_string,
 };
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
@@ -31,15 +31,17 @@ pub(crate) fn render(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    indent(out, depth);
     let material_size = size * nexa_codegen::design_system::MATERIAL_ICON_SIZE_SCALE;
-    out.push_str(&format!(
-        "Icon(imageVector = {}, contentDescription = {}, modifier = Modifier.size({}.dp), tint = {})",
-        icon.material_reference(),
-        kotlin_string(description),
-        crate::generator::engine::utils::number(material_size),
-        colors::expression_for_color(tint),
-    ));
+    out.line_at(
+        depth,
+        format_args!(
+            "NexaSystemIconPrimitive(image = {}, description = {}, size = {}.dp, tint = {})",
+            icon.material_reference(),
+            kotlin_string(description),
+            crate::generator::engine::utils::number(material_size),
+            colors::expression_for_color(tint),
+        ),
+    );
 }
 
 #[cfg(test)]
@@ -62,6 +64,6 @@ mod tests {
 
         render(&icon, "", 20.0, &tint, 0, &mut output);
 
-        assert!(output.finish().contains("Modifier.size(24.dp)"));
+        assert!(output.finish().contains("size = 24.dp"));
     }
 }

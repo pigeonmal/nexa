@@ -43,6 +43,21 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
+    // The typed component primitives are emitted in every app so hot-reloaded
+    // trees can use them even when the initial source has no forms.
+    imports.add(true, "androidx.compose.foundation.background");
+    imports.add(true, "androidx.compose.foundation.clickable");
+    imports.add(true, "androidx.compose.foundation.layout.defaultMinSize");
+    imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
+    imports.add(true, "androidx.compose.foundation.layout.fillMaxSize");
+    imports.add(true, "androidx.compose.foundation.layout.height");
+    imports.add(true, "androidx.compose.foundation.layout.heightIn");
+    imports.add(true, "androidx.compose.foundation.layout.padding");
+    imports.add(true, "androidx.compose.foundation.layout.size");
+    imports.add(true, "androidx.compose.foundation.layout.width");
+    imports.add(true, "androidx.compose.ui.unit.sp");
+    imports.add(true, "androidx.compose.ui.semantics.semantics");
+    imports.add(true, "androidx.compose.ui.semantics.contentDescription");
     imports.add(
         context.has_immutable_structs,
         "androidx.compose.runtime.Immutable",
@@ -189,9 +204,12 @@ mod tests {
         features.uses_text_input = true;
         let imports = render_features(&features);
 
-        assert!(imports.contains("import androidx.compose.material3.TextFieldDefaults\n"));
-        assert!(imports.contains("import androidx.compose.ui.graphics.Color\n"));
-        assert!(!render_features(&Features::default()).contains("TextFieldDefaults"));
+        assert!(imports.contains("import androidx.compose.foundation.text.KeyboardOptions\n"));
+        assert!(imports.contains(
+            "import androidx.compose.ui.text.input.KeyboardType as NativeKeyboardType\n"
+        ));
+        assert!(!imports.contains("TextFieldDefaults"));
+        assert!(!render_features(&Features::default()).contains("NativeKeyboardType"));
     }
 
     #[test]
@@ -284,7 +302,10 @@ mod tests {
         let imports = render_features(&features);
 
         assert!(imports.contains("import androidx.compose.foundation.combinedClickable\n"));
-        assert!(!imports.contains("import androidx.compose.foundation.clickable\n"));
+        // Clickable is preloaded for the shared Picker primitive even when the
+        // app's initial tree uses only a gesture-backed Pressable.
+        assert!(imports.contains("import androidx.compose.foundation.clickable\n"));
+        assert!(!imports.contains("import androidx.compose.ui.platform.LocalViewConfiguration\n"));
     }
 
     #[test]

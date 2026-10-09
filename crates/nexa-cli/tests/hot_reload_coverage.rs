@@ -1,5 +1,9 @@
 use std::{collections::BTreeSet, fs, path::PathBuf};
 
+use nexa_backend_kotlin::KotlinBackend;
+use nexa_backend_swift::SwiftBackend;
+use nexa_codegen::Backend;
+use nexa_ir::{Expr, LayoutKind, Module, Node, ViewStyle};
 use serde_json::Value;
 
 fn variants(source: &str, enum_name: &str) -> BTreeSet<String> {
@@ -117,6 +121,451 @@ fn fixture() -> (PathBuf, Value) {
     )
     .expect("parse hot-reload coverage inventory");
     (root, fixture)
+}
+
+fn empty_module(body: Vec<Node>) -> Module {
+    Module {
+        app_name: "RenderParity".to_owned(),
+        plugins: Vec::new(),
+        plugin_assets: Vec::new(),
+        enums: Vec::new(),
+        structs: Vec::new(),
+        functions: Vec::new(),
+        background_tasks: Vec::new(),
+        states: Vec::new(),
+        globals: Vec::new(),
+        screens: Vec::new(),
+        widgets: Vec::new(),
+        components: Vec::new(),
+        body,
+        status_bar: None,
+        direction: None,
+        on_appear: None,
+        on_appear_async: false,
+        on_disappear: None,
+        on_active: None,
+        on_inactive: None,
+        on_background: None,
+    }
+}
+
+#[test]
+fn every_view_node_has_aot_and_dev_dispatch_on_both_platforms() {
+    let (root, inventory) = fixture();
+    let ir_source =
+        fs::read_to_string(root.join("../nexa-ir/src/lib.rs")).expect("read IR declarations");
+    let swift_dispatch = fs::read_to_string(
+        root.join("../nexa-backend-swift/src/generator/components/components.rs"),
+    )
+    .expect("read Swift AOT dispatcher");
+    let kotlin_dispatch = fs::read_to_string(
+        root.join("../nexa-backend-kotlin/src/generator/components/components.rs"),
+    )
+    .expect("read Kotlin AOT dispatcher");
+    let swift_runtime = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    let kotlin_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+    let expected = variants(&ir_source, "Node");
+    let actual = inventory["ir_variants"]["Node"]
+        .as_array()
+        .expect("Node coverage inventory")
+        .iter()
+        .map(|entry| entry["name"].as_str().expect("node variant").to_owned())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(actual, expected, "Node coverage inventory is stale");
+
+    // These IR entries are module metadata handled by the DevRuntime roots,
+    // rather than components passed through the node renderer.
+    let root_metadata = [
+        "StatusBar",
+        "Direction",
+        "OnAppear",
+        "OnDisappear",
+        "OnActive",
+        "OnInactive",
+        "OnBackground",
+    ];
+    for variant in expected {
+        if root_metadata.contains(&variant.as_str()) {
+            continue;
+        }
+        assert!(
+            swift_dispatch.contains(&format!("Node::{variant}")),
+            "Swift AOT has no Node::{variant} mapping"
+        );
+        assert!(
+            kotlin_dispatch.contains(&format!("Node::{variant}")),
+            "Kotlin AOT has no Node::{variant} mapping"
+        );
+        assert!(
+            swift_runtime.contains(&format!("\"{variant}\"")),
+            "iOS DevRuntime has no {variant} mapping"
+        );
+        assert!(
+            kotlin_runtime.contains(&format!("\"{variant}\"")),
+            "Android DevRuntime has no {variant} mapping"
+        );
+    }
+}
+
+#[test]
+fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
+    let module = empty_module(vec![
+        Node::Layout {
+            kind: LayoutKind::Column,
+            spacing: 8.0,
+            style: ViewStyle::default(),
+            children: vec![Node::Text {
+                value: Expr::String("Shared layout".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+        },
+        Node::Button {
+            label: Expr::String("Add task".to_owned()),
+            icon: None,
+            loading: None,
+            disabled: None,
+            style: Some(nexa_ir::ButtonStyle::BorderedProminent),
+            size: Some(nexa_ir::ButtonSize::Regular),
+            shape: None,
+            tint: None,
+            glass: false,
+            actions: Vec::new(),
+        },
+        Node::Form {
+            children: vec![Node::Text {
+                value: Expr::String("Shared form row".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+        },
+        Node::Switch {
+            state: "enabled".to_owned(),
+            label: Expr::String("Shared switch".to_owned()),
+        },
+        Node::TextInput {
+            state: "query".to_owned(),
+            placeholder: "Search tasks".to_owned(),
+            comment: None,
+            keyboard: nexa_ir::KeyboardType::Text,
+            secure: false,
+            multiline: false,
+            autofill: None,
+            return_key: None,
+            autocorrect: None,
+            capitalization: None,
+            focused: None,
+            max_length: None,
+            font: None,
+            min_lines: None,
+            max_lines: None,
+            searchable: true,
+            actions: Vec::new(),
+            on_change: None,
+        },
+        Node::Slider {
+            state: "amount".to_owned(),
+            animated: false,
+            min: 0.0,
+            max: 1.0,
+            step: 0.1,
+        },
+        Node::ProgressBar {
+            progress: Expr::Number {
+                raw: "0.5".to_owned(),
+                ty: nexa_ir::NumericType::Float64,
+            },
+        },
+        Node::ProgressRing {
+            progress: Expr::Number {
+                raw: "0.5".to_owned(),
+                ty: nexa_ir::NumericType::Float64,
+            },
+        },
+        Node::Divider {
+            color: nexa_ir::ColorValue::Static(nexa_ir::Color {
+                red: 128,
+                green: 128,
+                blue: 128,
+                alpha: 255,
+            }),
+            thickness: 1.0,
+        },
+        Node::SegmentedControl {
+            items: Expr::Array(vec![
+                Expr::String("Today".to_owned()),
+                Expr::String("Upcoming".to_owned()),
+            ]),
+            state: "selectedTab".to_owned(),
+        },
+        Node::Picker {
+            items: Expr::Array(vec![Expr::String("High".to_owned())]),
+            state: "priority".to_owned(),
+            icon: Some(nexa_ir::SystemIcon::shared("flag").expect("catalog icon")),
+            label: Some(Expr::String("Priority".to_owned())),
+            tint: None,
+        },
+        Node::DatePicker {
+            timestamp_state: "dueAt".to_owned(),
+            has_time_state: "includeTime".to_owned(),
+        },
+        Node::ContentUnavailable {
+            title: Expr::String("No tasks".to_owned()),
+            icon: nexa_ir::SystemIcon::shared("inbox").expect("catalog icon"),
+            description: Expr::String("Add a task to get started.".to_owned()),
+        },
+        Node::SystemIcon {
+            icon: nexa_ir::SystemIcon::shared("star").expect("catalog icon"),
+            description: "Priority".to_owned(),
+            size: 20.0,
+            tint: nexa_ir::ColorExpression::Static(nexa_ir::ColorValue::Static(nexa_ir::Color {
+                red: 255,
+                green: 0,
+                blue: 0,
+                alpha: 255,
+            })),
+        },
+        Node::LinearGradient {
+            start_color: nexa_ir::ColorValue::Static(nexa_ir::Color {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 255,
+            }),
+            end_color: nexa_ir::ColorValue::Static(nexa_ir::Color {
+                red: 255,
+                green: 255,
+                blue: 255,
+                alpha: 255,
+            }),
+            direction: nexa_ir::GradientDirection::LeadingToTrailing,
+            height: 100.0,
+        },
+    ]);
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    let (root, _) = fixture();
+    let swift_runtime = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    let kotlin_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+
+    assert!(swift.contains("struct NexaColumnPrimitive<Content: View>"));
+    assert!(swift.contains("NexaColumnPrimitive(alignment: .center, spacing: 8)"));
+    assert!(swift.contains("struct NexaTextPrimitive: View"));
+    assert!(swift.contains("struct NexaButtonPrimitive<Label: View>"));
+    assert!(swift.contains("NexaTextPrimitive("));
+    for primitive in [
+        "NexaButtonPrimitive(",
+        "NexaFormRowPrimitive(",
+        "NexaSwitchPrimitive(label:",
+        "NexaTextInputPrimitive(",
+        "NexaSliderPrimitive(value:",
+        "NexaProgressBarPrimitive(progress:",
+        "NexaProgressRingPrimitive(progress:",
+        "NexaDividerPrimitive(color:",
+        "NexaSegmentedControlPrimitive(items:",
+        "NexaPickerPrimitive(selection:",
+        "NexaDatePickerPrimitive(timestamp:",
+        "NexaContentUnavailablePrimitive(title:",
+        "NexaSystemIconPrimitive(symbol:",
+        "NexaLinearGradientPrimitive(colors:",
+    ] {
+        assert!(swift.contains(primitive), "iOS AOT omitted {primitive}");
+        assert!(
+            swift_runtime.contains(primitive),
+            "iOS DevRuntime omitted {primitive}"
+        );
+    }
+    assert!(swift_runtime.contains("NexaColumnPrimitive(alignment: columnAlignment"));
+    assert!(swift_runtime.contains("NexaTextPrimitive("));
+    assert!(swift_runtime.contains("NexaTextInputPrimitive("));
+    assert!(kotlin.contains("internal fun NexaColumnPrimitive("));
+    assert!(kotlin.contains("NexaColumnPrimitive("));
+    assert!(kotlin.contains("internal fun NexaTextPrimitive("));
+    assert!(kotlin.contains("internal fun NexaButtonPrimitive("));
+    assert!(kotlin.contains("NexaTextPrimitive(text ="));
+    for primitive in [
+        "NexaButtonPrimitive(",
+        "NexaFormRowPrimitive(",
+        "NexaSwitchPrimitive(",
+        "NexaTextInputPrimitive(",
+        "NexaSliderPrimitive(value =",
+        "NexaProgressBarPrimitive(progress =",
+        "NexaProgressRingPrimitive(progress =",
+        "NexaDividerPrimitive(color =",
+        "NexaSegmentedControlPrimitive(items =",
+        "NexaPickerPrimitive(items =",
+        "NexaDatePickerPrimitive(timestamp =",
+        "NexaContentUnavailablePrimitive(title =",
+        "NexaSystemIconPrimitive(image =",
+        "NexaLinearGradientPrimitive(startColor =",
+    ] {
+        assert!(
+            kotlin.contains(primitive),
+            "Android AOT omitted {primitive}"
+        );
+    }
+    for primitive in [
+        "NexaFormRowPrimitive(",
+        "NexaSwitchPrimitive(",
+        "NexaSliderPrimitive(",
+        "NexaProgressBarPrimitive(",
+        "NexaProgressRingPrimitive(",
+        "NexaDividerPrimitive(",
+        "NexaSegmentedControlPrimitive(",
+        "NexaPickerPrimitive(",
+        "NexaDatePickerPrimitive(",
+        "NexaContentUnavailablePrimitive(",
+        "NexaSystemIconPrimitive(",
+        "NexaLinearGradientPrimitive(",
+    ] {
+        assert!(
+            kotlin_runtime.contains(primitive),
+            "Android DevRuntime omitted {primitive}"
+        );
+    }
+    assert!(kotlin_runtime.contains("NexaColumnPrimitive("));
+    assert!(kotlin_runtime.contains("NexaTextPrimitive("));
+    assert!(kotlin_runtime.contains("NexaTextInputPrimitive("));
+}
+
+#[test]
+fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
+    let module = empty_module(Vec::new());
+    let swift_release = SwiftBackend.generate(&module);
+    let swift_dev = SwiftBackend.generate_for_dev(&module);
+    let (kotlin_release, _) = KotlinBackend.generate_with_project_features(&module);
+    let (kotlin_dev, _) = KotlinBackend.generate_for_dev_with_project_features(&module);
+    let (root, _) = fixture();
+    let swift_runtime = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    let kotlin_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+
+    // This is the native primitive catalog used by AOT output and dynamic
+    // DevRuntime dispatch. Definitions must be present in empty-app hosts so
+    // hot reload can introduce any catalogued component without rebuilding
+    // the native development host.
+    let catalog = [
+        (
+            "struct NexaColumnPrimitive<Content: View>",
+            "internal fun NexaColumnPrimitive(",
+            "NexaColumnPrimitive(",
+        ),
+        (
+            "struct NexaRowPrimitive<Content: View>",
+            "internal fun NexaRowPrimitive(",
+            "NexaRowPrimitive(",
+        ),
+        (
+            "struct NexaStackPrimitive<Content: View>",
+            "internal fun NexaStackPrimitive(",
+            "NexaStackPrimitive(",
+        ),
+        (
+            "struct NexaFormRowPrimitive<Content: View>",
+            "internal fun NexaFormRowPrimitive(",
+            "NexaFormRowPrimitive(",
+        ),
+        (
+            "struct NexaTextPrimitive: View",
+            "internal fun NexaTextPrimitive(",
+            "NexaTextPrimitive(",
+        ),
+        (
+            "struct NexaButtonPrimitive<Label: View>",
+            "internal fun NexaButtonPrimitive(",
+            "NexaButtonPrimitive(",
+        ),
+        (
+            "struct NexaTextInputPrimitive: View",
+            "internal fun NexaTextInputPrimitive(",
+            "NexaTextInputPrimitive(",
+        ),
+        (
+            "struct NexaSwitchPrimitive: View",
+            "internal fun NexaSwitchPrimitive(",
+            "NexaSwitchPrimitive(",
+        ),
+        (
+            "struct NexaSliderPrimitive: View",
+            "internal fun NexaSliderPrimitive(",
+            "NexaSliderPrimitive(",
+        ),
+        (
+            "struct NexaProgressBarPrimitive: View",
+            "internal fun NexaProgressBarPrimitive(",
+            "NexaProgressBarPrimitive(",
+        ),
+        (
+            "struct NexaProgressRingPrimitive: View",
+            "internal fun NexaProgressRingPrimitive(",
+            "NexaProgressRingPrimitive(",
+        ),
+        (
+            "struct NexaDividerPrimitive: View",
+            "internal fun NexaDividerPrimitive(",
+            "NexaDividerPrimitive(",
+        ),
+        (
+            "struct NexaSegmentedControlPrimitive: View",
+            "internal fun NexaSegmentedControlPrimitive(",
+            "NexaSegmentedControlPrimitive(",
+        ),
+        (
+            "struct NexaContentUnavailablePrimitive: View",
+            "internal fun NexaContentUnavailablePrimitive(",
+            "NexaContentUnavailablePrimitive(",
+        ),
+        (
+            "struct NexaSystemIconPrimitive: View",
+            "internal fun NexaSystemIconPrimitive(",
+            "NexaSystemIconPrimitive(",
+        ),
+        (
+            "struct NexaLinearGradientPrimitive: View",
+            "internal fun NexaLinearGradientPrimitive(",
+            "NexaLinearGradientPrimitive(",
+        ),
+        (
+            "struct NexaPickerPrimitive<LabelContent: View>",
+            "internal fun NexaPickerPrimitive(",
+            "NexaPickerPrimitive(",
+        ),
+        (
+            "struct NexaDatePickerPrimitive: View",
+            "internal fun NexaDatePickerPrimitive(",
+            "NexaDatePickerPrimitive(",
+        ),
+    ];
+
+    for (swift_declaration, kotlin_declaration, call) in catalog {
+        assert!(
+            swift_release.contains(swift_declaration),
+            "iOS release host omitted {swift_declaration}"
+        );
+        assert!(
+            swift_dev.contains(swift_declaration),
+            "iOS DevRuntime host omitted {swift_declaration}"
+        );
+        assert!(
+            kotlin_release.contains(kotlin_declaration),
+            "Android release host omitted {kotlin_declaration}"
+        );
+        assert!(
+            kotlin_dev.contains(kotlin_declaration),
+            "Android DevRuntime host omitted {kotlin_declaration}"
+        );
+        assert!(
+            swift_runtime.contains(call),
+            "iOS DevRuntime does not dispatch through {call}"
+        );
+        assert!(
+            kotlin_runtime.contains(call),
+            "Android DevRuntime does not dispatch through {call}"
+        );
+    }
 }
 
 fn assert_runtime_dispatch(runtime: &str, enum_name: &str, variant: &str, platform: &str) {
@@ -366,7 +815,8 @@ fn semantic_text_font_roles_match_native_metrics_in_both_dev_runtimes() {
         );
     }
     assert!(swift_text.contains("style[\"font_size\"]"));
-    assert!(kotlin_text.contains("style = semanticStyle"));
+    assert!(swift_text.contains("NexaTextPrimitive("));
+    assert!(kotlin_text.contains("NexaTextPrimitive("));
     assert!(kotlin_text.contains("fontSize * nexaDevDefaultLineHeightMultiplier"));
 }
 
@@ -1048,10 +1498,9 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
     }
     for marker in [
         "1 -> NexaDevNode(nexaDevNodeObject(nodes.opt(0))",
-        "TextField(",
-        "enabled = !loading && !disabled",
+        "NexaTextInputPrimitive(",
         "DialogProperties(usePlatformDefaultWidth = false)",
-        "TextDecoration.LineThrough",
+        "strikethrough = style.optBoolean(\"strikethrough\")",
         "nexaDevSpecificMaterialIcon",
     ] {
         assert!(
@@ -1059,6 +1508,10 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
             "Android DevRuntime is missing {marker}"
         );
     }
+    let kotlin_primitives =
+        fs::read_to_string(root.join("../nexa-backend-kotlin/src/generator/mod.rs"))
+            .expect("read shared Kotlin component primitives");
+    assert!(kotlin_primitives.contains("val enabled = !loading && !disabled"));
 }
 
 #[test]
@@ -1069,7 +1522,14 @@ fn development_button_shape_defaults_match_on_both_platforms() {
     let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android renderer");
 
-    assert!(swift.contains("button = AnyView(button.nexaDevButtonShape(shape))"));
-    assert!(!swift.contains("if fields[\"shape\"] != nil"));
-    assert!(kotlin.contains("shape = buttonShape ?: RoundedCornerShape(percent = 50)"));
+    assert!(swift.contains("return AnyView(NexaButtonPrimitive("));
+    assert!(swift.contains("shape: shape,"));
+    assert!(swift.contains("else { shape = .capsule }"));
+    assert!(kotlin.contains("shape = buttonShape,"));
+    let kotlin_primitives =
+        fs::read_to_string(root.join("../../crates/nexa-backend-kotlin/src/generator/mod.rs"))
+            .expect("read shared Kotlin button primitive");
+    assert!(kotlin_primitives.contains(
+        "val resolvedShape = shape ?: androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
+    ));
 }

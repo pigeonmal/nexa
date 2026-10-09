@@ -154,18 +154,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_switch, "androidx.compose.ui.graphics.Color");
     imports.add(features.uses_slider, "androidx.compose.material3.Slider");
     imports.add(
-        features.uses_segmented_control,
-        "androidx.compose.material3.SegmentedButton",
-    );
-    imports.add(
-        features.uses_segmented_control,
-        "androidx.compose.material3.SegmentedButtonDefaults",
-    );
-    imports.add(
-        features.uses_segmented_control,
-        "androidx.compose.material3.SingleChoiceSegmentedButtonRow",
-    );
-    imports.add(
         features.uses_picker,
         "androidx.compose.foundation.layout.Row",
     );
@@ -337,94 +325,66 @@ pub(crate) fn render_button(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let min_height = button_min_height(size);
-    let icon_only_circle = icon.is_some()
-        && matches!(shape, Some(nexa_ir::ButtonShape::Circle))
-        && is_empty_button_label(label);
-    let modifier = if full_width {
-        format!(
-            "Modifier.fillMaxWidth().defaultMinSize(minWidth = {}.dp, minHeight = {}.dp)",
-            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-            min_height
-        )
-    } else if icon_only_circle {
-        format!("Modifier.size({min_height}.dp)")
-    } else {
-        format!(
-            "Modifier.defaultMinSize(minWidth = {}.dp, minHeight = {}.dp)",
-            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-            min_height
-        )
+    let style = match style {
+        Some(nexa_ir::ButtonStyle::Bordered) => "Bordered",
+        Some(nexa_ir::ButtonStyle::Borderless) => "Borderless",
+        Some(nexa_ir::ButtonStyle::Plain) => "Plain",
+        Some(nexa_ir::ButtonStyle::BorderedProminent) | None => "BorderedProminent",
     };
-    if let Some(loading) = loading {
-        indent(out, depth);
-        out.push_str(button_component(style));
-        out.push_str("(\n");
-        indent(out, depth + 1);
-        out.push_str(&format!("modifier = {modifier},\n"));
-        indent(out, depth + 1);
-        out.push_str("onClick = {");
-        if actions.is_empty() {
-            out.push_str(" }, enabled = !");
-            out.push_str(&expression(loading));
-        } else {
-            out.push('\n');
-            render_actions(actions, depth + 1, out);
-            indent(out, depth + 1);
-            out.push_str("}, enabled = !");
-            out.push_str(&expression(loading));
-        }
-        if let Some(disabled) = disabled {
-            out.push_str(" && !");
-            out.push_str(&expression(disabled));
-        }
-        append_button_options(style, size, shape, tint, icon_only_circle, out);
-        out.push_str(") {");
-        out.push('\n');
-        out.line_at(depth + 1, format_args!("if ({}) {{", expression(loading)));
-        indent(out, depth + 2);
-        out.push_str("CircularProgressIndicator()\n");
-        indent(out, depth + 1);
-        out.push_str("} else {\n");
-        render_button_content(label, icon, style, depth + 2, out);
-        indent(out, depth + 1);
-        out.push('}');
-        out.push('\n');
-        indent(out, depth);
-        out.push('}');
-        return;
-    }
-    indent(out, depth);
-    out.push_str(button_component(style));
-    out.push_str("(\n");
-    indent(out, depth + 1);
-    out.push_str(&format!("modifier = {modifier},\n"));
-    indent(out, depth + 1);
-    out.push_str("onClick = {");
-    if actions.is_empty() {
-        out.push_str(" }");
-    } else {
-        out.push('\n');
-        render_actions(actions, depth + 1, out);
-        indent(out, depth + 1);
-        out.push('}');
-    }
-    if let Some(disabled) = disabled {
-        out.push_str(", enabled = !");
-        out.push_str(&expression(disabled));
-    }
-    append_button_options(style, size, shape, tint, icon_only_circle, out);
-    out.push_str(") {\n");
-    render_button_content(label, icon, style, depth + 1, out);
-    indent(out, depth);
-    out.push('}');
-}
+    let size = match size {
+        Some(nexa_ir::ButtonSize::Small) => "\"Small\"",
+        Some(nexa_ir::ButtonSize::Regular) => "\"Regular\"",
+        Some(nexa_ir::ButtonSize::Large) => "\"Large\"",
+        None => "null",
+    };
+    let shape = shape.map_or_else(
+        || "null".to_owned(),
+        |shape| match shape {
+            nexa_ir::ButtonShape::Capsule => {
+                "androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)".to_owned()
+            }
+            nexa_ir::ButtonShape::Circle => {
+                "androidx.compose.foundation.shape.CircleShape".to_owned()
+            }
+            nexa_ir::ButtonShape::Rounded(radius) => format!(
+                "androidx.compose.foundation.shape.RoundedCornerShape({}.dp)",
+                crate::generator::utils::number(radius)
+            ),
+        },
+    );
+    let icon = icon.map_or_else(|| "null".to_owned(), SystemIcon::material_reference);
+    let tint = tint.map_or_else(
+        || "null".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
+    let loading = loading.map_or_else(|| "false".to_owned(), expression);
+    let disabled = disabled.map_or_else(|| "false".to_owned(), expression);
+    let icon_only_circle = icon != "null"
+        && shape != "null"
+        && matches!(
+            shape.as_str(),
+            "androidx.compose.foundation.shape.CircleShape"
+        )
+        && is_empty_button_label(label);
 
-fn button_min_height(size: Option<nexa_ir::ButtonSize>) -> u8 {
-    match size {
-        Some(nexa_ir::ButtonSize::Large) => nexa_codegen::design_system::BUTTON_LARGE_MIN_HEIGHT,
-        _ => nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET,
-    }
+    out.line_at(depth, format_args!("NexaButtonPrimitive("));
+    out.line_at(depth + 1, format_args!("label = {},", expression(label)));
+    out.line_at(depth + 1, format_args!("icon = {icon},"));
+    out.line_at(depth + 1, format_args!("style = \"{style}\","));
+    out.line_at(depth + 1, format_args!("size = {size},"));
+    out.line_at(depth + 1, format_args!("shape = {shape},"));
+    out.line_at(depth + 1, format_args!("tint = {tint},"));
+    out.line_at(depth + 1, format_args!("loading = {loading},"));
+    out.line_at(depth + 1, format_args!("disabled = {disabled},"));
+    out.line_at(
+        depth + 1,
+        format_args!("iconOnlyCircle = {icon_only_circle},"),
+    );
+    out.line_at(depth + 1, format_args!("fullWidth = {full_width},"));
+    out.line_at(depth + 1, format_args!("onClick = {{"));
+    render_actions(actions, depth + 2, out);
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth, format_args!(")"));
 }
 
 fn is_empty_button_label(label: &Expr) -> bool {
@@ -437,149 +397,31 @@ fn is_empty_button_label(label: &Expr) -> bool {
     }
 }
 
-fn button_component(style: Option<nexa_ir::ButtonStyle>) -> &'static str {
-    match style {
-        Some(nexa_ir::ButtonStyle::Bordered) => "OutlinedButton",
-        Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain) => "TextButton",
-        Some(nexa_ir::ButtonStyle::BorderedProminent) | None => "Button",
-    }
-}
-
-fn append_button_options(
-    style: Option<nexa_ir::ButtonStyle>,
-    size: Option<nexa_ir::ButtonSize>,
-    shape: Option<nexa_ir::ButtonShape>,
-    tint: Option<&nexa_ir::ColorExpression>,
-    icon_only_circle: bool,
-    out: &mut SourceWriter,
-) {
-    let shape = shape.unwrap_or(nexa_codegen::design_system::DEFAULT_BUTTON_SHAPE);
-    if let Some(tint) = tint {
-        let color = crate::generator::colors::expression_for_color(tint);
-        match style {
-            Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain) => {
-                out.push_str(&format!(
-                    ", colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = {color})"
-                ));
-            }
-            Some(nexa_ir::ButtonStyle::Bordered) => {
-                out.push_str(&format!(
-                    ", colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = {color}), border = androidx.compose.foundation.BorderStroke(1.dp, {color})"
-                ));
-            }
-            Some(nexa_ir::ButtonStyle::BorderedProminent) | None => {
-                out.push_str(&format!(
-                    ", colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = {color})"
-                ));
-            }
-        }
-    }
-    let expression = match shape {
-        nexa_ir::ButtonShape::Capsule => {
-            "androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)".to_owned()
-        }
-        nexa_ir::ButtonShape::Circle => "androidx.compose.foundation.shape.CircleShape".to_owned(),
-        nexa_ir::ButtonShape::Rounded(radius) => format!(
-            "androidx.compose.foundation.shape.RoundedCornerShape({}.dp)",
-            crate::generator::utils::number(radius)
-        ),
-    };
-    out.push_str(&format!(", shape = {expression}"));
-    let borderless = matches!(
-        style,
-        Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
-    );
-    let padding = if icon_only_circle || borderless {
-        Some((0, 0))
-    } else {
-        match size {
-            Some(nexa_ir::ButtonSize::Small) => Some((
-                nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING,
-                nexa_codegen::design_system::BUTTON_SMALL_VERTICAL_PADDING,
-            )),
-            Some(nexa_ir::ButtonSize::Regular) | None => Some((8, 8)),
-            Some(nexa_ir::ButtonSize::Large) => Some((
-                nexa_codegen::design_system::BUTTON_LARGE_HORIZONTAL_PADDING,
-                nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING,
-            )),
-        }
-    };
-    if let Some((horizontal, vertical)) = padding {
-        if horizontal == 0 && vertical == 0 {
-            out.push_str(", contentPadding = PaddingValues(0.dp)");
-        } else {
-            out.push_str(&format!(
-                ", contentPadding = PaddingValues(horizontal = {horizontal}.dp, vertical = {vertical}.dp)"
-            ));
-        }
-    }
-}
-
-fn render_button_content(
-    label: &Expr,
-    icon: Option<&SystemIcon>,
-    style: Option<nexa_ir::ButtonStyle>,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    if let Some(icon) = icon {
-        out.line_at(
-            depth,
-            format_args!(
-                "Icon(imageVector = {}, contentDescription = null, modifier = Modifier.size({}.dp))",
-                icon.material_reference(),
-                nexa_codegen::design_system::DEFAULT_MATERIAL_ICON_SIZE,
-            ),
-        );
-        if !is_empty_button_label(label) {
-            out.line_at(
-                depth,
-                format_args!(
-                    "Spacer(Modifier.width({}.dp))",
-                    nexa_codegen::design_system::ICON_LABEL_SPACING
-                ),
-            );
-        }
-    }
-    let text_color = if matches!(
-        style,
-        Some(nexa_ir::ButtonStyle::Borderless | nexa_ir::ButtonStyle::Plain)
-    ) {
-        ", color = MaterialTheme.colorScheme.onSurface"
-    } else {
-        ""
-    };
-    out.line_at(
-        depth,
-        format_args!(
-            "Text({}{}, fontSize = {}.sp, fontWeight = FontWeight.Normal, lineHeight = {}.sp * {}f, letterSpacing = 0.sp, maxLines = 1, softWrap = false)",
-            expression(label),
-            text_color,
-            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
-            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
-            nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER,
-        ),
-    );
-}
-
 pub(crate) fn render_switch(
     state: &str,
     label: &nexa_ir::Expr,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let label = crate::generator::engine::expressions::text_expression(label);
+    out.line_at(depth, format_args!("NexaSwitchPrimitive("));
+    out.line_at(depth + 1, format_args!("label = {label},"));
+    out.line_at(depth + 1, format_args!("checked = {},", state_name(state)));
     out.line_at(
-        depth,
+        depth + 1,
+        format_args!("onCheckedChange = {{ {} = it }},", state_name(state)),
+    );
+    out.line_at(
+        depth + 1,
         format_args!(
-            "Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {{"
+            "fontSize = {}.sp,",
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE
         ),
     );
     out.line_at(
         depth + 1,
         format_args!(
-            "Text({}, modifier = Modifier.weight(1f), fontSize = {}.sp, fontWeight = FontWeight.Normal, lineHeight = {}.sp * {}f, letterSpacing = 0.sp)",
-            crate::generator::engine::expressions::text_expression(label),
-            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            "lineHeight = {}.sp * {}f,",
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
             nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER,
         ),
@@ -587,14 +429,11 @@ pub(crate) fn render_switch(
     out.line_at(
         depth + 1,
         format_args!(
-            "Switch(checked = {}, onCheckedChange = {{ {} = it }}, modifier = Modifier.semantics {{ contentDescription = {} }}, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = MaterialTheme.colorScheme.primary, checkedBorderColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White, uncheckedTrackColor = if (MaterialTheme.colorScheme.background == Color.Black) Color(0x{:08X}) else Color(0xFFE5E5EA), uncheckedBorderColor = Color.Transparent))",
-            state_name(state),
-            state_name(state),
-            expression(label),
+            "offTrackColor = if (MaterialTheme.colorScheme.background == Color.Black) Color(0x{:08X}) else Color(0xFFE5E5EA),",
             nexa_codegen::design_system::FORM_SWITCH_OFF_TRACK_ARGB,
         ),
     );
-    out.line_at(depth, format_args!("}}"));
+    out.line_at(depth, format_args!(")"));
 }
 
 pub(crate) fn render_slider(
@@ -615,7 +454,7 @@ pub(crate) fn render_slider(
     out.line_at(
         depth,
         format_args!(
-            "Slider(value = {value}.toFloat(), onValueChange = {{ {} = it.toDouble() }}, valueRange = {}f..{}f, steps = {})",
+            "NexaSliderPrimitive(value = {value}.toFloat(), onValueChange = {{ {} = it.toDouble() }}, valueRange = {}f..{}f, steps = {})",
             state_name(state),
             min as f32,
             max as f32,
@@ -628,7 +467,7 @@ pub(crate) fn render_progress_bar(progress: &Expr, depth: usize, out: &mut Sourc
     out.line_at(
         depth,
         format_args!(
-            "LinearProgressIndicator(progress = {{ ({}.toFloat()).coerceIn(0f, 1f) }})",
+            "NexaProgressBarPrimitive(progress = {}.toFloat())",
             expression(progress)
         ),
     );
@@ -638,7 +477,7 @@ pub(crate) fn render_progress_ring(progress: &Expr, depth: usize, out: &mut Sour
     out.line_at(
         depth,
         format_args!(
-            "CircularProgressIndicator(progress = {{ ({}.toFloat()).coerceIn(0f, 1f) }})",
+            "NexaProgressRingPrimitive(progress = {}.toFloat())",
             expression(progress)
         ),
     );
@@ -652,29 +491,12 @@ pub(crate) fn render_segmented_control(
 ) {
     let options = expression(items);
     let selected = state_name(state);
-    out.line_at(depth, format_args!("SingleChoiceSegmentedButtonRow {{"));
-    out.line_at(depth + 1, format_args!("val options = {options}"));
     out.line_at(
-        depth + 1,
-        format_args!("options.forEachIndexed {{ index, item ->"),
-    );
-    out.line_at(depth + 2, format_args!("SegmentedButton("));
-    out.line_at(depth + 3, format_args!("selected = {selected} == item,"));
-    out.line_at(
-        depth + 3,
-        format_args!("onClick = {{ {selected} = item }},"),
-    );
-    out.line_at(
-        depth + 3,
+        depth,
         format_args!(
-            "shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),"
+            "NexaSegmentedControlPrimitive(items = {options}, selected = {selected}, onSelected = {{ {selected} = it }})"
         ),
     );
-    out.line_at(depth + 2, format_args!(") {{"));
-    out.line_at(depth + 3, format_args!("Text(item)"));
-    out.line_at(depth + 2, format_args!("}}"));
-    out.line_at(depth + 1, format_args!("}}"));
-    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_picker(
@@ -696,7 +518,7 @@ pub(crate) fn render_picker(
     out.line_at(
         depth,
         format_args!(
-            "nexaPickerMenu({}, {selected}, {icon}, {label}, {tint}) {{ {selected} = it }}",
+            "NexaPickerPrimitive(items = {}, selected = {selected}, icon = {icon}, label = {label}, tint = {tint}) {{ {selected} = it }}",
             expression(items),
         ),
     );
@@ -710,400 +532,13 @@ pub(crate) fn render_date_picker(
 ) {
     let timestamp = state_name(timestamp_state);
     let has_time = state_name(has_time_state);
-    let suffix = out.next_id();
-    let date_state = format!("nexaDatePickerState{suffix}");
-    let time_state = format!("nexaTimePickerState{suffix}");
-    let date_dialog = format!("nexaShowDateDialog{suffix}");
-    let time_dialog = format!("nexaShowTimeDialog{suffix}");
-    let local_date = format!("nexaDatePickerLocalDate{suffix}");
-    let initial_millis = format!("nexaDatePickerInitialMillis{suffix}");
-    let local_time = format!("nexaTimePickerInitialDate{suffix}");
-
-    out.line_at(depth, format_args!("Column {{"));
+    let identity = format!("nexa-date-picker-{}", out.next_id());
     out.line_at(
-        depth + 1,
+        depth,
         format_args!(
-            "val {local_date} = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
+            "NexaDatePickerPrimitive(timestamp = {timestamp}, includesTime = {has_time}, identity = \"{identity}\", onTimestampChanged = {{ {timestamp} = it }}, onIncludesTimeChanged = {{ {has_time} = it }})"
         ),
     );
-    out.line_at(
-        depth + 1,
-        format_args!(
-            "val {initial_millis} = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{"
-        ),
-    );
-    out.line_at(depth + 2, format_args!("clear()"));
-    out.line_at(
-        depth + 2,
-        format_args!("set({local_date}.get(Calendar.YEAR), {local_date}.get(Calendar.MONTH), {local_date}.get(Calendar.DAY_OF_MONTH))"),
-    );
-    out.line_at(depth + 1, format_args!("}}.timeInMillis"));
-    out.line_at(
-        depth + 1,
-        format_args!("val {date_state} = rememberDatePickerState(initialSelectedDateMillis = {initial_millis})"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!(
-            "val {local_time} = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
-        ),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("val {time_state} = rememberTimePickerState(initialHour = {local_time}.get(Calendar.HOUR_OF_DAY), initialMinute = {local_time}.get(Calendar.MINUTE))"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("val {date_dialog} = remember {{ mutableStateOf(false) }}"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("val {time_dialog} = remember {{ mutableStateOf(false) }}"),
-    );
-
-    out.line_at(
-        depth + 1,
-        format_args!("Row(verticalAlignment = Alignment.CenterVertically) {{"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("Text(\"Include time\", modifier = Modifier.weight(1f))"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("Switch(checked = {has_time}, onCheckedChange = {{ enabled ->"),
-    );
-    out.line_at(depth + 3, format_args!("{has_time} = enabled"));
-    out.line_at(depth + 3, format_args!("if (!enabled) {{"));
-    out.line_at(
-        depth + 4,
-        format_args!("val calendar = Calendar.getInstance().apply {{"),
-    );
-    out.line_at(depth + 5, format_args!("timeInMillis = {timestamp}"));
-    out.line_at(depth + 5, format_args!("set(Calendar.HOUR_OF_DAY, 0)"));
-    out.line_at(depth + 5, format_args!("set(Calendar.MINUTE, 0)"));
-    out.line_at(depth + 5, format_args!("set(Calendar.SECOND, 0)"));
-    out.line_at(depth + 5, format_args!("set(Calendar.MILLISECOND, 0)"));
-    out.line_at(depth + 4, format_args!("}}"));
-    out.line_at(
-        depth + 4,
-        format_args!("{timestamp} = calendar.timeInMillis"),
-    );
-    out.line_at(depth + 3, format_args!("}}"));
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "}}, modifier = Modifier.semantics {{ contentDescription = \"Include time\" }})"
-        ),
-    );
-    out.line_at(depth + 1, format_args!("}}"));
-
-    out.line_at(
-        depth + 1,
-        format_args!("Row(verticalAlignment = Alignment.CenterVertically) {{"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("OutlinedButton(modifier = Modifier.weight(1f), onClick = {{"),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!(
-            "val localDate = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
-        ),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!("{date_state}.selectedDateMillis = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{"),
-    );
-    out.line_at(depth + 4, format_args!("clear()"));
-    out.line_at(
-        depth + 4,
-        format_args!("set(localDate.get(Calendar.YEAR), localDate.get(Calendar.MONTH), localDate.get(Calendar.DAY_OF_MONTH))"),
-    );
-    out.line_at(depth + 3, format_args!("}}.timeInMillis"));
-    out.line_at(depth + 3, format_args!("{date_dialog}.value = true"));
-    out.line_at(depth + 2, format_args!("}}) {{"));
-    out.line_at(depth + 3, format_args!("Column {{"));
-    out.line_at(
-        depth + 4,
-        format_args!("Text(\"Date\", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)"),
-    );
-    out.line_at(
-        depth + 4,
-        format_args!("Text(java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date({timestamp})))"),
-    );
-    out.line_at(depth + 3, format_args!("}}"));
-    out.line_at(depth + 2, format_args!("}}"));
-
-    out.line_at(depth + 2, format_args!("if ({has_time}) {{"));
-    out.line_at(depth + 3, format_args!("Spacer(Modifier.width(8.dp))"));
-    out.line_at(
-        depth + 3,
-        format_args!("OutlinedButton(modifier = Modifier.weight(1f), onClick = {{"),
-    );
-    out.line_at(
-        depth + 4,
-        format_args!(
-            "val localTime = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
-        ),
-    );
-    out.line_at(
-        depth + 4,
-        format_args!("{time_state}.hour = localTime.get(Calendar.HOUR_OF_DAY)"),
-    );
-    out.line_at(
-        depth + 4,
-        format_args!("{time_state}.minute = localTime.get(Calendar.MINUTE)"),
-    );
-    out.line_at(depth + 4, format_args!("{time_dialog}.value = true"));
-    out.line_at(depth + 3, format_args!("}}) {{"));
-    out.line_at(depth + 4, format_args!("Column {{"));
-    out.line_at(
-        depth + 5,
-        format_args!("Text(\"Time\", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)"),
-    );
-    out.line_at(
-        depth + 5,
-        format_args!("Text(java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date({timestamp})))"),
-    );
-    out.line_at(depth + 4, format_args!("}}"));
-    out.line_at(depth + 3, format_args!("}}"));
-    out.line_at(depth + 2, format_args!("}}"));
-    out.line_at(depth + 1, format_args!("}}"));
-
-    out.line_at(depth + 1, format_args!("if ({date_dialog}.value) {{"));
-    out.line_at(depth + 2, format_args!("DatePickerDialog("));
-    out.line_at(
-        depth + 3,
-        format_args!("onDismissRequest = {{ {date_dialog}.value = false }},"),
-    );
-    out.line_at(depth + 3, format_args!("confirmButton = {{"));
-    out.line_at(depth + 4, format_args!("TextButton(onClick = {{"));
-    out.line_at(
-        depth + 5,
-        format_args!("{date_state}.selectedDateMillis?.let {{ selectedMillis ->"),
-    );
-    out.line_at(
-        depth + 6,
-        format_args!("val selectedDate = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{ timeInMillis = selectedMillis }}"),
-    );
-    out.line_at(
-        depth + 6,
-        format_args!("val calendar = Calendar.getInstance().apply {{"),
-    );
-    out.line_at(depth + 7, format_args!("clear()"));
-    out.line_at(
-        depth + 7,
-        format_args!("set(selectedDate.get(Calendar.YEAR), selectedDate.get(Calendar.MONTH), selectedDate.get(Calendar.DAY_OF_MONTH), if ({has_time}) {time_state}.hour else 0, if ({has_time}) {time_state}.minute else 0)"),
-    );
-    out.line_at(depth + 6, format_args!("}}"));
-    out.line_at(
-        depth + 6,
-        format_args!("{timestamp} = calendar.timeInMillis"),
-    );
-    out.line_at(depth + 5, format_args!("}}"));
-    out.line_at(depth + 5, format_args!("{date_dialog}.value = false"));
-    out.line_at(depth + 4, format_args!("}}) {{ Text(\"Done\") }}"));
-    out.line_at(depth + 3, format_args!("}},"));
-    out.line_at(
-        depth + 3,
-        format_args!("dismissButton = {{ TextButton(onClick = {{ {date_dialog}.value = false }}) {{ Text(\"Cancel\") }} }},"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!(
-            ") {{ DatePicker(state = {date_state}, title = {{ Text(\"Select date\") }}) }}"
-        ),
-    );
-    out.line_at(depth + 1, format_args!("}}"));
-
-    out.line_at(depth + 1, format_args!("if ({time_dialog}.value) {{"));
-    out.line_at(depth + 2, format_args!("AlertDialog("));
-    out.line_at(
-        depth + 3,
-        format_args!("onDismissRequest = {{ {time_dialog}.value = false }},"),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!("title = {{ Text(\"Select time\") }},"),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!("text = {{ TimePicker(state = {time_state}) }},"),
-    );
-    out.line_at(depth + 3, format_args!("confirmButton = {{"));
-    out.line_at(depth + 4, format_args!("TextButton(onClick = {{"));
-    out.line_at(
-        depth + 5,
-        format_args!("val calendar = Calendar.getInstance().apply {{"),
-    );
-    out.line_at(depth + 6, format_args!("timeInMillis = {timestamp}"));
-    out.line_at(
-        depth + 6,
-        format_args!("set(Calendar.HOUR_OF_DAY, {time_state}.hour)"),
-    );
-    out.line_at(
-        depth + 6,
-        format_args!("set(Calendar.MINUTE, {time_state}.minute)"),
-    );
-    out.line_at(depth + 6, format_args!("set(Calendar.SECOND, 0)"));
-    out.line_at(depth + 6, format_args!("set(Calendar.MILLISECOND, 0)"));
-    out.line_at(depth + 5, format_args!("}}"));
-    out.line_at(
-        depth + 5,
-        format_args!("{timestamp} = calendar.timeInMillis"),
-    );
-    out.line_at(depth + 5, format_args!("{time_dialog}.value = false"));
-    out.line_at(depth + 4, format_args!("}}) {{ Text(\"Done\") }}"));
-    out.line_at(depth + 3, format_args!("}},"));
-    out.line_at(
-        depth + 3,
-        format_args!("dismissButton = {{ TextButton(onClick = {{ {time_dialog}.value = false }}) {{ Text(\"Cancel\") }} }},"),
-    );
-    out.line_at(depth + 2, format_args!(")"));
-    out.line_at(depth + 1, format_args!("}}"));
-
-    out.line_at(depth + 1, format_args!("LaunchedEffect({timestamp}) {{"));
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "val localDate = Calendar.getInstance().apply {{ timeInMillis = {timestamp} }}"
-        ),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("{date_state}.selectedDateMillis = Calendar.getInstance(TimeZone.getTimeZone(\"UTC\")).apply {{"),
-    );
-    out.line_at(depth + 3, format_args!("clear()"));
-    out.line_at(
-        depth + 3,
-        format_args!("set(localDate.get(Calendar.YEAR), localDate.get(Calendar.MONTH), localDate.get(Calendar.DAY_OF_MONTH))"),
-    );
-    out.line_at(depth + 2, format_args!("}}.timeInMillis"));
-    out.line_at(
-        depth + 2,
-        format_args!("{time_state}.hour = localDate.get(Calendar.HOUR_OF_DAY)"),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!("{time_state}.minute = localDate.get(Calendar.MINUTE)"),
-    );
-    out.line_at(depth + 1, format_args!("}}"));
-    out.line_at(depth, format_args!("}}"));
-}
-
-pub(crate) fn render_picker_helper(out: &mut SourceWriter) {
-    let helper = r#"@Composable
-internal fun nexaPickerMenu(
-    items: List<String>,
-    selected: String,
-    icon: ImageVector?,
-    label: String?,
-    tint: Color?,
-    onSelectionChanged: (String) -> Unit,
-) {
-    val expanded = remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (label != null && icon != null) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = tint ?: MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.dp),
-            )
-            Spacer(Modifier.width(__NEXA_ICON_LABEL_SPACING__.dp))
-        }
-        if (label != null) {
-            Text(
-                label,
-                modifier = Modifier.weight(1f),
-                fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
-                fontWeight = FontWeight.Normal,
-                lineHeight = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
-                letterSpacing = 0.sp,
-            )
-        }
-        Box {
-            Row(
-                modifier = Modifier.clickable { expanded.value = true }.padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (icon != null && label == null) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = selected,
-                        tint = tint ?: MaterialTheme.colorScheme.onSurface,
-                    )
-                } else {
-                    Text(
-                        selected,
-                        color = tint ?: MaterialTheme.colorScheme.primary,
-                        fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
-                        fontWeight = FontWeight.Normal,
-                        lineHeight = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
-                        letterSpacing = 0.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Filled.UnfoldMore,
-                        contentDescription = null,
-                        tint = tint ?: MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-            DropdownMenu(
-                expanded = expanded.value,
-                onDismissRequest = { expanded.value = false },
-            ) {
-                items.forEach { item ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                item,
-                                color = if (item == selected) tint ?: MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface,
-                                fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
-                                fontWeight = FontWeight.Normal,
-                                lineHeight = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
-                                letterSpacing = 0.sp,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                        },
-                        onClick = {
-                            onSelectionChanged(item)
-                            expanded.value = false
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-"#;
-    let helper = helper
-        .replace(
-            "__NEXA_ICON_LABEL_SPACING__",
-            &nexa_codegen::design_system::ICON_LABEL_SPACING.to_string(),
-        )
-        .replace(
-            "__NEXA_DEFAULT_MATERIAL_ICON_SIZE__",
-            &nexa_codegen::design_system::DEFAULT_MATERIAL_ICON_SIZE.to_string(),
-        )
-        .replace(
-            "__NEXA_DEFAULT_BODY_FONT_SIZE__",
-            &nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
-        )
-        .replace(
-            "__NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__",
-            &nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
-        );
-    out.push_str(&helper);
 }
 
 pub(crate) fn render_pressable(
@@ -1880,39 +1315,27 @@ mod tests {
     use nexa_ir::{Action, CollectionMutation, Expr, NumericType, SystemIcon, TaskExecutor, Type};
 
     use super::{
-        render_actions, render_button, render_date_picker, render_picker, render_picker_helper,
-        render_progress_bar, render_progress_ring, render_slider, render_switch,
+        render_actions, render_button, render_date_picker, render_picker, render_progress_bar,
+        render_progress_ring, render_slider, render_switch,
     };
 
     #[test]
-    fn picker_keeps_labeled_selection_visible_and_marks_the_active_option() {
+    fn picker_calls_the_shared_native_component_primitive() {
         let mut output = SourceWriter::new();
 
-        render_picker_helper(&mut output);
+        render_picker(
+            &Expr::Array(vec![Expr::String("Low".to_owned())]),
+            "priority",
+            Some(&SystemIcon::Shared("flag_filled".to_owned())),
+            None,
+            None,
+            0,
+            &mut output,
+        );
 
-        assert!(output.contains("if (label != null && icon != null)"));
-        assert!(output.contains("Spacer(Modifier.width(8.dp))"));
-        assert!(output.contains(
-            "Text(\n                label,\n                modifier = Modifier.weight(1f)"
-        ));
-        assert!(
-            output.contains("fontSize = 17.sp,\n                fontWeight = FontWeight.Normal")
-        );
-        assert!(output.contains("letterSpacing = 0.sp"));
-        assert!(
-            output
-                .contains("Modifier.clickable { expanded.value = true }.padding(vertical = 8.dp)")
-        );
-        assert!(!output.contains("TextButton("));
-        assert!(output.contains("imageVector = Icons.Filled.UnfoldMore"));
-        assert!(output.contains("modifier = Modifier.size(24.dp)"));
-        assert!(output.contains("maxLines = 1"));
-        assert!(output.contains("DropdownMenu("));
-        assert!(output.contains("DropdownMenuItem("));
-        assert!(output.contains("if (item == selected) tint ?: MaterialTheme.colorScheme.primary"));
-        assert!(output.contains("contentDescription = selected"));
-        assert!(output.contains("tint = tint ?: MaterialTheme.colorScheme.onSurface"));
-        assert!(!output.contains("AlertDialog("));
+        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"Low\")"));
+        assert!(output.contains("icon = Icons.Filled.Flag"));
+        assert!(output.contains("label = null, tint = null) { nexa_priority = it }"));
     }
 
     #[test]
@@ -1935,7 +1358,7 @@ mod tests {
         );
 
         assert!(output.contains("nexaColorFromHex(nexa_priorityTint)"));
-        assert!(output.contains("nexaPickerMenu(listOf(\"None\"), nexa_priority, Icons.Filled.Flag, null, nexaColorFromHex(nexa_priorityTint))"));
+        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), selected = nexa_priority, icon = Icons.Filled.Flag, label = null, tint = nexaColorFromHex(nexa_priorityTint))"));
     }
 
     #[test]
@@ -1958,17 +1381,39 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains(
-            "TextButton(\n    modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 50.dp),\n    onClick = { }"
-        ));
-        assert!(output.contains(
-            "Text(\"Skip\", color = MaterialTheme.colorScheme.onSurface, fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp, maxLines = 1, softWrap = false)"
-        ));
-        assert!(output.contains("contentPadding = PaddingValues(0.dp)"));
+        assert!(output.contains("NexaButtonPrimitive("));
+        assert!(output.contains("label = \"Skip\""));
+        assert!(output.contains("style = \"Borderless\""));
+        assert!(output.contains("size = \"Large\""));
         assert!(output.contains(
             "shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
         ));
-        assert!(output.contains("maxLines = 1, softWrap = false"));
+    }
+
+    #[test]
+    fn bordered_button_uses_shared_dynamic_accent_and_disabled_alpha() {
+        let label = Expr::String("System".to_owned());
+        let disabled = Expr::Bool(true);
+        let mut output = SourceWriter::new();
+
+        render_button(
+            &label,
+            None,
+            None,
+            Some(&disabled),
+            Some(nexa_ir::ButtonStyle::Bordered),
+            None,
+            None,
+            None,
+            &[],
+            false,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("style = \"Bordered\""));
+        assert!(output.contains("disabled = true"));
+        assert!(output.contains("tint = null"));
     }
 
     #[test]
@@ -1991,13 +1436,9 @@ mod tests {
             &mut output,
         );
 
-        assert!(
-            output.contains("contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)")
-        );
-        assert!(output.contains(
-            "shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
-        ));
-        assert!(output.contains("maxLines = 1, softWrap = false"));
+        assert!(output.contains("style = \"BorderedProminent\""));
+        assert!(output.contains("size = null"));
+        assert!(output.contains("shape = null"));
     }
 
     #[test]
@@ -2024,9 +1465,8 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("modifier = Modifier.size(48.dp)"));
-        assert!(output.contains("Icon(imageVector = Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(24.dp))"));
-        assert!(output.contains("contentPadding = PaddingValues(0.dp)"));
+        assert!(output.contains("icon = Icons.Filled.Add"));
+        assert!(output.contains("iconOnlyCircle = true"));
         assert!(output.contains("shape = androidx.compose.foundation.shape.CircleShape"));
     }
 
@@ -2037,28 +1477,26 @@ mod tests {
 
         render_switch("openLinksInApp", &label, 0, &mut output);
 
-        assert!(output.contains("Row(modifier = Modifier.fillMaxWidth()"));
-        assert!(output.contains(
-            "Text(\"Open Links In App\", modifier = Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp)"
-        ));
-        assert!(output.contains("Switch(checked = nexa_openLinksInApp"));
-        assert!(output.contains("uncheckedThumbColor = Color.White"));
-        assert!(output.contains("uncheckedTrackColor = if (MaterialTheme.colorScheme.background == Color.Black) Color(0xFF5E5E62)"));
+        assert!(output.contains("NexaSwitchPrimitive("));
+        assert!(output.contains("label = \"Open Links In App\""));
+        assert!(output.contains("checked = nexa_openLinksInApp"));
+        assert!(
+            output.contains(
+                "offTrackColor = if (MaterialTheme.colorScheme.background == Color.Black)"
+            )
+        );
     }
 
     #[test]
-    fn date_picker_converts_between_local_timestamps_and_utc_calendar_days() {
+    fn date_picker_uses_the_shared_native_primitive() {
         let mut output = SourceWriter::new();
 
         render_date_picker("reminderTimestamp", "reminderHasTime", 0, &mut output);
 
-        assert!(output.contains("Calendar.getInstance(TimeZone.getTimeZone(\"UTC\"))"));
-        assert!(output.contains("OutlinedButton(modifier = Modifier.weight(1f)"));
-        assert!(output.contains("DatePickerDialog("));
-        assert!(output.contains("AlertDialog("));
-        assert!(output.contains("nexaDatePickerState0.selectedDateMillis = Calendar.getInstance"));
-        assert!(output.contains("set(localDate.get(Calendar.YEAR), localDate.get(Calendar.MONTH), localDate.get(Calendar.DAY_OF_MONTH)"));
-        assert!(output.contains("reminderTimestamp = calendar.timeInMillis"));
+        assert_eq!(
+            output.as_str().trim(),
+            "NexaDatePickerPrimitive(timestamp = nexa_reminderTimestamp, includesTime = nexa_reminderHasTime, identity = \"nexa-date-picker-0\", onTimestampChanged = { nexa_reminderTimestamp = it }, onIncludesTimeChanged = { nexa_reminderHasTime = it })"
+        );
     }
 
     #[test]
@@ -2072,7 +1510,7 @@ mod tests {
         render_progress_ring(&progress, 0, &mut output);
         assert_eq!(
             output.as_str(),
-            "LinearProgressIndicator(progress = { (nexa_progress.toFloat()).coerceIn(0f, 1f) })\nCircularProgressIndicator(progress = { (nexa_progress.toFloat()).coerceIn(0f, 1f) })\n"
+            "NexaProgressBarPrimitive(progress = nexa_progress.toFloat())\nNexaProgressRingPrimitive(progress = nexa_progress.toFloat())\n"
         );
     }
 
@@ -2082,7 +1520,7 @@ mod tests {
         render_slider("volume", false, 0.0, 1.0, 0.1, 0, &mut output);
         assert_eq!(
             output.as_str(),
-            "Slider(value = nexa_volume.toFloat(), onValueChange = { nexa_volume = it.toDouble() }, valueRange = 0f..1f, steps = 9)\n"
+            "NexaSliderPrimitive(value = nexa_volume.toFloat(), onValueChange = { nexa_volume = it.toDouble() }, valueRange = 0f..1f, steps = 9)\n"
         );
     }
 

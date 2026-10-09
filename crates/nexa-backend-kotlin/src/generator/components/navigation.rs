@@ -180,6 +180,36 @@ pub(crate) fn render_link(
     out.push('}');
 }
 
+pub(crate) fn render_toolbar_link(
+    destination: ScreenId,
+    arguments: &[Expr],
+    guard: Option<&Expr>,
+    children: &[Node],
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    if matches!(guard, Some(Expr::Bool(false))) {
+        render_children(children, scope.module, scope.features, depth, out);
+        return;
+    }
+    let route = route_value(scope.module, destination, arguments);
+    let enabled = guard.map_or_else(
+        || "true".to_owned(),
+        crate::generator::engine::expressions::expression,
+    );
+    out.line_at(
+        depth,
+        format_args!(
+            "IconButton(onClick = {{ navController.navigate({route}) }}, enabled = {enabled}) {{"
+        ),
+    );
+    render_children(children, scope.module, scope.features, depth + 1, out);
+    out.push('\n');
+    crate::generator::utils::indent(out, depth);
+    out.push('}');
+}
+
 pub(crate) fn render_navigation_stack(
     module: &Module,
     root: ScreenId,

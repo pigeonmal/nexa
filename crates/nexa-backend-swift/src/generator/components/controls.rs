@@ -35,85 +35,45 @@ pub(crate) fn render_button(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    if let Some(loading) = loading {
-        indent(out, depth);
-        out.push_str("Button(action: {");
-        if actions.is_empty() {
-            out.push_str(" }) {");
-        } else {
-            out.push('\n');
-            render_actions(actions, depth + 1, out);
-            indent(out, depth);
-            out.push_str("}) {");
-        }
-        out.push('\n');
-        out.line_at(depth + 1, format_args!("if {} {{", expression(loading)));
-        indent(out, depth + 2);
-        out.push_str("ProgressView()\n");
-        indent(out, depth + 1);
-        out.push_str("} else {\n");
-        render_button_label(label, comment, icon, depth + 2, out);
-        indent(out, depth + 1);
-        out.push('}');
-        out.push('\n');
-        indent(out, depth);
-        out.push('}');
-        out.push_str(".disabled(");
-        out.push_str(&expression(loading));
-        if let Some(disabled) = disabled {
-            out.push_str(" || ");
-            out.push_str(&expression(disabled));
-        }
-        out.push(')');
-        render_button_modifiers(style, size, shape, tint, glass, out);
-        return;
-    }
-    if icon.is_none()
-        && comment.is_none()
-        && !has_localized_comment(label)
-        && matches!(
-            label,
-            nexa_ir::Expr::String(_) | nexa_ir::Expr::LocalizedText { .. }
-        )
-    {
-        indent(out, depth);
-        out.push_str(&format!("Button({}, action: {{", expression(label)));
-        if actions.is_empty() {
-            out.push_str("})");
-        } else {
-            out.push('\n');
-            render_actions(actions, depth + 1, out);
-            indent(out, depth);
-            out.push_str("})");
-        }
-        out.push_str(&format!(
-            ".font(.system(size: {}))",
-            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
-        ));
-        if let Some(disabled) = disabled {
-            out.push_str(&format!(".disabled({})", expression(disabled)));
-        }
-        render_button_modifiers(style, size, shape, tint, glass, out);
-        return;
-    }
-    indent(out, depth);
-    out.push_str("Button(action: {");
-    if actions.is_empty() {
-        out.push_str(" }) {");
-    } else {
-        out.push('\n');
-        render_actions(actions, depth + 1, out);
-        indent(out, depth);
-        out.push_str("}) {");
-    }
-    out.push('\n');
-    render_button_label(label, comment, icon, depth + 1, out);
-    indent(out, depth);
-    out.push('}');
-    if let Some(disabled) = disabled {
-        out.push_str(&format!(".disabled({})", expression(disabled)));
-    }
-    render_button_modifiers(style, size, shape, tint, glass, out);
+    let style = match style {
+        Some(nexa_ir::ButtonStyle::Bordered) => ".bordered",
+        Some(nexa_ir::ButtonStyle::Borderless) => ".borderless",
+        Some(nexa_ir::ButtonStyle::Plain) => ".plain",
+        Some(nexa_ir::ButtonStyle::BorderedProminent) | None => ".borderedProminent",
+    };
+    let size = match size {
+        Some(nexa_ir::ButtonSize::Small) => ".small",
+        Some(nexa_ir::ButtonSize::Regular) => ".regular",
+        Some(nexa_ir::ButtonSize::Large) => ".large",
+        None => "nil",
+    };
+    let shape = match shape.unwrap_or(nexa_codegen::design_system::DEFAULT_BUTTON_SHAPE) {
+        nexa_ir::ButtonShape::Circle => ".circle".to_owned(),
+        nexa_ir::ButtonShape::Capsule => ".capsule".to_owned(),
+        nexa_ir::ButtonShape::Rounded(radius) => format!(".rounded({radius})"),
+    };
+    let tint = tint.map_or_else(
+        || "nil".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
+    let loading = loading.map_or_else(|| "false".to_owned(), expression);
+    let disabled = disabled.map_or_else(|| "false".to_owned(), expression);
+
+    out.line_at(depth, format_args!("NexaButtonPrimitive("));
+    out.line_at(depth + 1, format_args!("style: {style},"));
+    out.line_at(depth + 1, format_args!("size: {size},"));
+    out.line_at(depth + 1, format_args!("shape: {shape},"));
+    out.line_at(depth + 1, format_args!("tint: {tint},"));
+    out.line_at(depth + 1, format_args!("loading: {loading},"));
+    out.line_at(depth + 1, format_args!("disabled: {disabled},"));
+    out.line_at(depth + 1, format_args!("glass: {glass},"));
+    out.line_at(depth + 1, format_args!("action: {{"));
+    render_actions(actions, depth + 2, out);
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth + 1, format_args!("label: {{"));
+    render_button_label(label, comment, icon, depth + 2, out);
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth, format_args!(")"));
 }
 
 pub(crate) fn render_confirmation_action_button(
@@ -170,111 +130,6 @@ pub(crate) fn render_confirmation_action_button(
     out.push('}');
     if let Some(disabled) = disabled {
         out.push_str(&format!(".disabled({})", expression(disabled)));
-    }
-}
-
-fn render_button_modifiers(
-    style: Option<nexa_ir::ButtonStyle>,
-    size: Option<nexa_ir::ButtonSize>,
-    shape: Option<nexa_ir::ButtonShape>,
-    tint: Option<&nexa_ir::ColorExpression>,
-    glass: bool,
-    out: &mut SourceWriter,
-) {
-    let resolved_shape = shape.unwrap_or(nexa_codegen::design_system::DEFAULT_BUTTON_SHAPE);
-    let bordered = matches!(style, Some(nexa_ir::ButtonStyle::Bordered));
-    let min_height = if matches!(size, Some(nexa_ir::ButtonSize::Large)) {
-        nexa_codegen::design_system::BUTTON_LARGE_MIN_HEIGHT
-    } else {
-        nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET
-    };
-    if bordered {
-        let tint_expression = tint.map_or_else(
-            || nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR.to_owned(),
-            crate::generator::colors::expression_for_color,
-        );
-        let shape_kind = match resolved_shape {
-            nexa_ir::ButtonShape::Circle => ".circle".to_owned(),
-            nexa_ir::ButtonShape::Rounded(radius) => {
-                format!(".roundedRectangle({radius})")
-            }
-            nexa_ir::ButtonShape::Capsule => ".capsule".to_owned(),
-        };
-        let (horizontal, vertical) = match size {
-            Some(nexa_ir::ButtonSize::Small) => (
-                nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING,
-                nexa_codegen::design_system::BUTTON_SMALL_VERTICAL_PADDING,
-            ),
-            Some(nexa_ir::ButtonSize::Large) => (
-                nexa_codegen::design_system::BUTTON_LARGE_HORIZONTAL_PADDING,
-                nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING,
-            ),
-            Some(nexa_ir::ButtonSize::Regular) | None => (8, 8),
-        };
-        out.push_str(&format!(
-            ".buttonStyle(NexaBorderedButtonStyle(tint: {tint_expression}, shape: NexaButtonOutlineShape(kind: {shape_kind}), horizontalPadding: {horizontal}, verticalPadding: {vertical}, minWidth: {}, minHeight: {min_height}))",
-            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-        ));
-    } else {
-        if let Some(style) = style {
-            match style {
-                nexa_ir::ButtonStyle::BorderedProminent => {
-                    out.push_str(".buttonStyle(.borderedProminent)")
-                }
-                nexa_ir::ButtonStyle::Bordered => out.push_str(".buttonStyle(.plain)"),
-                nexa_ir::ButtonStyle::Borderless => out.push_str(".buttonStyle(.borderless)"),
-                nexa_ir::ButtonStyle::Plain => out.push_str(".buttonStyle(.plain)"),
-            }
-        } else {
-            // Android's default Button is a filled Material button. Make Swift's
-            // implicit style explicit so an omitted style has the same meaning.
-            out.push_str(".buttonStyle(.borderedProminent)");
-        }
-        out.push_str(&format!(
-            ".frame(minWidth: {}, minHeight: {})",
-            nexa_codegen::design_system::BUTTON_MIN_WIDTH,
-            min_height,
-        ));
-        if let Some(size) = size {
-            match size {
-                nexa_ir::ButtonSize::Small => out.push_str(".controlSize(.small)"),
-                nexa_ir::ButtonSize::Regular => out.push_str(".controlSize(.regular)"),
-                nexa_ir::ButtonSize::Large => out.push_str(".controlSize(.large)"),
-            }
-        }
-        match resolved_shape {
-            nexa_ir::ButtonShape::Capsule => out.push_str(".nexaButtonShape(.capsule)"),
-            nexa_ir::ButtonShape::Circle => out.push_str(".nexaButtonShape(.circle)"),
-            nexa_ir::ButtonShape::Rounded(r) => {
-                out.push_str(&format!(".nexaButtonShape(.roundedRectangle({}))", r));
-            }
-        }
-        if let Some(tint) = tint {
-            out.push_str(&format!(
-                ".tint({})",
-                crate::generator::colors::expression_for_color(tint)
-            ));
-        } else {
-            out.push_str(".tint(");
-            out.push_str(nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR);
-            out.push(')');
-        }
-    }
-    if glass {
-        let shape_str = match resolved_shape {
-            nexa_ir::ButtonShape::Circle => ".circle",
-            nexa_ir::ButtonShape::Rounded(r) => &format!(".rounded({})", r),
-            nexa_ir::ButtonShape::Capsule => ".capsule",
-        };
-        if let Some(tint) = tint {
-            out.push_str(&format!(
-                ".nexaGlass(tint: {}, shape: {})",
-                crate::generator::colors::expression_for_color(tint),
-                shape_str
-            ));
-        } else {
-            out.push_str(&format!(".nexaGlass(shape: {})", shape_str));
-        }
     }
 }
 
@@ -349,9 +204,9 @@ pub(crate) fn render_switch(
     out.text_at(
         depth,
         format_args!(
-            "Toggle(isOn: ${}) {{ {} }}",
+            "NexaSwitchPrimitive(label: {}, isOn: ${})",
+            crate::generator::expressions::localized_text_view(label, comment),
             state_name(state),
-            crate::generator::expressions::localized_text_view(label, comment)
         ),
     );
 }
@@ -367,7 +222,7 @@ pub(crate) fn render_slider(
     out.line_at(
         depth,
         format_args!(
-            "Slider(value: ${}, in: {}...{}, step: {})",
+            "NexaSliderPrimitive(value: ${}, range: {}...{}, step: {})",
             state_name(state),
             min,
             max,
@@ -380,7 +235,7 @@ pub(crate) fn render_progress_bar(progress: &nexa_ir::Expr, depth: usize, out: &
     out.line_at(
         depth,
         format_args!(
-            "ProgressView(value: min(max({}, 0.0), 1.0), total: 1.0)",
+            "NexaProgressBarPrimitive(progress: {})",
             expression(progress)
         ),
     );
@@ -390,7 +245,7 @@ pub(crate) fn render_progress_ring(progress: &nexa_ir::Expr, depth: usize, out: 
     out.line_at(
         depth,
         format_args!(
-            "ProgressView(value: min(max({}, 0.0), 1.0), total: 1.0).progressViewStyle(.circular)",
+            "NexaProgressRingPrimitive(progress: {})",
             expression(progress)
         ),
     );
@@ -404,16 +259,12 @@ pub(crate) fn render_segmented_control(
 ) {
     out.line_at(
         depth,
-        format_args!("Picker(\"\", selection: ${}) {{", state_name(state)),
+        format_args!(
+            "NexaSegmentedControlPrimitive(items: {}, selection: ${})",
+            expression(items),
+            state_name(state),
+        ),
     );
-    out.line_at(
-        depth + 1,
-        format_args!("ForEach({}, id: \\.self) {{ item in", expression(items)),
-    );
-    out.line_at(depth + 2, format_args!("Text(item).tag(item)"));
-    out.line_at(depth + 1, format_args!("}}"));
-    indent(out, depth);
-    out.push_str("}.pickerStyle(.segmented).labelsHidden()");
 }
 
 #[derive(Default)]
@@ -437,82 +288,35 @@ pub(crate) fn render_picker(
         tint,
         comment,
     } = options;
-    if let Some(label) = label {
-        let selected = state_name(state);
-        out.line_at(depth, format_args!("Picker(selection: ${selected}) {{"));
-        out.line_at(
-            depth + 1,
-            format_args!("ForEach({}, id: \\.self) {{ item in", expression(items)),
-        );
-        out.line_at(depth + 2, format_args!("Text(item).tag(item)"));
-        out.line_at(depth + 1, format_args!("}}"));
-        if let Some(icon) = icon {
-            out.line_at(depth, format_args!("}} label: {{ Label {{"));
-            out.line_at(
-                depth + 1,
-                format_args!(
-                    "{}",
-                    crate::generator::expressions::localized_text_view(label, comment)
-                ),
-            );
-            out.line_at(
-                depth,
-                format_args!(
-                    "}} icon: {{ Image(systemName: {}) }} }}",
-                    swift_string(&icon.sf_symbol_name())
-                ),
-            );
-        } else {
-            out.line_at(
-                depth,
-                format_args!(
-                    "}} label: {{ {} }}",
-                    crate::generator::expressions::localized_text_view(label, comment)
-                ),
-            );
-        }
-        if let Some(tint) = tint {
-            out.push_str(&format!(
-                ".tint({})",
-                crate::generator::colors::expression_for_color(tint)
-            ));
-        }
-        return;
-    }
-    if let Some(icon) = icon {
-        let tint = tint.map_or_else(
-            || "nil".to_owned(),
-            crate::generator::colors::expression_for_color,
-        );
-        out.line_at(
-            depth,
-            format_args!(
-                "NexaPickerMenu(selection: ${}, items: {}, icon: {}, tint: {tint})",
-                state_name(state),
-                expression(items),
-                swift_string(&icon.sf_symbol_name())
-            ),
-        );
-        return;
-    }
+    let selected = state_name(state);
+    let icon = icon.map_or_else(
+        || "nil".to_owned(),
+        |icon| swift_string(&icon.sf_symbol_name()),
+    );
+    let tint = tint.map_or_else(
+        || "nil".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
+    let has_label = label.is_some();
     out.line_at(
         depth,
-        format_args!("Picker(\"\", selection: ${}) {{", state_name(state)),
+        format_args!(
+            "NexaPickerPrimitive(selection: ${selected}, items: {}, icon: {icon}, tint: {tint}, hasLabel: {has_label}) {{",
+            expression(items),
+        ),
     );
-    out.line_at(
-        depth + 1,
-        format_args!("ForEach({}, id: \\.self) {{ item in", expression(items)),
-    );
-    out.line_at(depth + 2, format_args!("Text(item).tag(item)"));
-    out.line_at(depth + 1, format_args!("}}"));
-    indent(out, depth);
-    out.push_str("}.pickerStyle(.menu).labelsHidden()");
-    if let Some(tint) = tint {
-        out.push_str(&format!(
-            ".tint({})",
-            crate::generator::colors::expression_for_color(tint)
-        ));
+    if let Some(label) = label {
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "{}",
+                crate::generator::expressions::localized_text_view(label, comment)
+            ),
+        );
+    } else {
+        out.line_at(depth + 1, format_args!("EmptyView()"));
     }
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_date_picker(
@@ -525,31 +329,8 @@ pub(crate) fn render_date_picker(
     let has_time = state_name(has_time_state);
     out.line_at(
         depth,
-        format_args!("VStack(alignment: .leading, spacing: 12) {{"),
+        format_args!("NexaDatePickerPrimitive(timestamp: ${timestamp}, includesTime: ${has_time})"),
     );
-    out.line_at(
-        depth + 1,
-        format_args!("Toggle(\"Include time\", isOn: ${has_time})"),
-    );
-    out.line_at(depth + 1, format_args!("HStack(spacing: 12) {{"));
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "DatePicker(\"Date\", selection: nexaDatePickerBinding(${timestamp}), displayedComponents: [.date])"
-        ),
-    );
-    out.line_at(depth + 3, format_args!(".datePickerStyle(.compact)"));
-    out.line_at(depth + 2, format_args!("if {has_time} {{"));
-    out.line_at(
-        depth + 3,
-        format_args!(
-            "DatePicker(\"Time\", selection: nexaDatePickerBinding(${timestamp}), displayedComponents: [.hourAndMinute])"
-        ),
-    );
-    out.line_at(depth + 4, format_args!(".datePickerStyle(.compact)"));
-    out.line_at(depth + 2, format_args!("}}"));
-    out.line_at(depth + 1, format_args!("}}"));
-    out.line_at(depth + 1, format_args!("}}"));
 }
 
 pub(crate) fn render_pressable(
@@ -1176,25 +957,21 @@ mod tests {
         );
 
         assert!(output.contains(
-            "NexaPickerMenu(selection: $nexa_priority, items: [\"High\"], icon: \"flag.fill\", tint: nexaColor(hex: nexa_priorityTint))"
+            "NexaPickerPrimitive(selection: $nexa_priority, items: [\"High\"], icon: \"flag.fill\", tint: nexaColor(hex: nexa_priorityTint), hasLabel: false) {"
         ));
+        assert!(output.contains("EmptyView()"));
     }
 
     #[test]
-    fn date_pickers_share_a_small_timestamp_binding_helper() {
+    fn date_pickers_use_the_shared_native_primitive() {
         let mut output = SourceWriter::new();
 
         render_date_picker("dueAt", "includeTime", 0, &mut output);
 
-        assert!(output.contains(
-            "DatePicker(\"Date\", selection: nexaDatePickerBinding($nexa_dueAt), displayedComponents: [.date])"
-        ));
-        assert!(output.contains(
-            "DatePicker(\"Time\", selection: nexaDatePickerBinding($nexa_dueAt), displayedComponents: [.hourAndMinute])"
-        ));
-        assert!(!output.contains("selection: Binding("));
-        assert!(output.contains("if nexa_includeTime {"));
-        assert!(!output.contains("if $nexa_includeTime {"));
+        assert_eq!(
+            output.as_str().trim(),
+            "NexaDatePickerPrimitive(timestamp: $nexa_dueAt, includesTime: $nexa_includeTime)"
+        );
     }
 
     #[test]
@@ -1216,11 +993,13 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("Button(\"Skip\", action: {})"));
+        assert!(output.contains("NexaButtonPrimitive("));
+        assert!(output.contains("style: .borderless"));
+        assert!(output.contains("size: nil"));
+        assert!(output.contains("disabled: false"));
+        assert!(output.contains("action: {"));
         assert!(output.contains(".font(.system(size: 17))"));
-        assert!(output.contains(
-            ".buttonStyle(.borderless).frame(minWidth: 64, minHeight: 48).nexaButtonShape(.capsule).tint(Color(uiColor: .systemBlue))"
-        ));
+        assert!(output.contains("label: {"));
     }
 
     #[test]
@@ -1301,10 +1080,8 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains(
-            ".buttonStyle(NexaBorderedButtonStyle(tint: Color(uiColor: .systemBlue), shape: NexaButtonOutlineShape(kind: .capsule), horizontalPadding: 8, verticalPadding: 8, minWidth: 64, minHeight: 48))"
-        ));
-        assert!(!output.contains(".buttonStyle(.bordered)"));
+        assert!(output.contains("style: .bordered"));
+        assert!(output.contains("shape: .capsule"));
     }
 
     #[test]
@@ -1326,9 +1103,9 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains(".frame(minWidth: 64, minHeight: 50).controlSize(.large)"));
-        assert!(output.contains(".tint(Color(uiColor: .systemBlue))"));
-        assert!(output.contains("Button(\"Enable Notifications\", action: {})"));
+        assert!(output.contains("size: .large"));
+        assert!(output.contains("style: .borderedProminent"));
+        assert!(output.contains("NexaButtonPrimitive("));
         assert!(output.contains(".font(.system(size: 17))"));
     }
 
@@ -1343,7 +1120,7 @@ mod tests {
         render_progress_ring(&progress, 0, &mut output);
         assert_eq!(
             output.as_str(),
-            "ProgressView(value: min(max(nexa_progress, 0.0), 1.0), total: 1.0)\nProgressView(value: min(max(nexa_progress, 0.0), 1.0), total: 1.0).progressViewStyle(.circular)\n"
+            "NexaProgressBarPrimitive(progress: nexa_progress)\nNexaProgressRingPrimitive(progress: nexa_progress)\n"
         );
     }
 
@@ -1353,7 +1130,7 @@ mod tests {
         render_slider("volume", 0.0, 1.0, 0.1, 0, &mut output);
         assert_eq!(
             output.as_str(),
-            "Slider(value: $nexa_volume, in: 0...1, step: 0.1)\n"
+            "NexaSliderPrimitive(value: $nexa_volume, range: 0...1, step: 0.1)\n"
         );
     }
 

@@ -318,7 +318,8 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("nexa_source.sorted {"));
     assert!(generated_source.contains("MediaPickerControl"));
     assert!(generated_source.contains("fullScreenCover(isPresented:"));
-    assert!(generated_source.contains("TextField(\"Comment\", text: $nexa_editingCommentText)"));
+    assert!(generated_source.contains("NexaTextInputPrimitive(text: $nexa_editingCommentText"));
+    assert!(generated_source.contains("placeholder: Text(\"Comment\")"));
     let localized_entries = nexa_ir::localization::extract(swift_module);
     assert!(localized_entries.contains_key("Comment image"));
     assert!(localized_entries.contains_key("Double tap to view full size"));
@@ -336,7 +337,7 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("600000"));
     assert!(generated_kotlin_source.contains("AlertDialog("));
     assert!(generated_kotlin_source.contains("Modifier.fillMaxWidth().animateItem()"));
-    assert!(generated_kotlin_source.contains("TextField("));
+    assert!(generated_kotlin_source.contains("NexaTextInputPrimitive("));
     assert!(generated_kotlin_source.contains("nexa_editingCommentText"));
     assert!(generated_kotlin_source.contains("nexa_commentPersistence.nexa_fn_saveComment("));
     assert!(generated_kotlin_source.contains("nexa_fn_deleteComment(nexa_comments"));
@@ -344,11 +345,14 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_kotlin_source.contains("ON_RESUME"));
     assert!(
         generated_kotlin_source
-            .contains("Modifier.semantics { contentDescription = \"Include time\" }")
+            .contains("NexaDatePickerPrimitive(timestamp = nexa_reminderTimestamp")
     );
-    assert!(generated_kotlin_source.contains("OutlinedButton(modifier = Modifier.weight(1f)"));
-    assert!(generated_kotlin_source.contains("DatePickerDialog("));
-    assert!(generated_kotlin_source.contains("text = { TimePicker(state = nexaTimePickerState"));
+    assert!(generated_kotlin_source.contains("internal fun NexaDatePickerPrimitive("));
+    assert!(generated_kotlin_source.contains("androidx.compose.material3.DatePickerDialog("));
+    assert!(
+        generated_kotlin_source
+            .contains("androidx.compose.material3.TimePicker(state = timePickerState)")
+    );
     assert!(generated_kotlin_source.contains("isLocalPending"));
     assert!(generated_kotlin_source.contains("scheduleLocalAt"));
     assert!(generated_kotlin_source.contains("cancelLocal"));

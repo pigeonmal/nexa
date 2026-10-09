@@ -202,70 +202,37 @@ pub(crate) fn render_layout(
     out: &mut SourceWriter,
 ) {
     let layout = match kind {
-        LayoutKind::Column => "Column",
-        LayoutKind::Row => "Row",
-        LayoutKind::Stack => "Box",
+        LayoutKind::Column => "NexaColumnPrimitive",
+        LayoutKind::Row => "NexaRowPrimitive",
+        LayoutKind::Stack => "NexaStackPrimitive",
     };
     indent(out, depth);
-    let arrangement = if spacing > 0.0 && !matches!(kind, LayoutKind::Stack) {
-        Some(format!(
-            "{} = Arrangement.spacedBy({}.dp)",
-            match kind {
-                LayoutKind::Row => "horizontalArrangement",
-                LayoutKind::Column => "verticalArrangement",
-                LayoutKind::Stack => unreachable!("stack has no arrangement"),
-            },
-            number(spacing)
-        ))
-    } else {
-        None
-    };
-    let default_alignment = match kind {
-        // SwiftUI's VStack and ZStack center their children when alignment is omitted.
-        // Spell that out in Compose, whose native defaults are Start and TopStart.
-        LayoutKind::Column | LayoutKind::Stack => Some(Alignment::Center),
-        LayoutKind::Row => None,
-    };
-    let alignment = style.alignment.or(default_alignment).map(|alignment| {
-        let (argument, value) = match (kind, alignment) {
-            (LayoutKind::Row, Alignment::Start) => ("verticalAlignment", "Top"),
-            (LayoutKind::Row, Alignment::Center) => ("verticalAlignment", "CenterVertically"),
-            (LayoutKind::Row, Alignment::End) => ("verticalAlignment", "Bottom"),
-            (LayoutKind::Stack, Alignment::Start) => ("contentAlignment", "TopStart"),
-            (LayoutKind::Stack, Alignment::Center) => ("contentAlignment", "Center"),
-            (LayoutKind::Stack, Alignment::End) => ("contentAlignment", "BottomEnd"),
-            (LayoutKind::Column, Alignment::Start) => ("horizontalAlignment", "Start"),
-            (LayoutKind::Column, Alignment::Center) => {
-                ("horizontalAlignment", "CenterHorizontally")
-            }
-            (LayoutKind::Column, Alignment::End) => ("horizontalAlignment", "End"),
-        };
-        format!("{argument} = Alignment.{value}")
-    });
-    let has_modifier = style.has_modifiers();
-    if !has_modifier && alignment.is_none() && arrangement.is_none() {
-        out.push_str(&format!("{layout} {{\n"));
-    } else {
-        out.push_str(&format!("{layout}(\n"));
-        if has_modifier {
-            indent(out, depth + 1);
-            out.push_str("modifier = Modifier");
-            render_modifiers(style, depth + 2, out);
-            out.push_str(",\n");
-        }
-        if let Some(alignment) = alignment {
-            indent(out, depth + 1);
-            out.push_str(&alignment);
-            out.push_str(",\n");
-        }
-        if let Some(arrangement) = arrangement {
-            indent(out, depth + 1);
-            out.push_str(&arrangement);
-            out.push_str(",\n");
-        }
-        indent(out, depth);
-        out.push_str(") {\n");
+    out.push_str(&format!("{layout}(\n"));
+    if style.has_modifiers() {
+        indent(out, depth + 1);
+        out.push_str("modifier = Modifier");
+        render_modifiers(style, depth + 2, out);
+        out.push_str(",\n");
     }
+    if !matches!(kind, LayoutKind::Stack) {
+        indent(out, depth + 1);
+        out.push_str(&format!("spacing = {}f,\n", number(spacing)));
+    }
+    let alignment = match (kind, style.alignment.unwrap_or(Alignment::Center)) {
+        (LayoutKind::Row, Alignment::Start) => ("verticalAlignment", "Top"),
+        (LayoutKind::Row, Alignment::Center) => ("verticalAlignment", "CenterVertically"),
+        (LayoutKind::Row, Alignment::End) => ("verticalAlignment", "Bottom"),
+        (LayoutKind::Stack, Alignment::Start) => ("contentAlignment", "TopStart"),
+        (LayoutKind::Stack, Alignment::Center) => ("contentAlignment", "Center"),
+        (LayoutKind::Stack, Alignment::End) => ("contentAlignment", "BottomEnd"),
+        (LayoutKind::Column, Alignment::Start) => ("horizontalAlignment", "Start"),
+        (LayoutKind::Column, Alignment::Center) => ("horizontalAlignment", "CenterHorizontally"),
+        (LayoutKind::Column, Alignment::End) => ("horizontalAlignment", "End"),
+    };
+    indent(out, depth + 1);
+    out.push_str(&format!("{} = Alignment.{},\n", alignment.0, alignment.1));
+    indent(out, depth);
+    out.push_str(") {\n");
     let has_toolbars = children
         .iter()
         .any(|child| matches!(child, Node::Toolbar { .. }));
@@ -436,7 +403,7 @@ fn render_form_row(node: &Node, scope: &RenderScope<'_>, depth: usize, out: &mut
     out.line_at(
         depth,
         format_args!(
-            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = {}.dp).padding(horizontal = {}.dp), contentAlignment = Alignment.CenterStart) {{",
+            "NexaFormRowPrimitive(minHeight = {}f, horizontalInset = {}f) {{",
             nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT,
             nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
         ),
@@ -675,9 +642,10 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("TextField("));
+        assert!(output.contains("NexaTextInputPrimitive("));
+        assert!(output.contains("searchable = false"));
         assert!(output.contains("modifier = Modifier.weight(1f)"));
-        assert!(output.contains("Text(\"Trailing action\""));
+        assert!(output.contains("NexaTextPrimitive(text = \"Trailing action\""));
     }
 
     #[test]
@@ -742,12 +710,16 @@ mod tests {
             &mut output,
         );
 
+        assert!(output.contains("NexaColumnPrimitive("));
         assert!(output.contains(
             "Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {"
         ));
         assert!(output.contains("Row(horizontalArrangement = Arrangement.spacedBy(8.dp)"));
-        assert!(output.contains("Text(\"Priority\"") && output.contains("Text(\"Save\""));
-        assert!(output.contains("Text(\"Task name\""));
+        assert!(
+            output.contains("NexaTextPrimitive(text = \"Priority\"")
+                && output.contains("NexaTextPrimitive(text = \"Save\"")
+        );
+        assert!(output.contains("NexaTextPrimitive(text = \"Task name\""));
         assert_eq!(
             output
                 .as_str()
@@ -824,9 +796,7 @@ mod tests {
         assert!(output.contains(
             "Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 20.dp)) {"
         ));
-        assert!(output.contains(
-            "Box(modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart)"
-        ));
+        assert!(output.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 16f) {"));
         assert!(output.contains(
             "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp), thickness = 0.5.dp"
         ));
@@ -834,7 +804,10 @@ mod tests {
         assert!(output.contains("Surface(modifier = Modifier.fillMaxWidth()"));
         assert!(output.contains("shape = RoundedCornerShape(24.dp)"));
         assert_eq!(
-            output.as_str().matches("heightIn(min = 56.dp)").count(),
+            output
+                .as_str()
+                .matches("NexaFormRowPrimitive(minHeight = 56f")
+                .count(),
             children.len()
         );
         assert!(!output.contains("heightIn(min = 44.dp)"));

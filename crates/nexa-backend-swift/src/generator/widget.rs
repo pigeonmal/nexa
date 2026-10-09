@@ -1289,7 +1289,7 @@ mod tests {
         assert!(source.contains(".systemSmall, .systemMedium"));
         assert!(source.contains("addingTimeInterval(1800)"));
         assert!(source.contains("let family: NexaWidgetFamily = switch context.family"));
-        assert!(source.contains(".font(.subheadline)"));
+        assert!(source.contains("font: .subheadline"));
         assert!(!source.contains("rowLimit"));
         let bundle = generated
             .units

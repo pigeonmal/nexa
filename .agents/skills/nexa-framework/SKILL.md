@@ -65,6 +65,19 @@ layout values, then compare the SwiftUI and Compose output (and both DevRuntime 
 render the feature). Add a platform-specific variation only when the app author explicitly asks
 for it or a native constraint requires it; document that difference and keep its effect narrow.
 
+## Development hot reload
+
+- Built-in components must route both AOT generation and DevRuntime dispatch through the same
+  platform-native primitives. Keep `.nx` syntax and component parameters shared; parity must not
+  require app-specific flags.
+- `nexa dev` compiles changed `.nx` sources into typed dev modules and publishes them to the
+  running host, preserving compatible state. This interpreter path is debug-only; release apps
+  remain statically generated SwiftUI and Jetpack Compose.
+- Resolve plugin roots for dev startup and reuse them during ordinary reloads. Avoid package
+  content hashing on every save; refresh dependencies when rebuilding the native host.
+- Native project configuration, lockfile, plugin, and asset changes require a host rebuild.
+  Changes to native background task declarations or actions also require rebuilding the host.
+
 ## Framework boundaries
 
 - Core must serve arbitrary apps. No product-specific models, labels, storage rules, or workflow

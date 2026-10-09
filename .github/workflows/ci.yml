@@ -130,6 +130,9 @@ jobs:
           cp "$GITHUB_WORKSPACE/tests/fixtures/dev_network_fetch.nx" "$project/App.nx"
           cd "$project"
           "$GITHUB_WORKSPACE/target/debug/nexa" test --ios
+      - name: Compile the iOS hot-reload host
+        working-directory: ${{ runner.temp }}/nexa-ios-compile
+        run: $GITHUB_WORKSPACE/target/debug/nexa dev --ios --compile-only
 
   android-compile:
     name: Android APK compile
@@ -164,3 +167,9 @@ jobs:
           project="$GITHUB_WORKSPACE/build/ci-android"
           cd "$project"
           "$GITHUB_WORKSPACE/target/debug/nexa" test --android
+      - name: Compile the Android hot-reload host
+        shell: bash
+        run: |
+          project="$GITHUB_WORKSPACE/build/ci-android"
+          cd "$project"
+          "$GITHUB_WORKSPACE/target/debug/nexa" dev --android --compile-only

@@ -49,6 +49,9 @@ pub const FORM_FOOTER_START_INSET: u8 = 16;
 pub const FORM_FOOTER_FONT_SIZE: u8 = 13;
 pub const FORM_LARGE_TITLE_TOP_PADDING: u8 = 20;
 pub const FORM_LARGE_TITLE_FONT_SIZE: u8 = 34;
+/// Shared Android large-title app bar heights across tabs with or without toolbar actions.
+pub const ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT: u8 = 112;
+pub const ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT: u8 = 64;
 /// Grouped Form section colors matching the native iOS system palette.
 pub const FORM_LIGHT_SECTION_ARGB: u32 = 0xFFFF_FFFF;
 pub const FORM_DARK_SECTION_ARGB: u32 = 0xFF1C_1C1E;

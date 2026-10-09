@@ -6,8 +6,9 @@ use nexa_ir::{
 
 use crate::generator::{
     components::{
+        RenderScope,
         input::{self, TextInputProps},
-        render_children, render_node,
+        navigation, render_children, render_node,
     },
     features::Features,
     utils::{indent, kotlin_string},
@@ -180,6 +181,70 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.facts.ui.bottom_bar.navigation_title,
         "androidx.compose.ui.text.font.FontWeight",
     );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.ui.unit.dp",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.foundation.layout.BoxWithConstraints",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.foundation.layout.Column",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.foundation.layout.fillMaxSize",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.ui.input.nestedscroll.nestedScroll",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.material3.LargeTopAppBar",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.material3.TopAppBarDefaults",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.material3.rememberTopAppBarState",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.ui.graphics.TransformOrigin",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.ui.graphics.Color",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.ui.graphics.graphicsLayer",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.ui.platform.LocalDensity",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.runtime.mutableIntStateOf",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.runtime.remember",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.navigation_title,
+        "androidx.compose.ui.text.style.TextOverflow",
+    );
     imports.add(features.uses_tab_badge, "androidx.compose.material3.Badge");
 }
 
@@ -335,7 +400,178 @@ pub(crate) fn render_app_bottom_bar(
             out.line_at(content_depth + 3, format_args!("}}"));
         }
         let toolbars = tab_toolbars(&tab.children);
-        if tab.navigation_title.is_some() || tab.search_state.is_some() || !toolbars.is_empty() {
+        if tab.large_title && tab.navigation_title.is_some() {
+            let has_form = tab_contains_form(&tab.children);
+            let content_background = if has_form {
+                "if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant"
+            } else {
+                "MaterialTheme.colorScheme.background"
+            };
+            let content_modifier = if has_form {
+                format!("Modifier.fillMaxSize().background({content_background})")
+            } else {
+                "Modifier.fillMaxSize()".to_owned()
+            };
+            let title = tab.navigation_title.as_deref().unwrap_or_default();
+            let title_resource = nexa_codegen::names::localization_resource_name(title);
+            let scroll_state = format!("nexaTabTitleState{}", tab.index);
+            let scroll_behavior = format!("nexaTabTitleScrollBehavior{}", tab.index);
+            let title_width = format!("nexaTabTitleWidth{}", tab.index);
+            let collapsed_height =
+                nexa_codegen::design_system::ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT;
+            let expanded_height =
+                nexa_codegen::design_system::ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT;
+            out.line_at(
+                content_depth + 3,
+                format_args!("val {scroll_state} = rememberTopAppBarState()"),
+            );
+            out.line_at(
+                content_depth + 3,
+                format_args!("val {scroll_behavior} = TopAppBarDefaults.exitUntilCollapsedScrollBehavior({scroll_state})"),
+            );
+            out.line_at(
+                content_depth + 3,
+                format_args!("val {title_width} = remember {{ mutableIntStateOf(0) }}"),
+            );
+            out.line_at(
+                content_depth + 3,
+                format_args!("Column(modifier = {content_modifier}.nestedScroll({scroll_behavior}.nestedScrollConnection)) {{"),
+            );
+            out.line_at(content_depth + 4, format_args!("LargeTopAppBar("));
+            out.line_at(
+                content_depth + 5,
+                format_args!("collapsedHeight = {}.dp,", collapsed_height),
+            );
+            out.line_at(
+                content_depth + 5,
+                format_args!("expandedHeight = {}.dp,", expanded_height),
+            );
+            out.line_at(
+                content_depth + 5,
+                format_args!(
+                    "title = {{ BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {{"
+                ),
+            );
+            out.line_at(
+                content_depth + 6,
+                format_args!(
+                    "val availableTitleWidth = with(LocalDensity.current) {{ maxWidth.toPx() }}"
+                ),
+            );
+            out.line_at(
+                content_depth + 6,
+                format_args!("Text(stringResource(R.string.{title_resource}), color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.graphicsLayer {{"),
+            );
+            out.line_at(
+                content_depth + 7,
+                format_args!("val collapseFraction = {scroll_state}.collapsedFraction"),
+            );
+            out.line_at(
+                content_depth + 7,
+                format_args!("val titleScale = 1f - 0.5f * collapseFraction"),
+            );
+            out.line_at(
+                content_depth + 7,
+                format_args!("translationX = ((availableTitleWidth - {title_width}.intValue * titleScale).coerceAtLeast(0f) / 2f) * collapseFraction"),
+            );
+            out.line_at(content_depth + 7, format_args!("scaleX = titleScale"));
+            out.line_at(content_depth + 7, format_args!("scaleY = titleScale"));
+            out.line_at(
+                content_depth + 7,
+                format_args!("transformOrigin = TransformOrigin(0f, 0.5f)"),
+            );
+            out.line_at(content_depth + 6, format_args!("}},"));
+            out.line_at(content_depth + 6, format_args!("maxLines = 1,"));
+            out.line_at(
+                content_depth + 6,
+                format_args!("overflow = TextOverflow.Ellipsis,"),
+            );
+            out.line_at(
+                content_depth + 6,
+                format_args!("style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold, fontSize = {}.sp),", nexa_codegen::design_system::FORM_LARGE_TITLE_FONT_SIZE),
+            );
+            out.line_at(
+                content_depth + 6,
+                format_args!("onTextLayout = {{ {title_width}.intValue = it.size.width }}"),
+            );
+            out.line_at(content_depth + 6, format_args!(")"));
+            out.line_at(content_depth + 5, format_args!("}} }},"));
+            if toolbars
+                .iter()
+                .any(|(placement, _)| *placement == ToolbarPlacement::Leading)
+            {
+                out.line_at(content_depth + 5, format_args!("navigationIcon = {{"));
+                render_tab_toolbar_items(
+                    &toolbars,
+                    ToolbarPlacement::Leading,
+                    module,
+                    features,
+                    content_depth + 6,
+                    out,
+                );
+                out.line_at(content_depth + 5, format_args!("}},"));
+            }
+            if toolbars
+                .iter()
+                .any(|(placement, _)| *placement == ToolbarPlacement::Trailing)
+            {
+                out.line_at(content_depth + 5, format_args!("actions = {{"));
+                render_tab_toolbar_items(
+                    &toolbars,
+                    ToolbarPlacement::Trailing,
+                    module,
+                    features,
+                    content_depth + 6,
+                    out,
+                );
+                out.line_at(content_depth + 5, format_args!("}},"));
+            }
+            out.line_at(
+                content_depth + 5,
+                format_args!("colors = TopAppBarDefaults.topAppBarColors(containerColor = {content_background}, scrolledContainerColor = {content_background}),"),
+            );
+            out.line_at(
+                content_depth + 5,
+                format_args!("scrollBehavior = {scroll_behavior},"),
+            );
+            out.line_at(content_depth + 4, format_args!(")"));
+            if let Some(search_state) = &tab.search_state {
+                input::render_text_input(
+                    TextInputProps {
+                        state: search_state,
+                        placeholder: tab.search_prompt.as_deref().unwrap_or("Search"),
+                        keyboard: KeyboardType::Text,
+                        secure: false,
+                        multiline: false,
+                        autofill: None,
+                        return_key: Some(ReturnKeyType::Search),
+                        autocorrect: Some(false),
+                        capitalization: Some(Capitalization::None),
+                        focused: None,
+                        max_length: None,
+                        font: None,
+                        min_lines: None,
+                        max_lines: Some(1),
+                        searchable: true,
+                        horizontal_padding: Some(16),
+                        weight_in_row: false,
+                        actions: &[],
+                        on_change: None,
+                    },
+                    content_depth + 4,
+                    out,
+                );
+                out.push('\n');
+            }
+            let content_children = without_tab_toolbars(&tab.children);
+            render_children(&content_children, module, features, content_depth + 4, out);
+            out.push('\n');
+            indent(out, content_depth + 3);
+            out.push_str("}\n");
+        } else if tab.navigation_title.is_some()
+            || tab.search_state.is_some()
+            || !toolbars.is_empty()
+        {
             let content_modifier = if tab_contains_form(&tab.children) {
                 "Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)"
             } else {
@@ -502,7 +738,23 @@ fn render_tab_toolbar_items(
         .filter(|(toolbar_placement, _)| *toolbar_placement == placement)
     {
         for child in *children {
-            render_node(child, module, features, depth, out);
+            match child {
+                Node::NavigationLink {
+                    destination,
+                    arguments,
+                    guard,
+                    children,
+                } => navigation::render_toolbar_link(
+                    *destination,
+                    arguments,
+                    guard.as_ref(),
+                    children,
+                    &RenderScope { module, features },
+                    depth,
+                    out,
+                ),
+                _ => render_node(child, module, features, depth, out),
+            }
             out.push('\n');
         }
     }
@@ -619,7 +871,7 @@ pub(crate) fn render_page_pager(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{BottomBarTab, Module, Node};
+    use nexa_ir::{BottomBarTab, Module, Node, Screen, ScreenId, ToolbarPlacement};
 
     use crate::generator::features::Features;
 
@@ -652,7 +904,7 @@ mod tests {
     }
 
     #[test]
-    fn large_navigation_title_uses_bold_headline_typography() {
+    fn large_navigation_title_collapses_and_centers_as_content_scrolls() {
         let tab = BottomBarTab {
             index: 0,
             label: "Today".to_owned(),
@@ -681,9 +933,73 @@ mod tests {
         assert!(output.contains(
             "style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold, fontSize = 34.sp)"
         ));
-        assert!(output.contains("top = 20.dp"));
-        assert!(output.contains("bottom = 28.dp"));
-        assert!(output.contains("Column(modifier = Modifier.fillMaxSize()) {"));
+        assert!(
+            output
+                .contains("TopAppBarDefaults.exitUntilCollapsedScrollBehavior(nexaTabTitleState0)")
+        );
+        assert!(output.contains(
+            "translationX = ((availableTitleWidth - nexaTabTitleWidth0.intValue * titleScale)"
+        ));
+        assert!(output.contains("LargeTopAppBar("));
+        assert!(output.contains("collapsedHeight = 64.dp"));
+        assert!(output.contains("expandedHeight = 112.dp"));
+        assert!(output.contains(
+            "Column(modifier = Modifier.fillMaxSize().nestedScroll(nexaTabTitleScrollBehavior0.nestedScrollConnection)) {"
+        ));
+    }
+
+    #[test]
+    fn navigation_links_in_large_title_toolbars_use_compact_icon_buttons() {
+        let mut module = empty_module();
+        module.screens.push(Screen {
+            id: ScreenId(0),
+            name: "Completed".to_owned(),
+            parameters: Vec::new(),
+            states: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+        });
+        let tab = BottomBarTab {
+            index: 0,
+            label: "Inbox".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: None,
+            navigation_title: Some("Inbox".to_owned()),
+            large_title: true,
+            search_state: None,
+            search_prompt: None,
+            children: vec![Node::Toolbar {
+                placement: ToolbarPlacement::Trailing,
+                children: vec![Node::NavigationLink {
+                    destination: ScreenId(0),
+                    arguments: Vec::new(),
+                    guard: None,
+                    children: Vec::new(),
+                }],
+            }],
+        };
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            &[tab],
+            &module,
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "IconButton(onClick = { navController.navigate(\"nexa_screen_0\") }, enabled = true) {"
+        ));
+        assert!(!output.contains("ChevronRight"));
+        assert!(!output.contains("Modifier.fillMaxWidth().clickable { navController.navigate"));
     }
 
     #[test]
@@ -718,11 +1034,13 @@ mod tests {
         );
 
         assert!(output.contains(
-            "Column(modifier = Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)) {"
+            "Column(modifier = Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant).nestedScroll(nexaTabTitleScrollBehavior3.nestedScrollConnection)) {"
         ));
         assert!(output.contains(
             "val nexaTabBackdropColor3 = (if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant).toArgb()"
         ));
+        assert!(output.contains("collapsedHeight = 64.dp"));
+        assert!(output.contains("expandedHeight = 112.dp"));
     }
 
     #[test]
@@ -758,7 +1076,8 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("leadingIcon = { Icon(imageVector = Icons.Filled.Search"));
+        assert!(output.contains("NexaTextInputPrimitive("));
+        assert!(output.contains("searchIcon = Icons.Filled.Search"));
         assert!(output.contains("modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)"));
         assert!(output.contains("imeAction = ImeAction.Search"));
     }

@@ -245,9 +245,9 @@ mod tests {
         assert!(output.contains(
             "text = { Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {"
         ));
-        assert!(output.contains(
-            "TextButton(\n                modifier = Modifier.fillMaxWidth().defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),"
-        ));
+        assert!(output.contains("NexaButtonPrimitive("));
+        assert!(output.contains("style = \"Borderless\""));
+        assert!(output.contains("fullWidth = true"));
         assert!(output.contains("HorizontalDivider(thickness = 0.5.dp"));
         assert!(output.contains("confirmButton = {},"));
         assert!(

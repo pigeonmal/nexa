@@ -7,6 +7,7 @@
 //! evolve without adding a runtime or coupling build files to the IR.
 
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -454,6 +455,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
 pub(crate) fn compile_dev_modules_with_compiler(
     entry: &Path,
     platform: &str,
+    plugin_roots: &HashMap<String, PathBuf>,
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
 ) -> Result<Vec<(nexa_dev_protocol::TargetPlatform, nexa_dev_ir::DevModule)>, String> {
     let targets: &[Target] = match platform {
@@ -466,13 +468,11 @@ pub(crate) fn compile_dev_modules_with_compiler(
     let config_path = project_root.join("nexa.config.nx");
     let app_images_path = project_root.join("assets/images");
     let translations_path = project_root.join("locales/translations.json");
-    let dependencies = config::load_plugin_dependencies(&config_path)?;
-    let resolved = crate::dependencies::resolve(project_root, &dependencies)?;
     let compilations = compiler
         .compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
             entry,
             targets,
-            &resolved.plugin_roots,
+            plugin_roots,
         )
         .map_err(|error| error.to_string())?;
     let translation_modules = compilations
@@ -481,8 +481,7 @@ pub(crate) fn compile_dev_modules_with_compiler(
         .collect::<Vec<_>>();
     let translations = localization::synchronize_modules(project_root, &translation_modules)?;
     let dev_translations = translations.dev_translations();
-    let sorted_roots = resolved
-        .plugin_roots
+    let sorted_roots = plugin_roots
         .iter()
         .map(|(id, path)| (id.clone(), path.clone()))
         .collect::<std::collections::BTreeMap<_, _>>();
@@ -841,34 +840,6 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
             ),
             (
-                "__NEXA_BUTTON_MIN_WIDTH__",
-                design::BUTTON_MIN_WIDTH.to_string(),
-            ),
-            (
-                "__NEXA_BUTTON_MIN_TAP_TARGET__",
-                design::BUTTON_MIN_TAP_TARGET.to_string(),
-            ),
-            (
-                "__NEXA_BUTTON_LARGE_MIN_HEIGHT__",
-                design::BUTTON_LARGE_MIN_HEIGHT.to_string(),
-            ),
-            (
-                "__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__",
-                design::BUTTON_SMALL_HORIZONTAL_PADDING.to_string(),
-            ),
-            (
-                "__NEXA_BUTTON_SMALL_VERTICAL_PADDING__",
-                design::BUTTON_SMALL_VERTICAL_PADDING.to_string(),
-            ),
-            (
-                "__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__",
-                design::BUTTON_LARGE_HORIZONTAL_PADDING.to_string(),
-            ),
-            (
-                "__NEXA_BUTTON_LARGE_VERTICAL_PADDING__",
-                design::BUTTON_LARGE_VERTICAL_PADDING.to_string(),
-            ),
-            (
                 "__NEXA_PAGE_INDICATOR_SELECTED_SIZE__",
                 design::PAGE_INDICATOR_SELECTED_SIZE.to_string(),
             ),
@@ -983,6 +954,14 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
             (
                 "__NEXA_FORM_LARGE_TITLE_FONT_SIZE__",
                 design::FORM_LARGE_TITLE_FONT_SIZE.to_string(),
+            ),
+            (
+                "__NEXA_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT__",
+                design::ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT.to_string(),
+            ),
+            (
+                "__NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT__",
+                design::ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT.to_string(),
             ),
             (
                 "__NEXA_FORM_SWITCH_OFF_TRACK_ARGB__",
@@ -1812,20 +1791,21 @@ fn android_plan(
     let dark_colors = nexa_codegen::design_system::kotlin_color_scheme(true);
     let light_colors = nexa_codegen::design_system::kotlin_color_scheme(false);
     let default_colors = format!("if (isSystemInDarkTheme()) {dark_colors} else {light_colors}");
-    let (activity_surface, activity_safe_insets, activity_inset_imports) =
-        if project_features.uses_bottom_bar {
-            (
-                "Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent)",
-                "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top))",
-                "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
-            )
-        } else {
-            (
-                "Surface(modifier = Modifier.fillMaxSize())",
-                "Modifier.fillMaxSize().safeDrawingPadding()",
-                "import androidx.compose.foundation.layout.safeDrawingPadding\n",
-            )
-        };
+    let (activity_surface, activity_safe_insets, activity_inset_imports) = if project_features
+        .uses_bottom_bar
+    {
+        (
+            "Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent)",
+            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top))",
+            "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
+        )
+    } else {
+        (
+            "Surface(modifier = Modifier.fillMaxSize())",
+            "Modifier.fillMaxSize().safeDrawingPadding()",
+            "import androidx.compose.foundation.layout.safeDrawingPadding\n",
+        )
+    };
     let activity_content = if install_play_services_cronet {
         format!(
             "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{\n                MaterialTheme(\n                    colorScheme = {default_colors},\n                ) {{\n                    {activity_surface} {{\n                        Box(modifier = {activity_safe_insets}) {{\n                            {compose_root}\n                        }}\n                    }}\n                }}\n            }}\n        }}\n"
@@ -2487,40 +2467,33 @@ mod tests {
                 "{platform} DevRuntime retained an unresolved design-system token"
             );
         }
-        assert!(swift.contains("Text(label).font(.system(size: 17))"));
+        assert!(swift.contains("NexaTextPrimitive("));
+        assert!(swift.contains("font: resolvedFont"));
         assert!(swift.contains("private let nexaDevFormRowMinHeight: CGFloat = 56"));
         assert!(swift.contains("minHeight: nexaDevFormRowMinHeight"));
-        assert!(swift.contains(".listRowInsets(EdgeInsets("));
-        assert!(swift.contains("minWidth: CGFloat(64)"));
-        assert!(
-            swift.contains(
-                "minHeight: CGFloat((fields[\"size\"] as? String) == \"Large\" ? 50 : 48)"
-            )
-        );
+        assert!(swift.contains("NexaFormRowPrimitive("));
+        assert!(swift.contains("NexaButtonPrimitive("));
         assert!(swift.contains("HStack(spacing: 8)"));
         assert!(swift.contains(".padding(.bottom, 24)"));
-        assert!(swift.contains("button.tint(Color(uiColor: .systemBlue))"));
         assert!(swift.contains("index == selected ? Color(uiColor: .systemBlue)"));
         assert!(swift.contains("Color(red: 0.556863, green: 0.556863, blue: 0.576471)"));
 
         assert!(kotlin.contains("private const val nexaDevDefaultBodyFontSize = 17"));
         assert!(kotlin.contains("private const val nexaDevFormRowMinHeight = 56"));
-        assert!(kotlin.contains("heightIn(min = nexaDevFormRowMinHeight.dp)"));
+        assert!(kotlin.contains("NexaFormRowPrimitive("));
+        assert!(kotlin.contains("minHeight = nexaDevFormRowMinHeight.toFloat()"));
         assert!(!kotlin.contains("nexaDevFormButtonRowMinHeight"));
         assert!(!kotlin.contains("nexaDevFormMultilineRowMinHeight"));
         assert!(kotlin.contains("private const val nexaDevDefaultMaterialIconSize = 24"));
-        assert!(kotlin.contains(
-            "modifier = Modifier.size(nexaDevDefaultMaterialIconSize.dp)"
-        ));
+        assert!(kotlin.contains("NexaSystemIconPrimitive("));
         assert!(kotlin.contains("private const val nexaDevMaterialIconSizeScale = 1.2"));
-        assert!(kotlin.contains(
-            "(fields.optDouble(\"size\", 24.0) * nexaDevMaterialIconSizeScale).dp"
-        ));
+        assert!(
+            kotlin.contains("(fields.optDouble(\"size\", 24.0) * nexaDevMaterialIconSizeScale).dp")
+        );
         assert!(kotlin.contains("private const val nexaDevDefaultLineHeightMultiplier = 1.2f"));
-        assert!(kotlin.contains("private const val nexaDevButtonMinWidth = 64"));
-        assert!(kotlin.contains("private const val nexaDevButtonMinTapTarget = 48"));
-        assert!(kotlin.contains("private const val nexaDevButtonLargeMinHeight = 50"));
-        assert!(kotlin.contains("private const val nexaDevButtonLargeHorizontalPadding = 20"));
+        assert!(kotlin.contains("NexaButtonPrimitive("));
+        assert!(!kotlin.contains("nexaDevButtonMinWidth"));
+        assert!(!kotlin.contains("outlinedTint"));
         assert!(kotlin.contains("Color(0xFF1C1C1E)"));
         assert!(kotlin.contains("Color(0xFFFFFFFF)"));
         assert!(kotlin.contains("Color(0xFF38383A)"));

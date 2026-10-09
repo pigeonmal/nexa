@@ -74,23 +74,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.ui.text.input.ImeAction",
     );
     imports.add(
-        features.uses_secure_text_input,
-        "androidx.compose.ui.text.input.PasswordVisualTransformation",
-    );
-    imports.add(
-        features.uses_text_input,
-        "androidx.compose.material3.TextField",
-    );
-    imports.add(
-        features.uses_text_input,
-        "androidx.compose.material3.TextFieldDefaults",
-    );
-    imports.add(features.uses_text_input, "androidx.compose.material3.Text");
-    imports.add(
-        features.uses_text_input,
-        "androidx.compose.ui.graphics.Color",
-    );
-    imports.add(
         features.uses_text_input_autofill
             || features.uses_focus
             || features.uses_text_input_searchable,
@@ -145,7 +128,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         on_change,
     } = props;
     indent(out, depth);
-    out.push_str("TextField(\n");
+    out.push_str("NexaTextInputPrimitive(\n");
     out.line_at(depth + 1, format_args!("value = {},", state_name(state)));
     indent(out, depth + 1);
     out.push_str("onValueChange = { value ->\n");
@@ -178,17 +161,21 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     let placeholder = nexa_codegen::names::localization_resource_name(placeholder);
     out.line_at(
         depth + 1,
-        format_args!("placeholder = {{ Text(stringResource(R.string.{placeholder})) }},"),
+        format_args!("placeholder = stringResource(R.string.{placeholder}),"),
     );
     if searchable {
         let search_icon = SystemIcon::Shared("search".to_owned()).material_reference();
         out.line_at(
             depth + 1,
             format_args!(
-                "leadingIcon = {{ Icon(imageVector = {search_icon}, contentDescription = null) }},"
+                "searchable = true,\n{}searchIcon = {search_icon},",
+                "    ".repeat(depth + 1)
             ),
         );
+    } else {
+        out.line_at(depth + 1, format_args!("searchable = false,"));
     }
+    out.line_at(depth + 1, format_args!("secure = {secure},"));
     if weight_in_row || focused.is_some() || autofill.is_some() || horizontal_padding.is_some() {
         indent(out, depth + 1);
         out.push_str("modifier = Modifier");
@@ -242,23 +229,8 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     out.line_at(depth + 1, format_args!("singleLine = {},", !multiline));
     out.line_at(
         depth + 1,
-        format_args!("colors = TextFieldDefaults.colors("),
+        format_args!("keyboardOptions = KeyboardOptions("),
     );
-    for color in [
-        "focusedContainerColor",
-        "unfocusedContainerColor",
-        "disabledContainerColor",
-        "errorContainerColor",
-        "focusedIndicatorColor",
-        "unfocusedIndicatorColor",
-        "disabledIndicatorColor",
-        "errorIndicatorColor",
-    ] {
-        out.line_at(depth + 2, format_args!("{color} = Color.Transparent,"));
-    }
-    out.line_at(depth + 1, format_args!("),"));
-    indent(out, depth + 1);
-    out.push_str("keyboardOptions = KeyboardOptions(\n");
     out.line_at(
         depth + 2,
         format_args!("keyboardType = {},", kotlin_keyboard(keyboard)),
@@ -291,13 +263,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             format_args!("imeAction = {},", kotlin_return_key(return_key)),
         );
     }
-    indent(out, depth + 1);
-    out.push_str("),");
-    if secure {
-        out.push('\n');
-        indent(out, depth + 1);
-        out.push_str("visualTransformation = PasswordVisualTransformation(),");
-    }
+    out.line_at(depth + 1, format_args!("),"));
     if !actions.is_empty() {
         let callback = match effective_return_key.unwrap_or(ReturnKeyType::Done) {
             ReturnKeyType::Done => "onDone",
@@ -305,16 +271,14 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             ReturnKeyType::Send => "onSend",
             ReturnKeyType::Next => "onNext",
         };
-        out.push('\n');
-        indent(out, depth + 1);
-        out.push_str("keyboardActions = KeyboardActions(\n");
-        indent(out, depth + 2);
-        out.push_str(&format!("{callback} = {{\n"));
+        out.line_at(
+            depth + 1,
+            format_args!("keyboardActions = KeyboardActions("),
+        );
+        out.line_at(depth + 2, format_args!("{callback} = {{"));
         render_actions(actions, depth + 3, out);
-        indent(out, depth + 2);
-        out.push_str("},\n");
-        indent(out, depth + 1);
-        out.push_str("),");
+        out.line_at(depth + 2, format_args!("}},"));
+        out.line_at(depth + 1, format_args!("),"));
     }
     out.push('\n');
     indent(out, depth);
@@ -397,19 +361,9 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.as_str().contains(
-            "leadingIcon = { Icon(imageVector = Icons.Filled.Search, contentDescription = null) }"
-        ));
+        assert!(output.as_str().contains("NexaTextInputPrimitive("));
+        assert!(output.as_str().contains("searchable = true"));
+        assert!(output.as_str().contains("searchIcon = Icons.Filled.Search"));
         assert!(output.as_str().contains("imeAction = ImeAction.Search"));
-        assert!(
-            output
-                .as_str()
-                .contains("focusedContainerColor = Color.Transparent")
-        );
-        assert!(
-            output
-                .as_str()
-                .contains("unfocusedIndicatorColor = Color.Transparent")
-        );
     }
 }

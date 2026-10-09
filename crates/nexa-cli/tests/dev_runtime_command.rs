@@ -1533,12 +1533,20 @@ fn development_runtime_renders_segmented_controls_on_both_platforms() {
 
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"SegmentedControl\":"));
-    assert!(swift.contains(".pickerStyle(.segmented)"));
+    assert!(swift.contains("NexaSegmentedControlPrimitive(items: items, selection: Binding("));
+    let swift_primitives =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
+            .expect("read generated iOS component primitives");
+    assert!(swift_primitives.contains("struct NexaSegmentedControlPrimitive: View"));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"SegmentedControl\" ->"));
-    assert!(kotlin.contains("SingleChoiceSegmentedButtonRow"));
-    assert!(kotlin.contains("SegmentedButtonDefaults.itemShape"));
+    assert!(kotlin.contains("NexaSegmentedControlPrimitive("));
+    let kotlin_primitives = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
+    )
+    .expect("read generated Android component primitives");
+    assert!(kotlin_primitives.contains("internal fun NexaSegmentedControlPrimitive("));
 }
 
 #[test]
@@ -1564,16 +1572,32 @@ fn development_runtime_renders_pickers_on_both_platforms() {
 
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"Picker\":"));
-    assert!(swift.contains(".pickerStyle(.menu)"));
-    assert!(swift.contains(".datePickerStyle(.compact)"));
-    assert!(swift.contains("Toggle(\"Include time\""));
+    assert!(swift.contains("NexaPickerPrimitive(selection: Binding("));
+    assert!(swift.contains("NexaDatePickerPrimitive(timestamp: Binding("));
+    let swift_primitives =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
+            .expect("read generated iOS picker primitive");
+    assert!(swift_primitives.contains("struct NexaPickerPrimitive<LabelContent: View>"));
+    assert!(swift_primitives.contains(".pickerStyle(.menu)"));
+    assert!(swift_primitives.contains("struct NexaDatePickerPrimitive: View"));
+    assert!(swift_primitives.contains(".datePickerStyle(.compact)"));
+    assert!(swift_primitives.contains("Toggle(\"Include time\""));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"Picker\" ->"));
-    assert!(kotlin.contains("AlertDialog("));
-    assert!(kotlin.contains("store.setState(state, item, scope)"));
-    assert!(kotlin.contains("DatePickerDialog("));
-    assert!(kotlin.contains("Text(\"Include time\""));
+    assert!(kotlin.contains("NexaPickerPrimitive("));
+    assert!(kotlin.contains("onSelectionChanged = { store.setState(state, it, scope) }"));
+    assert!(kotlin.contains("NexaDatePickerPrimitive("));
+    let kotlin_primitives = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
+    )
+    .expect("read generated Android picker primitive");
+    assert!(kotlin_primitives.contains("internal fun NexaPickerPrimitive("));
+    assert!(kotlin_primitives.contains("DropdownMenuItem("));
+    assert!(kotlin_primitives.contains("internal fun NexaDatePickerPrimitive("));
+    assert!(kotlin_primitives.contains("DatePickerDialog("));
+    assert!(kotlin_primitives.contains("AlertDialog("));
+    assert!(kotlin_primitives.contains("Include time"));
 }
 
 #[test]

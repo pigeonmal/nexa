@@ -5,7 +5,7 @@ use crate::generator::{
     colors,
     engine::{features::Features, imports::ImportSet},
     expressions::text_expression,
-    utils::{indent, number},
+    utils::number,
 };
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
@@ -18,25 +18,13 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_font_weight || features.uses_text_node,
         "androidx.compose.ui.text.font.FontWeight",
     );
-    imports.add(
-        features.uses_selectable_text,
-        "androidx.compose.foundation.text.selection.SelectionContainer",
-    );
-    imports.add(
-        features.uses_text_node,
-        "androidx.compose.ui.text.style.TextDecoration",
-    );
 }
 
 pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut SourceWriter) {
-    let text_depth = if style.selectable {
-        indent(out, depth);
-        out.push_str("SelectionContainer {\n");
-        depth + 1
-    } else {
-        depth
-    };
-    out.text_at(text_depth, format_args!("Text({}", text_expression(value)));
+    out.text_at(
+        depth,
+        format_args!("NexaTextPrimitive(text = {}", text_expression(value)),
+    );
     if let Some(color) = style.color {
         out.push_str(&format!(", color = {}", colors::expression(color)));
     }
@@ -81,16 +69,12 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     } else {
         out.push_str(", letterSpacing = 0.sp");
     }
-    if style.strikethrough {
-        out.push_str(", textDecoration = TextDecoration.LineThrough");
-    }
+    out.push_str(&format!(
+        ", strikethrough = {}, selectable = {}",
+        style.strikethrough, style.selectable
+    ));
     append_visual_modifier(style, out);
     out.push(')');
-    if style.selectable {
-        out.push('\n');
-        indent(out, depth);
-        out.push('}');
-    }
 }
 
 fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {

@@ -123,34 +123,6 @@ private struct NexaDragGestureView<Content: View>: View {
 
 "#;
 
-const NEXA_PICKER_MENU_HELPER: &str = r#"private struct NexaPickerMenu: View {
-    @Binding var selection: String
-    let items: [String]
-    let icon: String
-    let tint: Color?
-
-    var body: some View {
-        Menu {
-            ForEach(items, id: \.self) { item in
-                Button { selection = item } label: {
-                    if item == selection {
-                        Label(item, systemImage: "checkmark")
-                    } else {
-                        Text(item)
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: icon)
-                .foregroundStyle(tint ?? Color.accentColor)
-        }
-        .accessibilityLabel("Choose an option")
-        .accessibilityValue(selection)
-    }
-}
-
-"#;
-
 const NEXA_LIMITED_TEXT_BINDING_HELPER: &str = r#"private func nexaLimitedTextBinding(
     _ binding: Binding<String>,
     _ limit: Int
@@ -158,15 +130,6 @@ const NEXA_LIMITED_TEXT_BINDING_HELPER: &str = r#"private func nexaLimitedTextBi
     Binding(
         get: { binding.wrappedValue },
         set: { binding.wrappedValue = String($0.prefix(limit)) }
-    )
-}
-
-"#;
-
-const NEXA_DATE_PICKER_BINDING_HELPER: &str = r#"private func nexaDatePickerBinding(_ timestamp: Binding<Int64>) -> Binding<Date> {
-    Binding<Date>(
-        get: { Date(timeIntervalSince1970: TimeInterval(timestamp.wrappedValue) / 1000) },
-        set: { timestamp.wrappedValue = Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
     )
 }
 
@@ -202,86 +165,6 @@ const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"private func nexaColor(hex: String) 
     )
 }
 "##;
-
-const NEXA_BUTTON_SHAPE_HELPER: &str = r#"fileprivate enum NexaButtonBorderShape {
-    case circle
-    case capsule
-    case roundedRectangle(Double)
-}
-
-fileprivate extension View {
-    @ViewBuilder
-    func nexaButtonShape(_ shape: NexaButtonBorderShape) -> some View {
-        if #available(iOS 17.0, *) {
-            switch shape {
-            case .circle:
-                self.buttonBorderShape(.circle)
-            case .capsule:
-                self.buttonBorderShape(.capsule)
-            case .roundedRectangle(let r):
-                self.buttonBorderShape(.roundedRectangle(radius: CGFloat(r)))
-            }
-        } else {
-            switch shape {
-            case .circle:
-                self.clipShape(Circle())
-            case .capsule:
-                self.clipShape(Capsule())
-            case .roundedRectangle(let r):
-                self.clipShape(RoundedRectangle(cornerRadius: CGFloat(r)))
-            }
-        }
-    }
-
-}
-"#;
-
-const NEXA_BORDERED_BUTTON_HELPER: &str = r#"fileprivate enum NexaButtonOutlineShapeKind {
-    case circle
-    case capsule
-    case roundedRectangle(CGFloat)
-}
-
-fileprivate struct NexaButtonOutlineShape: Shape {
-    let kind: NexaButtonOutlineShapeKind
-
-    func path(in rect: CGRect) -> Path {
-        switch kind {
-        case .circle:
-            Circle().path(in: rect)
-        case .capsule:
-            Capsule().path(in: rect)
-        case .roundedRectangle(let radius):
-            RoundedRectangle(cornerRadius: radius).path(in: rect)
-        }
-    }
-}
-
-fileprivate struct NexaBorderedButtonStyle: ButtonStyle {
-    let tint: Color
-    let shape: NexaButtonOutlineShape
-    let horizontalPadding: CGFloat
-    let verticalPadding: CGFloat
-    let minWidth: CGFloat
-    let minHeight: CGFloat
-
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        let contentColor = isEnabled ? tint : tint.opacity(0.38)
-        let borderColor = isEnabled ? tint : tint.opacity(0.12)
-        configuration.label
-            .foregroundStyle(contentColor)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
-            .frame(minWidth: minWidth, minHeight: minHeight)
-            .background(tint.opacity(configuration.isPressed ? 0.12 : 0), in: shape)
-            .overlay(shape.stroke(borderColor, lineWidth: 1))
-            .contentShape(shape)
-    }
-}
-
-"#;
 
 const NEXA_GLASS_HELPER: &str = r#"fileprivate enum NexaGlassShape {
     case circle
@@ -368,6 +251,590 @@ const NEXA_COLLECTION_HELPERS: &str = r#"private func nexaGroupByStable<Element,
 }
 
 "#;
+
+const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = r#"struct NexaTextPrimitive: View {
+    let text: Text
+    let alignment: TextAlignment?
+    let color: Color?
+    let font: Font?
+    let weight: Font.Weight?
+    let lineLimit: Int?
+    let lineSpacing: CGFloat?
+    let tracking: CGFloat?
+    let strikethrough: Bool
+    let selectable: Bool
+
+    @ViewBuilder var body: some View {
+        let styledText = text
+            .font(font)
+            .fontWeight(weight)
+            .foregroundStyle(color ?? Color.primary)
+            .multilineTextAlignment(alignment ?? .leading)
+            .lineLimit(lineLimit)
+            .lineSpacing(lineSpacing ?? 0)
+            .tracking(tracking ?? 0)
+            .strikethrough(strikethrough)
+        if selectable {
+            styledText.textSelection(.enabled)
+        } else {
+            styledText
+        }
+    }
+}
+
+struct NexaSwitchPrimitive: View {
+    let label: Text
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) { label }
+    }
+}
+
+struct NexaTextInputPrimitive: View {
+    @Binding var text: String
+    let placeholder: Text
+    let secure: Bool
+    let multiline: Bool
+    let searchable: Bool
+
+    @ViewBuilder
+    private var field: some View {
+        if secure {
+            SecureField(text: $text, prompt: placeholder) { placeholder }
+        } else if multiline {
+            TextField(text: $text, prompt: placeholder, axis: .vertical) { placeholder }
+        } else {
+            TextField(text: $text, prompt: placeholder) { placeholder }
+        }
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if searchable {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                field.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            field
+        }
+    }
+}
+
+struct NexaPickerPrimitive<LabelContent: View>: View {
+    @Binding var selection: String
+    let items: [String]
+    let icon: String?
+    let tint: Color?
+    let hasLabel: Bool
+    @ViewBuilder let label: () -> LabelContent
+
+    @ViewBuilder
+    var body: some View {
+        if hasLabel {
+            Picker(selection: $selection) {
+                ForEach(items, id: \.self) { item in
+                    Text(item).tag(item)
+                }
+            } label: {
+                if let icon {
+                    Label { label() } icon: { Image(systemName: icon) }
+                } else {
+                    label()
+                }
+            }
+            .tint(tint)
+        } else if let icon {
+            Menu {
+                ForEach(items, id: \.self) { item in
+                    Button { selection = item } label: {
+                        if item == selection {
+                            Label(item, systemImage: "checkmark")
+                        } else {
+                            Text(item)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: icon)
+                    .foregroundStyle(tint ?? Color.accentColor)
+            }
+            .accessibilityLabel("Choose an option")
+            .accessibilityValue(selection)
+        } else {
+            Picker("", selection: $selection) {
+                ForEach(items, id: \.self) { item in
+                    Text(item).tag(item)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(tint)
+        }
+    }
+}
+
+struct NexaDatePickerPrimitive: View {
+    @Binding var timestamp: Int64
+    @Binding var includesTime: Bool
+
+    private var date: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000) },
+            set: { timestamp = Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Include time", isOn: $includesTime)
+            HStack(spacing: 12) {
+                DatePicker("Date", selection: date, displayedComponents: [.date])
+                    .datePickerStyle(.compact)
+                if includesTime {
+                    DatePicker("Time", selection: date, displayedComponents: [.hourAndMinute])
+                        .datePickerStyle(.compact)
+                }
+            }
+        }
+    }
+}
+
+enum NexaSharedButtonStyleKind {
+    case borderedProminent
+    case bordered
+    case borderless
+    case plain
+}
+
+enum NexaSharedButtonSizeKind {
+    case small
+    case regular
+    case large
+}
+
+enum NexaSharedButtonShapeKind {
+    case circle
+    case capsule
+    case rounded(CGFloat)
+}
+
+private struct NexaSharedButtonOutline: Shape {
+    let kind: NexaSharedButtonShapeKind
+
+    func path(in rect: CGRect) -> Path {
+        switch kind {
+        case .circle: Circle().path(in: rect)
+        case .capsule: Capsule().path(in: rect)
+        case .rounded(let radius): RoundedRectangle(cornerRadius: radius).path(in: rect)
+        }
+    }
+}
+
+private struct NexaSharedBorderedButtonStyle: ButtonStyle {
+    let tint: Color
+    let shape: NexaSharedButtonOutline
+    let size: NexaSharedButtonSizeKind?
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let padding: (horizontal: CGFloat, vertical: CGFloat) = switch size {
+        case .small: (CGFloat(__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__), CGFloat(__NEXA_BUTTON_SMALL_VERTICAL_PADDING__))
+        case .large: (CGFloat(__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__), CGFloat(__NEXA_BUTTON_LARGE_VERTICAL_PADDING__))
+        case .regular, nil: (8, 8)
+        }
+        let contentColor = isEnabled ? tint : tint.opacity(0.38)
+        let borderColor = isEnabled ? tint : tint.opacity(0.12)
+        configuration.label
+            .foregroundStyle(contentColor)
+            .padding(.horizontal, padding.horizontal)
+            .padding(.vertical, padding.vertical)
+            .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
+            .background(tint.opacity(configuration.isPressed ? 0.12 : 0), in: shape)
+            .overlay(shape.stroke(borderColor, lineWidth: 1))
+            .contentShape(shape)
+    }
+}
+
+private struct NexaSharedGlassModifier: ViewModifier {
+    let enabled: Bool
+    let tint: Color?
+    let shape: NexaSharedButtonShapeKind
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            if #available(iOS 26.0, *) {
+                let effect = tint.map { Glass.clear.tint($0).interactive() } ?? Glass.clear.interactive()
+                switch shape {
+                case .circle: content.glassEffect(effect, in: Circle())
+                case .capsule: content.glassEffect(effect, in: Capsule())
+                case .rounded(let radius): content.glassEffect(effect, in: RoundedRectangle(cornerRadius: radius))
+                }
+            } else {
+                switch shape {
+                case .circle: content.background(.ultraThinMaterial, in: Circle())
+                case .capsule: content.background(.ultraThinMaterial, in: Capsule())
+                case .rounded(let radius): content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func nexaSharedButtonShape(_ shape: NexaSharedButtonShapeKind) -> some View {
+        if #available(iOS 17.0, *) {
+            switch shape {
+            case .circle: self.buttonBorderShape(.circle)
+            case .capsule: self.buttonBorderShape(.capsule)
+            case .rounded(let radius): self.buttonBorderShape(.roundedRectangle(radius: radius))
+            }
+        } else {
+            switch shape {
+            case .circle: self.clipShape(Circle())
+            case .capsule: self.clipShape(Capsule())
+            case .rounded(let radius): self.clipShape(RoundedRectangle(cornerRadius: radius))
+            }
+        }
+    }
+}
+
+struct NexaButtonPrimitive<Label: View>: View {
+    let style: NexaSharedButtonStyleKind
+    let size: NexaSharedButtonSizeKind?
+    let shape: NexaSharedButtonShapeKind
+    let tint: Color?
+    let loading: Bool
+    let disabled: Bool
+    let glass: Bool
+    let action: () -> Void
+    private let label: Label
+
+    init(
+        style: NexaSharedButtonStyleKind,
+        size: NexaSharedButtonSizeKind?,
+        shape: NexaSharedButtonShapeKind,
+        tint: Color?,
+        loading: Bool,
+        disabled: Bool,
+        glass: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder label: () -> Label
+    ) {
+        self.style = style
+        self.size = size
+        self.shape = shape
+        self.tint = tint
+        self.loading = loading
+        self.disabled = disabled
+        self.glass = glass
+        self.action = action
+        self.label = label()
+    }
+
+    @ViewBuilder
+    private var labelContent: some View {
+        if loading {
+            ProgressView()
+        } else {
+            label.font(.system(size: CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)))
+        }
+    }
+
+    private func decorated<V: View>(_ view: V) -> some View {
+        view
+            .nexaSharedButtonShape(shape)
+            .tint(tint ?? .blue)
+            .modifier(NexaSharedGlassModifier(enabled: glass, tint: tint, shape: shape))
+    }
+
+    @ViewBuilder
+    private func platformSize<V: View>(_ view: V) -> some View {
+        switch size {
+        case .small: decorated(view.controlSize(.small))
+        case .regular: decorated(view.controlSize(.regular))
+        case .large: decorated(view.controlSize(.large))
+        case nil: decorated(view)
+        }
+    }
+
+    @ViewBuilder
+    var body: some View {
+        switch style {
+        case .bordered:
+            let tint = tint ?? .blue
+            let outline = NexaSharedButtonOutline(kind: shape)
+            Button(action: action) { labelContent }
+                .disabled(disabled || loading)
+                .buttonStyle(NexaSharedBorderedButtonStyle(tint: tint, shape: outline, size: size))
+                .modifier(NexaSharedGlassModifier(enabled: glass, tint: self.tint, shape: shape))
+        case .borderedProminent:
+            platformSize(
+                Button(action: action) { labelContent }
+                    .disabled(disabled || loading)
+                    .buttonStyle(.borderedProminent)
+                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
+            )
+        case .borderless:
+            platformSize(
+                Button(action: action) { labelContent }
+                    .disabled(disabled || loading)
+                    .buttonStyle(.borderless)
+                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
+            )
+        case .plain:
+            platformSize(
+                Button(action: action) { labelContent }
+                    .disabled(disabled || loading)
+                    .buttonStyle(.plain)
+                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
+            )
+        }
+    }
+}
+
+struct NexaSliderPrimitive: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+
+    @ViewBuilder var body: some View {
+        if step > 0 {
+            Slider(value: $value, in: range, step: step)
+        } else {
+            Slider(value: $value, in: range)
+        }
+    }
+}
+
+struct NexaProgressBarPrimitive: View {
+    let progress: Double
+
+    var body: some View {
+        ProgressView(value: min(max(progress, 0), 1), total: 1)
+    }
+}
+
+struct NexaProgressRingPrimitive: View {
+    let progress: Double
+
+    var body: some View {
+        ProgressView(value: min(max(progress, 0), 1), total: 1)
+            .progressViewStyle(.circular)
+    }
+}
+
+struct NexaDividerPrimitive: View {
+    let color: Color
+    let thickness: CGFloat
+
+    var body: some View {
+        Divider()
+            .overlay(color)
+            .frame(height: thickness)
+    }
+}
+
+struct NexaSegmentedControlPrimitive: View {
+    let items: [String]
+    @Binding var selection: String
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(items, id: \.self) { item in
+                Text(item).tag(item)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+}
+
+struct NexaSystemIconPrimitive: View {
+    let symbol: String
+    let description: String
+    let size: CGFloat
+    let tint: Color
+
+    @ViewBuilder var body: some View {
+        let icon = Image(systemName: symbol)
+            .font(.system(size: size))
+            .foregroundStyle(tint)
+        if description.isEmpty {
+            icon.accessibilityHidden(true)
+        } else {
+            icon.accessibilityLabel(description)
+        }
+    }
+}
+
+struct NexaLinearGradientPrimitive: View {
+    let colors: [Color]
+    let startPoint: UnitPoint
+    let endPoint: UnitPoint
+    let height: CGFloat
+
+    var body: some View {
+        LinearGradient(colors: colors, startPoint: startPoint, endPoint: endPoint)
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .allowsHitTesting(false)
+    }
+}
+
+struct NexaContentUnavailablePrimitive: View {
+    let title: Text
+    let symbol: String
+    let description: Text
+
+    @ViewBuilder var body: some View {
+        if #available(iOS 17.0, *) {
+            ContentUnavailableView {
+                Label { title } icon: { Image(systemName: symbol) }
+            } description: {
+                description
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(spacing: 8) {
+                Label { title } icon: { Image(systemName: symbol) }
+                    .font(.title3)
+                description
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(32)
+        }
+    }
+}
+
+struct NexaColumnPrimitive<Content: View>: View {
+    let alignment: HorizontalAlignment
+    let spacing: CGFloat
+    private let content: Content
+
+    init(
+        alignment: HorizontalAlignment = .center,
+        spacing: CGFloat = 0,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.alignment = alignment
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: alignment, spacing: spacing) { content }
+    }
+}
+
+struct NexaRowPrimitive<Content: View>: View {
+    let alignment: VerticalAlignment
+    let spacing: CGFloat
+    private let content: Content
+
+    init(
+        alignment: VerticalAlignment = .center,
+        spacing: CGFloat = 0,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.alignment = alignment
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(alignment: alignment, spacing: spacing) { content }
+    }
+}
+
+struct NexaStackPrimitive<Content: View>: View {
+    let alignment: Alignment
+    private let content: Content
+
+    init(alignment: Alignment = .center, @ViewBuilder content: () -> Content) {
+        self.alignment = alignment
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: alignment) { content }
+    }
+}
+
+struct NexaFormRowPrimitive<Content: View>: View {
+    let minHeight: CGFloat
+    let horizontalInset: CGFloat
+    private let content: Content
+
+    init(
+        minHeight: CGFloat,
+        horizontalInset: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.minHeight = minHeight
+        self.horizontalInset = horizontalInset
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
+            .listRowInsets(EdgeInsets(top: 0, leading: horizontalInset, bottom: 0, trailing: horizontalInset))
+    }
+}
+
+"#;
+
+fn shared_component_primitives() -> String {
+    let tokens = [
+        (
+            "__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_SMALL_VERTICAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_SMALL_VERTICAL_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_LARGE_HORIZONTAL_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_LARGE_VERTICAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_MIN_WIDTH__",
+            nexa_codegen::design_system::BUTTON_MIN_WIDTH.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_MIN_TAP_TARGET__",
+            nexa_codegen::design_system::BUTTON_MIN_TAP_TARGET.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_LARGE_MIN_HEIGHT__",
+            nexa_codegen::design_system::BUTTON_LARGE_MIN_HEIGHT.to_string(),
+        ),
+        (
+            "__NEXA_DEFAULT_BODY_FONT_SIZE__",
+            nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
+        ),
+    ];
+    tokens.iter().fold(
+        NEXA_SHARED_COMPONENT_PRIMITIVES.to_owned(),
+        |source, (token, value)| source.replace(token, value),
+    )
+}
 
 const NEXA_REGEX_HELPERS: &str = r#"struct NexaRegexMatch {
     let value: String
@@ -548,14 +1015,8 @@ fn generate_with_analysis_mode(
     // Each unit becomes its own file, so every file needs the full import
     // block and the shared native-object storage helper.
     let mut preamble = String::new();
-    if features.facts.ui.picker_present {
-        preamble.push_str(NEXA_PICKER_MENU_HELPER);
-    }
     if features.facts.ui.text_input.present {
         preamble.push_str(NEXA_LIMITED_TEXT_BINDING_HELPER);
-    }
-    if features.facts.ui.date_picker_present {
-        preamble.push_str(NEXA_DATE_PICKER_BINDING_HELPER);
     }
     if module_has_native_object_state(module) {
         preamble.push_str(
@@ -571,13 +1032,7 @@ fn generate_with_analysis_mode(
             nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR,
         ));
     }
-    if features.facts.ui.button.bordered {
-        preamble.push_str(NEXA_BORDERED_BUTTON_HELPER);
-    }
-    if features.facts.ui.button.present {
-        preamble.push_str(NEXA_BUTTON_SHAPE_HELPER);
-    }
-    if features.facts.ui.style.glass || features.facts.ui.button.glass {
+    if features.facts.ui.style.glass {
         preamble.push_str(NEXA_GLASS_HELPER);
     }
     if features.facts.capabilities.uses_locale_api {
@@ -604,6 +1059,7 @@ fn generate_with_analysis_mode(
     let value_codecs = nexa_codegen::value::collect(module);
     let json_types = nexa_codegen::value::collect_json_types(module);
     units.write("types", |out| {
+        out.push_str(&shared_component_primitives());
         // Regex declarations are shared by every generated unit. Keep them in
         // the single types file instead of the repeated per-file preamble.
         if features.facts.capabilities.uses_regex_api {
@@ -1007,12 +1463,38 @@ fn module_has_native_object_state(module: &Module) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::generate;
+    use super::{generate, shared_component_primitives};
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
         ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
         SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn shared_button_primitive_embeds_design_system_geometry() {
+        let primitives = shared_component_primitives();
+
+        assert!(primitives.contains("struct NexaButtonPrimitive<Label: View>"));
+        assert!(primitives.contains("CGFloat(64)"));
+        assert!(primitives.contains("CGFloat(48)"));
+        assert!(primitives.contains("CGFloat(50)"));
+        assert!(primitives.contains("CGFloat(12)"));
+        assert!(primitives.contains("CGFloat(20)"));
+        assert!(
+            !primitives.contains("__NEXA_"),
+            "unresolved design token in helper source"
+        );
+    }
+
+    #[test]
+    fn shared_picker_primitive_owns_all_native_picker_variants() {
+        let primitives = shared_component_primitives();
+        assert!(primitives.contains("struct NexaPickerPrimitive<LabelContent: View>"));
+        assert!(primitives.contains("if hasLabel {"));
+        assert!(primitives.contains("} else if let icon {"));
+        assert!(primitives.contains(".pickerStyle(.menu)"));
+        assert!(primitives.contains(".accessibilityValue(selection)"));
+    }
 
     fn regex_module(enabled: bool) -> Module {
         Module {
@@ -1243,7 +1725,9 @@ mod tests {
         let swift = generate(&module);
         assert!(swift.contains(".preferredColorScheme(\"dark\" == \"dark\" ? .dark"));
         assert!(swift.contains("Text(\"Hello\")"));
-        assert!(!swift.contains("glassEffect("));
+        // The shared button primitive is preloaded for future hot reloads;
+        // the appearance-wrapped app body must not apply glass styling.
+        assert!(swift.contains("struct NexaButtonPrimitive<Label: View>"));
         assert!(!swift.contains("nexaColor(hex:"));
         assert!(!swift.contains("nexaLargeTitleDisplayMode()"));
     }
@@ -1280,7 +1764,7 @@ mod tests {
             on_background: None,
         };
 
-        assert!(generate(&module).contains(".font(.subheadline)"));
+        assert!(generate(&module).contains("font: .subheadline"));
     }
 
     #[test]

@@ -67,6 +67,13 @@ graph TD
     Compiler -. "dev-dependency only" .-> Testkit
 ```
 
+### Development hot reload
+
+- `nexa dev` compiles `.nx` files into typed dev modules and sends updates to the platform DevRuntime. The DevRuntime is debug-only; release apps remain AOT-generated SwiftUI and Jetpack Compose.
+- Built-in components must use the same per-platform native primitives in AOT output and DevRuntime dispatch. Keep app state identity stable across ordinary module updates.
+- Resolve plugin roots at dev startup and pass the cached roots through ordinary hot reloads. Do not recompute plugin package content hashes on every `.nx` save.
+- Refresh plugin roots on a native rebuild. Changes to project configuration, lockfiles, plugin sources, or native assets require a host rebuild; changes to background task declarations or actions also rebuild because the OS runs those handlers natively.
+
 ---
 
 ## 3. Strict Coding Standards & Invariants
