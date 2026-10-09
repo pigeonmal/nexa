@@ -10,6 +10,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use nexa_backend_kotlin::KotlinBackend;
@@ -28,6 +29,8 @@ pub(crate) mod plugin_package;
 mod plugins;
 mod templates;
 pub mod writers;
+
+static NEXT_DEV_MODULE_REVISION: AtomicU64 = AtomicU64::new(1);
 
 fn report_warnings(warnings: &[CompileWarning], deny_warnings: bool) -> Result<(), String> {
     for warning in warnings {
@@ -465,9 +468,6 @@ pub(crate) fn compile_dev_modules_with_compiler(
         value => return Err(format!("unknown platform `{value}`")),
     };
     let project_root = entry.parent().unwrap_or_else(|| Path::new("."));
-    let config_path = project_root.join("nexa.config.nx");
-    let app_images_path = project_root.join("assets/images");
-    let translations_path = project_root.join("locales/translations.json");
     let compilations = compiler
         .compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
             entry,
@@ -481,10 +481,9 @@ pub(crate) fn compile_dev_modules_with_compiler(
         .collect::<Vec<_>>();
     let translations = localization::synchronize_modules(project_root, &translation_modules)?;
     let dev_translations = translations.dev_translations();
-    let sorted_roots = plugin_roots
-        .iter()
-        .map(|(id, path)| (id.clone(), path.clone()))
-        .collect::<std::collections::BTreeMap<_, _>>();
+    // Dev revisions guard patch application; stable state identity is carried
+    // separately. Do not content-hash source and plugin trees on every edit.
+    let generation = NEXT_DEV_MODULE_REVISION.fetch_add(1, Ordering::Relaxed);
     targets
         .iter()
         .copied()
@@ -503,17 +502,7 @@ pub(crate) fn compile_dev_modules_with_compiler(
                 Target::Kotlin => "dev-android",
                 Target::All => unreachable!("dev compiler targets are concrete"),
             };
-            let revision = cache::key_with_extra_and_roots(
-                entry,
-                cache_target,
-                &[
-                    config_path.as_path(),
-                    app_images_path.as_path(),
-                    translations_path.as_path(),
-                ],
-                &sorted_roots,
-            )
-            .map_err(|error| format!("dev revision: {error}"))?;
+            let revision = format!("{cache_target}-{generation}");
             Ok((
                 platform,
                 nexa_dev_ir::lower_with_translations(

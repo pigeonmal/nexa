@@ -71,8 +71,9 @@ graph TD
 
 - `nexa dev` compiles `.nx` files into typed dev modules and sends updates to the platform DevRuntime. The DevRuntime is debug-only; release apps remain AOT-generated SwiftUI and Jetpack Compose.
 - Built-in components must use the same per-platform native primitives in AOT output and DevRuntime dispatch. Keep app state identity stable across ordinary module updates.
-- Resolve plugin roots at dev startup and pass the cached roots through ordinary hot reloads. Do not recompute plugin package content hashes on every `.nx` save.
-- Refresh plugin roots on a native rebuild. Changes to project configuration, lockfiles, plugin sources, or native assets require a host rebuild; changes to background task declarations or actions also rebuild because the OS runs those handlers natively.
+- Watch source changes with native filesystem notifications and coalesce editor save events for 40 ms. Do not poll or fingerprint the full project tree on every watcher cycle.
+- Dev IR revisions are patch sequence tokens; stable state and node identities are carried separately. Do not hash source or plugin trees to create a reload revision.
+- Resolve plugin roots at dev startup and reuse them during ordinary hot reloads. Refresh them on a native rebuild. Project config, lockfile, plugin, native asset, and background task changes require a host rebuild because those inputs are compiled into the host or run by the OS.
 
 ---
 

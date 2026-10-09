@@ -73,10 +73,13 @@ for it or a native constraint requires it; document that difference and keep its
 - `nexa dev` compiles changed `.nx` sources into typed dev modules and publishes them to the
   running host, preserving compatible state. This interpreter path is debug-only; release apps
   remain statically generated SwiftUI and Jetpack Compose.
-- Resolve plugin roots for dev startup and reuse them during ordinary reloads. Avoid package
-  content hashing on every save; refresh dependencies when rebuilding the native host.
-- Native project configuration, lockfile, plugin, and asset changes require a host rebuild.
-  Changes to native background task declarations or actions also require rebuilding the host.
+- Use native filesystem notifications for source watching and coalesce editor save bursts for
+  40 ms. Do not poll or fingerprint the whole project tree on every watcher cycle.
+- Dev IR revision values are patch sequence tokens; stable state and node identities are
+  separate. Do not hash source or plugin trees to create an ordinary reload revision.
+- Resolve plugin roots at dev startup and reuse them during ordinary reloads. Refresh them when
+  rebuilding the host. Project configuration, lockfile, plugin, native asset, and background
+  task changes require a host rebuild because they affect native code or OS-managed handlers.
 
 ## Framework boundaries
 

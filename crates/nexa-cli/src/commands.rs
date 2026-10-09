@@ -8,13 +8,14 @@ use crossterm::{
         enable_raw_mode, size,
     },
 };
+use notify::{EventKind, RecursiveMode, Watcher};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     env, fs,
     io::{self, BufRead, IsTerminal, Read, Write},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
-    sync::mpsc::{self, Receiver, Sender, TryRecvError},
+    sync::mpsc::{self, Receiver, Sender},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -740,16 +741,18 @@ fn watch_sources(
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
     plugin_roots: &mut HashMap<String, PathBuf>,
 ) -> Result<(), String> {
-    let mut previous = fingerprint_dev_sources(context.root, plugin_roots)?;
     let mut performance_overlay_enabled = false;
     let mut native_rebuild_pending = false;
     let mut active_device: Option<(String, String)> = None;
     let (device_log_sender, device_log_receiver) = mpsc::channel();
-    let (console_commands, _raw_terminal) = start_dev_console_input();
     let mut dashboard = DevDashboard::new(context);
     let mut device_log_streams =
         start_device_log_streams(context, &device_log_sender, &mut dashboard);
     let mut log_deduplicator = DeviceLogDeduplicator::default();
+    let (command_sender, console_commands, _raw_terminal) = start_dev_console_input();
+    let _source_watcher =
+        start_dev_source_watcher(context.root, plugin_roots, command_sender.clone())?;
+    let mut pending_commands = VecDeque::new();
     loop {
         while let Ok(event) = device_log_receiver.try_recv() {
             match event {
@@ -776,8 +779,13 @@ fn watch_sources(
         for output in log_deduplicator.flush_expired(Instant::now()) {
             dashboard.device_log(output);
         }
-        match console_commands.try_recv() {
-            Ok(DevConsoleCommand::HotReload) => {
+        let command = pending_commands.pop_front().or_else(|| {
+            console_commands
+                .recv_timeout(Duration::from_millis(50))
+                .ok()
+        });
+        match command {
+            Some(DevConsoleCommand::HotReload) => {
                 dashboard.set_status("Reloading Nexa source".to_owned());
                 dashboard.info("Hot reloading Nexa source...");
                 match dashboard.with_terminal_output(|| {
@@ -804,7 +812,7 @@ fn watch_sources(
                     }
                 }
             }
-            Ok(DevConsoleCommand::HotRestart) => {
+            Some(DevConsoleCommand::HotRestart) => {
                 dashboard.set_status("Restarting app state".to_owned());
                 dashboard.info("Hot restarting Nexa app state...");
                 match dashboard.with_terminal_output(|| {
@@ -831,7 +839,7 @@ fn watch_sources(
                     }
                 }
             }
-            Ok(DevConsoleCommand::Rebuild) => {
+            Some(DevConsoleCommand::Rebuild) => {
                 dashboard.set_status("Rebuilding native app".to_owned());
                 dashboard.info("Rebuilding native app...");
                 let rebuilt = match dashboard
@@ -856,7 +864,6 @@ fn watch_sources(
                         &mut dashboard,
                     );
                 }
-                previous = fingerprint_dev_sources(context.root, plugin_roots)?;
                 if rebuilt {
                     native_rebuild_pending = false;
                     dashboard.set_status("Watching .nx sources".to_owned());
@@ -864,7 +871,7 @@ fn watch_sources(
                 dashboard.render();
                 continue;
             }
-            Ok(DevConsoleCommand::NextDevice) => {
+            Some(DevConsoleCommand::NextDevice) => {
                 match dashboard.with_terminal_output(|| cycle_dev_device(context, &active_device)) {
                     Ok(device) => {
                         dashboard.info(format!(
@@ -883,7 +890,7 @@ fn watch_sources(
                     Err(error) => dashboard.warning(format!("device selector: {error}")),
                 }
             }
-            Ok(DevConsoleCommand::TogglePerformanceOverlay) => {
+            Some(DevConsoleCommand::TogglePerformanceOverlay) => {
                 performance_overlay_enabled = !performance_overlay_enabled;
                 context
                     .server
@@ -896,14 +903,71 @@ fn watch_sources(
                 };
                 dashboard.info(format!("Nexa performance overlay {state}."));
             }
-            Ok(DevConsoleCommand::ClearConsole) => {
+            Some(DevConsoleCommand::ClearConsole) => {
                 dashboard.clear();
             }
-            Ok(DevConsoleCommand::Stop) => {
+            Some(DevConsoleCommand::Stop) => {
                 dashboard.finish("Stopping Nexa dev.");
                 return Ok(());
             }
-            Err(TryRecvError::Empty | TryRecvError::Disconnected) => {}
+            Some(DevConsoleCommand::SourceChanges(paths)) => {
+                let changed =
+                    coalesce_source_changes(paths, &console_commands, &mut pending_commands);
+                if changed.is_empty() {
+                    continue;
+                }
+                let host_changed = changed
+                    .iter()
+                    .any(|path| requires_native_rebuild(path, plugin_roots));
+                if host_changed {
+                    if !native_rebuild_pending {
+                        dashboard.info(
+                            "Native host changes are waiting. Press 'b' to rebuild and relaunch the app.",
+                        );
+                    }
+                    native_rebuild_pending = true;
+                    dashboard.set_status("Native host changes waiting for rebuild".to_owned());
+                } else if native_rebuild_pending {
+                    continue;
+                } else {
+                    dashboard.set_status("Reloading changed .nx files".to_owned());
+                    match dashboard.with_terminal_output(|| {
+                        reload_or_rebuild_dev_app(context, background_tasks, compiler, plugin_roots)
+                    }) {
+                        Ok(true) => {
+                            native_rebuild_pending = false;
+                            dashboard.info(
+                                "Background task changes rebuilt and relaunched the native app.",
+                            );
+                            refresh_device_log_streams(
+                                context,
+                                &device_log_sender,
+                                &mut device_log_streams,
+                                &mut dashboard,
+                            );
+                            dashboard.set_status("Watching .nx sources".to_owned());
+                        }
+                        Ok(false) => {
+                            dashboard.info("Nexa source reloaded in the running app.");
+                            dashboard.set_status("Watching .nx sources".to_owned());
+                        }
+                        Err(error) => {
+                            dashboard.error(error.clone());
+                            dashboard.set_status("Reload failed".to_owned());
+                            publish_dev_error(
+                                context.server,
+                                context.entry,
+                                context.platform,
+                                error,
+                            );
+                        }
+                    }
+                }
+            }
+            Some(DevConsoleCommand::WatchError(error)) => {
+                dashboard.warning(format!("file watcher: {error}"));
+            }
+            None => {}
         }
         if let Some(request) = context.server.try_recv_editor_request()
             && let Err(error) = open_editor_location(&request.file, request.line, request.column)
@@ -914,67 +978,6 @@ fn watch_sources(
             ));
         }
         dashboard.render();
-        thread::sleep(Duration::from_millis(350));
-        let current = match fingerprint_dev_sources(context.root, plugin_roots) {
-            Ok(current) => current,
-            Err(error) => {
-                dashboard.warning(format!("warning: {error}"));
-                continue;
-            }
-        };
-        if current == previous {
-            continue;
-        }
-        let changed = changed_paths(&previous, &current);
-        let host_changed = changed.iter().any(|path| {
-            path.file_name()
-                .is_some_and(|name| name == "nexa.lock" || name == "nexa.config.nx")
-                || is_native_asset(path)
-                || plugin_roots
-                    .values()
-                    .any(|plugin_root| path.starts_with(plugin_root))
-        });
-        previous = current;
-        if host_changed {
-            if !native_rebuild_pending {
-                dashboard.info(
-                    "Native host changes are waiting. Press 'b' to rebuild and relaunch the app.",
-                );
-            }
-            native_rebuild_pending = true;
-            dashboard.set_status("Native host changes waiting for rebuild".to_owned());
-            dashboard.render();
-            continue;
-        }
-        if native_rebuild_pending {
-            continue;
-        }
-        thread::sleep(Duration::from_millis(200));
-        dashboard.set_status("Reloading changed .nx files".to_owned());
-        match dashboard.with_terminal_output(|| {
-            reload_or_rebuild_dev_app(context, background_tasks, compiler, plugin_roots)
-        }) {
-            Ok(true) => {
-                native_rebuild_pending = false;
-                dashboard.info("Background task changes rebuilt and relaunched the native app.");
-                refresh_device_log_streams(
-                    context,
-                    &device_log_sender,
-                    &mut device_log_streams,
-                    &mut dashboard,
-                );
-                dashboard.set_status("Watching .nx sources".to_owned());
-            }
-            Ok(false) => {
-                dashboard.info("Nexa source reloaded in the running app.");
-                dashboard.set_status("Watching .nx sources".to_owned());
-            }
-            Err(error) => {
-                dashboard.error(error.clone());
-                dashboard.set_status("Reload failed".to_owned());
-                publish_dev_error(context.server, context.entry, context.platform, error);
-            }
-        }
     }
 }
 
@@ -1765,7 +1768,7 @@ fn print_device_log(line: &DeviceLogLine) {
     println!("[{}] {text}", line.platform);
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum DevConsoleCommand {
     HotReload,
     HotRestart,
@@ -1774,6 +1777,8 @@ enum DevConsoleCommand {
     TogglePerformanceOverlay,
     ClearConsole,
     Stop,
+    SourceChanges(Vec<PathBuf>),
+    WatchError(String),
 }
 
 fn print_dev_welcome() {
@@ -1798,8 +1803,13 @@ impl Drop for RawTerminalGuard {
     }
 }
 
-fn start_dev_console_input() -> (Receiver<DevConsoleCommand>, Option<RawTerminalGuard>) {
+fn start_dev_console_input() -> (
+    Sender<DevConsoleCommand>,
+    Receiver<DevConsoleCommand>,
+    Option<RawTerminalGuard>,
+) {
     let (sender, receiver) = mpsc::channel();
+    let input_sender = sender.clone();
     if io::stdin().is_terminal() {
         match RawTerminalGuard::enable() {
             Ok(guard) => {
@@ -1839,13 +1849,13 @@ fn start_dev_console_input() -> (Receiver<DevConsoleCommand>, Option<RawTerminal
                         };
                         if let Some(command) = command {
                             let stop = command == DevConsoleCommand::Stop;
-                            if sender.send(command).is_err() || stop {
+                            if input_sender.send(command).is_err() || stop {
                                 break;
                             }
                         }
                     }
                 });
-                return (receiver, Some(guard));
+                return (sender, receiver, Some(guard));
             }
             Err(error) => eprintln!("{error}; using line input instead."),
         }
@@ -1869,13 +1879,94 @@ fn start_dev_console_input() -> (Receiver<DevConsoleCommand>, Option<RawTerminal
             };
             if let Some(command) = command {
                 let stop = command == DevConsoleCommand::Stop;
-                if sender.send(command).is_err() || stop {
+                if input_sender.send(command).is_err() || stop {
                     break;
                 }
             }
         }
     });
-    (receiver, None)
+    (sender, receiver, None)
+}
+
+fn start_dev_source_watcher(
+    root: &Path,
+    plugin_roots: &HashMap<String, PathBuf>,
+    sender: Sender<DevConsoleCommand>,
+) -> Result<notify::RecommendedWatcher, String> {
+    let project_root = fs::canonicalize(root)
+        .map_err(|error| format!("cannot watch {}: {error}", root.display()))?;
+    let mut canonical_plugin_roots = Vec::new();
+    for path in plugin_roots.values() {
+        if !path.is_dir() {
+            continue;
+        }
+        let path = fs::canonicalize(path)
+            .map_err(|error| format!("cannot watch plugin {}: {error}", path.display()))?;
+        if !canonical_plugin_roots.contains(&path) {
+            canonical_plugin_roots.push(path);
+        }
+    }
+    let watched_plugin_roots = canonical_plugin_roots.clone();
+    let external_plugin_roots = canonical_plugin_roots
+        .into_iter()
+        .filter(|path| !path.starts_with(&project_root))
+        .collect::<Vec<_>>();
+    let callback_root = project_root.clone();
+    let mut watcher =
+        notify::recommended_watcher(move |result: notify::Result<notify::Event>| match result {
+            Ok(event) if !matches!(event.kind, EventKind::Access(_)) => {
+                let paths = event
+                    .paths
+                    .into_iter()
+                    .filter(|path| {
+                        is_relevant_dev_path(path, &callback_root, &watched_plugin_roots)
+                    })
+                    .collect::<Vec<_>>();
+                if !paths.is_empty() {
+                    let _ = sender.send(DevConsoleCommand::SourceChanges(paths));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                let _ = sender.send(DevConsoleCommand::WatchError(error.to_string()));
+            }
+        })
+        .map_err(|error| format!("cannot start Nexa file watcher: {error}"))?;
+
+    watcher
+        .watch(&project_root, RecursiveMode::Recursive)
+        .map_err(|error| format!("cannot watch {}: {error}", project_root.display()))?;
+    for path in external_plugin_roots {
+        watcher
+            .watch(&path, RecursiveMode::Recursive)
+            .map_err(|error| format!("cannot watch plugin {}: {error}", path.display()))?;
+    }
+    Ok(watcher)
+}
+
+fn coalesce_source_changes(
+    paths: Vec<PathBuf>,
+    receiver: &Receiver<DevConsoleCommand>,
+    pending: &mut VecDeque<DevConsoleCommand>,
+) -> Vec<PathBuf> {
+    const QUIET_WINDOW: Duration = Duration::from_millis(40);
+    let mut changed = paths.into_iter().collect::<BTreeSet<_>>();
+    let mut deadline = Instant::now() + QUIET_WINDOW;
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        match receiver.recv_timeout(deadline - now) {
+            Ok(DevConsoleCommand::SourceChanges(paths)) => {
+                changed.extend(paths);
+                deadline = Instant::now() + QUIET_WINDOW;
+            }
+            Ok(command) => pending.push_back(command),
+            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    changed.into_iter().collect()
 }
 
 fn reload_or_rebuild_dev_app(
@@ -1884,12 +1975,14 @@ fn reload_or_rebuild_dev_app(
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
     plugin_roots: &mut HashMap<String, PathBuf>,
 ) -> Result<bool, String> {
+    let compile_started = Instant::now();
     let modules = super::project::compile_dev_modules_with_compiler(
         context.entry,
         context.platform,
         plugin_roots,
         compiler,
     )?;
+    let compile_elapsed = compile_started.elapsed();
     let next_fingerprint = background_task_fingerprint(&modules)?;
     if next_fingerprint != *background_tasks {
         println!(
@@ -1898,9 +1991,19 @@ fn reload_or_rebuild_dev_app(
         *background_tasks = rebuild_dev_app(context, compiler, plugin_roots)?;
         return Ok(true);
     }
+    let publish_started = Instant::now();
     for (target, module) in modules {
         context.server.publish_module(target, module)?;
     }
+    let publish_elapsed = publish_started.elapsed();
+    let stats = compiler.last_compile_stats();
+    println!(
+        "Nexa dev reload: compile/IR {} ms, publish {} ms ({} parsed, {} reused source files)",
+        compile_elapsed.as_millis(),
+        publish_elapsed.as_millis(),
+        stats.parsed_source_files,
+        stats.reused_source_files,
+    );
     Ok(false)
 }
 
@@ -1935,14 +2038,6 @@ fn rebuild_dev_app(
     Ok(task_fingerprint)
 }
 
-fn fingerprint_dev_sources(
-    root: &Path,
-    plugin_roots: &HashMap<String, PathBuf>,
-) -> Result<BTreeMap<PathBuf, (u64, u64)>, String> {
-    let plugin_paths = plugin_roots.values().cloned().collect::<Vec<_>>();
-    source_fingerprint(root, &plugin_paths)
-}
-
 fn background_task_fingerprint(
     modules: &[(nexa_dev_protocol::TargetPlatform, nexa_dev_ir::DevModule)],
 ) -> Result<String, String> {
@@ -1954,6 +2049,7 @@ fn background_task_fingerprint(
         .map_err(|error| format!("could not fingerprint background tasks: {error}"))
 }
 
+#[cfg(test)]
 fn changed_paths(
     previous: &BTreeMap<PathBuf, (u64, u64)>,
     current: &BTreeMap<PathBuf, (u64, u64)>,
@@ -2056,6 +2152,55 @@ fn dev_targets(platform: &str) -> Vec<nexa_dev_protocol::TargetPlatform> {
     }
 }
 
+fn is_relevant_dev_path(path: &Path, project_root: &Path, plugin_roots: &[PathBuf]) -> bool {
+    let in_plugin = plugin_roots
+        .iter()
+        .map(PathBuf::as_path)
+        .find(|plugin_root| path.starts_with(plugin_root));
+    let Some(base) = in_plugin.or_else(|| path.starts_with(project_root).then_some(project_root))
+    else {
+        return false;
+    };
+    if has_excluded_dev_component(path, base) {
+        return false;
+    }
+    if in_plugin.is_some() {
+        return true;
+    }
+    path.file_name()
+        .is_some_and(|name| name == "nexa.lock" || name == "nexa.config.nx")
+        || path.extension().is_some_and(|extension| extension == "nx")
+        || (path
+            .file_name()
+            .is_some_and(|name| name == "translations.json")
+            && path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "locales"))
+        || is_native_asset(path)
+}
+
+fn has_excluded_dev_component(path: &Path, base: &Path) -> bool {
+    path.strip_prefix(base).is_ok_and(|relative| {
+        relative.components().any(|component| {
+            matches!(
+                component.as_os_str().to_str(),
+                Some(".git" | ".nexa" | "build" | "target" | "ios-derived" | ".gradle")
+            )
+        })
+    })
+}
+
+fn requires_native_rebuild(path: &Path, plugin_roots: &HashMap<String, PathBuf>) -> bool {
+    path.file_name()
+        .is_some_and(|name| name == "nexa.lock" || name == "nexa.config.nx")
+        || is_native_asset(path)
+        || plugin_roots
+            .values()
+            .any(|plugin_root| path.starts_with(plugin_root))
+}
+
+#[cfg(test)]
 fn source_fingerprint(
     root: &Path,
     plugin_roots: &[PathBuf],
@@ -3057,14 +3202,15 @@ fn set_flavor(current: &mut Option<String>, requested: &str) -> Result<(), Strin
 mod tests {
     use super::{
         DashboardLine, DevDashboard, DeviceLogDeduplicator, DeviceLogLine,
-        android_log_line_matches_pid, changed_paths, clip_terminal_text, parse_android_devices,
-        parse_android_process_id, parse_dev_diagnostic, parse_ios_simulator_devices,
-        release_build_arguments, run, run_in_language_tests, sanitize_terminal_text,
-        select_native_platform, source_fingerprint, write_dashboard_row,
+        android_log_line_matches_pid, changed_paths, clip_terminal_text, is_relevant_dev_path,
+        parse_android_devices, parse_android_process_id, parse_dev_diagnostic,
+        parse_ios_simulator_devices, release_build_arguments, requires_native_rebuild, run,
+        run_in_language_tests, sanitize_terminal_text, select_native_platform, source_fingerprint,
+        write_dashboard_row,
     };
     use crossterm::style::Color;
     use nexa_testkit::{TempDir, TestProject};
-    use std::collections::VecDeque;
+    use std::collections::{HashMap, VecDeque};
     use std::fs;
     use std::time::{Duration, Instant};
 
@@ -3365,6 +3511,56 @@ mod tests {
         assert!(changed.contains(&entry));
         assert!(changed.contains(&screen));
         assert!(changed.contains(&tab));
+    }
+
+    #[test]
+    fn event_watcher_filters_irrelevant_files_and_marks_native_host_changes() {
+        let project = TestProject::new("nexa-dev-watcher-event-filter");
+        project.write_app("app Demo { body { Text(\"Initial\") } }\n");
+        let root = fs::canonicalize(project.path()).expect("canonical project root");
+        let source = fs::canonicalize(project.write(
+            "screens/Home.nx",
+            "screen Home { body { Text(\"Home\") } }\n",
+        ))
+        .expect("canonical screen path");
+        let config = fs::canonicalize(project.write("nexa.config.nx", "config { app: Demo }\n"))
+            .expect("canonical config path");
+        let lockfile =
+            fs::canonicalize(project.write("nexa.lock", "{}\n")).expect("canonical lockfile path");
+        let translations = fs::canonicalize(project.write("locales/translations.json", "{}\n"))
+            .expect("canonical translations path");
+        let asset = fs::canonicalize(project.write("assets/icon.svg", "<svg/>\n"))
+            .expect("canonical asset path");
+        let generated = root.join("build/generated/Unused.nx");
+        let editor_state = root.join(".nexa/signing.properties");
+        let plugin_root = project.join("plugins/notes");
+        fs::create_dir_all(&plugin_root).expect("create plugin root");
+        let plugin_root = fs::canonicalize(plugin_root).expect("canonical plugin root");
+        let plugin_source = plugin_root.join("src/Notes.kt");
+        let plugin_roots = HashMap::from([("notes".to_owned(), plugin_root.clone())]);
+        let watched_plugins = vec![plugin_root.clone()];
+
+        assert!(is_relevant_dev_path(&source, &root, &watched_plugins));
+        assert!(!requires_native_rebuild(&source, &plugin_roots));
+        assert!(is_relevant_dev_path(&config, &root, &watched_plugins));
+        assert!(requires_native_rebuild(&config, &plugin_roots));
+        assert!(is_relevant_dev_path(&lockfile, &root, &watched_plugins));
+        assert!(requires_native_rebuild(&lockfile, &plugin_roots));
+        assert!(is_relevant_dev_path(&translations, &root, &watched_plugins));
+        assert!(is_relevant_dev_path(&asset, &root, &watched_plugins));
+        assert!(requires_native_rebuild(&asset, &plugin_roots));
+        assert!(is_relevant_dev_path(
+            &plugin_source,
+            &root,
+            &watched_plugins
+        ));
+        assert!(requires_native_rebuild(&plugin_source, &plugin_roots));
+        assert!(!is_relevant_dev_path(&generated, &root, &watched_plugins));
+        assert!(!is_relevant_dev_path(
+            &editor_state,
+            &root,
+            &watched_plugins
+        ));
     }
 
     #[test]

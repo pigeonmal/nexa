@@ -364,9 +364,11 @@ fn serve_client(
     let _ = websocket.get_mut().set_read_timeout(Some(READ_TIMEOUT));
 
     let mut pending_patch_revisions = std::collections::HashSet::new();
+    let mut pending_apply_times = HashMap::new();
     while !stopping.load(Ordering::Acquire) {
         match updates_rx.recv_timeout(READ_TIMEOUT) {
             Ok(message) => {
+                let sent_at = std::time::Instant::now();
                 if send(&mut websocket, &message).is_err() {
                     break;
                 }
@@ -378,9 +380,11 @@ fn serve_client(
                 match &message {
                     ServerMessage::Patch { patch } => {
                         pending_patch_revisions.insert(patch.revision.clone());
+                        pending_apply_times.insert(patch.revision.clone(), sent_at);
                     }
                     ServerMessage::FullModule { revision, .. } => {
                         pending_patch_revisions.remove(revision);
+                        pending_apply_times.insert(revision.clone(), sent_at);
                     }
                     _ => {}
                 }
@@ -398,15 +402,20 @@ fn serve_client(
         match websocket.read() {
             Ok(Message::Text(text)) => match decode_client(text.as_str()) {
                 Ok(ClientMessage::Acknowledge { revision }) => {
+                    let elapsed = pending_apply_times
+                        .remove(&revision)
+                        .map(|sent_at| sent_at.elapsed().as_millis());
                     if pending_patch_revisions.remove(&revision) {
                         println!(
-                            "Nexa {} dev runtime applied patch {revision}.",
-                            target_name(target)
+                            "Nexa {} dev runtime applied patch {revision}{}.",
+                            target_name(target),
+                            elapsed.map_or_else(String::new, |millis| format!(" in {millis} ms"))
                         );
                     } else {
                         println!(
-                            "Nexa {} dev runtime applied module {revision}.",
-                            target_name(target)
+                            "Nexa {} dev runtime applied module {revision}{}.",
+                            target_name(target),
+                            elapsed.map_or_else(String::new, |millis| format!(" in {millis} ms"))
                         );
                     }
                 }
@@ -424,9 +433,11 @@ fn serve_client(
                         module: Box::new(module),
                     };
                     pending_patch_revisions.remove(&revision);
+                    let sent_at = std::time::Instant::now();
                     if send(&mut websocket, &message).is_err() {
                         break;
                     }
+                    pending_apply_times.insert(revision, sent_at);
                 }
                 Ok(ClientMessage::OpenInEditor { file, line, column }) => {
                     if !file.is_empty() && line > 0 && column > 0 {
