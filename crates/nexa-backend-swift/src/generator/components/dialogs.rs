@@ -1,11 +1,7 @@
 use nexa_codegen::SourceWriter;
-use nexa_codegen::names::state_name;
 use nexa_ir::{Expr, Node};
 
-use crate::generator::{
-    components::{controls, render_children, render_node},
-    utils::indent,
-};
+use crate::generator::components::{controls, render_children, render_node};
 
 use super::RenderScope;
 
@@ -20,34 +16,27 @@ pub(crate) fn render_dialog(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let state_name = state_name(state);
     let source_message = match message {
         Expr::LocalizedText { value, .. } => value.as_ref(),
         message => message,
     };
     let has_message = !matches!(source_message, Expr::String(value) if value.is_empty());
+    let message = if has_message {
+        crate::generator::expressions::localized_text_view(message, comment)
+    } else {
+        "nil".to_owned()
+    };
     out.line_at(
         depth,
         format_args!(
-            "Color.clear.frame(width: 0, height: 0).alert({}, isPresented: ${state_name}) {{",
+            "NexaAlertDialogPrimitive(isPresented: ${}, title: {}, message: {message}) {{",
+            nexa_codegen::names::state_name(state),
             crate::generator::expressions::localized_text_view(title, comment)
         ),
     );
     render_children(children, scope.module, scope.features, depth + 1, out);
-    if has_message {
-        out.push('\n');
-        indent(out, depth);
-        out.push_str("} message: {\n");
-        out.line_at(
-            depth + 1,
-            format_args!(
-                "{}",
-                crate::generator::expressions::localized_text_view(message, comment)
-            ),
-        );
-    }
-    indent(out, depth);
-    out.push('}');
+    out.push('\n');
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_confirmation_dialog(
@@ -58,11 +47,11 @@ pub(crate) fn render_confirmation_dialog(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let state_name = state_name(state);
     out.line_at(
         depth,
         format_args!(
-            "Color.clear.frame(width: 0, height: 0).confirmationDialog({}, isPresented: ${state_name}, titleVisibility: .visible) {{",
+            "NexaConfirmationDialogPrimitive(isPresented: ${}, title: {}) {{",
+            nexa_codegen::names::state_name(state),
             crate::generator::expressions::localized_text_view(title, None)
         ),
     );
@@ -77,8 +66,7 @@ pub(crate) fn render_confirmation_dialog(
         }
     }
     out.push('\n');
-    indent(out, depth);
-    out.push('}');
+    out.line_at(depth, format_args!("}}"));
 }
 
 #[cfg(test)]
@@ -152,7 +140,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "Color.clear.frame(width: 0, height: 0).confirmationDialog(Text(\"Select Priority\"), isPresented: $nexa_showingPriorityPicker, titleVisibility: .visible) {"
+            "NexaConfirmationDialogPrimitive(isPresented: $nexa_showingPriorityPicker, title: Text(\"Select Priority\")) {"
         ));
         assert_eq!(output.as_str().matches("Button(action:").count(), 2);
         assert!(!output.contains("VStack"));
@@ -182,7 +170,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "Color.clear.frame(width: 0, height: 0).alert(Text(\"Title\"), isPresented: $nexa_showingAlert) {"
+            "NexaAlertDialogPrimitive(isPresented: $nexa_showingAlert, title: Text(\"Title\"), message: Text(\"Message\")) {"
         ));
     }
 }

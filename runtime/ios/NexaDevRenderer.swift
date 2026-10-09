@@ -1818,11 +1818,8 @@ struct NexaDevNodeList: View {
                 get: { store.truthy(store.value(state, scope: scope)) },
                 set: { store.setValue(state, value: $0, scope: scope) }
             )
-            // Match the release generator's presentation anchor. EmptyView can
-            // be optimized out of the hierarchy, which leaves SwiftUI with no
-            // live host for a sheet when its binding changes.
-            let presentationHost = Color.clear.frame(width: 0, height: 0)
             let isPartial = fields["partial"] as? Bool == true
+            let largeOnly = fields["large_only"] as? Bool == true
             let sheetContent: AnyView
             if isPartial,
                let rawTitle = fields["title"],
@@ -1840,17 +1837,11 @@ struct NexaDevNodeList: View {
                     NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
                 )
             }
-            if isPartial {
-                let detents: Set<PresentationDetent> = fields["large_only"] as? Bool == true
-                    ? [.large]
-                    : [.medium, .large]
-                return AnyView(presentationHost.sheet(isPresented: binding) {
-                    sheetContent
-                        .presentationDetents(detents)
-                        .presentationDragIndicator(.visible)
-                })
-            }
-            return AnyView(presentationHost.fullScreenCover(isPresented: binding) {
+            return AnyView(NexaBottomSheetPrimitive(
+                isPresented: binding,
+                partial: isPartial,
+                largeOnly: largeOnly
+            ) {
                 sheetContent
             })
         case "Dialog":
@@ -1858,22 +1849,20 @@ struct NexaDevNodeList: View {
             let title = store.stringify(store.evaluate(fields["title"] ?? NSNull(), locals: locals, scope: scope))
             let message = store.stringify(store.evaluate(fields["message"] ?? NSNull(), locals: locals, scope: scope))
             let children = fields["children"] as? [Any] ?? []
-            return AnyView(EmptyView().alert(Text(title), isPresented: Binding(
+            return AnyView(NexaAlertDialogPrimitive(isPresented: Binding(
                 get: { store.truthy(store.value(state, scope: scope)) },
                 set: { store.setValue(state, value: $0, scope: scope) }
-            )) {
+            ), title: Text(title), message: message.isEmpty ? nil : Text(message)) {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
-            } message: {
-                Text(message)
             })
         case "ConfirmationDialog":
             let state = fields["state"] as? String ?? ""
             let title = store.stringify(store.evaluate(fields["title"] ?? NSNull(), locals: locals, scope: scope))
             let children = fields["children"] as? [Any] ?? []
-            return AnyView(EmptyView().confirmationDialog(Text(title), isPresented: Binding(
+            return AnyView(NexaConfirmationDialogPrimitive(isPresented: Binding(
                 get: { store.truthy(store.value(state, scope: scope)) },
                 set: { store.setValue(state, value: $0, scope: scope) }
-            ), titleVisibility: .visible) {
+            ), title: Text(title)) {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             })
         case "NavigationStack":

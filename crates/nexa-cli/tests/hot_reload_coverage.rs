@@ -239,6 +239,38 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
                 style: nexa_ir::TextStyle::default(),
             }],
         },
+        Node::BottomSheet {
+            state: "showEditor".to_owned(),
+            partial: true,
+            large_only: false,
+            title: Some(Expr::String("Edit task".to_owned())),
+            children: vec![Node::Text {
+                value: Expr::String("Task details".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+        },
+        Node::Dialog {
+            state: "showAlert".to_owned(),
+            title: Expr::String("Saved".to_owned()),
+            message: Expr::String("Task updated".to_owned()),
+            children: vec![Node::Button {
+                label: Expr::String("OK".to_owned()),
+                icon: None,
+                loading: None,
+                disabled: None,
+                style: None,
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
+                actions: Vec::new(),
+            }],
+        },
+        Node::ConfirmationDialog {
+            state: "showPriority".to_owned(),
+            title: Expr::String("Choose priority".to_owned()),
+            children: Vec::new(),
+        },
         Node::Switch {
             state: "enabled".to_owned(),
             label: Expr::String("Shared switch".to_owned()),
@@ -380,6 +412,26 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(swift_runtime.contains("NexaColumnPrimitive(alignment: columnAlignment"));
     assert!(swift_runtime.contains("NexaTextPrimitive("));
     assert!(swift_runtime.contains("NexaTextInputPrimitive("));
+    for primitive in [
+        "NexaBottomSheetPrimitive(isPresented: $nexa_showEditor, partial: true, largeOnly: false)",
+        "NexaAlertDialogPrimitive(isPresented: $nexa_showAlert, title: Text(\"Saved\"), message: Text(\"Task updated\"))",
+        "NexaConfirmationDialogPrimitive(isPresented: $nexa_showPriority, title: Text(\"Choose priority\"))",
+    ] {
+        assert!(swift.contains(primitive), "iOS AOT omitted {primitive}");
+        let primitive_name = primitive.split('(').next().expect("primitive name");
+        assert!(
+            swift_runtime.contains(primitive_name),
+            "iOS DevRuntime omitted {primitive}"
+        );
+        assert!(
+            kotlin.contains(primitive_name),
+            "Android AOT omitted {primitive}"
+        );
+        assert!(
+            kotlin_runtime.contains(primitive_name),
+            "Android DevRuntime omitted {primitive}"
+        );
+    }
     assert!(kotlin.contains("internal fun NexaColumnPrimitive("));
     assert!(kotlin.contains("NexaColumnPrimitive("));
     assert!(kotlin.contains("internal fun NexaTextPrimitive("));
@@ -537,6 +589,21 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
             "struct NexaDatePickerPrimitive: View",
             "internal fun NexaDatePickerPrimitive(",
             "NexaDatePickerPrimitive(",
+        ),
+        (
+            "struct NexaBottomSheetPrimitive<Content: View>",
+            "internal fun NexaBottomSheetPrimitive(",
+            "NexaBottomSheetPrimitive(",
+        ),
+        (
+            "struct NexaAlertDialogPrimitive<Actions: View>",
+            "internal fun NexaAlertDialogPrimitive(",
+            "NexaAlertDialogPrimitive(",
+        ),
+        (
+            "struct NexaConfirmationDialogPrimitive<Actions: View>",
+            "internal fun NexaConfirmationDialogPrimitive(",
+            "NexaConfirmationDialogPrimitive(",
         ),
     ];
 
@@ -1531,7 +1598,6 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
     for marker in [
         "1 -> NexaDevNode(nexaDevNodeObject(nodes.opt(0))",
         "NexaTextInputPrimitive(",
-        "DialogProperties(usePlatformDefaultWidth = false)",
         "strikethrough = style.optBoolean(\"strikethrough\")",
         "nexaDevSpecificMaterialIcon",
     ] {
@@ -1544,6 +1610,7 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
         fs::read_to_string(root.join("../nexa-backend-kotlin/src/generator/mod.rs"))
             .expect("read shared Kotlin component primitives");
     assert!(kotlin_primitives.contains("val enabled = !loading && !disabled"));
+    assert!(kotlin_primitives.contains("DialogProperties(usePlatformDefaultWidth = false)"));
 }
 
 #[test]

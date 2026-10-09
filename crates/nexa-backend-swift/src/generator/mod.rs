@@ -793,6 +793,97 @@ struct NexaFormRowPrimitive<Content: View>: View {
     }
 }
 
+struct NexaBottomSheetPrimitive<Content: View>: View {
+    @Binding var isPresented: Bool
+    let partial: Bool
+    let largeOnly: Bool
+    private let content: Content
+
+    init(
+        isPresented: Binding<Bool>,
+        partial: Bool,
+        largeOnly: Bool,
+        @ViewBuilder content: () -> Content
+    ) {
+        self._isPresented = isPresented
+        self.partial = partial
+        self.largeOnly = largeOnly
+        self.content = content()
+    }
+
+    @ViewBuilder var body: some View {
+        let host = Color.clear.frame(width: 0, height: 0)
+        if partial {
+            host.sheet(isPresented: $isPresented) {
+                content
+                    .presentationDetents(largeOnly ? [.large] : [.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+        } else {
+            host.fullScreenCover(isPresented: $isPresented) {
+                content
+            }
+        }
+    }
+}
+
+struct NexaAlertDialogPrimitive<Actions: View>: View {
+    @Binding var isPresented: Bool
+    let title: Text
+    let message: Text?
+    private let actions: Actions
+
+    init(
+        isPresented: Binding<Bool>,
+        title: Text,
+        message: Text?,
+        @ViewBuilder actions: () -> Actions
+    ) {
+        self._isPresented = isPresented
+        self.title = title
+        self.message = message
+        self.actions = actions()
+    }
+
+    @ViewBuilder var body: some View {
+        let host = Color.clear.frame(width: 0, height: 0)
+        if let message {
+            host.alert(title, isPresented: $isPresented) {
+                actions
+            } message: {
+                message
+            }
+        } else {
+            host.alert(title, isPresented: $isPresented) {
+                actions
+            }
+        }
+    }
+}
+
+struct NexaConfirmationDialogPrimitive<Actions: View>: View {
+    @Binding var isPresented: Bool
+    let title: Text
+    private let actions: Actions
+
+    init(
+        isPresented: Binding<Bool>,
+        title: Text,
+        @ViewBuilder actions: () -> Actions
+    ) {
+        self._isPresented = isPresented
+        self.title = title
+        self.actions = actions()
+    }
+
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .confirmationDialog(title, isPresented: $isPresented, titleVisibility: .visible) {
+                actions
+            }
+    }
+}
+
 "#;
 
 fn shared_component_primitives() -> String {
@@ -1494,6 +1585,24 @@ mod tests {
         assert!(primitives.contains("} else if let icon {"));
         assert!(primitives.contains(".pickerStyle(.menu)"));
         assert!(primitives.contains(".accessibilityValue(selection)"));
+    }
+
+    #[test]
+    fn shared_presentation_primitives_own_sheet_and_dialog_modifiers() {
+        let primitives = shared_component_primitives();
+        for declaration in [
+            "struct NexaBottomSheetPrimitive<Content: View>",
+            "struct NexaAlertDialogPrimitive<Actions: View>",
+            "struct NexaConfirmationDialogPrimitive<Actions: View>",
+        ] {
+            assert!(primitives.contains(declaration), "missing {declaration}");
+        }
+        assert!(
+            primitives.contains(".presentationDetents(largeOnly ? [.large] : [.medium, .large])")
+        );
+        assert!(primitives.contains(".presentationDragIndicator(.visible)"));
+        assert!(primitives.contains("host.alert(title, isPresented: $isPresented)"));
+        assert!(primitives.contains(".confirmationDialog(title, isPresented: $isPresented"));
     }
 
     fn regex_module(enabled: bool) -> Module {

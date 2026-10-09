@@ -2,8 +2,8 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Module, Node};
 
+use crate::generator::components::render_children;
 use crate::generator::features::Features;
-use crate::generator::{components::render_children, utils::indent};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_bottom_sheet(
@@ -13,33 +13,19 @@ pub(crate) fn render_bottom_sheet(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let presentation = if partial { "sheet" } else { "fullScreenCover" };
     out.line_at(
         depth,
         format_args!(
-            "Color.clear.frame(width: 0, height: 0).{presentation}(isPresented: ${}) {{",
-            state_name(state)
+            "NexaBottomSheetPrimitive(isPresented: ${}, partial: {partial}, largeOnly: {large_only}) {{",
+            nexa_codegen::names::state_name(state)
         ),
     );
     out.line_at(
         depth + 1,
         format_args!("{}()", bottom_sheet_content_name(state)),
     );
-    if partial {
-        out.push('\n');
-        indent(out, depth + 1);
-        let detents = if large_only {
-            "[.large]"
-        } else {
-            "[.medium, .large]"
-        };
-        out.push_str(&format!(
-            ".presentationDetents({detents}).presentationDragIndicator(.visible)"
-        ));
-    }
     out.push('\n');
-    indent(out, depth);
-    out.push('}');
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_bottom_sheet_helpers(
@@ -127,7 +113,9 @@ mod tests {
                 .count(),
             1
         );
-        assert!(output.contains(".fullScreenCover(isPresented:"));
+        assert!(output.contains(
+            "NexaBottomSheetPrimitive(isPresented: $nexa_editorVisible, partial: false, largeOnly: false) {"
+        ));
         assert!(!output.contains("AnyView"));
     }
 
@@ -137,8 +125,9 @@ mod tests {
 
         render_bottom_sheet("editorVisible", true, false, 0, &mut output);
 
-        assert!(output.contains(".sheet(isPresented:"));
-        assert!(output.contains(".presentationDetents([.medium, .large])"));
+        assert!(output.contains(
+            "NexaBottomSheetPrimitive(isPresented: $nexa_editorVisible, partial: true, largeOnly: false) {"
+        ));
         assert!(!output.contains("AnyView"));
     }
 }
