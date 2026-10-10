@@ -42,6 +42,35 @@ finding, state which of these three produced it.
    Android: Android Studio *Memory Profiler* and *Layout Inspector* for recomposition counts.
 4. **Fix and re-measure.** A fix without a second measurement is a proposal, not a result.
 
+### AOT, DevRuntime, and hot-reload measurements
+
+- AOT and DevRuntime may share a native primitive without making Release interpret IR. Verify the
+  generated Release source uses direct SwiftUI/Compose calls, inspect the optimized artifact for
+  DevRuntime/interpreter code, and measure the Release build. Do not estimate shipped overhead from
+  the size of the shared source file: Swift dead stripping and Android R8/resource shrinking can
+  remove unused helpers, so inspect each platform's actual Release settings and output.
+- For reload latency, use a real source edit on a running simulator/emulator and verify the changed
+  value becomes visible. Record end-to-end latency and the watcher, compile/publish, and native apply
+  portions; a fast compiler alone does not prove a fast reload. The repo's paired check is
+  [`tests/hot-reload-latency.sh`](../../../tests/hot-reload-latency.sh). Recent fixture runs applied
+  edits in about 95–105 ms with native patch application around 1 ms; treat that as an observed
+  baseline, not a platform-independent guarantee.
+- Compare AOT and DevRuntime screenshots and accessibility trees on the same platform using
+  [`tests/hot-reload-aot-parity.sh`](../../../tests/hot-reload-aot-parity.sh). Include interaction
+  flows; screenshot similarity alone misses wrong actions, accessibility semantics, and frames.
+
+### Asset-catalog size
+
+- Report the executable, app bundle, APK/AAB, and embedded assets separately. A large `.app` bundle
+  may be dominated by `Assets.car`, not generated UI code. On macOS, inspect it with
+  `assetutil --info <path-to-Assets.car>` and group `SizeOnDisk` by asset type and name.
+- App icons can dominate: a recent Todo build had six alternate icons, each compiled into standard,
+  dark, and tinted 1024×1024 renditions for iPhone and iPad. Those 36 icon renditions accounted for
+  about 29.7 MiB of a 40 MiB simulator app bundle, while the app executable was 8.5 MiB. Count the
+  configured alternate icon sets before attributing bundle size to the runtime. In this example,
+  each alternate icon accounts for roughly 5 MiB, so removing one is expected to save about that
+  much.
+
 ## Platform-specific traps
 
 **SwiftUI.** `AnyView` around section headers, sticky headers, or rows destroys view identity

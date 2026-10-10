@@ -65,11 +65,21 @@ layout values, then compare the SwiftUI and Compose output (and both DevRuntime 
 render the feature). Add a platform-specific variation only when the app author explicitly asks
 for it or a native constraint requires it; document that difference and keep its effect narrow.
 
+Keep visual styling in named component parameters. Dot modifiers are not a styling API; do not add
+`.padding()`, `.fontSize()`, or similar style chains to the grammar. Keep documented behavioral
+dot modifiers catalog-driven. Change the syntax catalog and parser together, add
+acceptance/rejection tests, and regenerate syntax documentation from the catalog.
+
 ## Development hot reload
 
 - Built-in components must route both AOT generation and DevRuntime dispatch through the same
   platform-native primitives. Keep `.nx` syntax and component parameters shared; parity must not
   require app-specific flags.
+- Keep the interpreter responsible for dynamic IR, expressions, actions, and state. It should
+  dispatch built-in nodes to those primitives instead of carrying a second copy of component
+  layout, styling, control, or presentation behavior. Dev hosts include the full primitive set so
+  adding a built-in component does not require rebuilding the host; Release remains statically
+  generated SwiftUI and Jetpack Compose.
 - `nexa dev` compiles changed `.nx` sources into typed dev modules and publishes them to the
   running host, preserving compatible state. This interpreter path is debug-only; release apps
   remain statically generated SwiftUI and Jetpack Compose.
@@ -80,6 +90,18 @@ for it or a native constraint requires it; document that difference and keep its
 - Resolve plugin roots at dev startup and reuse them during ordinary reloads. Refresh them when
   rebuilding the host. Project configuration, lockfile, plugin, native asset, and background
   task changes require a host rebuild because they affect native code or OS-managed handlers.
+
+### Validate rendering parity and reload latency
+
+- Require a catalog coverage gate proving every built-in has both an AOT and DevRuntime mapping.
+- Compare AOT and DevRuntime on the same simulator/emulator. Compare accessibility roles, labels,
+  actions, and frames as well as screenshots with system-owned status/navigation areas masked;
+  exercise text entry, switches, scrolling, tabs, toolbars, and sheets. iOS and Android may keep
+  native differences; the parity target is within each platform.
+- Run the paired fixture in [`tests/hot-reload-aot-parity.sh`](../../../tests/hot-reload-aot-parity.sh)
+  and the real-edit latency check in [`tests/hot-reload-latency.sh`](../../../tests/hot-reload-latency.sh).
+  Measure through visible UI application and report watcher, compile/publish, and native apply
+  timings separately when diagnosing a slow reload.
 
 ## Framework boundaries
 
