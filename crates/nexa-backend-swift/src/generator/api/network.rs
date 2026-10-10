@@ -563,12 +563,7 @@ private func nexaDownsampleImage(_ data: Data, maxPixelSize: Int = 2048) -> UIIm
     return UIImage(cgImage: image)
 }
 
-private enum NexaImageScale {
-    case fit
-    case fill
-}
-
-private struct NexaRemoteImage: View {
+struct NexaRemoteImage: View {
     let url: String
     let scale: NexaImageScale
     let placeholder: String?

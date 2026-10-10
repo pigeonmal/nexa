@@ -36,32 +36,31 @@ public struct NexaDevRuntimeRoot: View {
         default: nil
         }
         Group {
-            ZStack(alignment: .topTrailing) {
-                ZStack(alignment: .topLeading) {
-                    if let module = runtime.module {
-                        NexaDevNodeList(
-                            nodes: module["body"] as? [Any] ?? [],
-                            module: module,
-                            store: runtime.store,
-                            focusedField: $activeInput
-                        )
-                    } else {
-                        ProgressView("Connecting to Nexa…")
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                if !runtime.diagnostics.isEmpty {
-                    NexaDevErrorOverlay(
-                        diagnostics: runtime.diagnostics,
-                        onOpenInEditor: runtime.openInEditor
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                }
-                if runtime.performanceOverlayEnabled {
-                    NexaDevPerformanceOverlay(fps: performance.fps, frameTimeMs: performance.frameTimeMs)
-                        .padding(8)
-                }
+            if let module = runtime.module {
+                NexaDevNodeList(
+                    nodes: module["body"] as? [Any] ?? [],
+                    module: module,
+                    store: runtime.store,
+                    focusedField: $activeInput
+                )
+            } else {
+                ProgressView("Connecting to Nexa…")
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if !runtime.diagnostics.isEmpty {
+                NexaDevErrorOverlay(
+                    diagnostics: runtime.diagnostics,
+                    onOpenInEditor: runtime.openInEditor
+                )
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if runtime.performanceOverlayEnabled {
+                NexaDevPerformanceOverlay(fps: performance.fps, frameTimeMs: performance.frameTimeMs)
+                    .padding(8)
             }
         }
         .onChange(of: runtime.store.appLifecycleEpoch) { _ in
@@ -112,13 +111,26 @@ public struct NexaDevRuntimeRoot: View {
         .environment(\.layoutDirection, configuredLayoutDirection)
         .environment(\.nexaSharedNamespace, nexaSharedNamespace)
         .modifier(NexaDevStatusBarVisibility(hidden: statusBar["hidden"] as? Bool ?? false))
-        .preferredColorScheme(statusBarColorScheme)
+        .modifier(NexaDevOptionalPreferredColorScheme(colorScheme: statusBarColorScheme))
         .background(alignment: .top) {
             if let color = devStatusBarColor(statusBar["background"], isDark: colorScheme == .dark) {
                 GeometryReader { proxy in
                     color.frame(height: proxy.safeAreaInsets.top).ignoresSafeArea(edges: .top)
                 }
             }
+        }
+    }
+}
+
+private struct NexaDevOptionalPreferredColorScheme: ViewModifier {
+    let colorScheme: ColorScheme?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let colorScheme {
+            content.preferredColorScheme(colorScheme)
+        } else {
+            content
         }
     }
 }

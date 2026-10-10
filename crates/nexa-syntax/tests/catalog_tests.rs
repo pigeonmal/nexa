@@ -119,8 +119,7 @@ fn type_probe_covers_every_catalog_type() {
 
 #[test]
 fn dot_modifiers_match_parser_accepted_names() {
-    // Chained style modifiers and callback modifiers share the completion
-    // vocabulary, and every listed entry is accepted in a component scope.
+    // Every listed entry is a non-style modifier accepted in a component scope.
     let mut names: Vec<&str> = catalog::DOT_MODIFIERS
         .iter()
         .map(|entry| entry.name)
@@ -129,11 +128,7 @@ fn dot_modifiers_match_parser_accepted_names() {
     assert_eq!(
         names,
         [
-            "blur",
-            "bold",
-            "clip",
             "contextMenu",
-            "fontSize",
             "onChange",
             "onDoubleTap",
             "onDrag",
@@ -144,16 +139,10 @@ fn dot_modifiers_match_parser_accepted_names() {
             "onRefresh",
             "onScroll",
             "onTap",
-            "opacity",
-            "padding",
-            "rotation",
-            "scale",
             "sectionHeader",
-            "shadow",
             "sharedElement",
             "stickyHeader",
             "swipeActions",
-            "zIndex"
         ]
     );
 }
@@ -225,12 +214,7 @@ fn component_schemas_cover_every_vocabulary_entry() {
             catalog::COMPONENT_SCHEMAS.iter().any(|schema| schema
                 .modifiers
                 .iter()
-                .any(|modifier| modifier.name == entry.name))
-                || catalog::COMPONENT_SCHEMAS
-                    .iter()
-                    .any(
-                        |schema| catalog::chained_style_argument(schema.name, entry.name).is_some()
-                    ),
+                .any(|modifier| modifier.name == entry.name)),
             "dot-modifier `{}` is accepted by no component schema",
             entry.name
         );
@@ -254,6 +238,15 @@ fn fast_list_source_grammar_is_catalogued() {
     );
     assert_eq!(catalog::FASTLIST_SOURCE_KEYS, ["count", "sections"]);
     assert_eq!(catalog::FASTLIST_KEY_OPTION, "key");
+}
+
+#[test]
+fn stack_does_not_advertise_the_linear_layout_spacing_option() {
+    let source = "app P { body { Stack(spacing: 8) { Text(\"overlapping\") } } }";
+    assert!(
+        nexa_syntax::parse_program(source).is_err(),
+        "Stack spacing is rejected by semantic lowering and must not be accepted by the catalog parser"
+    );
 }
 
 #[test]

@@ -854,8 +854,7 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     .expect("generate Android dev host");
 
     let kotlin = read_android_dev_runtime(&output);
-    assert!(kotlin.contains("AsyncImage("));
-    assert!(kotlin.contains("imageLoader = nexaImageLoader()"));
+    assert!(kotlin.contains("NexaRemoteImagePrimitive("));
     assert!(!kotlin.contains("URL(url).openConnection()"));
     assert!(kotlin.contains("NexaFile.readText(stringOption(\"path\"))"));
     assert!(kotlin.contains("NexaPath.temporary(context)"));
@@ -864,6 +863,15 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(kotlin.contains("val currentContext = LocalContext.current"));
     assert!(kotlin.contains("NexaRuntime.bind(currentContext)"));
     assert!(kotlin.contains("NexaRuntime.bindPermissionLauncher(permissionLauncher)"));
+
+    let kotlin_primitives =
+        fs::read_to_string(output.join(
+            "android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_image_primitives.kt",
+        ))
+        .expect("read generated Android image primitives");
+    assert!(kotlin_primitives.contains("internal fun NexaRemoteImagePrimitive("));
+    assert!(kotlin_primitives.contains("coil3.compose.AsyncImage("));
+    assert!(kotlin_primitives.contains("imageLoader = nexaImageLoader()"));
 
     let generated_android =
         fs::read_to_string(output.join(
@@ -1385,7 +1393,9 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
     .expect("generate navigation dev hosts");
 
     let swift = read_ios_dev_runtime(&output);
-    assert!(swift.contains("NavigationStack(path: $store.navigationPath)"));
+    assert!(swift.contains("let path = Binding("));
+    assert!(swift.contains("NavigationStack(path: path)"));
+    assert!(swift.contains("store.invalidateScope(scope)"));
     assert!(swift.contains("routeDestination(route)"));
     assert!(swift.contains("screen/\\(name)"));
 
@@ -1418,9 +1428,9 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
     .expect("generate text input dev hosts");
 
     let swift = read_ios_dev_runtime(&output);
-    assert!(swift.contains("@FocusState private var activeInput: String?"));
-    assert!(swift.contains(".focused(focusedField, equals: identity)"));
-    assert!(swift.contains("focusedFieldKey"));
+    assert!(swift.contains("if fields[\"focused\"] as? String != nil"));
+    assert!(swift.contains("input.focused(focusedField, equals: identity)"));
+    assert!(swift.contains("return values[identity] as? Bool == true"));
     assert!(swift.contains("store.hotRestart(module: module)"));
     assert!(swift.contains("func hotRestart(module: [String: Any])"));
     assert!(swift.contains("case \"Title3\": input = AnyView(input.font(.title3))"));
@@ -1429,8 +1439,13 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("FocusRequester()"));
-    assert!(kotlin.contains("store.focusedFieldKey == focusKey"));
-    assert!(kotlin.contains("store.focusChanged(focusKey)"));
+    assert!(kotlin.contains("fields.optString(\"focused\").takeIf(String::isNotEmpty)"));
+    assert!(kotlin.contains("store.setState(focusedState, focusState.isFocused, scope)"));
+    assert!(
+        kotlin
+            .contains("if (focused) focusRequester.requestFocus() else focusRequester.freeFocus()")
+    );
+    assert!(!kotlin.contains("store.focusedFieldKey == focusKey"));
     assert!(kotlin.contains("store.hotRestart()"));
     assert!(kotlin.contains("fun hotRestart()"));
     assert!(kotlin.contains("val minLines = fields.optInt(\"min_lines\", 1)"));
@@ -1466,17 +1481,29 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms() {
 
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"BottomSheet\":"));
-    assert!(swift.contains(".sheet(isPresented: binding)"));
-    assert!(swift.contains(".fullScreenCover(isPresented: binding)"));
-    assert!(swift.contains(".presentationDetents(detents)"));
-    assert!(swift.contains("fields[\"large_only\"] as? Bool == true"));
+    assert!(swift.contains("NexaBottomSheetPrimitive("));
     assert!(!swift.contains("devBottomSheet(in: module[\"body\"]"));
+
+    let swift_primitives =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
+            .expect("read generated iOS sheet primitive");
+    assert!(swift_primitives.contains("struct NexaBottomSheetPrimitive<Content: View>"));
+    assert!(swift_primitives.contains("host.sheet(isPresented: $isPresented)"));
+    assert!(swift_primitives.contains("host.fullScreenCover(isPresented: $isPresented)"));
+    assert!(
+        swift_primitives.contains(".presentationDetents(largeOnly ? [.large] : [.medium, .large])")
+    );
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"BottomSheet\" ->"));
-    assert!(kotlin.contains("ModalBottomSheet("));
-    assert!(kotlin.contains("onDismissRequest ="));
-    assert!(kotlin.contains("DialogProperties(usePlatformDefaultWidth = false)"));
+    assert!(kotlin.contains("NexaBottomSheetPrimitive("));
+    let kotlin_primitives = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
+    )
+    .expect("read generated Android sheet primitive");
+    assert!(kotlin_primitives.contains("internal fun NexaBottomSheetPrimitive("));
+    assert!(kotlin_primitives.contains("ModalBottomSheet("));
+    assert!(kotlin_primitives.contains("DialogProperties(usePlatformDefaultWidth = false)"));
 }
 
 #[test]
@@ -1502,12 +1529,22 @@ fn development_runtime_renders_dialogs_on_both_platforms() {
 
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"Dialog\":"));
-    assert!(swift.contains(".alert(Text(title), isPresented: Binding("));
+    assert!(swift.contains("NexaAlertDialogPrimitive("));
+    let swift_primitives =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
+            .expect("read generated iOS alert primitive");
+    assert!(swift_primitives.contains("struct NexaAlertDialogPrimitive<Actions: View>"));
+    assert!(swift_primitives.contains("host.alert(title, isPresented: $isPresented)"));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"Dialog\" ->"));
-    assert!(kotlin.contains("AlertDialog("));
-    assert!(kotlin.contains("onDismissRequest = { store.setState(state, false, scope) }"));
+    assert!(kotlin.contains("NexaAlertDialogPrimitive("));
+    let kotlin_primitives = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
+    )
+    .expect("read generated Android alert primitive");
+    assert!(kotlin_primitives.contains("internal fun NexaAlertDialogPrimitive("));
+    assert!(kotlin_primitives.contains("androidx.compose.material3.AlertDialog("));
 }
 
 #[test]
@@ -1627,7 +1664,7 @@ fn development_runtime_renders_bottom_tabs_on_both_platforms() {
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"AppBottomBar\" ->"));
-    assert!(kotlin.contains("NavigationSuiteScaffold("));
+    assert!(kotlin.contains("NexaAppBottomBarPrimitive("));
     let activity = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),
     )

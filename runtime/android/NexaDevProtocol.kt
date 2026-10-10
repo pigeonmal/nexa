@@ -30,15 +30,17 @@ internal class NexaDevSocketClient(
     }
 
     private fun runConnection() {
+        var retryDelayMs = 50L
         while (active.get()) {
             try {
-                connectOnce()
+                connectOnce { retryDelayMs = 50L }
             } catch (error: Exception) {
                 if (active.get()) android.util.Log.e("NexaDevRuntime", "Dev connection ended; retrying", error)
             }
             if (active.get()) {
                 try {
-                    Thread.sleep(1_000)
+                    Thread.sleep(retryDelayMs)
+                    retryDelayMs = (retryDelayMs * 2).coerceAtMost(1_000L)
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     active.set(false)
@@ -47,7 +49,7 @@ internal class NexaDevSocketClient(
         }
     }
 
-    private fun connectOnce() {
+    private fun connectOnce(onConnected: () -> Unit) {
         val parsed = Uri.parse(serverURL)
         val host = parsed.host ?: return
         val port = if (parsed.port > 0) parsed.port else 80
@@ -67,6 +69,7 @@ internal class NexaDevSocketClient(
             require(response.startsWith("HTTP/1.1 101") && response.contains("Sec-WebSocket-Accept: $expected", ignoreCase = true)) {
                 "Nexa dev server rejected WebSocket upgrade"
             }
+            onConnected()
             sendFrame(output, 0x1, JSONObject()
                 .put(NexaDevKeys.TYPE, NexaDevKeys.MSG_HELLO)
                 .put(NexaDevKeys.PAYLOAD, JSONObject()

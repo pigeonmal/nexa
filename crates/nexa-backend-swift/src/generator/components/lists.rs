@@ -411,9 +411,9 @@ fn render_sectioned_list(
     }
     indent(out, depth);
     if section_header.is_some() {
-        out.push_str("NexaFastSectionedList(\n");
+        out.push_str("NexaFastSectionedListPrimitive(\n");
     } else {
-        out.push_str("NexaFastSectionedList<_, EmptyView>(\n");
+        out.push_str("NexaFastSectionedListPrimitive<_, EmptyView>(\n");
     }
     out.line_at(depth + 1, format_args!("sectionCount: {collection}.count,"));
     out.line_at(
@@ -534,15 +534,17 @@ fn list_constructor(
             };
             let page_snap = if page_snap { ", pageSnap: true" } else { "" };
             format!(
-                "NexaFastList(rowCount: {row_count}, rowHeight: {extent}{key}{reverse}{page_snap})"
+                "NexaFastListPrimitive(rowCount: {row_count}, rowHeight: {extent}{key}{reverse}{page_snap})"
             )
         }
         ListAxis::Horizontal => {
-            format!("NexaFastHorizontalList(rowCount: {row_count}, itemExtent: {extent}{key})")
+            format!(
+                "NexaFastHorizontalListPrimitive(rowCount: {row_count}, itemExtent: {extent}{key})"
+            )
         }
         ListAxis::Grid { columns } => {
             format!(
-                "NexaFastGridList(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{key})"
+                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{key})"
             )
         }
     }
@@ -582,7 +584,7 @@ fn open_list(
             out.line_at(depth, format_args!("}}"));
             rows
         });
-        out.line_at(depth, format_args!("List {{"));
+        out.line_at(depth, format_args!("NexaNativeListPrimitive {{"));
         if let Some(rows) = identified_rows {
             out.line_at(depth + 1, format_args!("ForEach({rows}) {{ nexaListRow in"));
             out.line_at(
@@ -627,18 +629,6 @@ fn open_list(
             indent(out, depth);
             out.push('}');
         }
-        if let Some(sticky_header) = sticky_header {
-            debug_assert!(matches!(axis, ListAxis::Vertical));
-            out.push_str(", headerContent: {\n");
-            indent(out, depth + 1);
-            out.push_str("VStack(spacing: 0) {\n");
-            render_children(sticky_header, scope.module, scope.features, depth + 2, out);
-            out.push('\n');
-            indent(out, depth + 1);
-            out.push_str("}\n");
-            indent(out, depth);
-            out.push('}');
-        }
         if let Some(refresh) = refresh {
             out.push_str(", isRefreshing: ");
             out.push_str(&state_name(&refresh.state));
@@ -656,6 +646,18 @@ fn open_list(
         if let Some(actions) = on_scroll {
             out.push_str(", onScroll: {\n");
             render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push('}');
+        }
+        if let Some(sticky_header) = sticky_header {
+            debug_assert!(matches!(axis, ListAxis::Vertical));
+            out.push_str(", headerContent: {\n");
+            indent(out, depth + 1);
+            out.push_str("VStack(spacing: 0) {\n");
+            render_children(sticky_header, scope.module, scope.features, depth + 2, out);
+            out.push('\n');
+            indent(out, depth + 1);
+            out.push_str("}\n");
             indent(out, depth);
             out.push('}');
         }

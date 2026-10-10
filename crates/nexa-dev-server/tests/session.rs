@@ -154,6 +154,52 @@ fn authenticated_client_receives_full_module_and_compiler_diagnostics_keep_last_
 }
 
 #[test]
+fn unchanged_revisions_skip_empty_patches_and_keep_runtime_base_revision() {
+    let server = DevServer::bind([(TargetPlatform::Android, module("android-1", "same"))])
+        .expect("bind dev server");
+    let mut client = connect(&server, server.session_token(), TargetPlatform::Android);
+    assert!(matches!(
+        read_server_message(&mut client),
+        ServerMessage::Welcome { revision, .. } if revision == "android-1"
+    ));
+    assert!(matches!(
+        read_server_message(&mut client),
+        ServerMessage::FullModule { revision, .. } if revision == "android-1"
+    ));
+
+    client
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .expect("set no-op timeout");
+    server
+        .publish_module(TargetPlatform::Android, module("android-2", "same"))
+        .expect("publish semantically unchanged revision");
+    assert!(
+        client.read().is_err(),
+        "a new revision with no module, identity, or translation changes must not reach the runtime"
+    );
+
+    client
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("restore update timeout");
+    server
+        .publish_module(TargetPlatform::Android, module("android-3", "updated"))
+        .expect("publish next semantic change");
+    assert!(matches!(
+        read_server_message(&mut client),
+        ServerMessage::Patch { patch }
+            if patch.base_revision == "android-1"
+                && patch.revision == "android-3"
+                && !patch.operations.is_empty()
+    ));
+    assert!(matches!(
+        read_server_message(&mut client),
+        ServerMessage::Reload { revision } if revision == "android-3"
+    ));
+}
+
+#[test]
 fn authenticated_runtime_can_request_host_editor_navigation() {
     let server = DevServer::bind([(TargetPlatform::Ios, module("ios-1", "last good"))])
         .expect("bind dev server");
@@ -228,6 +274,79 @@ fn valid_recompilation_replaces_only_the_matching_platform_module() {
         .expect("set timeout");
     thread::sleep(Duration::from_millis(200));
     assert!(android.read().is_err());
+}
+
+#[test]
+fn large_module_change_falls_back_to_full_update() {
+    let server = DevServer::bind([(TargetPlatform::Ios, module("ios-1", "initial"))])
+        .expect("bind dev server");
+    let mut ios = connect(&server, server.session_token(), TargetPlatform::Ios);
+    let _ = read_server_message(&mut ios);
+    let _ = read_server_message(&mut ios);
+
+    let large_label = "updated task description ".repeat(64);
+    server
+        .publish_module(TargetPlatform::Ios, module("ios-2", &large_label))
+        .expect("publish large iOS update");
+
+    assert!(matches!(
+        read_server_message(&mut ios),
+        ServerMessage::FullModule { revision, module }
+            if revision == "ios-2" && module.module.body.len() == 1
+    ));
+    assert!(matches!(
+        read_server_message(&mut ios),
+        ServerMessage::Reload { revision } if revision == "ios-2"
+    ));
+}
+
+#[test]
+fn one_encoded_module_update_reaches_multiple_same_platform_runtimes() {
+    let server = DevServer::bind([(TargetPlatform::Ios, module("ios-1", "initial"))])
+        .expect("bind dev server");
+    let mut first = connect(&server, server.session_token(), TargetPlatform::Ios);
+    let mut second = connect(&server, server.session_token(), TargetPlatform::Ios);
+    for client in [&mut first, &mut second] {
+        let _ = read_server_message(client);
+        let _ = read_server_message(client);
+    }
+
+    server
+        .publish_module(TargetPlatform::Ios, module("ios-2", "updated"))
+        .expect("publish iOS module");
+
+    for client in [&mut first, &mut second] {
+        assert!(matches!(
+            read_server_message(client),
+            ServerMessage::Patch { patch }
+                if patch.base_revision == "ios-1" && patch.revision == "ios-2"
+        ));
+        assert!(matches!(
+            read_server_message(client),
+            ServerMessage::Reload { revision } if revision == "ios-2"
+        ));
+    }
+}
+
+#[test]
+fn publish_without_connected_runtime_skips_patch_and_keeps_latest_module() {
+    let server = DevServer::bind([(TargetPlatform::Android, module("android-1", "initial"))])
+        .expect("bind dev server");
+
+    server
+        .publish_module(TargetPlatform::Android, module("android-2", "latest"))
+        .expect("publish without a connected runtime");
+
+    let mut client = connect(&server, server.session_token(), TargetPlatform::Android);
+    assert!(matches!(
+        read_server_message(&mut client),
+        ServerMessage::Welcome { revision, .. } if revision == "android-2"
+    ));
+    assert!(matches!(
+        read_server_message(&mut client),
+        ServerMessage::FullModule { revision, module }
+            if revision == "android-2" && module.module.body.len() == 1
+    ));
 }
 
 #[test]

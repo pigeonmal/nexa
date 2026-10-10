@@ -634,59 +634,9 @@ app T {
 
 pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
     DotModifierEntry {
-        name: "fontSize",
-        summary: "Set the text size",
-        snippet: "fontSize(${1:18})",
-    },
-    DotModifierEntry {
-        name: "bold",
-        summary: "Use bold text",
-        snippet: "bold()",
-    },
-    DotModifierEntry {
-        name: "padding",
-        summary: "Add space around a view",
-        snippet: "padding(${1:12})",
-    },
-    DotModifierEntry {
-        name: "opacity",
-        summary: "Set a view's opacity between zero and one",
-        snippet: "opacity(${1:0.8})",
-    },
-    DotModifierEntry {
-        name: "scale",
-        summary: "Scale a view uniformly",
-        snippet: "scale(${1:1.1})",
-    },
-    DotModifierEntry {
-        name: "rotation",
-        summary: "Rotate a view in degrees",
-        snippet: "rotation(${1:15})",
-    },
-    DotModifierEntry {
-        name: "shadow",
-        summary: "Draw a colored drop shadow behind a view",
-        snippet: "shadow(radius: ${1:8}, x: ${2:0}, y: ${3:4}, color: \"${4:#00000040}\")",
-    },
-    DotModifierEntry {
         name: "sharedElement",
         summary: "Match an image element across screen transitions",
         snippet: "sharedElement(id: \"${1:hero}\")",
-    },
-    DotModifierEntry {
-        name: "blur",
-        summary: "Blur a view",
-        snippet: "blur(${1:4})",
-    },
-    DotModifierEntry {
-        name: "clip",
-        summary: "Clip a view to a rounded rectangle",
-        snippet: "clip(shape: Rounded(${1:12}))",
-    },
-    DotModifierEntry {
-        name: "zIndex",
-        summary: "Set drawing order among overlapping siblings",
-        snippet: "zIndex(${1:1})",
     },
     DotModifierEntry {
         name: "onTap",
@@ -983,6 +933,31 @@ const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
     opt("animation"),
 ];
 
+/// Visual layout options accepted by overlapping `Stack` containers. Stack
+/// has no spacing parameter because its children overlap instead of flowing.
+const STACK_ARGUMENTS: &[ArgSchema] = &[
+    opt("alignment"),
+    opt("padding"),
+    opt("width"),
+    opt("height"),
+    opt("minWidth"),
+    opt("maxWidth"),
+    opt("minHeight"),
+    opt("maxHeight"),
+    opt("background"),
+    opt("cornerRadius"),
+    opt("borderColor"),
+    opt("borderWidth"),
+    opt("opacity"),
+    opt("scale"),
+    opt("rotation"),
+    opt("shadow"),
+    opt("blur"),
+    opt("clip"),
+    opt("zIndex"),
+    opt("animation"),
+];
+
 /// FastList source keys. The dedicated source reader (`list_source_and_args`
 /// in `parser.rs`) consumes these words; they are catalogued here so the
 /// argument audit and editor vocabulary cannot drift from the grammar.
@@ -1034,7 +1009,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
         positional: PositionalModel::None,
-        arguments: LAYOUT_ARGUMENTS,
+        arguments: STACK_ARGUMENTS,
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -1807,23 +1782,6 @@ pub fn component_schema(name: &str) -> Option<&'static ComponentSchema> {
     COMPONENT_SCHEMAS.iter().find(|schema| schema.name == name)
 }
 
-/// The typed component option represented by a chained style modifier.
-pub fn chained_style_argument(component: &str, modifier: &str) -> Option<&'static str> {
-    match (component, modifier) {
-        ("Text", "fontSize") => Some("fontSize"),
-        ("Text", "bold") => Some("fontWeight"),
-        ("Text" | "Column" | "Row" | "Stack", "padding") => Some("padding"),
-        ("Text" | "Column" | "Row" | "Stack", "opacity") => Some("opacity"),
-        ("Text" | "Column" | "Row" | "Stack", "scale") => Some("scale"),
-        ("Text" | "Column" | "Row" | "Stack", "rotation") => Some("rotation"),
-        ("Text" | "Column" | "Row" | "Stack", "shadow") => Some("shadow"),
-        ("Text" | "Column" | "Row" | "Stack", "blur") => Some("blur"),
-        ("Text" | "Column" | "Row" | "Stack", "clip") => Some("clip"),
-        ("Text" | "Column" | "Row" | "Stack", "zIndex") => Some("zIndex"),
-        _ => None,
-    }
-}
-
 /// Whether `name` is a built-in component spelling.
 pub fn is_component(name: &str) -> bool {
     component_schema(name).is_some()
@@ -2085,7 +2043,7 @@ pub fn render_syntax_audit() -> String {
     let mut out = String::from(
         "# Syntax Audit\n\n\
         | **Scope**: accepted `.nx` component grammar | **Source**: compiler catalog | **Status**: generated and parse-checked |\n\n\
-        This reference lists every built-in component's accepted arguments, child blocks, and event or style modifiers. The entries are generated from the parser catalog and checked by parser probes.\n\n\
+        This reference lists every built-in component's accepted arguments, child blocks, and event, interaction, or composition modifiers. Visual styling is expressed through component arguments. The entries are generated from the parser catalog and checked by parser probes.\n\n\
         > Generated from `crates/nexa-syntax/src/catalog.rs` — do not edit by hand.\n\
         > Run `cargo test -p nexa-syntax` with `NEXA_UPDATE_SNAPSHOTS=1` to regenerate.\n\
         > Every entry mirrors a parser production: the catalog test suite parses\n\

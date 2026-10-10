@@ -723,7 +723,20 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 .map(|icon| format!("    case \"{}\": return \"{}\"", icon.name, icon.sf_symbol))
                 .collect::<Vec<_>>()
                 .join("\n");
+            let mut material_names = std::collections::BTreeSet::new();
+            let material_sf_cases = SHARED_ICONS
+                .iter()
+                .filter(|icon| material_names.insert(icon.material_name))
+                .map(|icon| {
+                    format!(
+                        "    case \"{}\": return \"{}\"",
+                        icon.material_name, icon.sf_symbol
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
             source = source.replace("__NEXA_SHARED_ICON_SF_CASES__", &cases);
+            source = source.replace("__NEXA_SHARED_ICON_MATERIAL_SF_CASES__", &material_sf_cases);
         }
         "NexaDevRenderer.kt" => {
             let material_cases = SHARED_ICONS
@@ -829,26 +842,6 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
             ),
             (
-                "__NEXA_PAGE_INDICATOR_SELECTED_SIZE__",
-                design::PAGE_INDICATOR_SELECTED_SIZE.to_string(),
-            ),
-            (
-                "__NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__",
-                design::PAGE_INDICATOR_UNSELECTED_SIZE.to_string(),
-            ),
-            (
-                "__NEXA_PAGE_INDICATOR_SPACING__",
-                design::PAGE_INDICATOR_SPACING.to_string(),
-            ),
-            (
-                "__NEXA_PAGE_INDICATOR_BOTTOM_INSET__",
-                design::PAGE_INDICATOR_BOTTOM_INSET.to_string(),
-            ),
-            (
-                "__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__",
-                design::PAGE_INDICATOR_INACTIVE_OPACITY.to_string(),
-            ),
-            (
                 "__NEXA_DEFAULT_ACCENT_ARGB__",
                 format!("0x{:08X}", design::DEFAULT_ACCENT_ARGB),
             ),
@@ -901,18 +894,6 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 format!("0x{:08X}", design::DARK_SURFACE_VARIANT_ARGB),
             ),
             (
-                "__NEXA_FORM_SECTION_HORIZONTAL_INSET__",
-                design::FORM_SECTION_HORIZONTAL_INSET.to_string(),
-            ),
-            (
-                "__NEXA_FORM_SECTION_TOP_PADDING__",
-                design::FORM_SECTION_TOP_PADDING.to_string(),
-            ),
-            (
-                "__NEXA_FORM_SECTION_BOTTOM_PADDING__",
-                design::FORM_SECTION_BOTTOM_PADDING.to_string(),
-            ),
-            (
                 "__NEXA_FORM_ROW_HORIZONTAL_INSET__",
                 design::FORM_ROW_HORIZONTAL_INSET.to_string(),
             ),
@@ -921,56 +902,12 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::FORM_ROW_MIN_HEIGHT.to_string(),
             ),
             (
-                "__NEXA_FORM_DIVIDER_START_INSET__",
-                design::FORM_DIVIDER_START_INSET.to_string(),
-            ),
-            (
-                "__NEXA_FORM_DIVIDER_END_INSET__",
-                design::FORM_DIVIDER_END_INSET.to_string(),
-            ),
-            (
-                "__NEXA_FORM_FOOTER_START_INSET__",
-                design::FORM_FOOTER_START_INSET.to_string(),
-            ),
-            (
-                "__NEXA_FORM_FOOTER_FONT_SIZE__",
-                design::FORM_FOOTER_FONT_SIZE.to_string(),
-            ),
-            (
                 "__NEXA_FORM_LARGE_TITLE_TOP_PADDING__",
                 design::FORM_LARGE_TITLE_TOP_PADDING.to_string(),
             ),
             (
-                "__NEXA_FORM_LARGE_TITLE_FONT_SIZE__",
-                design::FORM_LARGE_TITLE_FONT_SIZE.to_string(),
-            ),
-            (
-                "__NEXA_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT__",
-                design::ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT.to_string(),
-            ),
-            (
-                "__NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT__",
-                design::ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT.to_string(),
-            ),
-            (
                 "__NEXA_FORM_SWITCH_OFF_TRACK_ARGB__",
                 format!("0x{:08X}", design::FORM_SWITCH_OFF_TRACK_ARGB),
-            ),
-            (
-                "__NEXA_FORM_LIGHT_SECTION_ARGB__",
-                format!("0x{:08X}", design::FORM_LIGHT_SECTION_ARGB),
-            ),
-            (
-                "__NEXA_FORM_DARK_SECTION_ARGB__",
-                format!("0x{:08X}", design::FORM_DARK_SECTION_ARGB),
-            ),
-            (
-                "__NEXA_FORM_LIGHT_SEPARATOR_ARGB__",
-                format!("0x{:08X}", design::FORM_LIGHT_SEPARATOR_ARGB),
-            ),
-            (
-                "__NEXA_FORM_DARK_SEPARATOR_ARGB__",
-                format!("0x{:08X}", design::FORM_DARK_SEPARATOR_ARGB),
             ),
             (
                 "__NEXA_LIGHT_OUTLINE_ARGB__",
@@ -2449,6 +2386,7 @@ mod tests {
             "dev.nexa",
             &module,
         );
+        let (kotlin_generated, _) = KotlinBackend.generate_for_dev_with_project_features(&module);
 
         for (platform, source) in [("iOS", swift.as_str()), ("Android", kotlin.as_str())] {
             assert!(
@@ -2456,16 +2394,20 @@ mod tests {
                 "{platform} DevRuntime retained an unresolved design-system token"
             );
         }
+        assert!(
+            !kotlin_generated.contains("__NEXA_"),
+            "Android generated DevRuntime primitives retained an unresolved design-system token"
+        );
         assert!(swift.contains("NexaTextPrimitive("));
         assert!(swift.contains("font: resolvedFont"));
         assert!(swift.contains("private let nexaDevFormRowMinHeight: CGFloat = 56"));
         assert!(swift.contains("minHeight: nexaDevFormRowMinHeight"));
         assert!(swift.contains("NexaFormRowPrimitive("));
         assert!(swift.contains("NexaButtonPrimitive("));
-        assert!(swift.contains("HStack(spacing: 8)"));
-        assert!(swift.contains(".padding(.bottom, 24)"));
-        assert!(swift.contains("index == selected ? Color(uiColor: .systemBlue)"));
-        assert!(swift.contains("Color(red: 0.556863, green: 0.556863, blue: 0.576471)"));
+        assert!(
+            swift.contains("NexaPageIndicatorRow(pageCount: pages.count, selectedIndex: selected)")
+        );
+        assert!(!swift.contains("nexaDevPageIndicator"));
 
         assert!(kotlin.contains("private const val nexaDevDefaultBodyFontSize = 17"));
         assert!(kotlin.contains("private const val nexaDevFormRowMinHeight = 56"));
@@ -2481,13 +2423,17 @@ mod tests {
         );
         assert!(kotlin.contains("private const val nexaDevDefaultLineHeightMultiplier = 1.2f"));
         assert!(kotlin.contains("NexaButtonPrimitive("));
+        assert!(kotlin.contains("NexaLargeTitlePrimitive("));
+        assert!(!kotlin.contains("LargeTopAppBar("));
         assert!(!kotlin.contains("nexaDevButtonMinWidth"));
         assert!(!kotlin.contains("outlinedTint"));
-        assert!(kotlin.contains("Color(0xFF1C1C1E)"));
-        assert!(kotlin.contains("Color(0xFFFFFFFF)"));
-        assert!(kotlin.contains("Color(0xFF38383A)"));
-        assert!(kotlin.contains("Color(0x493C3C43)"));
-        assert!(kotlin.contains("primary = Color(0xFF007AFF)"));
+        assert!(kotlin_generated.contains("Color(0xFF1C1C1E)"));
+        assert!(kotlin_generated.contains("Color(0xFFFFFFFF)"));
+        assert!(kotlin_generated.contains("Color(0xFF38383A)"));
+        assert!(kotlin_generated.contains("Color(0x493C3C43)"));
+        assert!(
+            kotlin_generated.contains("primary = androidx.compose.ui.graphics.Color(0xFF007AFF)")
+        );
         assert!(kotlin.contains(
             "lineHeight = nexaDevDefaultBodyFontSize.sp * nexaDevDefaultLineHeightMultiplier"
         ));
@@ -2499,12 +2445,8 @@ mod tests {
             )
         );
         assert!(!kotlin.contains("tab.optString(\"badge\")"));
-        assert!(kotlin.contains("Modifier.fillMaxWidth()"));
-        assert!(kotlin.contains(
-            "nexaDevPageIndicatorSpacing.dp,\n                        Alignment.CenterHorizontally,"
-        ));
-        assert!(kotlin.contains("verticalAlignment = Alignment.CenterVertically"));
-        assert!(kotlin.contains("Modifier.fillMaxWidth()\n                        .padding(bottom = nexaDevPageIndicatorBottomInset.dp)"));
+        assert!(kotlin.contains("NexaPageIndicatorRow("));
+        assert!(!kotlin.contains("nexaDevPageIndicator"));
     }
 
     #[test]
@@ -2552,6 +2494,20 @@ mod tests {
                     icon.name
                 );
             }
+        }
+        let mut material_names = std::collections::BTreeSet::new();
+        for icon in SHARED_ICONS {
+            if !material_names.insert(icon.material_name) {
+                continue;
+            }
+            assert!(
+                swift.contains(&format!(
+                    "case \"{}\": return \"{}\"",
+                    icon.material_name, icon.sf_symbol
+                )),
+                "iOS DevRuntime is missing Material icon translation for {}",
+                icon.material_name
+            );
         }
         assert!(kotlin.contains("import androidx.compose.material.icons.rounded.AccountCircle"));
         assert!(kotlin.contains("\"rounded:account_circle\" -> Icons.Rounded.AccountCircle"));

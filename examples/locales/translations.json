@@ -2,24 +2,28 @@
   "format": 1,
   "sourceLanguage": "en",
   "strings": {
-    "Haptics": {
-      "source": "Haptics",
+    "Back to navigation": {
+      "source": "Back to navigation",
       "translations": {}
     },
-    "Heavy impact": {
-      "source": "Heavy impact",
+    "Inbox": {
+      "source": "Inbox",
       "translations": {}
     },
-    "Light impact": {
-      "source": "Light impact",
+    "Projects": {
+      "source": "Projects",
       "translations": {}
     },
-    "Selection": {
-      "source": "Selection",
+    "Selected workspace": {
+      "source": "Selected workspace",
       "translations": {}
     },
-    "Success": {
-      "source": "Success",
+    "This detail pane uses the available window width.": {
+      "source": "This detail pane uses the available window width.",
+      "translations": {}
+    },
+    "Workspace": {
+      "source": "Workspace",
       "translations": {}
     }
   }

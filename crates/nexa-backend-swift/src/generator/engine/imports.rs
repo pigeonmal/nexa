@@ -29,6 +29,7 @@ impl ImportSet {
 pub(crate) fn render(features: &Features) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "SwiftUI");
+    imports.add(true, "Foundation");
     imports.add(features.uses_widgets, "WidgetKit");
     crate::generator::components::controls::imports(features, &mut imports);
     crate::generator::components::list_runtime::imports(features, &mut imports);
@@ -48,6 +49,7 @@ pub(crate) fn render(features: &Features) -> String {
             || features.facts.capabilities.uses_haptics_api
             || features.facts.capabilities.uses_screen_orientation_api
             || features.facts.capabilities.uses_app_icon_api
+            || features.uses_remote_image
             || features.facts.ui.button.present
             || features.facts.ui.page_pager
             || features.facts.ui.style.dynamic_color,
@@ -63,7 +65,10 @@ mod tests {
 
     #[test]
     fn minimal_app_imports_only_the_native_ui_module() {
-        assert_eq!(render(&Features::default()), "import SwiftUI\n\n");
+        assert_eq!(
+            render(&Features::default()),
+            "import Foundation\nimport SwiftUI\n\n"
+        );
     }
 
     #[test]
@@ -89,14 +94,11 @@ mod tests {
     }
 
     #[test]
-    fn storage_imports_foundation_only_when_the_api_is_reachable() {
-        let mut features = Features::default();
-        features.facts.capabilities.uses_storage_api = true;
-        let imports = render(&features);
+    fn minimal_apps_import_foundation_for_shared_url_primitives() {
+        let imports = render(&Features::default());
 
         assert!(imports.contains("import Foundation\n"));
         assert!(!imports.contains("import UIKit\n"));
-        assert!(!render(&Features::default()).contains("import Foundation\n"));
     }
 
     #[test]

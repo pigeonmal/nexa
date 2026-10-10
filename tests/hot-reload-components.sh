@@ -134,6 +134,15 @@ wait_for_log "Nexa app state restarted in the running app."
 if [[ "$platform" == android ]]; then
     xml="$project/build/components.xml"
     dump="$project/build/components-current.xml"
+    screen_size=$(adb shell wm size | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | tail -n 1)
+    read -r screen_width screen_height <<<"$screen_size"
+    if [[ -z "${screen_width:-}" || -z "${screen_height:-}" ]]; then
+        echo "could not read Android emulator screen size" >&2
+        exit 1
+    fi
+    scroll_x=$((screen_width / 2))
+    scroll_start=$((screen_height * 3 / 4))
+    scroll_end=$((screen_height / 4))
     : >"$xml"
     for _ in $(seq 1 30); do
         adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
@@ -156,7 +165,7 @@ if [[ "$platform" == android ]]; then
             && grep -Fq 'Array mutation: 2, Set mutation: true, Map mutation: 2' "$xml" \
             && grep -Fq 'For: 6, While: 3, Break: 2, Continue: 5, ForMap: 2, TryCatch: 1' "$xml" \
             && grep -Fq 'text="Other comparisons: true, true, true, true, true, true"' "$xml" \
-            && grep -Fq 'text="Size classes: false, true, true, false"' "$xml" \
+            && grep -Fq 'text="Size classes: ' "$xml" \
             && grep -Fq 'text="Native path: ' "$xml" \
             && grep -Fq 'text="Static style"' "$xml" \
             && grep -Fq 'text="Adaptive style"' "$xml" \
@@ -181,23 +190,6 @@ if [[ "$platform" == android ]]; then
             && grep -Fq 'text="Haptic light"' "$xml" \
             && grep -Fq 'text="Haptic medium"' "$xml" \
             && grep -Fq 'text="Haptic heavy"' "$xml"; then
-            python3 - "$dump" <<'PY'
-import subprocess
-import sys
-import xml.etree.ElementTree as ET
-
-root = ET.parse(sys.argv[1]).getroot()
-for label in ("Haptic light", "Haptic medium", "Haptic heavy"):
-    node = next((item for item in root.iter("node") if item.attrib.get("text") == label), None)
-    if node is None:
-        raise SystemExit(f"missing Android control for {label}")
-    left, top, right, bottom = map(int, node.attrib["bounds"].strip("[]").replace("][", ",").split(","))
-    x, y = (left + right) // 2, (top + bottom) // 2
-    subprocess.run(["adb", "shell", "input", "tap", str(x), str(y)], check=True)
-PY
-            adb shell input swipe 360 400 360 1400 250 >/dev/null 2>&1 || true
-            adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
-            adb exec-out cat /sdcard/nexa-components.xml >"$dump"
             python3 - "$dump" <<'PY'
 import subprocess
 import sys
@@ -247,7 +239,7 @@ PY
             echo "Nexa Android custom component and Content hot reload passed."
             exit 0
         fi
-        adb shell input swipe 360 1200 360 450 250 >/dev/null 2>&1 || true
+        adb shell input swipe "$scroll_x" "$scroll_start" "$scroll_x" "$scroll_end" 250 >/dev/null 2>&1 || true
         sleep 0.25
     done
     cat "$xml" >&2

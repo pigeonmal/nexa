@@ -341,7 +341,13 @@ fn diff_sends_only_the_changed_expression_path() {
     );
 
     let patch = nexa_dev_ir::diff(&original, &updated).expect("module change should be patchable");
+    let original_json = serde_json::to_value(&original.module).expect("serialize source module");
+    let updated_json = serde_json::to_value(&updated.module).expect("serialize updated module");
+    let cached_patch =
+        nexa_dev_ir::diff_with_module_values(&original, &original_json, &updated, &updated_json)
+            .expect("cached module values should be patchable");
 
+    assert_eq!(cached_patch, patch);
     assert_eq!(patch.base_revision, "revision-1");
     assert_eq!(patch.revision, "revision-2");
     assert_eq!(patch.operations.len(), 1);

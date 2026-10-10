@@ -92,20 +92,13 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.Surface
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTopAppBarState
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.Switch
@@ -115,10 +108,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -139,14 +130,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -183,70 +172,15 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.json.JSONArray
 import org.json.JSONObject
-import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
 
 private const val nexaDevDefaultBodyFontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__
 private const val nexaDevDefaultMaterialIconSize = __NEXA_DEFAULT_MATERIAL_ICON_SIZE__
 private const val nexaDevMaterialIconSizeScale = __NEXA_MATERIAL_ICON_SIZE_SCALE__
 private const val nexaDevDefaultLineHeightMultiplier = __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f
-private const val nexaDevFormSectionHorizontalInset = __NEXA_FORM_SECTION_HORIZONTAL_INSET__
-private const val nexaDevFormSectionTopPadding = __NEXA_FORM_SECTION_TOP_PADDING__
-private const val nexaDevFormSectionBottomPadding = __NEXA_FORM_SECTION_BOTTOM_PADDING__
 private const val nexaDevFormRowHorizontalInset = __NEXA_FORM_ROW_HORIZONTAL_INSET__
 private const val nexaDevFormRowMinHeight = __NEXA_FORM_ROW_MIN_HEIGHT__
-private const val nexaDevFormDividerStartInset = __NEXA_FORM_DIVIDER_START_INSET__
-private const val nexaDevFormDividerEndInset = __NEXA_FORM_DIVIDER_END_INSET__
-private const val nexaDevFormFooterStartInset = __NEXA_FORM_FOOTER_START_INSET__
-private const val nexaDevFormFooterFontSize = __NEXA_FORM_FOOTER_FONT_SIZE__
 private const val nexaDevFormLargeTitleTopPadding = __NEXA_FORM_LARGE_TITLE_TOP_PADDING__
-private const val nexaDevFormLargeTitleFontSize = __NEXA_FORM_LARGE_TITLE_FONT_SIZE__
-private const val nexaDevLargeTitleAppBarExpandedHeight = __NEXA_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT__
-private const val nexaDevLargeTitleAppBarCollapsedHeight = __NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT__
-private const val nexaDevPageIndicatorSelectedSize = __NEXA_PAGE_INDICATOR_SELECTED_SIZE__
-private const val nexaDevPageIndicatorUnselectedSize = __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__
-private const val nexaDevPageIndicatorSpacing = __NEXA_PAGE_INDICATOR_SPACING__
-private const val nexaDevPageIndicatorBottomInset = __NEXA_PAGE_INDICATOR_BOTTOM_INSET__
-private const val nexaDevPageIndicatorInactiveOpacity = __NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__f
-
-private fun nexaDevDefaultColorScheme(dark: Boolean) = if (dark) {
-    darkColorScheme(
-        primary = Color(__NEXA_DARK_ACCENT_ARGB__),
-        onPrimary = Color.White,
-        primaryContainer = Color(__NEXA_DARK_PRIMARY_CONTAINER_ARGB__),
-        onPrimaryContainer = Color(__NEXA_DARK_ON_PRIMARY_CONTAINER_ARGB__),
-        secondary = Color(__NEXA_MUTED_TEXT_ARGB__),
-        onSecondary = Color.White,
-        background = Color(__NEXA_DARK_BACKGROUND_ARGB__),
-        onBackground = Color(__NEXA_DARK_ON_SURFACE_ARGB__),
-        surface = Color(__NEXA_DARK_SURFACE_ARGB__),
-        onSurface = Color(__NEXA_DARK_ON_SURFACE_ARGB__),
-        surfaceVariant = Color(__NEXA_DARK_SURFACE_VARIANT_ARGB__),
-        onSurfaceVariant = Color(__NEXA_MUTED_TEXT_ARGB__),
-        outline = Color(__NEXA_DARK_OUTLINE_ARGB__),
-        error = Color(__NEXA_DEFAULT_ERROR_ARGB__),
-        onError = Color.White,
-    )
-} else {
-    lightColorScheme(
-        primary = Color(__NEXA_DEFAULT_ACCENT_ARGB__),
-        onPrimary = Color.White,
-        primaryContainer = Color(__NEXA_LIGHT_PRIMARY_CONTAINER_ARGB__),
-        onPrimaryContainer = Color(__NEXA_LIGHT_ON_PRIMARY_CONTAINER_ARGB__),
-        secondary = Color(__NEXA_MUTED_TEXT_ARGB__),
-        onSecondary = Color.White,
-        background = Color(__NEXA_LIGHT_BACKGROUND_ARGB__),
-        onBackground = Color(__NEXA_LIGHT_ON_SURFACE_ARGB__),
-        surface = Color(__NEXA_LIGHT_SURFACE_ARGB__),
-        onSurface = Color(__NEXA_LIGHT_ON_SURFACE_ARGB__),
-        surfaceVariant = Color(__NEXA_LIGHT_SURFACE_VARIANT_ARGB__),
-        onSurfaceVariant = Color(__NEXA_MUTED_TEXT_ARGB__),
-        outline = Color(__NEXA_LIGHT_OUTLINE_ARGB__),
-        error = Color(__NEXA_DEFAULT_ERROR_ARGB__),
-        onError = Color.White,
-    )
-}
-
 private fun nexaDevSharedMaterialIcon(name: String) = when (name) {
 __NEXA_SHARED_ICON_MATERIAL_CASES__
     else -> Icons.Filled.Star
@@ -274,6 +208,17 @@ internal fun nexaDevNodeObject(rawNode: Any?): JSONObject = when (rawNode) {
     is JSONObject -> rawNode
     is String -> JSONObject().put(rawNode, JSONObject.NULL)
     else -> JSONObject()
+}
+
+private fun JSONObject.nexaDevTransition(): String = when (val value = opt("transition")) {
+    null, JSONObject.NULL -> ""
+    else -> value.toString()
+}
+
+private fun JSONObject.nexaDevOptionalString(name: String): String? = when (val value = opt(name)) {
+    null, JSONObject.NULL -> null
+    is String -> value
+    else -> value.toString()
 }
 
 @Composable
@@ -340,6 +285,42 @@ internal fun NexaDevNodeList(
     }
 }
 
+private fun nexaDevContainsScrollable(nodes: JSONArray): Boolean {
+    for (index in 0 until nodes.length()) {
+        val node = nexaDevNodeObject(nodes.opt(index))
+        val kind = node.keys().asSequence().firstOrNull() ?: continue
+        if (kind == "FastList" || kind == "KeyboardAware" || kind == "Form") return true
+        val fields = node.optJSONObject(kind) ?: continue
+        fields.optJSONArray("children")?.let { if (nexaDevContainsScrollable(it)) return true }
+        fields.optJSONArray("then_body")?.let { if (nexaDevContainsScrollable(it)) return true }
+        fields.optJSONArray("else_body")?.let { if (nexaDevContainsScrollable(it)) return true }
+        fields.optJSONArray("sidebar")?.let { if (nexaDevContainsScrollable(it)) return true }
+        fields.optJSONArray("detail")?.let { if (nexaDevContainsScrollable(it)) return true }
+        fields.optJSONArray("tabs")?.let { tabs ->
+            for (tabIndex in 0 until tabs.length()) {
+                tabs.optJSONObject(tabIndex)?.optJSONArray("children")?.let {
+                    if (nexaDevContainsScrollable(it)) return true
+                }
+            }
+        }
+        fields.optJSONArray("pages")?.let { pages ->
+            for (pageIndex in 0 until pages.length()) {
+                pages.optJSONArray(pageIndex)?.let {
+                    if (nexaDevContainsScrollable(it)) return true
+                }
+            }
+        }
+        fields.optJSONArray("cases")?.let { cases ->
+            for (caseIndex in 0 until cases.length()) {
+                cases.optJSONObject(caseIndex)?.optJSONArray("body")?.let {
+                    if (nexaDevContainsScrollable(it)) return true
+                }
+            }
+        }
+    }
+    return false
+}
+
 @Composable
 internal fun ColumnScope.RenderColumnChildren(
     nodes: JSONArray,
@@ -353,7 +334,7 @@ internal fun ColumnScope.RenderColumnChildren(
             val child = nexaDevNodeObject(nodes.opt(index))
             val conditional = child.optJSONObject("If")
             val shouldRenderChild = if (
-                conditional != null && conditional.optString("transition").isEmpty()
+                conditional != null && conditional.nexaDevTransition().isEmpty()
             ) {
                 val condition = store.evaluatePresented(
                     conditional.opt("condition"),
@@ -368,18 +349,7 @@ internal fun ColumnScope.RenderColumnChildren(
                 true
             }
             if (shouldRenderChild) {
-                val fastListOptions = child.optJSONObject("FastList")
-                    ?.optJSONObject("plan")
-                    ?.let { plan ->
-                        plan.optJSONObject("Count")?.optJSONObject("common")
-                            ?: plan.optJSONObject("Items")?.optJSONObject("common")
-                            ?: plan.optJSONObject("Sections")?.optJSONObject("common")
-                    }
-                val isHorizontalFastList = fastListOptions?.opt("axis") == "Horizontal"
-                val modifier = if (
-                    child.has("RefreshControl") || child.has("Spacer") ||
-                    (child.has("FastList") && !isHorizontalFastList)
-                ) Modifier.weight(1f) else Modifier
+                val modifier = if (child.has("Spacer")) Modifier.weight(1f) else Modifier
                 NexaDevNode(child, module, store, locals, scope, modifier)
             }
         }
@@ -401,60 +371,18 @@ internal fun NexaDevNode(
     when (kind) {
         "Appearance" -> {
             val mode = store.stringify(store.evaluatePresented(fields.opt("mode") ?: "system", locals, scope))
-            val systemDark = isSystemInDarkTheme()
-            val scheme = remember(mode, systemDark) {
-                when (mode) {
-                    "dark" -> nexaDevDefaultColorScheme(true)
-                    "light" -> nexaDevDefaultColorScheme(false)
-                    else -> nexaDevDefaultColorScheme(systemDark)
-                }
-            }
-            val appearanceView = LocalView.current
-            val statusBarColor = scheme.background
-            val navigationBarColor = scheme.surfaceContainer
-            SideEffect {
-                var context: android.content.Context = appearanceView.context
-                while (context is android.content.ContextWrapper && context !is android.app.Activity) {
-                    context = context.baseContext
-                }
-                val window = (context as? android.app.Activity)?.window
-                if (window != null) {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        window.isNavigationBarContrastEnforced = false
-                    }
-                    window.decorView.setBackgroundColor(statusBarColor.toArgb())
-                    val controller = WindowCompat.getInsetsController(window, appearanceView)
-                    controller.isAppearanceLightStatusBars = statusBarColor.luminance() > 0.5f
-                    controller.isAppearanceLightNavigationBars = navigationBarColor.luminance() > 0.5f
-                }
-            }
-            MaterialTheme(colorScheme = scheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = scheme.background,
-                    contentColor = scheme.onBackground,
-                ) {
-                    NexaDevNodeList(
-                        fields.optJSONArray("children") ?: JSONArray(),
-                        module,
-                        store,
-                        parameters = locals,
-                        scope = scope,
-                    )
-                }
+            NexaAppearancePrimitive(mode = mode) {
+                NexaDevNodeList(
+                    fields.optJSONArray("children") ?: JSONArray(),
+                    module,
+                    store,
+                    parameters = locals,
+                    scope = scope,
+                )
             }
         }
         "Form" -> {
-            val background = if (MaterialTheme.colorScheme.background == Color.Black) {
-                MaterialTheme.colorScheme.background
-            } else {
-                Color(0xFFF2F2F7)
-            }
-            Column(
-                Modifier.fillMaxSize()
-                    .background(background)
-                    .verticalScroll(rememberScrollState()),
-            ) {
+            NexaFormPrimitive {
                 val children = fields.optJSONArray("children") ?: JSONArray()
                 for (index in 0 until children.length()) {
                     androidx.compose.runtime.key(index) {
@@ -474,79 +402,30 @@ internal fun NexaDevNode(
             }
         }
         "FormSection" -> {
-            Column(
-                Modifier.fillMaxWidth().padding(
-                    start = nexaDevFormSectionHorizontalInset.dp,
-                    top = nexaDevFormSectionTopPadding.dp,
-                    end = nexaDevFormSectionHorizontalInset.dp,
-                    bottom = nexaDevFormSectionBottomPadding.dp,
-                ),
+            NexaFormSectionPrimitive(
+                title = if (fields.isNull("title")) null else store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope)),
+                footer = if (fields.isNull("footer")) null else store.stringify(store.evaluatePresented(fields.opt("footer"), locals, scope)),
             ) {
-                if (!fields.isNull("title")) {
-                    Text(
-                        store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope)),
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                }
                 val children = fields.optJSONArray("children") ?: JSONArray()
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    color = if (MaterialTheme.colorScheme.background == Color.Black) {
-                        Color(__NEXA_FORM_DARK_SECTION_ARGB__)
-                    } else {
-                        Color(__NEXA_FORM_LIGHT_SECTION_ARGB__)
-                    },
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ) {
-                    Column {
-                        for (index in 0 until children.length()) {
-                            androidx.compose.runtime.key(index) {
-                                val rowNode = nexaDevNodeObject(children.opt(index))
-                                NexaFormRowPrimitive(
-                                    minHeight = nexaDevFormRowMinHeight.toFloat(),
-                                    horizontalInset = nexaDevFormRowHorizontalInset.toFloat(),
-                                ) {
-                                    NexaDevNode(
-                                        rowNode,
-                                        module,
-                                        store,
-                                        locals,
-                                        scope,
-                                    )
-                                }
-                                if (index + 1 < children.length()) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.fillMaxWidth().padding(
-                                            start = nexaDevFormDividerStartInset.dp,
-                                            end = nexaDevFormDividerEndInset.dp,
-                                        ),
-                                        thickness = 0.5.dp,
-                                        color = if (MaterialTheme.colorScheme.background == Color.Black) {
-                                            Color(__NEXA_FORM_DARK_SEPARATOR_ARGB__)
-                                        } else {
-                                            Color(__NEXA_FORM_LIGHT_SEPARATOR_ARGB__)
-                                        },
-                                    )
-                                }
-                            }
+                for (index in 0 until children.length()) {
+                    androidx.compose.runtime.key(index) {
+                        val rowNode = nexaDevNodeObject(children.opt(index))
+                        NexaFormRowPrimitive(
+                            minHeight = nexaDevFormRowMinHeight.toFloat(),
+                            horizontalInset = nexaDevFormRowHorizontalInset.toFloat(),
+                        ) {
+                            NexaDevNode(
+                                rowNode,
+                                module,
+                                store,
+                                locals,
+                                scope,
+                            )
+                        }
+                        if (index + 1 < children.length()) {
+                            NexaFormDividerPrimitive()
                         }
                     }
-                }
-                if (!fields.isNull("footer")) {
-                    Text(
-                        store.stringify(store.evaluatePresented(fields.opt("footer"), locals, scope)),
-                        modifier = Modifier.padding(
-                            start = nexaDevFormFooterStartInset.dp,
-                            top = 8.dp,
-                            bottom = 8.dp,
-                        ),
-                        fontSize = nexaDevFormFooterFontSize.sp,
-                        lineHeight = nexaDevFormFooterFontSize.sp * nexaDevDefaultLineHeightMultiplier,
-                        letterSpacing = 0.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
@@ -733,6 +612,32 @@ internal fun NexaDevNode(
             val image = nexaDevSharedMaterialIcon(icon.optString("shared"))
             NexaContentUnavailablePrimitive(title = title, description = description, icon = image)
         }
+        "Text", "Spacer", "Divider", "SystemIcon", "LinearGradient" ->
+            NexaDevRenderTextNode(kind, fields, module, store, locals, scope, modifier)
+        "Button", "Pressable", "TextInput", "FastList", "Switch", "Slider",
+        "ProgressBar", "ProgressRing", "SegmentedControl", "Picker", "DatePicker" ->
+            NexaDevRenderControlNode(kind, fields, module, store, locals, scope, modifier)
+        "Image", "RefreshControl" ->
+            NexaDevRenderListNode(kind, fields, module, store, locals, scope, modifier)
+        "If", "When", "Link", "Accessibility", "KeyboardAware", "AppBottomBar",
+        "PagePager", "Toolbar", "BottomSheet", "Dialog", "ConfirmationDialog",
+        "NavigationStack", "NavigationSplitView", "NavigationLink", "NavigationBack" ->
+            NexaDevRenderNavigationNode(kind, fields, module, store, locals, scope, modifier)
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun NexaDevRenderTextNode(
+    kind: String,
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+    modifier: Modifier,
+) {
+    when (kind) {
         "Text" -> {
             val style = fields.optJSONObject("style") ?: JSONObject()
             val color = nexaDevColor(style.optJSONObject("color"), isSystemInDarkTheme())
@@ -861,6 +766,21 @@ internal fun NexaDevNode(
                 height = fields.optDouble("height", 180.0).dp,
             )
         }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun NexaDevRenderControlNode(
+    kind: String,
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+    modifier: Modifier,
+) {
+    when (kind) {
         "Button" -> {
             val loading = store.evaluatePresented(fields.opt("loading"), locals, scope) as? Boolean ?: false
             val disabled = store.evaluatePresented(fields.opt("disabled"), locals, scope) as? Boolean ?: false
@@ -892,7 +812,7 @@ internal fun NexaDevNode(
                 label = label,
                 icon = icon,
                 style = style,
-                size = fields.optString("size").takeIf(String::isNotEmpty),
+                size = fields.nexaDevOptionalString("size")?.takeIf(String::isNotEmpty),
                 shape = buttonShape,
                 tint = tint,
                 loading = loading,
@@ -902,507 +822,9 @@ internal fun NexaDevNode(
                 onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) },
             )
         }
-        "Pressable" -> {
-            val disabled = store.evaluatePresented(fields.opt("disabled"), locals, scope) as? Boolean ?: false
-            val doubleTapActions = fields.optJSONArray("double_tap_actions") ?: JSONArray()
-            val longPressActions = fields.optJSONArray("long_press_actions") ?: JSONArray()
-            val contextMenuActions = fields.optJSONArray("context_menu") ?: JSONArray()
-            val contextMenuExpanded = if (contextMenuActions.length() > 0) {
-                remember(scope) { mutableStateOf(false) }
-            } else {
-                null
-            }
-            val dragParameters = fields.optJSONArray(NexaDevKeys.DRAG_PARAMETERS) ?: JSONArray()
-            val dragActions = fields.optJSONArray(NexaDevKeys.DRAG_ACTIONS) ?: JSONArray()
-            val pinchParameter = fields.optString(NexaDevKeys.PINCH_PARAMETER).takeIf(String::isNotEmpty)
-            val pinchActions = fields.optJSONArray(NexaDevKeys.PINCH_ACTIONS) ?: JSONArray()
-            val hapticStyle = fields.optString("haptic").takeIf(String::isNotEmpty)
-            val fillMaxSize = fields.optBoolean("fill_max_size", false)
-            val haptic = LocalHapticFeedback.current
-            val hapticType = when (hapticStyle) {
-                "Light" -> HapticFeedbackType.TextHandleMove
-                "Medium" -> HapticFeedbackType.LongPress
-                "Heavy" -> HapticFeedbackType.ContextClick
-                else -> null
-            }
-            val dragModifier = if (pinchParameter != null) {
-                val density = if (dragParameters.length() == 4) LocalDensity.current.density else 1f
-                Modifier.pointerInput(density, !disabled, dragActions, pinchActions) {
-                    if (!disabled) {
-                        var translationX = 0f
-                        var translationY = 0f
-                        var lastGestureTime = 0L
-                        val gestureLocals = locals.toMutableMap()
-                        detectTransformGestures { _, pan, zoomChange, _ ->
-                            if (dragParameters.length() == 4 && (pan.x != 0f || pan.y != 0f)) {
-                                translationX += pan.x
-                                translationY += pan.y
-                                val now = SystemClock.uptimeMillis()
-                                val elapsed = if (lastGestureTime == 0L || now - lastGestureTime > 100L) {
-                                    0L
-                                } else {
-                                    now - lastGestureTime
-                                }
-                                lastGestureTime = now
-                                gestureLocals[dragParameters.getString(0)] =
-                                    (translationX / density).toDouble()
-                                gestureLocals[dragParameters.getString(1)] =
-                                    (translationY / density).toDouble()
-                                gestureLocals[dragParameters.getString(2)] =
-                                    if (elapsed == 0L) 0.0 else (pan.x * 1000f / elapsed.toFloat() / density).toDouble()
-                                gestureLocals[dragParameters.getString(3)] =
-                                    if (elapsed == 0L) 0.0 else (pan.y * 1000f / elapsed.toFloat() / density).toDouble()
-                                store.perform(dragActions, scope, gestureLocals)
-                            }
-                            if (zoomChange != 1f) {
-                                gestureLocals[pinchParameter] = zoomChange.toDouble()
-                                store.perform(pinchActions, scope, gestureLocals)
-                            }
-                        }
-                    }
-                }
-            } else if (dragParameters.length() == 4) {
-                val density = LocalDensity.current.density
-                Modifier.pointerInput(density, !disabled, dragActions) {
-                    if (!disabled) {
-                        val velocityTracker = VelocityTracker()
-                        var translationX = 0f
-                        var translationY = 0f
-                        val dragLocals = locals.toMutableMap()
-                        detectDragGestures(
-                            onDragStart = {
-                                translationX = 0f
-                                translationY = 0f
-                                velocityTracker.resetTracking()
-                            },
-                            onDragEnd = { velocityTracker.resetTracking() },
-                            onDragCancel = { velocityTracker.resetTracking() },
-                            onDrag = { change, dragAmount ->
-                                translationX += dragAmount.x
-                                translationY += dragAmount.y
-                                velocityTracker.addPointerInputChange(change)
-                                val velocity = velocityTracker.calculateVelocity()
-                                dragLocals[dragParameters.getString(0)] =
-                                    (translationX / density).toDouble()
-                                dragLocals[dragParameters.getString(1)] =
-                                    (translationY / density).toDouble()
-                                dragLocals[dragParameters.getString(2)] =
-                                    (velocity.x / density).toDouble()
-                                dragLocals[dragParameters.getString(3)] =
-                                    (velocity.y / density).toDouble()
-                                store.perform(dragActions, scope, dragLocals)
-                                change.consume()
-                            },
-                        )
-                    }
-                }
-            } else {
-                Modifier
-            }
-            val pressableModifier = if (fillMaxSize) dragModifier.fillMaxSize() else dragModifier
-            val pressableCore: @Composable () -> Unit = {
-                Box(pressableModifier.combinedClickable(
-                        enabled = !disabled,
-                        interactionSource = null,
-                        indication = null,
-                        onClick = {
-                            if (hapticType != null) haptic.performHapticFeedback(hapticType)
-                            store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
-                        },
-                        onLongClick = {
-                            contextMenuExpanded?.value = true
-                            store.perform(longPressActions, scope, locals)
-                        },
-                        onDoubleClick = {
-                            if (hapticType != null) haptic.performHapticFeedback(hapticType)
-                            store.perform(doubleTapActions, scope, locals)
-                        },
-                )) {
-                    RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
-                }
-            }
-            val pressableContent: @Composable () -> Unit = {
-                if (contextMenuActions.length() == 0) {
-                    pressableCore()
-                } else {
-                    Box {
-                        pressableCore()
-                        DropdownMenu(
-                            expanded = contextMenuExpanded?.value == true,
-                            onDismissRequest = { contextMenuExpanded?.value = false },
-                        ) {
-                            for (index in 0 until contextMenuActions.length()) {
-                                val menuNode = contextMenuActions.optJSONObject(index) ?: continue
-                                val menuButton = menuNode.optJSONObject("Button") ?: continue
-                                val label = store.stringify(store.evaluatePresented(menuButton.opt("label"), locals, scope))
-                                val disabledAction = store.evaluatePresented(menuButton.opt("disabled"), locals, scope) as? Boolean ?: false
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    enabled = !disabledAction,
-                                    onClick = {
-                                        store.perform(menuButton.optJSONArray("actions") ?: JSONArray(), scope, locals)
-                                        contextMenuExpanded?.value = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            if (longPressActions.length() == 0) {
-                pressableContent()
-            } else {
-                val longPressDurationMs = (store.evaluatePresented(
-                    fields.opt(NexaDevKeys.LONG_PRESS_DURATION_MS),
-                    locals,
-                    scope,
-                ) as? Number)?.toLong()?.coerceAtLeast(1L) ?: 500L
-                val baseViewConfiguration = LocalViewConfiguration.current
-                val longPressViewConfiguration = remember(baseViewConfiguration, longPressDurationMs) {
-                    object : ViewConfiguration by baseViewConfiguration {
-                        override val longPressTimeoutMillis: Long = longPressDurationMs
-                    }
-                }
-                CompositionLocalProvider(LocalViewConfiguration provides longPressViewConfiguration) {
-                    pressableContent()
-                }
-            }
-        }
-        "TextInput" -> {
-            val state = fields.optString("state")
-            val value = store.stringify(store.state(state, scope))
-            val sourcePlaceholder = fields.optString("placeholder")
-            val placeholder = sourcePlaceholder.takeIf(String::isNotEmpty)
-                ?.let { store.localizedText(it, it) }
-            val focusKey = "$scope/input/$state"
-            val focusRequester = remember(focusKey) { FocusRequester() }
-            val keyboardType = when (fields.optString("keyboard")) {
-                "Number" -> KeyboardType.Number
-                "Email" -> KeyboardType.Email
-                "Phone" -> KeyboardType.Phone
-                "Url" -> KeyboardType.Uri
-                else -> KeyboardType.Text
-            }
-            val capitalization = when (fields.optString("capitalization")) {
-                "None" -> KeyboardCapitalization.None
-                "Words" -> KeyboardCapitalization.Words
-                "Characters" -> KeyboardCapitalization.Characters
-                else -> KeyboardCapitalization.Sentences
-            }
-            val autofill = fields.optString("autofill")
-            val submitActions = fields.optJSONArray("actions") ?: JSONArray()
-            val imeAction = when (fields.optString("return_key")) {
-                "Done" -> ImeAction.Done
-                "Search" -> ImeAction.Search
-                "Send" -> ImeAction.Send
-                "Next" -> ImeAction.Next
-                else -> if (submitActions.length() > 0) ImeAction.Done else ImeAction.Default
-            }
-            val maxLength = fields.optInt("max_length", Int.MAX_VALUE).coerceAtLeast(0)
-            val minLines = fields.optInt("min_lines", 1).coerceAtLeast(1)
-            val maxLines = fields.optInt("max_lines", Int.MAX_VALUE).coerceAtLeast(minLines)
-            val textStyle = when (fields.optString("font")) {
-                "Body" -> MaterialTheme.typography.bodyLarge
-                "Title3" -> MaterialTheme.typography.titleMedium
-                else -> LocalTextStyle.current
-            }
-            val onChange = fields.optJSONObject("on_change")
-            var fieldModifier: Modifier = Modifier
-                .focusRequester(focusRequester)
-                .onFocusChanged { focusState ->
-                    if (focusState.isFocused) store.focusChanged(focusKey)
-                    else if (store.focusedFieldKey == focusKey) store.focusChanged(null)
-                }
-            fieldModifier = when (autofill) {
-                "Username" -> fieldModifier.semantics { contentType = ContentType.Username }
-                "Password" -> fieldModifier.semantics { contentType = ContentType.Password }
-                "OneTimeCode" -> fieldModifier.semantics { contentType = ContentType.SmsOtpCode }
-                else -> fieldModifier
-            }
-            LaunchedEffect(store.moduleRevision, store.focusedFieldKey, focusKey) {
-                if (store.focusedFieldKey == focusKey) focusRequester.requestFocus()
-            }
-            NexaTextInputPrimitive(
-                value = value,
-                onValueChange = { next ->
-                    val updated = next.take(maxLength)
-                    store.setState(state, updated, scope)
-                    val parameter = onChange?.optString("parameter")?.takeIf(String::isNotEmpty)
-                    if (parameter != null) {
-                        val changeLocals = locals.toMutableMap()
-                        changeLocals[parameter] = updated
-                        store.perform(onChange.optJSONArray("actions") ?: JSONArray(), scope, changeLocals)
-                    }
-                },
-                modifier = fieldModifier.then(modifier),
-                placeholder = placeholder.orEmpty(),
-                searchable = fields.optBoolean("searchable"),
-                searchIcon = if (fields.optBoolean("searchable")) nexaDevSharedMaterialIcon("search") else null,
-                textStyle = textStyle,
-                minLines = minLines,
-                maxLines = maxLines,
-                singleLine = !fields.optBoolean("multiline"),
-                secure = fields.optBoolean("secure"),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = keyboardType,
-                    capitalization = capitalization,
-                    autoCorrect = fields.optBoolean("autocorrect", true),
-                    imeAction = imeAction,
-                ),
-                keyboardActions = if (submitActions.length() == 0) KeyboardActions() else when (imeAction) {
-                    ImeAction.Search -> KeyboardActions(onSearch = { store.perform(submitActions, scope, locals) })
-                    ImeAction.Send -> KeyboardActions(onSend = { store.perform(submitActions, scope, locals) })
-                    ImeAction.Next -> KeyboardActions(onNext = { store.perform(submitActions, scope, locals) })
-                    else -> KeyboardActions(onDone = { store.perform(submitActions, scope, locals) })
-                },
-            )
-        }
-        "FastList" -> {
-            val plan = fields.optJSONObject("plan")
-            val countPlan = plan?.optJSONObject("Count")
-            val itemPlan = plan?.optJSONObject("Items")
-            val sectionPlan = plan?.optJSONObject("Sections")
-            val listPlan = countPlan ?: itemPlan ?: sectionPlan
-            val options = listPlan?.optJSONObject("common")
-            val countExpression = countPlan?.opt("count")
-            val itemExpression = itemPlan?.opt("collection")
-            val sourceItems = itemExpression?.let { store.evaluatePresented(it, locals, scope) as? List<*> }
-            val sectionExpression = sectionPlan?.opt("collection")
-            val sourceSections = sectionExpression?.let { store.evaluatePresented(it, locals, scope) as? List<*> }
-            val axisValue = options?.opt("axis")
-            val gridColumns = (axisValue as? JSONObject)
-                ?.optJSONObject("Grid")
-                ?.optInt("columns", 0)
-                ?.takeIf { it > 0 }
-            val axis = when {
-                axisValue == "Horizontal" -> "Horizontal"
-                gridColumns != null -> "Grid"
-                else -> "Vertical"
-            }
-            val reverseLayout = options?.optBoolean(NexaDevKeys.REVERSE_LAYOUT, false) ?: false
-            val pageSnap = options?.optBoolean(NexaDevKeys.PAGE_SNAP, false) ?: false
-            if (options == null || countExpression == null && sourceItems == null && sourceSections == null) {
-                Text("FastList source could not be evaluated.")
-            } else {
-                val itemCount = countExpression?.let {
-                    (store.evaluatePresented(it, locals, scope) as? Number)?.toInt()?.coerceAtLeast(0) ?: 0
-                } ?: sourceItems?.size ?: 0
-                val count = sourceSections?.sumOf { (it as? List<*>)?.size ?: 0 } ?: itemCount
-                val indexName = options.optString("index", "index")
-                val itemName = listPlan.optString("item").takeIf(String::isNotEmpty)
-                val sectionName = listPlan.optString("section").takeIf(String::isNotEmpty)
-                val children = options.optJSONArray("children") ?: JSONArray()
-                val stickyHeaderNodes = options.optJSONArray("sticky_header")
-                val sectionHeader = options.optJSONArray("section_header")
-                val onScroll = options.optJSONArray("on_scroll")
-                val onEndReached = options.optJSONArray("on_end_reached")
-                val onMove = options.optJSONObject("on_move")
-                val moveEnabled = onMove?.opt("enabled")?.let {
-                    store.evaluatePresented(it, locals, scope) as? Boolean
-                } ?: true
-                val refresh = options.optJSONObject("refresh")
-                val refreshState = refresh?.optString("state")?.takeIf(String::isNotEmpty)
-                val refreshActions = refresh?.optJSONArray("actions") ?: JSONArray()
-                var endReached by remember(countExpression, sourceItems?.size, sourceSections?.size) { mutableStateOf(false) }
-                val scrollPositionName = options.optString("scroll_position").takeIf(String::isNotEmpty)
-                val requestedIndex = scrollPositionName?.let { name ->
-                    (store.state(name, scope) as? Number)?.toInt()?.coerceIn(0, maxOf(0, count - 1)) ?: 0
-                } ?: if (reverseLayout) maxOf(0, count - 1) else 0
-                val requestedPosition = if (reverseLayout) {
-                    (count - 1 - requestedIndex).coerceIn(0, maxOf(0, count - 1))
-                } else requestedIndex
-                val extent = options.optDouble("item_extent", 0.0).takeIf { it > 0.0 }?.dp
-                val renderItem: @Composable (Int, String) -> Unit = { itemIndex, itemAxis ->
-                    var rowLocals = locals + (indexName to itemIndex)
-                    if (itemName != null && sourceItems != null) {
-                        rowLocals = rowLocals + (itemName to (sourceItems.getOrNull(itemIndex) ?: JSONObject.NULL))
-                    }
-                    val itemModifier = when (itemAxis) {
-                        "Horizontal" -> extent?.let { Modifier.widthIn(min = it) } ?: Modifier
-                        "Grid" -> Modifier.fillMaxWidth().then(extent?.let { Modifier.heightIn(min = it) } ?: Modifier)
-                        else -> Modifier.fillMaxWidth().then(extent?.let { Modifier.heightIn(min = it) } ?: Modifier)
-                    }
-                    val reorderModifier = if (onMove != null && moveEnabled && itemAxis == "Vertical") {
-                        val rowExtentPx = with(LocalDensity.current) { (extent ?: 56.dp).toPx() }
-                        Modifier.pointerInput(itemIndex, count, onMove) {
-                            var dragDistance = 0f
-                            detectDragGesturesAfterLongPress(
-                                onDragEnd = {
-                                    val from = itemIndex
-                                    val to = (from + (dragDistance / rowExtentPx).roundToInt()).coerceIn(0, count - 1)
-                                    if (to != from) {
-                                        val callbackLocals = locals +
-                                            (onMove.optString("from") to from) +
-                                            (onMove.optString("to") to to)
-                                        store.perform(onMove.optJSONArray("actions") ?: JSONArray(), scope, callbackLocals)
-                                    }
-                                },
-                                onDragCancel = { dragDistance = 0f },
-                                onDrag = { change, amount ->
-                                    dragDistance += amount.y
-                                    change.consume()
-                                },
-                            )
-                        }
-                    } else Modifier
-                    Column(itemModifier.then(reorderModifier)) {
-                        RenderChildren(children, module, store, rowLocals, scope)
-                    }
-                }
-                val renderHeader: @Composable (JSONArray, Map<String, Any>) -> Unit = { nodes, headerLocals ->
-                    Column(Modifier.fillMaxWidth()) {
-                        RenderChildren(nodes, module, store, headerLocals, scope)
-                    }
-                }
-                val observeScroll: suspend (Int, Int, Int) -> Unit = { firstVisible, visibleCount, total ->
-                    val logicalFirstVisible = if (reverseLayout) {
-                        (total - 1 - firstVisible).coerceAtLeast(0)
-                    } else firstVisible
-                    val callbackLocals = locals + (indexName to logicalFirstVisible)
-                    if (scrollPositionName != null) {
-                        val storedIndex = (store.state(scrollPositionName, scope) as? Number)?.toInt()
-                        if (storedIndex != logicalFirstVisible) store.setState(scrollPositionName, logicalFirstVisible, scope)
-                    }
-                    if (onScroll != null && onScroll != JSONObject.NULL) store.perform(onScroll, scope, callbackLocals)
-                    if (onEndReached != null && onEndReached != JSONObject.NULL) {
-                        val reached = total > 0 && firstVisible + visibleCount >= total
-                        if (reached && !endReached) store.perform(onEndReached, scope, callbackLocals)
-                        endReached = reached
-                    }
-                }
-                val listContent: @Composable () -> Unit = {
-                    if (axis == "Grid") {
-                        val listState = rememberLazyGridState(initialFirstVisibleItemIndex = requestedIndex)
-                        val itemIndices = remember(count) { List(count) { it } }
-                        LaunchedEffect(listState, scrollPositionName, onScroll, onEndReached, count) {
-                            snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) }
-                                .distinctUntilChanged()
-                                .collect { (firstVisible, visibleCount) -> observeScroll(firstVisible, visibleCount, count) }
-                        }
-                        LaunchedEffect(listState, requestedIndex, count) {
-                            if (count > 0 && listState.firstVisibleItemIndex != requestedIndex) {
-                                listState.scrollToItem(requestedIndex)
-                            }
-                        }
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(gridColumns ?: 1),
-                            state = listState,
-                            modifier = modifier.fillMaxWidth(),
-                        ) {
-                            gridItems(items = itemIndices, key = { itemIndex -> itemIndex }) { itemIndex ->
-                                renderItem(itemIndex, axis)
-                            }
-                        }
-                    } else {
-                        val listState = rememberLazyListState(initialFirstVisibleItemIndex = requestedPosition)
-                        if (reverseLayout) {
-                            val previousCount = remember(listState) { intArrayOf(count) }
-                            LaunchedEffect(listState, count) {
-                                val oldCount = previousCount[0]
-                                val delta = count - oldCount
-                                if (delta > 0 && count > 0) {
-                                    val firstVisible = listState.firstVisibleItemIndex
-                                    val offset = listState.firstVisibleItemScrollOffset
-                                    if (firstVisible == delta && offset == 0) {
-                                        listState.scrollToItem(0)
-                                    }
-                                }
-                                previousCount[0] = count
-                            }
-                        }
-                        LaunchedEffect(listState, scrollPositionName, onScroll, onEndReached, count) {
-                            if (pageSnap) {
-                                snapshotFlow { listState.isScrollInProgress }
-                                    .distinctUntilChanged()
-                                    .collect { isScrolling ->
-                                        if (!isScrolling) {
-                                            observeScroll(
-                                                listState.firstVisibleItemIndex,
-                                                listState.layoutInfo.visibleItemsInfo.size,
-                                                count,
-                                            )
-                                        }
-                                    }
-                            } else {
-                                snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) }
-                                    .distinctUntilChanged()
-                                    .collect { (firstVisible, visibleCount) -> observeScroll(firstVisible, visibleCount, count) }
-                            }
-                        }
-                        LaunchedEffect(listState, requestedPosition) {
-                            if (count > 0 && listState.firstVisibleItemIndex != requestedPosition) {
-                                listState.scrollToItem(requestedPosition)
-                            }
-                        }
-                        if (axis == "Horizontal") {
-                            LazyRow(state = listState, modifier = modifier.fillMaxWidth()) {
-                                items(count = count, key = { itemIndex -> itemIndex }) { itemIndex ->
-                                    renderItem(itemIndex, axis)
-                                }
-                            }
-                        } else {
-                            LazyColumn(
-                                state = listState,
-                                reverseLayout = reverseLayout,
-                                flingBehavior = if (pageSnap) {
-                                    rememberSnapFlingBehavior(
-                                        lazyListState = listState,
-                                        snapPosition = SnapPosition.Start,
-                                    )
-                                } else androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior(),
-                                modifier = modifier.fillMaxWidth(),
-                            ) {
-                                if (stickyHeaderNodes != null && stickyHeaderNodes != JSONObject.NULL) {
-                                    stickyHeader { renderHeader(stickyHeaderNodes, locals) }
-                                }
-                                if (sourceSections != null) {
-                                    sourceSections.forEachIndexed { sectionIndex, rawSection ->
-                                        val sectionItems = rawSection as? List<*> ?: emptyList<Any?>()
-                                        if (sectionHeader != null && sectionHeader != JSONObject.NULL) {
-                                            stickyHeader {
-                                                renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
-                                            }
-                                        }
-                                        items(count = sectionItems.size, key = { itemIndex -> "${sectionIndex}:$itemIndex" }) { itemIndex ->
-                                            var rowLocals = locals + (indexName to itemIndex) + ((sectionName ?: "section") to sectionIndex)
-                                            if (itemName != null) rowLocals = rowLocals + (itemName to (sectionItems.getOrNull(itemIndex) ?: JSONObject.NULL))
-                                            Column(Modifier.fillMaxWidth().then(extent?.let { Modifier.heightIn(min = it) } ?: Modifier)) {
-                                                RenderChildren(children, module, store, rowLocals, scope)
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    items(
-                                        count = count,
-                                        key = { itemPosition ->
-                                            if (reverseLayout) count - 1 - itemPosition else itemPosition
-                                        },
-                                    ) { itemPosition ->
-                                        val itemIndex = if (reverseLayout) count - 1 - itemPosition else itemPosition
-                                        if (pageSnap) {
-                                            Box(Modifier.fillParentMaxSize()) {
-                                                renderItem(itemIndex, axis)
-                                            }
-                                        } else {
-                                            renderItem(itemIndex, axis)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if (refreshState != null) {
-                    PullToRefreshBox(
-                        isRefreshing = store.state(refreshState, scope) as? Boolean ?: false,
-                        onRefresh = { store.perform(refreshActions, scope, locals) },
-                        modifier = modifier.fillMaxWidth(),
-                    ) { listContent() }
-                } else {
-                    listContent()
-                }
-            }
-        }
+        "Pressable" -> NexaDevRenderPressableNode(fields, module, store, locals, scope, modifier)
+        "TextInput" -> NexaDevRenderTextInputNode(fields, module, store, locals, scope, modifier)
+        "FastList" -> NexaDevRenderFastListNode(fields, module, store, locals, scope, modifier)
         "Switch" -> {
             val state = fields.optString("state")
             val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
@@ -1504,76 +926,101 @@ internal fun NexaDevNode(
                 onIncludesTimeChanged = { store.setState(hasTimeName, it, scope) },
             )
         }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun NexaDevRenderListNode(
+    kind: String,
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+    modifier: Modifier,
+) {
+    when (kind) {
         "Image" -> {
             val source = fields.optJSONObject("source") ?: JSONObject()
-            val description = fields.optString("description").takeIf(String::isNotEmpty)
+            val description = fields.nexaDevOptionalString("description")?.takeIf(String::isNotEmpty)
             val scale = if (fields.optString("scale") == "Fill") ContentScale.Crop else ContentScale.Fit
-            val placeholder = fields.optString("placeholder").takeIf(String::isNotEmpty)
+            val placeholder = fields.nexaDevOptionalString("placeholder")?.takeIf(String::isNotEmpty)
             val sharedElementExpression = fields.opt("shared_element")
             val renderedModifier = if (sharedElementExpression != null && sharedElementExpression != JSONObject.NULL) {
                 modifier.then(nexaSharedElementModifier(store.evaluatePresented(sharedElementExpression, locals, scope) ?: ""))
             } else {
                 modifier
             }
-            val imageModifier = if (fields.has("max_height")) renderedModifier.heightIn(max = fields.optDouble("max_height").dp) else renderedModifier
+            val maxHeight = if (fields.has("max_height")) fields.optDouble("max_height").dp else null
             val asset = source.optString("Asset").takeIf(String::isNotEmpty)
             val remoteExpression = source.opt("RemoteUrl")
             val localFileExpression = source.opt("LocalFile")
             if (asset != null) {
-                val context = LocalContext.current
-                val resourceId = remember(asset) { context.resources.getIdentifier(asset, "drawable", context.packageName) }
-                if (resourceId != 0) {
-                    Image(painterResource(resourceId), contentDescription = description, contentScale = scale, modifier = imageModifier)
-                } else {
-                    Text(placeholder ?: "Image unavailable", modifier = imageModifier)
-                }
+                NexaAssetImagePrimitive(
+                    name = asset,
+                    contentDescription = description,
+                    contentScale = scale,
+                    maxHeight = maxHeight,
+                    modifier = renderedModifier,
+                )
             } else if (remoteExpression != null && remoteExpression != JSONObject.NULL) {
                 val url = store.stringify(store.evaluatePresented(remoteExpression, locals, scope))
-                val context = LocalContext.current
-                val placeholderId = remember(placeholder) {
-                    placeholder?.let { context.resources.getIdentifier(it, "drawable", context.packageName) } ?: 0
-                }
-                val placeholderPainter = if (placeholderId != 0) painterResource(placeholderId) else null
-                AsyncImage(
-                    model = url.takeIf { it.startsWith("https://") },
-                    imageLoader = nexaImageLoader(),
+                NexaRemoteImagePrimitive(
+                    url = url,
+                    allowsFile = false,
+                    placeholder = placeholder,
                     contentDescription = description,
                     contentScale = scale,
-                    placeholder = placeholderPainter,
-                    error = placeholderPainter,
-                    modifier = imageModifier,
+                    maxHeight = maxHeight,
+                    modifier = renderedModifier,
                 )
             } else if (localFileExpression != null && localFileExpression != JSONObject.NULL) {
-                val fileUri = store.stringify(store.evaluatePresented(localFileExpression, locals, scope))
-                    .takeIf { it.startsWith("file://") }
-                AsyncImage(
-                    model = fileUri,
-                    imageLoader = nexaImageLoader(),
+                val fileUrl = store.stringify(store.evaluatePresented(localFileExpression, locals, scope))
+                NexaRemoteImagePrimitive(
+                    url = fileUrl,
+                    allowsFile = true,
+                    placeholder = null,
                     contentDescription = description,
                     contentScale = scale,
-                    modifier = imageModifier,
+                    maxHeight = maxHeight,
+                    modifier = renderedModifier,
                 )
             } else {
-                Text(placeholder ?: "Image unavailable", modifier = imageModifier)
+                Text(placeholder ?: "Image unavailable", modifier = renderedModifier)
             }
         }
         "RefreshControl" -> {
             val state = fields.optString("state")
             val actions = fields.optJSONArray("actions") ?: JSONArray()
             val children = fields.optJSONArray("children") ?: JSONArray()
-            PullToRefreshBox(
+            NexaRefreshControlPrimitive(
                 isRefreshing = store.state(state, scope) as? Boolean ?: false,
                 onRefresh = { store.perform(actions, scope, locals) },
-                modifier = modifier.fillMaxWidth(),
+                scrollContent = !nexaDevContainsScrollable(children),
+                modifier = modifier,
             ) {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    RenderChildren(children, module, store, locals, scope)
-                }
+                RenderChildren(children, module, store, locals, scope)
             }
         }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun NexaDevRenderNavigationNode(
+    kind: String,
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+    modifier: Modifier,
+) {
+    when (kind) {
         "If" -> {
             val condition = store.evaluatePresented(fields.opt("condition"), locals, scope) as? Boolean ?: false
-            val transition = fields.optString("transition")
+            val transition = fields.nexaDevTransition()
             if (transition.isEmpty()) {
                 RenderChildren(fields.optJSONArray(if (condition) "then_body" else "else_body") ?: JSONArray(), module, store, locals, scope)
             } else {
@@ -1597,7 +1044,7 @@ internal fun NexaDevNode(
         }
         "When" -> {
             val value = store.stringify(store.evaluatePresented(fields.opt("value"), locals, scope))
-            val transition = fields.optString("transition")
+            val transition = fields.nexaDevTransition()
             if (transition.isEmpty()) {
                 renderWhenTarget(value, fields, module, store, locals, scope)
             } else {
@@ -1623,7 +1070,7 @@ internal fun NexaDevNode(
             val context = LocalContext.current
             val url = store.stringify(store.evaluatePresented(fields.opt("url"), locals, scope))
             val children = fields.optJSONArray("children") ?: JSONArray()
-            Column(Modifier.clickable(interactionSource = null, indication = null) { openNexaUrl(context, url) }) {
+            NexaLinkPrimitive(onClick = { openNexaUrl(context, url) }) {
                 RenderChildren(children, module, store, locals, scope)
             }
         }
@@ -1633,18 +1080,19 @@ internal fun NexaDevNode(
             val hint = if (hintValue == null || hintValue == JSONObject.NULL) null else store.stringify(store.evaluatePresented(hintValue, locals, scope))
             val accessibilityValue = fields.opt("value")
             val value = if (accessibilityValue == null || accessibilityValue == JSONObject.NULL) null else store.stringify(store.evaluatePresented(accessibilityValue, locals, scope))
-            val role = when (fields.optString("role")) {
-                "Button" -> SemanticsRole.Button
-                "Image" -> SemanticsRole.Image
-                else -> null
-            }
-            Column(Modifier.semantics(mergeDescendants = true) {
-                contentDescription = if (hint != null) "$label, $hint" else label
-                if (value != null) stateDescription = value
-                if (role != null) this.role = role
-                if (fields.optString("role") == "Header") heading()
-            }) {
-                RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
+            val children = fields.optJSONArray("children") ?: JSONArray()
+            val omitLabel = children.length() == 1 && children.optJSONObject(0)
+                ?.optJSONObject("Image")?.optString("description") == label
+            val role = fields.optString("role").takeIf { it.isNotEmpty() }
+            NexaAccessibilityPrimitive(
+                label = label,
+                hint = hint,
+                value = value,
+                role = role,
+                isHeading = role == "Header",
+                omitLabel = omitLabel,
+            ) {
+                RenderChildren(children, module, store, locals, scope)
             }
         }
         "KeyboardAware" -> {
@@ -1660,208 +1108,7 @@ internal fun NexaDevNode(
                 RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
             }
         }
-        "AppBottomBar" -> {
-            val state = fields.optString("state")
-            val tabs = fields.optJSONArray("tabs") ?: JSONArray()
-            val tintValue = fields.optJSONObject("tint") ?: JSONObject()
-            val dynamicTint = tintValue.opt("Dynamic")
-            val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
-                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope) ?: ""))
-            } else {
-                nexaDevColor(tintValue, isSystemInDarkTheme())
-            }
-            val selected = (store.state(state, scope) as? Number)?.toInt() ?: 0
-            val tabStateHolder = rememberSaveableStateHolder()
-            val tabItemColors = tint?.let {
-                NavigationSuiteDefaults.itemColors(
-                    navigationBarItemColors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-                        selectedIconColor = it,
-                        selectedTextColor = it,
-                        indicatorColor = it.copy(alpha = 0.12f),
-                    ),
-                    navigationRailItemColors = androidx.compose.material3.NavigationRailItemDefaults.colors(
-                        selectedIconColor = it,
-                        selectedTextColor = it,
-                        indicatorColor = it.copy(alpha = 0.12f),
-                    ),
-                    navigationDrawerItemColors = androidx.compose.material3.NavigationDrawerItemDefaults.colors(
-                        selectedIconColor = it,
-                        selectedTextColor = it,
-                        selectedContainerColor = it.copy(alpha = 0.12f),
-                    ),
-                )
-            }
-            MaterialTheme(
-                colorScheme = tint?.let { MaterialTheme.colorScheme.copy(primary = it) }
-                    ?: MaterialTheme.colorScheme,
-            ) {
-                NavigationSuiteScaffold(
-                    navigationSuiteItems = {
-                        for (index in 0 until tabs.length()) {
-                            val tab = tabs.optJSONObject(index) ?: continue
-                            val tabIndex = tab.optInt("index", index)
-                            val label = tab.optString("label")
-                            val iconSelection = tab.optJSONObject("icon") ?: JSONObject()
-                            val badge = (tab.opt("badge") as? String)?.takeIf(String::isNotEmpty)
-                            val tabIcon = when {
-                                iconSelection.has("shared") -> nexaDevSharedMaterialIcon(iconSelection.optString("shared"))
-                                iconSelection.has("sf_symbol") -> nexaDevSfAliasMaterialIcon(iconSelection.optString("sf_symbol"))
-                                iconSelection.has("material_symbol") -> nexaDevSpecificMaterialIcon(iconSelection.optString("material_symbol"))
-                                else -> null
-                            }
-                            item(
-                                selected = selected == tabIndex,
-                                onClick = { store.setState(state, tabIndex, scope) },
-                                icon = {
-                                    if (tabIcon != null) Icon(imageVector = tabIcon, contentDescription = null)
-                                    else Spacer(Modifier.size(24.dp))
-                                },
-                                label = { Text(label) },
-                                alwaysShowLabel = true,
-                                badge = if (badge == null) null else ({ Badge { Text(badge) } }),
-                                colors = tabItemColors,
-                            )
-                        }
-                    },
-                ) {
-                    val activeTab = (0 until tabs.length())
-                        .firstNotNullOfOrNull { index -> tabs.optJSONObject(index)?.let { tab ->
-                            tab.takeIf { it.optInt("index", index) == selected }
-                        } }
-                    if (activeTab != null) {
-                        val activeIndex = activeTab.optInt("index", 0)
-                        tabStateHolder.SaveableStateProvider(key = "nexa-tab-$activeIndex") {
-                            val title = activeTab.optString("navigation_title").takeIf(String::isNotEmpty)
-                            val children = activeTab.optJSONArray("children") ?: JSONArray()
-                            val toolbarItems = nexaDevTabToolbars(children)
-                            val contentChildren = nexaDevWithoutTabToolbars(children)
-                            if (title == null && toolbarItems.isEmpty()) {
-                                RenderChildren(children, module, store, locals, scope)
-                            } else {
-                                val contentBackground = if (nexaDevContainsForm(children)) {
-                                    if (MaterialTheme.colorScheme.background == Color.Black) {
-                                        MaterialTheme.colorScheme.background
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                    }
-                                } else {
-                                    MaterialTheme.colorScheme.background
-                                }
-                                val contentModifier = if (nexaDevContainsForm(children)) {
-                                    Modifier.fillMaxSize().background(contentBackground)
-                                } else {
-                                    Modifier.fillMaxSize()
-                                }
-                                if (activeTab.optBoolean("large_title") && title != null) {
-                                    val titleScrollState = rememberTopAppBarState()
-                                    val titleScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(titleScrollState)
-                                    val titleWidthPx = remember { mutableIntStateOf(0) }
-                                    Column(contentModifier.nestedScroll(titleScrollBehavior.nestedScrollConnection)) {
-                                        LargeTopAppBar(
-                                            collapsedHeight = nexaDevLargeTitleAppBarCollapsedHeight.dp,
-                                            expandedHeight = nexaDevLargeTitleAppBarExpandedHeight.dp,
-                                            title = {
-                                                BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                                    val availableTitleWidth = with(LocalDensity.current) { maxWidth.toPx() }
-                                                    Text(
-                                                        title,
-                                                        color = MaterialTheme.colorScheme.onSurface,
-                                                        modifier = Modifier.graphicsLayer {
-                                                            val collapseFraction = titleScrollState.collapsedFraction
-                                                            val titleScale = 1f - 0.5f * collapseFraction
-                                                            translationX = ((availableTitleWidth - titleWidthPx.intValue * titleScale).coerceAtLeast(0f) / 2f) * collapseFraction
-                                                            scaleX = titleScale
-                                                            scaleY = titleScale
-                                                            transformOrigin = TransformOrigin(0f, 0.5f)
-                                                        },
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        style = MaterialTheme.typography.headlineLarge.copy(
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontSize = nexaDevFormLargeTitleFontSize.sp,
-                                                        ),
-                                                        onTextLayout = { titleWidthPx.intValue = it.size.width },
-                                                    )
-                                                }
-                                            },
-                                            navigationIcon = {
-                                                RenderTabToolbarItems(
-                                                    toolbarItems,
-                                                    "Leading",
-                                                    module,
-                                                    store,
-                                                    locals,
-                                                    scope,
-                                                )
-                                            },
-                                            actions = {
-                                                RenderTabToolbarItems(
-                                                    toolbarItems,
-                                                    "Trailing",
-                                                    module,
-                                                    store,
-                                                    locals,
-                                                    scope,
-                                                )
-                                            },
-                                            colors = TopAppBarDefaults.topAppBarColors(
-                                                containerColor = contentBackground,
-                                                scrolledContainerColor = contentBackground,
-                                            ),
-                                            scrollBehavior = titleScrollBehavior,
-                                        )
-                                        RenderTabSearchInput(activeTab, module, store, locals, scope)
-                                        RenderChildren(contentChildren, module, store, locals, scope)
-                                    }
-                                } else {
-                                    Column(contentModifier) {
-                                        if (title != null || toolbarItems.isNotEmpty()) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth().padding(
-                                                    start = 16.dp,
-                                                    top = 8.dp,
-                                                    end = 16.dp,
-                                                    bottom = 8.dp,
-                                                ),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                RenderTabToolbarItems(
-                                                    toolbarItems,
-                                                    "Leading",
-                                                    module,
-                                                    store,
-                                                    locals,
-                                                    scope,
-                                                )
-                                                if (title != null) {
-                                                    if (toolbarItems.any { it.first == "Leading" }) {
-                                                        Spacer(Modifier.width(8.dp))
-                                                    }
-                                                    Text(title, style = MaterialTheme.typography.titleLarge)
-                                                }
-                                                if (title != null || toolbarItems.any { it.first == "Leading" }) {
-                                                    Spacer(Modifier.weight(1f))
-                                                }
-                                                RenderTabToolbarItems(
-                                                    toolbarItems,
-                                                    "Trailing",
-                                                    module,
-                                                    store,
-                                                    locals,
-                                                    scope,
-                                                )
-                                            }
-                                        }
-                                        RenderTabSearchInput(activeTab, module, store, locals, scope)
-                                        RenderChildren(contentChildren, module, store, locals, scope)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        "AppBottomBar" -> NexaDevRenderAppBottomBarNode(fields, module, store, locals, scope, modifier)
         "PagePager" -> {
             val state = fields.optString("state")
             val pages = fields.optJSONArray("pages") ?: JSONArray()
@@ -1885,37 +1132,11 @@ internal fun NexaDevNode(
                         RenderChildren(children, module, store, locals, scope)
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth()
-                        .padding(bottom = nexaDevPageIndicatorBottomInset.dp),
-                    horizontalArrangement = Arrangement.spacedBy(
-                        nexaDevPageIndicatorSpacing.dp,
-                        Alignment.CenterHorizontally,
-                    ),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    for (page in 0 until pages.length()) {
-                        Box(
-                            modifier = Modifier
-                                .size(
-                                    if (pageState.currentPage == page) nexaDevPageIndicatorSelectedSize.dp
-                                    else nexaDevPageIndicatorUnselectedSize.dp,
-                                )
-                                .clip(CircleShape)
-                                .background(
-                                    if (pageState.currentPage == page) MaterialTheme.colorScheme.primary
-                                    else Color(__NEXA_MUTED_TEXT_ARGB__).copy(
-                                        alpha = nexaDevPageIndicatorInactiveOpacity,
-                                    ),
-                                )
-                                .clickable(
-                                    role = SemanticsRole.Button,
-                                    onClickLabel = "Page ${page + 1}",
-                                ) {
-                                    pageCoroutineScope.launch { pageState.animateScrollToPage(page) }
-                                },
-                        )
-                    }
+                NexaPageIndicatorRow(
+                    pageCount = pages.length(),
+                    currentPage = pageState.currentPage,
+                ) { page ->
+                    pageCoroutineScope.launch { pageState.animateScrollToPage(page) }
                 }
             }
         }
@@ -2021,26 +1242,12 @@ internal fun NexaDevNode(
             val sidebar = fields.optJSONArray("sidebar") ?: JSONArray()
             val detail = fields.optJSONArray("detail") ?: JSONArray()
             val state = fields.optString("detail_visible")
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                if (maxWidth >= 840.dp) {
-                    Row(Modifier.fillMaxSize()) {
-                        Box(Modifier.widthIn(min = 260.dp, max = 360.dp).fillMaxHeight()) {
-                            RenderChildren(sidebar, module, store, locals, scope)
-                        }
-                        Box(Modifier.weight(1f).fillMaxHeight()) {
-                            RenderChildren(detail, module, store, locals, scope)
-                        }
-                    }
-                } else {
-                    val showDetail = store.state(state, scope) as? Boolean == true
-                    BackHandler(enabled = showDetail) { store.setState(state, false, scope) }
-                    if (showDetail) {
-                        RenderChildren(detail, module, store, locals, scope)
-                    } else {
-                        RenderChildren(sidebar, module, store, locals, scope)
-                    }
-                }
-            }
+            NexaNavigationSplitViewPrimitive(
+                detailVisible = store.state(state, scope) as? Boolean == true,
+                onDetailVisibleChange = { store.setState(state, it, scope) },
+                sidebar = { RenderChildren(sidebar, module, store, locals, scope) },
+                detail = { RenderChildren(detail, module, store, locals, scope) },
+            )
         }
         "NavigationLink" -> {
             val screens = module.optJSONArray("screens") ?: JSONArray()
@@ -2048,25 +1255,25 @@ internal fun NexaDevNode(
             val children = fields.optJSONArray("children") ?: JSONArray()
             val guard = fields.opt("guard")
             val enabled = guard == null || guard == JSONObject.NULL || store.evaluatePresented(guard, locals, scope) as? Boolean == true
-            if (destination == null || !enabled) {
+            val staticallyDisabled = (guard as? JSONObject)?.opt("Bool") == false
+            if (destination == null || staticallyDisabled) {
                 RenderChildren(children, module, store, locals, scope)
             } else {
                 val controller = LocalNexaDevNavController.current
                 val route = store.encodeScreenRoute(destination, fields.optJSONArray("arguments") ?: JSONArray(), locals, scope)
-                Row(
-                    modifier = Modifier.fillMaxWidth()
-                        .clickable(enabled = enabled) { controller?.navigate(route) },
-                    verticalAlignment = Alignment.CenterVertically,
+                NexaNavigationLinkPrimitive(
+                    enabled = enabled,
+                    onClick = { controller?.navigate(route) },
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.Filled.ChevronRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
                 ) {
-                    Box(Modifier.weight(1f)) {
-                        RenderChildren(children, module, store, locals, scope)
-                    }
-                    Icon(
-                        imageVector = Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    RenderChildren(children, module, store, locals, scope)
                 }
             }
         }
@@ -2253,6 +1460,799 @@ private fun nexaDevWithoutSheetToolbars(nodes: JSONArray): JSONArray {
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun NexaDevRenderPressableNode(
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+    modifier: Modifier,
+) {
+        val disabled = store.evaluatePresented(fields.opt("disabled"), locals, scope) as? Boolean ?: false
+        val doubleTapActions = fields.optJSONArray("double_tap_actions") ?: JSONArray()
+        val longPressActions = fields.optJSONArray("long_press_actions") ?: JSONArray()
+        val contextMenuActions = fields.optJSONArray("context_menu") ?: JSONArray()
+        val contextMenuExpanded = if (contextMenuActions.length() > 0) {
+            remember(scope) { mutableStateOf(false) }
+        } else {
+            null
+        }
+        val dragParameters = fields.optJSONArray(NexaDevKeys.DRAG_PARAMETERS) ?: JSONArray()
+        val dragActions = fields.optJSONArray(NexaDevKeys.DRAG_ACTIONS) ?: JSONArray()
+        val pinchParameter = fields.nexaDevOptionalString(NexaDevKeys.PINCH_PARAMETER)
+            ?.takeIf(String::isNotEmpty)
+        val pinchActions = fields.optJSONArray(NexaDevKeys.PINCH_ACTIONS) ?: JSONArray()
+        val hapticStyle = fields.nexaDevOptionalString("haptic")?.takeIf(String::isNotEmpty)
+        val fillMaxSize = fields.optBoolean("fill_max_size", false)
+        val haptic = LocalHapticFeedback.current
+        val hapticType = when (hapticStyle) {
+            "Light" -> HapticFeedbackType.TextHandleMove
+            "Medium" -> HapticFeedbackType.LongPress
+            "Heavy" -> HapticFeedbackType.ContextClick
+            else -> null
+        }
+        val dragModifier = if (pinchParameter != null) {
+            val density = if (dragParameters.length() == 4) LocalDensity.current.density else 1f
+            Modifier.pointerInput(density, !disabled, dragActions, pinchActions) {
+                if (!disabled) {
+                    var translationX = 0f
+                    var translationY = 0f
+                    var lastGestureTime = 0L
+                    val gestureLocals = locals.toMutableMap()
+                    detectTransformGestures { _, pan, zoomChange, _ ->
+                        if (dragParameters.length() == 4 && (pan.x != 0f || pan.y != 0f)) {
+                            translationX += pan.x
+                            translationY += pan.y
+                            val now = SystemClock.uptimeMillis()
+                            val elapsed = if (lastGestureTime == 0L || now - lastGestureTime > 100L) {
+                                0L
+                            } else {
+                                now - lastGestureTime
+                            }
+                            lastGestureTime = now
+                            gestureLocals[dragParameters.getString(0)] =
+                                (translationX / density).toDouble()
+                            gestureLocals[dragParameters.getString(1)] =
+                                (translationY / density).toDouble()
+                            gestureLocals[dragParameters.getString(2)] =
+                                if (elapsed == 0L) 0.0 else (pan.x * 1000f / elapsed.toFloat() / density).toDouble()
+                            gestureLocals[dragParameters.getString(3)] =
+                                if (elapsed == 0L) 0.0 else (pan.y * 1000f / elapsed.toFloat() / density).toDouble()
+                            store.perform(dragActions, scope, gestureLocals)
+                        }
+                        if (zoomChange != 1f) {
+                            gestureLocals[pinchParameter] = zoomChange.toDouble()
+                            store.perform(pinchActions, scope, gestureLocals)
+                        }
+                    }
+                }
+            }
+        } else if (dragParameters.length() == 4) {
+            val density = LocalDensity.current.density
+            Modifier.pointerInput(density, !disabled, dragActions) {
+                if (!disabled) {
+                    val velocityTracker = VelocityTracker()
+                    var translationX = 0f
+                    var translationY = 0f
+                    val dragLocals = locals.toMutableMap()
+                    detectDragGestures(
+                        onDragStart = {
+                            translationX = 0f
+                            translationY = 0f
+                            velocityTracker.resetTracking()
+                        },
+                        onDragEnd = { velocityTracker.resetTracking() },
+                        onDragCancel = { velocityTracker.resetTracking() },
+                        onDrag = { change, dragAmount ->
+                            translationX += dragAmount.x
+                            translationY += dragAmount.y
+                            velocityTracker.addPointerInputChange(change)
+                            val velocity = velocityTracker.calculateVelocity()
+                            dragLocals[dragParameters.getString(0)] =
+                                (translationX / density).toDouble()
+                            dragLocals[dragParameters.getString(1)] =
+                                (translationY / density).toDouble()
+                            dragLocals[dragParameters.getString(2)] =
+                                (velocity.x / density).toDouble()
+                            dragLocals[dragParameters.getString(3)] =
+                                (velocity.y / density).toDouble()
+                            store.perform(dragActions, scope, dragLocals)
+                            change.consume()
+                        },
+                    )
+                }
+            }
+        } else {
+            Modifier
+        }
+        val pressableModifier = if (fillMaxSize) dragModifier.fillMaxSize() else dragModifier
+        val pressableCore: @Composable () -> Unit = {
+            Box(pressableModifier.combinedClickable(
+                    enabled = !disabled,
+                    interactionSource = null,
+                    indication = null,
+                    onClick = {
+                        if (hapticType != null) haptic.performHapticFeedback(hapticType)
+                        store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
+                    },
+                    onLongClick = {
+                        contextMenuExpanded?.value = true
+                        store.perform(longPressActions, scope, locals)
+                    },
+                    onDoubleClick = {
+                        if (hapticType != null) haptic.performHapticFeedback(hapticType)
+                        store.perform(doubleTapActions, scope, locals)
+                    },
+            )) {
+                RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
+            }
+        }
+        val pressableContent: @Composable () -> Unit = {
+            if (contextMenuActions.length() == 0) {
+                pressableCore()
+            } else {
+                Box {
+                    pressableCore()
+                    DropdownMenu(
+                        expanded = contextMenuExpanded?.value == true,
+                        onDismissRequest = { contextMenuExpanded?.value = false },
+                    ) {
+                        for (index in 0 until contextMenuActions.length()) {
+                            val menuNode = contextMenuActions.optJSONObject(index) ?: continue
+                            val menuButton = menuNode.optJSONObject("Button") ?: continue
+                            val label = store.stringify(store.evaluatePresented(menuButton.opt("label"), locals, scope))
+                            val disabledAction = store.evaluatePresented(menuButton.opt("disabled"), locals, scope) as? Boolean ?: false
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                enabled = !disabledAction,
+                                onClick = {
+                                    store.perform(menuButton.optJSONArray("actions") ?: JSONArray(), scope, locals)
+                                    contextMenuExpanded?.value = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (longPressActions.length() == 0) {
+            pressableContent()
+        } else {
+            val longPressDurationMs = (store.evaluatePresented(
+                fields.opt(NexaDevKeys.LONG_PRESS_DURATION_MS),
+                locals,
+                scope,
+            ) as? Number)?.toLong()?.coerceAtLeast(1L) ?: 500L
+            val baseViewConfiguration = LocalViewConfiguration.current
+            val longPressViewConfiguration = remember(baseViewConfiguration, longPressDurationMs) {
+                object : ViewConfiguration by baseViewConfiguration {
+                    override val longPressTimeoutMillis: Long = longPressDurationMs
+                }
+            }
+            CompositionLocalProvider(LocalViewConfiguration provides longPressViewConfiguration) {
+                pressableContent()
+            }
+        }
+
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun NexaDevRenderTextInputNode(
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+    modifier: Modifier,
+) {
+        val state = fields.optString("state")
+        val value = store.stringify(store.state(state, scope))
+        val sourcePlaceholder = fields.optString("placeholder")
+        val placeholder = sourcePlaceholder.takeIf(String::isNotEmpty)
+            ?.let { store.localizedText(it, it) }
+        val focusKey = "$scope/input/$state"
+        val focusedState = fields.optString("focused").takeIf(String::isNotEmpty)
+        val focusRequester = focusedState?.let { remember(it) { FocusRequester() } }
+        val focused = focusedState?.let { store.state(it, scope) as? Boolean == true } ?: false
+        val keyboardType = when (fields.optString("keyboard")) {
+            "Number" -> KeyboardType.Number
+            "Email" -> KeyboardType.Email
+            "Phone" -> KeyboardType.Phone
+            "Url" -> KeyboardType.Uri
+            else -> KeyboardType.Text
+        }
+        val capitalization = when (fields.optString("capitalization")) {
+            "None" -> KeyboardCapitalization.None
+            "Words" -> KeyboardCapitalization.Words
+            "Characters" -> KeyboardCapitalization.Characters
+            else -> KeyboardCapitalization.Sentences
+        }
+        val autofill = fields.optString("autofill")
+        val submitActions = fields.optJSONArray("actions") ?: JSONArray()
+        val imeAction = when (fields.optString("return_key")) {
+            "Done" -> ImeAction.Done
+            "Search" -> ImeAction.Search
+            "Send" -> ImeAction.Send
+            "Next" -> ImeAction.Next
+            else -> if (submitActions.length() > 0) ImeAction.Done else ImeAction.Default
+        }
+        val maxLength = fields.optInt("max_length", Int.MAX_VALUE).coerceAtLeast(0)
+        val minLines = fields.optInt("min_lines", 1).coerceAtLeast(1)
+        val maxLines = fields.optInt("max_lines", Int.MAX_VALUE).coerceAtLeast(minLines)
+        val textStyle = when (fields.optString("font")) {
+            "Body" -> MaterialTheme.typography.bodyLarge
+            "Title3" -> MaterialTheme.typography.titleMedium
+            else -> LocalTextStyle.current
+        }
+        val onChange = fields.optJSONObject("on_change")
+        var fieldModifier: Modifier = Modifier
+        if (focusedState != null && focusRequester != null) {
+            fieldModifier = fieldModifier
+                .focusRequester(focusRequester)
+                .onFocusChanged { focusState ->
+                    store.setState(focusedState, focusState.isFocused, scope)
+                }
+            LaunchedEffect(focused, focusKey) {
+                if (focused) focusRequester.requestFocus() else focusRequester.freeFocus()
+            }
+        }
+        fieldModifier = when (autofill) {
+            "Username" -> fieldModifier.semantics { contentType = ContentType.Username }
+            "Password" -> fieldModifier.semantics { contentType = ContentType.Password }
+            "OneTimeCode" -> fieldModifier.semantics { contentType = ContentType.SmsOtpCode }
+            else -> fieldModifier
+        }
+        NexaTextInputPrimitive(
+            value = value,
+            onValueChange = { next ->
+                val updated = next.take(maxLength)
+                store.setState(state, updated, scope)
+                val parameter = onChange?.nexaDevOptionalString("parameter")
+                    ?.takeIf(String::isNotEmpty)
+                if (parameter != null) {
+                    val changeLocals = locals.toMutableMap()
+                    changeLocals[parameter] = updated
+                    store.perform(onChange.optJSONArray("actions") ?: JSONArray(), scope, changeLocals)
+                }
+            },
+            modifier = fieldModifier.then(modifier),
+            placeholder = placeholder.orEmpty(),
+            searchable = fields.optBoolean("searchable"),
+            searchIcon = if (fields.optBoolean("searchable")) nexaDevSharedMaterialIcon("search") else null,
+            textStyle = textStyle,
+            minLines = minLines,
+            maxLines = maxLines,
+            singleLine = !fields.optBoolean("multiline"),
+            secure = fields.optBoolean("secure"),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboardType,
+                capitalization = capitalization,
+                autoCorrect = fields.optBoolean("autocorrect", true),
+                imeAction = imeAction,
+            ),
+            keyboardActions = if (submitActions.length() == 0) KeyboardActions() else when (imeAction) {
+                ImeAction.Search -> KeyboardActions(onSearch = { store.perform(submitActions, scope, locals) })
+                ImeAction.Send -> KeyboardActions(onSend = { store.perform(submitActions, scope, locals) })
+                ImeAction.Next -> KeyboardActions(onNext = { store.perform(submitActions, scope, locals) })
+                else -> KeyboardActions(onDone = { store.perform(submitActions, scope, locals) })
+            },
+        )
+
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun NexaDevRenderFastListNode(
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+    modifier: Modifier,
+) {
+        val plan = fields.optJSONObject("plan")
+        val countPlan = plan?.optJSONObject("Count")
+        val itemPlan = plan?.optJSONObject("Items")
+        val sectionPlan = plan?.optJSONObject("Sections")
+        val listPlan = countPlan ?: itemPlan ?: sectionPlan
+        val options = listPlan?.optJSONObject("common")
+        val countExpression = countPlan?.opt("count")
+        val itemExpression = itemPlan?.opt("collection")
+        val sourceItems = itemExpression?.let { store.evaluatePresented(it, locals, scope) as? List<*> }
+        val sectionExpression = sectionPlan?.opt("collection")
+        val sourceSections = sectionExpression?.let { store.evaluatePresented(it, locals, scope) as? List<*> }
+        val axisValue = options?.opt("axis")
+        val gridColumns = (axisValue as? JSONObject)
+            ?.optJSONObject("Grid")
+            ?.optInt("columns", 0)
+            ?.takeIf { it > 0 }
+        val axis = when {
+            axisValue == "Horizontal" -> "Horizontal"
+            gridColumns != null -> "Grid"
+            else -> "Vertical"
+        }
+        val reverseLayout = options?.optBoolean(NexaDevKeys.REVERSE_LAYOUT, false) ?: false
+        val pageSnap = options?.optBoolean(NexaDevKeys.PAGE_SNAP, false) ?: false
+        val keyExpression = options?.opt("key")?.takeUnless { it == JSONObject.NULL }
+        val animateStableRows = keyExpression != null
+        if (options == null || countExpression == null && sourceItems == null && sourceSections == null) {
+            Text("FastList source could not be evaluated.")
+        } else {
+            val itemCount = countExpression?.let {
+                (store.evaluatePresented(it, locals, scope) as? Number)?.toInt()?.coerceAtLeast(0) ?: 0
+            } ?: sourceItems?.size ?: 0
+            val count = sourceSections?.sumOf { (it as? List<*>)?.size ?: 0 } ?: itemCount
+            val indexName = options.optString("index", "index")
+            val itemName = listPlan.nexaDevOptionalString("item")?.takeIf(String::isNotEmpty)
+            val sectionName = listPlan.nexaDevOptionalString("section")?.takeIf(String::isNotEmpty)
+            fun listRowLocals(itemIndex: Int, sectionIndex: Int? = null): Map<String, Any> {
+                var rowLocals = locals + (indexName to itemIndex)
+                if (sectionIndex != null) {
+                    val sectionItems = sourceSections?.getOrNull(sectionIndex) as? List<*>
+                    if (itemName != null) {
+                        rowLocals = rowLocals + (itemName to (sectionItems?.getOrNull(itemIndex) ?: JSONObject.NULL))
+                    }
+                    rowLocals = rowLocals + ((sectionName ?: "section") to sectionIndex)
+                } else if (itemName != null && sourceItems != null) {
+                    rowLocals = rowLocals + (itemName to (sourceItems.getOrNull(itemIndex) ?: JSONObject.NULL))
+                }
+                return rowLocals
+            }
+            fun stableRowKey(itemIndex: Int, sectionIndex: Int? = null): Any {
+                val expression = keyExpression
+                if (expression == null) {
+                    return if (sectionIndex == null) itemIndex else "$sectionIndex:$itemIndex"
+                }
+                val value = store.evaluate(expression, listRowLocals(itemIndex, sectionIndex), scope)
+                return if (value == JSONObject.NULL) itemIndex else value
+            }
+            val children = options.optJSONArray("children") ?: JSONArray()
+            val swipeActions = options.optJSONArray("swipe_actions")
+            val stickyHeaderNodes = options.optJSONArray("sticky_header")
+            val sectionHeader = options.optJSONArray("section_header")
+            val onScroll = options.optJSONArray("on_scroll")
+            val onEndReached = options.optJSONArray("on_end_reached")
+            val onMove = options.optJSONObject("on_move")
+            val moveEnabled = onMove?.opt("enabled")?.let {
+                store.evaluatePresented(it, locals, scope) as? Boolean
+            } ?: true
+            val refresh = options.optJSONObject("refresh")
+            val refreshState = refresh?.nexaDevOptionalString("state")?.takeIf(String::isNotEmpty)
+            val refreshActions = refresh?.optJSONArray("actions") ?: JSONArray()
+            var endReached by remember(countExpression, sourceItems?.size, sourceSections?.size) { mutableStateOf(false) }
+            val scrollPositionName = options.nexaDevOptionalString("scroll_position")
+                ?.takeIf(String::isNotEmpty)
+            val requestedIndex = scrollPositionName?.let { name ->
+                (store.state(name, scope) as? Number)?.toInt()?.coerceIn(0, maxOf(0, count - 1)) ?: 0
+            } ?: if (reverseLayout) maxOf(0, count - 1) else 0
+            val requestedPosition = if (reverseLayout) {
+                (count - 1 - requestedIndex).coerceIn(0, maxOf(0, count - 1))
+            } else requestedIndex
+            val extent = options.optDouble("item_extent", 0.0).takeIf { it > 0.0 }?.dp
+            val renderListRow: @Composable (JSONArray, Map<String, Any>, Modifier) -> Unit = { rowNodes, rowLocals, rowModifier ->
+                val swipeButtonActions = swipeActions
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("Button")
+                    ?.optJSONArray("actions")
+                val rowContent: @Composable () -> Unit = {
+                    NexaFastListRowPrimitive(
+                        modifier = rowModifier,
+                        horizontalAlignment = if (rowNodes.length() > 1) {
+                            Alignment.CenterHorizontally
+                        } else {
+                            Alignment.Start
+                        },
+                    ) {
+                        RenderChildren(rowNodes, module, store, rowLocals, scope)
+                    }
+                }
+                if (swipeActions != null) {
+                    NexaFastListSwipePrimitive(
+                        onEndToStart = {
+                            if (swipeButtonActions != null) {
+                                store.perform(swipeButtonActions, scope, rowLocals)
+                            }
+                        },
+                        backgroundContent = {
+                            RenderChildren(swipeActions, module, store, rowLocals, scope)
+                        },
+                        content = rowContent,
+                    )
+                } else {
+                    rowContent()
+                }
+            }
+            val renderItem: @Composable (Int, String, Modifier) -> Unit = { itemIndex, itemAxis, itemParentModifier ->
+                val rowLocals = listRowLocals(itemIndex)
+                val itemModifier = if (pageSnap && itemAxis == "Vertical") {
+                    Modifier
+                } else when (itemAxis) {
+                    "Horizontal" -> extent?.let { Modifier.width(it).height(it) } ?: Modifier
+                    "Grid" -> extent?.let { Modifier.fillMaxWidth().height(it) } ?: Modifier
+                    else -> extent?.let { Modifier.fillMaxWidth().height(it) } ?: Modifier
+                }
+                val reorderModifier = if (onMove != null && moveEnabled && itemAxis == "Vertical") {
+                    val rowExtentPx = with(LocalDensity.current) { (extent ?: 56.dp).toPx() }
+                    Modifier.pointerInput(itemIndex, count, onMove) {
+                        var dragDistance = 0f
+                        detectDragGesturesAfterLongPress(
+                            onDragEnd = {
+                                val from = itemIndex
+                                val to = (from + (dragDistance / rowExtentPx).roundToInt()).coerceIn(0, count - 1)
+                                if (to != from) {
+                                    val callbackLocals = locals +
+                                        (onMove.optString("from") to from) +
+                                        (onMove.optString("to") to to)
+                                    store.perform(onMove.optJSONArray("actions") ?: JSONArray(), scope, callbackLocals)
+                                }
+                            },
+                            onDragCancel = { dragDistance = 0f },
+                            onDrag = { change, amount ->
+                                dragDistance += amount.y
+                                change.consume()
+                            },
+                        )
+                    }
+                } else Modifier
+                renderListRow(
+                    children,
+                    rowLocals,
+                    itemParentModifier.then(itemModifier).then(reorderModifier),
+                )
+            }
+            val renderHeader: @Composable (JSONArray, Map<String, Any>) -> Unit = { nodes, headerLocals ->
+                Column(Modifier.fillMaxWidth()) {
+                    RenderChildren(nodes, module, store, headerLocals, scope)
+                }
+            }
+            val observeScroll: suspend (Int, Int, Int) -> Unit = { firstVisible, visibleCount, total ->
+                val logicalFirstVisible = if (reverseLayout) {
+                    (total - 1 - firstVisible).coerceAtLeast(0)
+                } else firstVisible
+                val callbackLocals = locals + (indexName to logicalFirstVisible)
+                if (scrollPositionName != null) {
+                    val storedIndex = (store.state(scrollPositionName, scope) as? Number)?.toInt()
+                    if (storedIndex != logicalFirstVisible) store.setState(scrollPositionName, logicalFirstVisible, scope)
+                }
+                if (onScroll != null && onScroll != JSONObject.NULL) store.perform(onScroll, scope, callbackLocals)
+                if (onEndReached != null && onEndReached != JSONObject.NULL) {
+                    val reached = total > 0 && firstVisible + visibleCount >= total
+                    if (reached && !endReached) store.perform(onEndReached, scope, callbackLocals)
+                    endReached = reached
+                }
+            }
+            val listContent: @Composable () -> Unit = {
+                if (axis == "Grid") {
+                    val listState = rememberLazyGridState(initialFirstVisibleItemIndex = requestedIndex)
+                    val itemIndices = remember(count) { List(count) { it } }
+                    LaunchedEffect(listState, scrollPositionName, onScroll, onEndReached, count) {
+                        snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) }
+                            .distinctUntilChanged()
+                            .collect { (firstVisible, visibleCount) -> observeScroll(firstVisible, visibleCount, count) }
+                    }
+                    LaunchedEffect(listState, requestedIndex, count) {
+                        if (count > 0 && listState.firstVisibleItemIndex != requestedIndex) {
+                            listState.scrollToItem(requestedIndex)
+                        }
+                    }
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(gridColumns ?: 1),
+                        state = listState,
+                        modifier = modifier.fillMaxWidth(),
+                    ) {
+                        gridItems(items = itemIndices, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
+                            renderItem(itemIndex, axis, Modifier)
+                        }
+                    }
+                } else {
+                    val listState = rememberLazyListState(initialFirstVisibleItemIndex = requestedPosition)
+                    if (reverseLayout) {
+                        val previousCount = remember(listState) { intArrayOf(count) }
+                        LaunchedEffect(listState, count) {
+                            val oldCount = previousCount[0]
+                            val delta = count - oldCount
+                            if (delta > 0 && count > 0) {
+                                val firstVisible = listState.firstVisibleItemIndex
+                                val offset = listState.firstVisibleItemScrollOffset
+                                if (firstVisible == delta && offset == 0) {
+                                    listState.scrollToItem(0)
+                                }
+                            }
+                            previousCount[0] = count
+                        }
+                    }
+                    LaunchedEffect(listState, scrollPositionName, onScroll, onEndReached, count) {
+                        if (pageSnap) {
+                            snapshotFlow { listState.isScrollInProgress }
+                                .distinctUntilChanged()
+                                .collect { isScrolling ->
+                                    if (!isScrolling) {
+                                        observeScroll(
+                                            listState.firstVisibleItemIndex,
+                                            listState.layoutInfo.visibleItemsInfo.size,
+                                            count,
+                                        )
+                                    }
+                                }
+                        } else {
+                            snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) }
+                                .distinctUntilChanged()
+                                .collect { (firstVisible, visibleCount) -> observeScroll(firstVisible, visibleCount, count) }
+                        }
+                    }
+                    LaunchedEffect(listState, requestedPosition) {
+                        if (count > 0 && listState.firstVisibleItemIndex != requestedPosition) {
+                            listState.scrollToItem(requestedPosition)
+                        }
+                    }
+                    if (axis == "Horizontal") {
+                        LazyRow(state = listState, modifier = modifier.fillMaxWidth()) {
+                            items(count = count, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
+                                renderItem(itemIndex, axis, Modifier)
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            reverseLayout = reverseLayout,
+                            flingBehavior = if (pageSnap) {
+                                rememberSnapFlingBehavior(
+                                    lazyListState = listState,
+                                    snapPosition = SnapPosition.Start,
+                                )
+                            } else androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior(),
+                            modifier = modifier.fillMaxWidth(),
+                        ) {
+                            if (stickyHeaderNodes != null && stickyHeaderNodes != JSONObject.NULL) {
+                                stickyHeader { renderHeader(stickyHeaderNodes, locals) }
+                            }
+                            if (sourceSections != null) {
+                                sourceSections.forEachIndexed { sectionIndex, rawSection ->
+                                    val sectionItems = rawSection as? List<*> ?: emptyList<Any?>()
+                                    if (sectionHeader != null && sectionHeader != JSONObject.NULL) {
+                                        stickyHeader {
+                                            renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
+                                        }
+                                    }
+                                    items(count = sectionItems.size, key = { itemIndex -> stableRowKey(itemIndex, sectionIndex) }) { itemIndex ->
+                                        val rowLocals = listRowLocals(itemIndex, sectionIndex)
+                                        val rowParentModifier = if (animateStableRows) {
+                                            Modifier.fillMaxWidth().animateItem()
+                                        } else {
+                                            Modifier
+                                        }
+                                        val rowModifier = if (extent != null) {
+                                            Modifier.fillMaxWidth().height(extent)
+                                        } else {
+                                            Modifier
+                                        }
+                                        renderListRow(
+                                            children,
+                                            rowLocals,
+                                            rowParentModifier.then(rowModifier),
+                                        )
+                                    }
+                                }
+                            } else {
+                                items(
+                                    count = count,
+                                    key = { itemPosition ->
+                                        val itemIndex = if (reverseLayout) count - 1 - itemPosition else itemPosition
+                                        stableRowKey(itemIndex)
+                                    },
+                                ) { itemPosition ->
+                                    val itemIndex = if (reverseLayout) count - 1 - itemPosition else itemPosition
+                                    val rowParentModifier = if (animateStableRows && !pageSnap) {
+                                        Modifier.fillMaxWidth().animateItem()
+                                    } else {
+                                        Modifier
+                                    }
+                                    if (pageSnap) {
+                                        renderItem(itemIndex, axis, Modifier.fillParentMaxSize())
+                                    } else {
+                                        renderItem(itemIndex, axis, rowParentModifier)
+                                        NexaFastListDividerPrimitive()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (refreshState != null) {
+                PullToRefreshBox(
+                    isRefreshing = store.state(refreshState, scope) as? Boolean ?: false,
+                    onRefresh = { store.perform(refreshActions, scope, locals) },
+                    modifier = modifier.fillMaxWidth(),
+                ) { listContent() }
+            } else {
+                listContent()
+            }
+        }
+
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun NexaDevRenderAppBottomBarNode(
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+    modifier: Modifier,
+) {
+        val state = fields.optString("state")
+        val tabs = fields.optJSONArray("tabs") ?: JSONArray()
+        val tintValue = fields.optJSONObject("tint") ?: JSONObject()
+        val dynamicTint = tintValue.opt("Dynamic")
+        val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
+            nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope) ?: ""))
+        } else {
+            nexaDevColor(tintValue, isSystemInDarkTheme())
+        }
+        val selected = (store.state(state, scope) as? Number)?.toInt() ?: 0
+        val tabStateHolder = rememberSaveableStateHolder()
+        NexaAppBottomBarPrimitive(
+            tint = tint,
+            navigationSuiteItems = { tabItemColors ->
+                    for (index in 0 until tabs.length()) {
+                        val tab = tabs.optJSONObject(index) ?: continue
+                        val tabIndex = tab.optInt("index", index)
+                        val label = tab.optString("label")
+                        val iconSelection = tab.optJSONObject("icon") ?: JSONObject()
+                        val badge = (tab.opt("badge") as? String)?.takeIf(String::isNotEmpty)
+                        val tabIcon = when {
+                            iconSelection.has("shared") -> nexaDevSharedMaterialIcon(iconSelection.optString("shared"))
+                            iconSelection.has("sf_symbol") -> nexaDevSfAliasMaterialIcon(iconSelection.optString("sf_symbol"))
+                            iconSelection.has("material_symbol") -> nexaDevSpecificMaterialIcon(iconSelection.optString("material_symbol"))
+                            else -> null
+                        }
+                        item(
+                            selected = selected == tabIndex,
+                            onClick = { store.setState(state, tabIndex, scope) },
+                            icon = {
+                                if (tabIcon != null) Icon(imageVector = tabIcon, contentDescription = null)
+                                else Spacer(Modifier.size(24.dp))
+                            },
+                            label = { Text(label) },
+                            alwaysShowLabel = true,
+                            badge = if (badge == null) null else ({ Badge { Text(badge) } }),
+                            colors = tabItemColors,
+                        )
+                    }
+            },
+        ) {
+                val activeTab = (0 until tabs.length())
+                    .firstNotNullOfOrNull { index -> tabs.optJSONObject(index)?.let { tab ->
+                        tab.takeIf { it.optInt("index", index) == selected }
+                    } }
+                if (activeTab != null) {
+                    val activeIndex = activeTab.optInt("index", 0)
+                    tabStateHolder.SaveableStateProvider(key = "nexa-tab-$activeIndex") {
+                        val title = activeTab.nexaDevOptionalString("navigation_title")
+                            ?.takeIf(String::isNotEmpty)
+                        val children = activeTab.optJSONArray("children") ?: JSONArray()
+                        val toolbarItems = nexaDevTabToolbars(children)
+                        val contentChildren = nexaDevWithoutTabToolbars(children)
+                        if (title == null && toolbarItems.isEmpty()) {
+                            NexaDevNodeList(
+                                children,
+                                module,
+                                store,
+                                parameters = locals,
+                                scope = scope,
+                            )
+                        } else {
+                            val contentBackground = if (nexaDevContainsForm(children)) {
+                                if (MaterialTheme.colorScheme.background == Color.Black) {
+                                    MaterialTheme.colorScheme.background
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                }
+                            } else {
+                                MaterialTheme.colorScheme.background
+                            }
+                            val contentModifier = if (nexaDevContainsForm(children)) {
+                                Modifier.fillMaxSize().background(contentBackground)
+                            } else {
+                                Modifier.fillMaxSize()
+                            }
+                            if (activeTab.optBoolean("large_title") && title != null) {
+                                NexaLargeTitlePrimitive(
+                                    identity = "nexa-tab-title-$activeIndex",
+                                    title = title,
+                                    containerColor = contentBackground,
+                                    modifier = contentModifier,
+                                    navigationIcon = {
+                                        RenderTabToolbarItems(
+                                            toolbarItems,
+                                            "Leading",
+                                            module,
+                                            store,
+                                            locals,
+                                            scope,
+                                        )
+                                    },
+                                    actions = {
+                                        RenderTabToolbarItems(
+                                            toolbarItems,
+                                            "Trailing",
+                                            module,
+                                            store,
+                                            locals,
+                                            scope,
+                                        )
+                                    },
+                                ) {
+                                    RenderTabSearchInput(activeTab, module, store, locals, scope)
+                                    NexaDevNodeList(
+                                        contentChildren,
+                                        module,
+                                        store,
+                                        parameters = locals,
+                                        scope = scope,
+                                    )
+                                }
+                            } else {
+                                Column(contentModifier) {
+                                    if (title != null || toolbarItems.isNotEmpty()) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(
+                                                start = 16.dp,
+                                                top = 8.dp,
+                                                end = 16.dp,
+                                                bottom = 8.dp,
+                                            ),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            RenderTabToolbarItems(
+                                                toolbarItems,
+                                                "Leading",
+                                                module,
+                                                store,
+                                                locals,
+                                                scope,
+                                            )
+                                            if (title != null) {
+                                                if (toolbarItems.any { it.first == "Leading" }) {
+                                                    Spacer(Modifier.width(8.dp))
+                                                }
+                                                Text(title, style = MaterialTheme.typography.titleLarge)
+                                            }
+                                            if (title != null || toolbarItems.any { it.first == "Leading" }) {
+                                                Spacer(Modifier.weight(1f))
+                                            }
+                                            RenderTabToolbarItems(
+                                                toolbarItems,
+                                                "Trailing",
+                                                module,
+                                                store,
+                                                locals,
+                                                scope,
+                                            )
+                                        }
+                                    }
+                                    RenderTabSearchInput(activeTab, module, store, locals, scope)
+                                    NexaDevNodeList(
+                                        contentChildren,
+                                        module,
+                                        store,
+                                        parameters = locals,
+                                        scope = scope,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+        }
+
+}
+
+@Composable
 private fun RenderTabToolbarItems(
     toolbars: List<Pair<String, JSONArray>>,
     placement: String,
@@ -2277,7 +2277,8 @@ private fun RenderTabToolbarItems(
             val guard = fields.opt("guard")
             val enabled = guard == null || guard == JSONObject.NULL ||
                 store.evaluatePresented(guard, locals, scope) as? Boolean == true
-            if (destination == null || !enabled) {
+            val staticallyDisabled = (guard as? JSONObject)?.opt("Bool") == false
+            if (destination == null || staticallyDisabled) {
                 RenderChildren(linkChildren, module, store, locals, scope)
                 continue
             }
@@ -2309,7 +2310,10 @@ private fun RenderTabSearchInput(
         ?: return
     val fields = JSONObject()
         .put("state", state)
-        .put("placeholder", tab.optString("search_prompt").ifEmpty { "Search" })
+        .put(
+            "placeholder",
+            tab.nexaDevOptionalString("search_prompt")?.takeIf(String::isNotEmpty) ?: "Search",
+        )
         .put("keyboard", "Text")
         .put("secure", false)
         .put("multiline", false)

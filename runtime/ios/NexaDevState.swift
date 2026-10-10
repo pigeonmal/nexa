@@ -27,6 +27,15 @@ struct NexaDevNetworkStatusSubscription {
 }
 
 @MainActor
+final class NexaDevScopeRevision: ObservableObject {
+    @Published private(set) var revision = 0
+
+    func invalidate() {
+        revision += 1
+    }
+}
+
+@MainActor
 final class NexaDevStateStore: ObservableObject {
     var onRuntimeFailure: ((Error, String) -> Void)?
     @Published var revision = 0
@@ -53,6 +62,31 @@ final class NexaDevStateStore: ObservableObject {
     var pendingPluginFailure: NexaDevPluginFailure?
     var hasInstalledModule = false
     private var hotTranslations: [String: [String: Any]] = [:]
+    private var scopeRevisions: [String: NexaDevScopeRevision] = [:]
+    private var stateReaders: [String: Set<String>] = [:]
+
+    func revisionObserver(for scope: String) -> NexaDevScopeRevision {
+        if let observer = scopeRevisions[scope] { return observer }
+        let observer = NexaDevScopeRevision()
+        scopeRevisions[scope] = observer
+        return observer
+    }
+
+    func invalidateScope(_ scope: String) {
+        scopeRevisions[scope]?.invalidate()
+    }
+
+    private func invalidateAllScopes() {
+        revision += 1
+        for observer in scopeRevisions.values { observer.invalidate() }
+    }
+
+    private func invalidateReaders(of key: String, sourceScope: String) {
+        revision += 1
+        var readers = stateReaders[key] ?? []
+        readers.insert(sourceScope)
+        for scope in readers { invalidateScope(scope) }
+    }
 
     func reportRuntimeFailure(_ error: Error, stackTrace: String? = nil) {
         let capturedStack = stackTrace ?? Thread.callStackSymbols.joined(separator: "\n")
@@ -61,7 +95,7 @@ final class NexaDevStateStore: ObservableObject {
 
     func installTranslations(_ raw: Any?) {
         hotTranslations = raw as? [String: [String: Any]] ?? [:]
-        revision += 1
+        invalidateAllScopes()
     }
 
     func localizedText(
@@ -226,6 +260,7 @@ final class NexaDevStateStore: ObservableObject {
             initialLocals[name] = resolvedValue
         }
         values = nextValues
+        stateReaders.removeAll(keepingCapacity: true)
         typeSignatures = nextTypes
         if isHotReplacement {
             let currentScreens = Set(screens.compactMap { $0["name"] as? String })
@@ -252,7 +287,7 @@ final class NexaDevStateStore: ObservableObject {
             self.focusedFieldKey = nextFocusBindings.first { _, binding in
                 guard let state = binding.state else { return false }
                 let identity = "\(binding.scope)/state/\(state)"
-                return values[identity] != nil
+                return values[identity] as? Bool == true
             }?.key
         }
         let rootScreen = screens.first?["name"] as? String
@@ -262,7 +297,7 @@ final class NexaDevStateStore: ObservableObject {
             typeSignatures["__screens__"] = screensSignature
             navigationPath = []
         }
-        revision += 1
+        invalidateAllScopes()
         if !hasInstalledModule {
             hasInstalledModule = true
             appLifecycleEpoch += 1
@@ -294,13 +329,27 @@ final class NexaDevStateStore: ObservableObject {
         }
         values = nextValues
         navigationPath = []
-        focusedFieldKey = focusBindings.first?.key
-        revision += 1
+        focusedFieldKey = focusBindings.first { _, binding in
+            guard let state = binding.state else { return false }
+            return values["\(binding.scope)/state/\(state)"] as? Bool == true
+        }?.key
+        stateReaders.removeAll(keepingCapacity: true)
+        invalidateAllScopes()
         appLifecycleEpoch += 1
     }
 
     func value(_ name: String, scope: String = "app") -> Any {
-        values["\(scope)/state/\(name)"] ?? values["app/state/\(name)"] ?? NSNull()
+        let scopedKey = "\(scope)/state/\(name)"
+        if let value = values[scopedKey] {
+            stateReaders[scopedKey, default: []].insert(scope)
+            return value
+        }
+        let appKey = "app/state/\(name)"
+        if let value = values[appKey] {
+            stateReaders[appKey, default: []].insert(scope)
+            return value
+        }
+        return NSNull()
     }
 
     func locals(scope: String, parameters: [String: Any]) -> [String: Any] {
@@ -309,23 +358,55 @@ final class NexaDevStateStore: ObservableObject {
 
     func setValue(_ name: String, value: Any, scope: String) {
         let key = "\(scope)/state/\(name)"
+        let storageKey: String
         if values[key] != nil || !scope.starts(with: "screen/") {
-            values[key] = value
+            storageKey = key
         } else {
-            values["app/state/\(name)"] = value
+            storageKey = "app/state/\(name)"
         }
+        if let current = values[storageKey] as? NSObject,
+           let next = value as? NSObject,
+           type(of: current) == type(of: next),
+           current.isEqual(next) {
+            return
+        }
+        values[storageKey] = value
+        if let focused = value as? Bool,
+           let focusIdentity = focusBindings.first(where: { _, binding in
+               binding.scope == scope && binding.state == name
+           })?.key {
+            if focused {
+                focusedFieldKey = focusIdentity
+            } else if focusedFieldKey == focusIdentity {
+                focusedFieldKey = nil
+            }
+        }
+        invalidateReaders(of: storageKey, sourceScope: scope)
     }
 
     func focusChanged(to nextIdentity: String?) {
+        let previousIdentity = focusedFieldKey
         focusedFieldKey = nextIdentity
+        guard previousIdentity != nextIdentity else { return }
+        if let previousIdentity, let binding = focusBindings[previousIdentity], let state = binding.state {
+            setValue(state, value: false, scope: binding.scope)
+        }
+        if let nextIdentity, let binding = focusBindings[nextIdentity], let state = binding.state {
+            setValue(state, value: true, scope: binding.scope)
+        }
     }
 
     func screenDidAppear(scope: String, parameters: [String: Any]) {
         activeScreenParameters[scope] = parameters
+        invalidateScope(scope)
     }
 
     func screenDidDisappear(scope: String) {
         activeScreenParameters.removeValue(forKey: scope)
+        for key in Array(stateReaders.keys) {
+            stateReaders[key]?.remove(scope)
+            if stateReaders[key]?.isEmpty == true { stateReaders.removeValue(forKey: key) }
+        }
         clearNativeEventSubscriptions(scope: scope)
         clearNativeTasks(scope: scope)
     }
@@ -338,10 +419,10 @@ final class NexaDevStateStore: ObservableObject {
         for node in nodes {
             guard let tagged = node as? [String: Any], let (kind, payload) = tagged.first else { continue }
             let fields = payload as? [String: Any] ?? [:]
-            if kind == "TextInput" {
-                let stateName = fields["state"] as? String
-                let identity = "\(scope)/input/\(stateName ?? UUID().uuidString)"
-                bindings[identity] = (scope: scope, state: stateName)
+            if kind == "TextInput", let focusedState = fields["focused"] as? String {
+                let stateName = fields["state"] as? String ?? ""
+                let identity = "\(scope)/input/\(stateName)"
+                bindings[identity] = (scope: scope, state: focusedState)
             }
             for childListKey in ["children", "then_body", "else_body"] {
                 if let children = fields[childListKey] as? [Any] {

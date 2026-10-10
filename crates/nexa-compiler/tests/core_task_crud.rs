@@ -296,7 +296,11 @@ test "soft-deleted records remain as hidden tombstones" {
             .any(|resource| { resource.name == "drawable/nexa_widget_calendar_circle.xml" })
     );
     assert!(generated_kotlin_source.contains("class NexaTodoPersistence("));
-    assert!(generated_kotlin_source.contains("style = MaterialTheme.typography.titleMedium"));
+    assert!(
+        generated_kotlin_source.contains(
+            "textStyle = androidx.compose.material3.MaterialTheme.typography.titleMedium"
+        )
+    );
     assert!(generated_kotlin_source.contains("nexa_todoPersistence.nexa_fn_loadTasks()"));
     assert!(generated_source.contains("nexa_tasks.append(nexa_fn_makeTask("));
     assert!(generated_source.contains("nexa_fn_deleteTodo(nexa_tasks,"));

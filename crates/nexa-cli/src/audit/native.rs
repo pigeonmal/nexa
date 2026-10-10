@@ -162,8 +162,6 @@ fn ios_toolchain() -> Result<IosToolchain, String> {
 
 #[derive(Clone)]
 struct AndroidToolchain {
-    gradle: PathBuf,
-    gradle_version: String,
     sdk: PathBuf,
 }
 
@@ -175,21 +173,7 @@ fn android_toolchain() -> Result<AndroidToolchain, String> {
         "Android SDK was not found in ANDROID_HOME, ANDROID_SDK_ROOT, or its default location"
             .to_owned()
     })?;
-    let gradle = gradle_executable().ok_or_else(|| {
-        "Gradle was not found on PATH, in GRADLE, or in the Gradle wrapper cache".to_owned()
-    })?;
-    let version = Command::new(&gradle)
-        .arg("--version")
-        .output()
-        .map_err(|error| format!("could not query Gradle: {error}"))?;
-    if !version.status.success() {
-        return Err(command_failure("gradle --version", &version));
-    }
-    Ok(AndroidToolchain {
-        gradle,
-        gradle_version: version_summary(&version, &["Gradle "]),
-        sdk,
-    })
+    Ok(AndroidToolchain { sdk })
 }
 
 fn android_sdk() -> Option<PathBuf> {
@@ -209,72 +193,28 @@ fn android_sdk() -> Option<PathBuf> {
         .find(|path| path.join("platforms").is_dir())
 }
 
-fn gradle_executable() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("GRADLE").map(PathBuf::from)
-        && path.is_file()
+fn gradle_wrapper_path(project: &Path) -> PathBuf {
+    #[cfg(windows)]
     {
-        return Some(path);
+        project.join("gradlew.bat")
     }
-    if let Some(path) = find_command("gradle") {
-        return Some(path);
+    #[cfg(not(windows))]
+    {
+        project.join("gradlew")
     }
-
-    let home = env::var_os("GRADLE_USER_HOME")
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".gradle")))?;
-    let distributions = fs::read_dir(home.join("wrapper/dists")).ok()?;
-    let mut candidates = Vec::new();
-    for distribution in distributions.filter_map(Result::ok) {
-        if !distribution.path().is_dir() {
-            continue;
-        }
-        for hash in fs::read_dir(distribution.path())
-            .ok()?
-            .filter_map(Result::ok)
-        {
-            if !hash.path().is_dir() {
-                continue;
-            }
-            for version in fs::read_dir(hash.path()).ok()?.filter_map(Result::ok) {
-                if !version.path().is_dir() {
-                    continue;
-                }
-                let executable = version.path().join("bin").join(gradle_binary_name());
-                if executable.is_file() {
-                    candidates.push((
-                        parse_version_key(&version.file_name().to_string_lossy()),
-                        executable,
-                    ));
-                }
-            }
-        }
-    }
-    candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
-    candidates.into_iter().next().map(|(_, path)| path)
 }
 
-#[cfg(windows)]
-fn gradle_binary_name() -> &'static str {
-    "gradle.bat"
-}
-
-#[cfg(not(windows))]
-fn gradle_binary_name() -> &'static str {
-    "gradle"
-}
-
-fn parse_version_key(version: &str) -> Vec<u64> {
-    version
-        .split('.')
-        .map(|part| {
-            part.chars()
-                .take_while(|character| character.is_ascii_digit())
-                .collect::<String>()
-                .parse()
-                .unwrap_or(0)
-        })
-        .collect()
+fn gradle_wrapper_command(project: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg(gradle_wrapper_path(project));
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(gradle_wrapper_path(project))
+    }
 }
 
 fn find_command(name: &str) -> Option<PathBuf> {
@@ -427,6 +367,7 @@ struct AndroidResult {
     status: &'static str,
     reason: Option<String>,
     toolchain: Option<AndroidToolchain>,
+    gradle_version: Option<String>,
     apk_bytes: Option<u64>,
     aab_bytes: Option<u64>,
     apk_entries: Option<usize>,
@@ -466,6 +407,7 @@ impl AndroidResult {
             status,
             reason,
             toolchain: None,
+            gradle_version: None,
             apk_bytes: None,
             aab_bytes: None,
             apk_entries: None,
@@ -495,13 +437,48 @@ impl AndroidResult {
 
     fn measure(&mut self, generated_root: &Path, toolchain: &AndroidToolchain) {
         let project = generated_root.join("android");
-        let output = Command::new(&toolchain.gradle)
+        if let Err(error) = prepare_unsigned_release_build(&project) {
+            self.status = "failed";
+            self.reason = Some(error);
+            return;
+        }
+        let wrapper = gradle_wrapper_path(&project);
+        if !wrapper.is_file() {
+            self.status = "failed";
+            self.reason = Some(format!(
+                "generated Android project is missing its Gradle wrapper: {}",
+                wrapper.display()
+            ));
+            return;
+        }
+        let version = gradle_wrapper_command(&project)
+            .arg("--version")
+            .current_dir(&project)
+            .env("ANDROID_HOME", &toolchain.sdk)
+            .env("ANDROID_SDK_ROOT", &toolchain.sdk)
+            .output();
+        let version = match version {
+            Ok(output) if output.status.success() => version_summary(&output, &["Gradle "]),
+            Ok(output) => {
+                self.status = "failed";
+                self.reason = Some(command_failure("Gradle wrapper --version", &output));
+                return;
+            }
+            Err(error) => {
+                self.status = "failed";
+                self.reason = Some(format!("could not start generated Gradle wrapper: {error}"));
+                return;
+            }
+        };
+        self.gradle_version = Some(version);
+        let output = gradle_wrapper_command(&project)
             .arg("--no-daemon")
             .arg("--console=plain")
             .arg("--project-dir")
             .arg(&project)
             .arg(":app:assembleRelease")
             .arg(":app:bundleRelease")
+            .current_dir(&project)
             .env("ANDROID_HOME", &toolchain.sdk)
             .env("ANDROID_SDK_ROOT", &toolchain.sdk)
             .output();
@@ -599,12 +576,10 @@ impl AndroidResult {
     }
 
     fn json(&self) -> String {
-        let version = self
-            .toolchain
-            .as_ref()
-            .map_or_else(String::new, |toolchain| {
-                format!(", \"gradleVersion\": {}", quote(&toolchain.gradle_version))
-            });
+        let version = format!(
+            ", \"gradleVersion\": {}",
+            optional_string(self.gradle_version.as_deref())
+        );
         format!(
             "{{\"status\": {}, \"reason\": {}, \"configuration\": \"Release\"{version}, \"minificationEnabled\": {}, \"resourceShrinkingEnabled\": {}, \"apkBytes\": {}, \"aabBytes\": {}, \"apkEntryCount\": {}, \"dexCompressedBytes\": {}, \"dexUncompressedBytes\": {}, \"resourcesCompressedBytes\": {}, \"resourcesUncompressedBytes\": {}, \"assetsCompressedBytes\": {}, \"assetsUncompressedBytes\": {}, \"nativeLibrariesCompressedBytes\": {}, \"nativeLibrariesUncompressedBytes\": {}, \"otherCompressedBytes\": {}, \"r8MappingBytes\": {}, \"r8UsageReportBytes\": {}, \"resourceShrinkerReportBytes\": {}}}",
             quote(self.status),
@@ -628,6 +603,24 @@ impl AndroidResult {
             optional_number(self.resource_report_bytes),
         )
     }
+}
+
+fn prepare_unsigned_release_build(project: &Path) -> Result<(), String> {
+    let build_file = project.join("app/build.gradle.kts");
+    let source = fs::read_to_string(&build_file)
+        .map_err(|error| format!("{}: {error}", build_file.display()))?;
+    let release_signing = "signingConfig = signingConfigs.getByName(\"nexaRelease\")";
+    let Some(unsigned_source) = source
+        .split_once(release_signing)
+        .map(|(before, after)| format!("{before}signingConfig = null{after}"))
+    else {
+        return Err(format!(
+            "{} has no Nexa release signing assignment to disable for size measurement",
+            build_file.display()
+        ));
+    };
+    fs::write(&build_file, unsigned_source)
+        .map_err(|error| format!("{}: {error}", build_file.display()))
 }
 
 fn find_release_apk(directory: &Path) -> std::io::Result<Option<PathBuf>> {
@@ -862,7 +855,8 @@ fn optional_bool(value: Option<bool>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        apk_inventory, directory_bytes, find_release_aab, find_release_apk, parse_version_key,
+        apk_inventory, directory_bytes, find_release_aab, find_release_apk, gradle_wrapper_path,
+        prepare_unsigned_release_build,
     };
     use std::fs;
 
@@ -876,8 +870,14 @@ mod tests {
     }
 
     #[test]
-    fn gradle_versions_sort_by_numeric_components() {
-        assert!(parse_version_key("gradle-8.10") > parse_version_key("gradle-8.9"));
+    fn release_size_measurement_uses_the_generated_project_gradle_wrapper() {
+        let temp = TempDirectory::new();
+        let expected = if cfg!(windows) {
+            temp.0.join("gradlew.bat")
+        } else {
+            temp.0.join("gradlew")
+        };
+        assert_eq!(gradle_wrapper_path(&temp.0), expected);
     }
 
     #[test]
@@ -926,6 +926,26 @@ mod tests {
 
         assert_eq!(find_release_apk(&apk_directory).unwrap(), Some(apk));
         assert_eq!(find_release_aab(&aab_directory).unwrap(), Some(aab));
+    }
+
+    #[test]
+    fn android_release_size_measurement_does_not_require_signing_credentials() {
+        let temp = TempDirectory::new();
+        let app = temp.0.join("app");
+        fs::create_dir_all(&app).expect("app build directory should be created");
+        let build_file = app.join("build.gradle.kts");
+        fs::write(
+            &build_file,
+            "android { buildTypes { release { signingConfig = signingConfigs.getByName(\"nexaRelease\") } } }",
+        )
+        .expect("generated Android build file should be written");
+
+        prepare_unsigned_release_build(&temp.0)
+            .expect("release size measurement should disable signing");
+
+        let generated = fs::read_to_string(build_file).expect("read unsigned build file");
+        assert!(generated.contains("signingConfig = null"));
+        assert!(!generated.contains("signingConfigs.getByName(\"nexaRelease\")"));
     }
 
     fn minimal_apk() -> Vec<u8> {

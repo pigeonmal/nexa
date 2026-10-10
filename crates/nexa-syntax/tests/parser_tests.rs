@@ -762,15 +762,28 @@ fn parses_ternary_expressions_with_comparison_precedence() {
 }
 
 #[test]
-fn parses_component_style_chains_into_typed_options() {
+fn parses_component_style_arguments_and_callback_modifiers() {
     let app = nexa_syntax::parse(
-        r#"app Demo {
+        r##"app Demo {
             body {
-                Text("Hi").fontSize(18).bold().padding(12)
+                Text("Hi", fontSize: 18, fontWeight: Bold, padding: 12)
+                Column(
+                    padding: 12,
+                    opacity: 0.8,
+                    scale: 1.1,
+                    rotation: -6,
+                    shadow: Shadow(4, 1, -2, "#00000080"),
+                    blur: 2,
+                    clip: Rounded(12),
+                    zIndex: -3
+                ) {
+                    Text("Tap")
+                }
+                Pressable() { Text("Tap") }.onTap { }
             }
-        }"#,
+        }"##,
     )
-    .expect("component style chains should parse");
+    .expect("style arguments and callback modifiers should parse");
 
     let Node::ComponentInvocation(text) = &app.body[0] else {
         panic!("expected a text component");
@@ -788,49 +801,45 @@ fn parses_component_style_chains_into_typed_options() {
         text.arguments.get("padding"),
         Some(Expr::Number(value, _)) if value == "12"
     ));
+    let Node::ComponentInvocation(layout) = &app.body[1] else {
+        panic!("expected a layout component");
+    };
+    for style in [
+        "padding", "opacity", "scale", "rotation", "shadow", "blur", "clip", "zIndex",
+    ] {
+        assert!(
+            layout.arguments.contains_key(style),
+            "missing `{style}` style argument"
+        );
+    }
+    let Node::ComponentInvocation(pressable) = &app.body[2] else {
+        panic!("expected a pressable component");
+    };
+    assert_eq!(pressable.modifiers[0].name, "onTap");
 }
 
 #[test]
-fn parses_visual_modifier_chains_as_typed_style_arguments() {
-    let app = nexa_syntax::parse(
-        r##"app Demo {
-            body {
-                Column { Text("Card") }
-                    .opacity(0.8)
-                    .scale(1.1)
-                    .rotation(-6)
-                    .shadow(radius: 4, x: 1, y: -2, color: "#00000080")
-                    .blur(2)
-                    .clip(shape: Rounded(12))
-                    .zIndex(-3)
-            }
-        }"##,
-    )
-    .expect("visual modifier chains should parse");
-
-    let Node::ComponentInvocation(layout) = &app.body[0] else {
-        panic!("expected a layout component");
-    };
-    assert_eq!(layout.arguments.len(), 7);
-    assert!(
-        matches!(layout.arguments.get("opacity"), Some(Expr::Number(value, _)) if value == "0.8")
-    );
-    assert!(
-        matches!(layout.arguments.get("scale"), Some(Expr::Number(value, _)) if value == "1.1")
-    );
-    assert!(
-        matches!(layout.arguments.get("rotation"), Some(Expr::Number(value, _)) if value == "-6")
-    );
-    assert!(
-        matches!(layout.arguments.get("shadow"), Some(Expr::Call(name, _, arguments, _)) if name == "Shadow" && arguments.len() == 4)
-    );
-    assert!(matches!(layout.arguments.get("blur"), Some(Expr::Number(value, _)) if value == "2"));
-    assert!(
-        matches!(layout.arguments.get("clip"), Some(Expr::Call(name, _, arguments, _)) if name == "Rounded" && arguments.len() == 1)
-    );
-    assert!(
-        matches!(layout.arguments.get("zIndex"), Some(Expr::Number(value, _)) if value == "-3")
-    );
+fn rejects_visual_styles_as_dot_modifiers() {
+    for (component, modifier) in [
+        ("Text(\"Hi\")", ".fontSize(18)"),
+        ("Text(\"Hi\")", ".bold()"),
+        ("Text(\"Hi\")", ".padding(12)"),
+        ("Column { Text(\"Hi\") }", ".opacity(0.8)"),
+        ("Column { Text(\"Hi\") }", ".scale(1.1)"),
+        ("Column { Text(\"Hi\") }", ".rotation(15)"),
+        (
+            "Column { Text(\"Hi\") }",
+            ".shadow(radius: 4, x: 0, y: 2, color: \"#00000040\")",
+        ),
+        ("Column { Text(\"Hi\") }", ".blur(2)"),
+        ("Column { Text(\"Hi\") }", ".clip(shape: Rounded(12))"),
+        ("Column { Text(\"Hi\") }", ".zIndex(1)"),
+    ] {
+        let source = format!("app Demo {{ body {{ {component}{modifier} }} }}");
+        let error = nexa_syntax::parse(&source)
+            .expect_err("visual styling should be expressed with component arguments");
+        assert!(error.to_string().contains("unknown"), "{error}");
+    }
 }
 
 #[test]

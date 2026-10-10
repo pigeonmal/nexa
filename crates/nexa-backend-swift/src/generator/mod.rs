@@ -72,6 +72,7 @@ private struct NexaDragGestureView<Content: View>: View {
     ) {
         self.enabled = enabled
         self.onDrag = onDrag
+        self.onPinch = onPinch
         self.content = content()
         _velocityTracker = State(
             initialValue: trackVelocity ? NexaDragVelocityTracker() : nil
@@ -208,18 +209,6 @@ fileprivate extension View {
         }
     }
 
-}
-"#;
-
-const NEXA_LARGE_TITLE_HELPER: &str = r#"fileprivate extension View {
-    @ViewBuilder
-    func nexaLargeTitleDisplayMode() -> some View {
-        if #available(iOS 26.0, *) {
-            self.toolbarTitleDisplayMode(.inlineLarge)
-        } else {
-            self.navigationBarTitleDisplayMode(.large)
-        }
-    }
 }
 "#;
 
@@ -771,6 +760,56 @@ struct NexaStackPrimitive<Content: View>: View {
     }
 }
 
+struct NexaNativeListPrimitive<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        List { content }
+    }
+}
+
+struct NexaFormPrimitive<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        Form { content }
+    }
+}
+
+struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View {
+    private let content: Content
+    private let header: Header
+    private let footer: Footer
+
+    init(
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder footer: () -> Footer
+    ) {
+        self.content = content()
+        self.header = header()
+        self.footer = footer()
+    }
+
+    var body: some View {
+        Section {
+            content
+        } header: {
+            header
+        } footer: {
+            footer
+        }
+    }
+}
+
 struct NexaFormRowPrimitive<Content: View>: View {
     let minHeight: CGFloat
     let horizontalInset: CGFloat
@@ -790,6 +829,112 @@ struct NexaFormRowPrimitive<Content: View>: View {
         content
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
             .listRowInsets(EdgeInsets(top: 0, leading: horizontalInset, bottom: 0, trailing: horizontalInset))
+    }
+}
+
+struct NexaAccessibilityPrimitive<Content: View>: View {
+    let label: Text
+    let hint: Text?
+    let value: Text?
+    let role: String
+    let omitLabel: Bool
+    private let content: Content
+
+    init(
+        label: Text,
+        hint: Text?,
+        value: Text?,
+        role: String,
+        omitLabel: Bool,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.label = label
+        self.hint = hint
+        self.value = value
+        self.role = role
+        self.omitLabel = omitLabel
+        self.content = content()
+    }
+
+    @ViewBuilder
+    private func addingLabel<V: View>(to view: V) -> some View {
+        if omitLabel { view } else { view.accessibilityLabel(label) }
+    }
+
+    @ViewBuilder
+    private func addingHint<V: View>(to view: V) -> some View {
+        if let hint { view.accessibilityHint(hint) } else { view }
+    }
+
+    @ViewBuilder
+    private func addingValue<V: View>(to view: V) -> some View {
+        if let value { view.accessibilityValue(value) } else { view }
+    }
+
+    @ViewBuilder
+    private func addingRole<V: View>(to view: V) -> some View {
+        switch role {
+        case "Button": view.accessibilityAddTraits(.isButton)
+        case "Link": view.accessibilityAddTraits(.isLink)
+        case "Header": view.accessibilityAddTraits(.isHeader)
+        case "Image": view.accessibilityAddTraits(.isImage)
+        default: view
+        }
+    }
+
+    var body: some View {
+        addingRole(to: addingValue(to: addingHint(to: addingLabel(
+            to: content.accessibilityElement(children: .combine)
+        ))))
+    }
+}
+
+struct NexaLinkPrimitive<Content: View>: View {
+    let destination: URL?
+    private let content: Content
+
+    init(destination: URL?, @ViewBuilder content: () -> Content) {
+        self.destination = destination
+        self.content = content()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if let destination {
+            Link(destination: destination) { content }
+        } else {
+            content
+        }
+    }
+}
+
+struct NexaKeyboardAwarePrimitive<Content: View>: View {
+    let dismissMode: ScrollDismissesKeyboardMode
+    private let content: Content
+
+    init(dismissMode: ScrollDismissesKeyboardMode, @ViewBuilder content: () -> Content) {
+        self.dismissMode = dismissMode
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView(.vertical) { content }
+            .scrollDismissesKeyboard(dismissMode)
+    }
+}
+
+struct NexaRefreshPrimitive<Content: View>: View {
+    private let onRefresh: @Sendable () async -> Void
+    private let content: Content
+
+    init(onRefresh: @escaping @Sendable () async -> Void, @ViewBuilder content: () -> Content) {
+        self.onRefresh = onRefresh
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView(.vertical) { content }
+            .refreshable(action: onRefresh)
     }
 }
 
@@ -884,6 +1029,197 @@ struct NexaConfirmationDialogPrimitive<Actions: View>: View {
     }
 }
 
+struct NexaPageIndicatorPrimitive: View {
+    let index: Int
+    let selectedIndex: Int
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            Circle()
+                .fill(selectedIndex == index ? __NEXA_SWIFT_DEFAULT_ACCENT_COLOR__ : __NEXA_PAGE_INDICATOR_MUTED_COLOR__.opacity(__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__))
+                .frame(
+                    width: selectedIndex == index ? __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ : __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__,
+                    height: selectedIndex == index ? __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ : __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__
+                )
+        }
+        .buttonStyle(.plain)
+        .animation(.default, value: selectedIndex)
+        .accessibilityLabel("Page \(index + 1)")
+    }
+}
+
+struct NexaPageIndicatorRow: View {
+    let pageCount: Int
+    let selectedIndex: Int
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: __NEXA_PAGE_INDICATOR_SPACING__) {
+            ForEach(0..<pageCount, id: \.self) { index in
+                NexaPageIndicatorPrimitive(index: index, selectedIndex: selectedIndex) {
+                    onSelect(index)
+                }
+            }
+        }
+        .padding(.bottom, __NEXA_PAGE_INDICATOR_BOTTOM_INSET__)
+    }
+}
+
+struct NexaNavigationSplitViewPrimitive<Sidebar: View, Detail: View>: View {
+    @Binding var detailVisible: Bool
+    private let sidebar: Sidebar
+    private let detail: Detail
+
+    init(
+        detailVisible: Binding<Bool>,
+        @ViewBuilder sidebar: () -> Sidebar,
+        @ViewBuilder detail: () -> Detail
+    ) {
+        _detailVisible = detailVisible
+        self.sidebar = sidebar()
+        self.detail = detail()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(iOS 17.0, *) {
+            NavigationSplitView(preferredCompactColumn: Binding(
+                get: { detailVisible ? .detail : .sidebar },
+                set: { detailVisible = ($0 == .detail) }
+            )) {
+                sidebar
+            } detail: {
+                detail
+            }
+        } else if #available(iOS 16.0, *) {
+            NavigationSplitView {
+                sidebar
+            } detail: {
+                detail
+            }
+        } else {
+            HStack(spacing: 0) {
+                TupleView((sidebar, Divider(), detail))
+            }
+        }
+    }
+}
+
+struct NexaNavigationScreenPrimitive<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    private var titledContent: some View {
+        content
+            .navigationTitle(title)
+            .modifier(NexaNavigationTitleDisplayModePrimitive(large: true))
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(iOS 16.0, *) {
+            titledContent.toolbar(.hidden, for: .tabBar)
+        } else {
+            titledContent
+        }
+    }
+}
+
+struct NexaNavigationTitleDisplayModePrimitive: ViewModifier {
+    let large: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.toolbarTitleDisplayMode(large ? .inlineLarge : .inline)
+        } else {
+            content.navigationBarTitleDisplayMode(large ? .large : .inline)
+        }
+    }
+}
+
+struct NexaNavigationLinkPrimitive<Value: Hashable, Label: View>: View {
+    let value: Value
+    let enabled: Bool
+    let label: Label
+
+    init(value: Value, enabled: Bool, @ViewBuilder label: () -> Label) {
+        self.value = value
+        self.enabled = enabled
+        self.label = label()
+    }
+
+    var body: some View {
+        NavigationLink(value: value) {
+            label
+        }
+        .disabled(!enabled)
+    }
+}
+
+"#;
+
+/// Owns tab appearance behavior for both generated release views and dynamic
+/// DevRuntime tabs while leaving SwiftUI's typed TabContent builders intact.
+const NEXA_APP_BOTTOM_BAR_PRIMITIVE: &str = r#"struct NexaAppBottomBarPrimitive: ViewModifier {
+    private let tint: Color?
+    private let adaptiveStyle: Bool
+    private let activatesSearchTab: Bool
+
+    init(
+        tint: Color?,
+        adaptiveStyle: Bool,
+        activatesSearchTab: Bool
+    ) {
+        self.tint = tint
+        self.adaptiveStyle = adaptiveStyle
+        self.activatesSearchTab = activatesSearchTab
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *), adaptiveStyle {
+            if #available(iOS 26.0, *), activatesSearchTab {
+                applyTint(content.tabViewStyle(.sidebarAdaptable)
+                    .tabViewSearchActivation(.searchTabSelection))
+            } else {
+                applyTint(content.tabViewStyle(.sidebarAdaptable))
+            }
+        } else {
+            applyTint(content)
+        }
+    }
+
+    @ViewBuilder
+    private func applyTint<Content: View>(_ content: Content) -> some View {
+        if let tint {
+            content.tint(tint)
+        } else {
+            content
+        }
+    }
+}
+
+struct NexaTabLabelPrimitive: View {
+    let title: Text
+    let systemImage: String
+
+    var body: some View {
+        Label { title } icon: {
+            Image(systemName: systemImage).accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("")
+    }
+}
+
 "#;
 
 fn shared_component_primitives() -> String {
@@ -919,6 +1255,36 @@ fn shared_component_primitives() -> String {
         (
             "__NEXA_DEFAULT_BODY_FONT_SIZE__",
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_SWIFT_DEFAULT_ACCENT_COLOR__",
+            nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR.to_owned(),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_MUTED_COLOR__",
+            crate::generator::engine::colors::expression_from_argb(
+                nexa_codegen::design_system::MUTED_TEXT_ARGB,
+            ),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__",
+            nexa_codegen::design_system::PAGE_INDICATOR_INACTIVE_OPACITY.to_string(),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_SELECTED_SIZE__",
+            nexa_codegen::design_system::PAGE_INDICATOR_SELECTED_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__",
+            nexa_codegen::design_system::PAGE_INDICATOR_UNSELECTED_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_SPACING__",
+            nexa_codegen::design_system::PAGE_INDICATOR_SPACING.to_string(),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_BOTTOM_INSET__",
+            nexa_codegen::design_system::PAGE_INDICATOR_BOTTOM_INSET.to_string(),
         ),
     ];
     tokens.iter().fold(
@@ -1129,18 +1495,6 @@ fn generate_with_analysis_mode(
     if features.facts.capabilities.uses_locale_api {
         preamble.push_str(NEXA_LOCALE_HELPER);
     }
-    if !module.screens.is_empty()
-        || features.facts.ui.app.navigation
-        || features
-            .facts
-            .ui
-            .components
-            .values()
-            .any(|scope| scope.navigation)
-        || features.facts.ui.bottom_bar.present
-    {
-        preamble.push_str(NEXA_LARGE_TITLE_HELPER);
-    }
     preamble.push_str(NEXA_COLLECTION_HELPERS);
     let mut units = SourceUnits::new("swift");
     units.set_imports(&imports::render(&features));
@@ -1151,6 +1505,9 @@ fn generate_with_analysis_mode(
     let json_types = nexa_codegen::value::collect_json_types(module);
     units.write("types", |out| {
         out.push_str(&shared_component_primitives());
+        if dev_runtime || features.facts.ui.bottom_bar.present {
+            out.push_str(NEXA_APP_BOTTOM_BAR_PRIMITIVE);
+        }
         // Regex declarations are shared by every generated unit. Keep them in
         // the single types file instead of the repeated per-file preamble.
         if features.facts.capabilities.uses_regex_api {
@@ -1167,6 +1524,16 @@ fn generate_with_analysis_mode(
             value::render(&value_codecs, out);
         }
     });
+
+    if features.facts.ui.image.asset || features.uses_remote_image {
+        units.write("image-primitives", |out| {
+            components::images::render_primitives(
+                features.facts.ui.image.asset,
+                features.uses_remote_image,
+                out,
+            );
+        });
+    }
 
     if features.facts.capabilities.uses_json_api {
         units.write("json", |out| {
@@ -1488,9 +1855,23 @@ pub(super) fn generate_for_dev_units_with_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::SwiftProjectFeatures) {
     let mut features = features::Features::analyze(module);
+    // Hot reload can introduce any FastList axis after the native host has
+    // been built. Keep the same UIKit list primitives used by AOT apps ready
+    // in the DevRuntime host.
+    features.uses_fast_list = true;
+    features.uses_vertical_list = true;
+    features.uses_horizontal_list = true;
+    features.uses_grid_list = true;
+    features.uses_sectioned_list = true;
+    features.uses_sticky_header = true;
+    features.uses_scroll_events = true;
     // A shared element may appear after the development host is built, so
     // keep its namespace bridge available for hot-reloaded modules.
     features.uses_shared_elements = true;
+    // Image nodes can be introduced by a hot reload after the development
+    // host is built, so preload both local and network image primitives.
+    features.facts.ui.image.asset = true;
+    features.uses_remote_image = true;
     // Calls to Nexa's async native APIs can appear after the dev host has been
     // built. Keep the same URLSession adapter as release output in that host.
     features.uses_network_api = true;
@@ -1566,6 +1947,10 @@ mod tests {
         let primitives = shared_component_primitives();
 
         assert!(primitives.contains("struct NexaButtonPrimitive<Label: View>"));
+        assert!(primitives.contains("struct NexaFormPrimitive<Content: View>"));
+        assert!(primitives.contains(
+            "struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>"
+        ));
         assert!(primitives.contains("CGFloat(64)"));
         assert!(primitives.contains("CGFloat(48)"));
         assert!(primitives.contains("CGFloat(50)"));
@@ -1603,6 +1988,18 @@ mod tests {
         assert!(primitives.contains(".presentationDragIndicator(.visible)"));
         assert!(primitives.contains("host.alert(title, isPresented: $isPresented)"));
         assert!(primitives.contains(".confirmationDialog(title, isPresented: $isPresented"));
+    }
+
+    #[test]
+    fn shared_page_indicator_owns_dot_geometry_color_and_accessibility() {
+        let primitives = shared_component_primitives();
+        assert!(primitives.contains("struct NexaPageIndicatorPrimitive: View"));
+        assert!(primitives.contains("Color(uiColor: .systemBlue)"));
+        assert!(primitives.contains("width: selectedIndex == index ? 8 : 6"));
+        assert!(primitives.contains(".accessibilityLabel(\"Page \\(index + 1)\")"));
+        assert!(primitives.contains("struct NexaPageIndicatorRow: View"));
+        assert!(primitives.contains("HStack(spacing: 8)"));
+        assert!(primitives.contains(".padding(.bottom, 24)"));
     }
 
     fn regex_module(enabled: bool) -> Module {

@@ -196,10 +196,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_picker,
-        "androidx.compose.material.icons.filled.UnfoldMore",
-    );
-    imports.add(
-        features.uses_picker,
         "androidx.compose.material3.MaterialTheme",
     );
     imports.add(features.uses_picker, "androidx.compose.material3.Icon");
@@ -587,25 +583,40 @@ pub(crate) fn render_pressable(
     let mut depth = depth;
     if has_long_press {
         let duration = expression(long_press_duration_ms);
-        out.line_at(depth, format_args!("CompositionLocalProvider("));
+        let configuration_id = out.next_id();
+        out.line_at(
+            depth,
+            format_args!(
+                "val nexaBaseViewConfiguration{configuration_id} = LocalViewConfiguration.current"
+            ),
+        );
+        out.line_at(
+            depth,
+            format_args!(
+                "val nexaLongPressViewConfiguration{configuration_id} = remember(nexaBaseViewConfiguration{configuration_id}, {duration}) {{"
+            ),
+        );
         out.line_at(
             depth + 1,
             format_args!(
-                "LocalViewConfiguration provides remember(LocalViewConfiguration.current, {duration}) {{"
+                "object : ViewConfiguration by nexaBaseViewConfiguration{configuration_id} {{"
             ),
         );
         out.line_at(
             depth + 2,
-            format_args!("object : ViewConfiguration by LocalViewConfiguration.current {{"),
-        );
-        out.line_at(
-            depth + 3,
             format_args!(
                 "override val longPressTimeoutMillis: Long = ({duration}).toLong().coerceAtLeast(1L)"
             ),
         );
-        out.line_at(depth + 2, format_args!("}}"));
         out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(depth, format_args!("}}"));
+        out.line_at(depth, format_args!("CompositionLocalProvider("));
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "LocalViewConfiguration provides nexaLongPressViewConfiguration{configuration_id}"
+            ),
+        );
         out.line_at(depth, format_args!(") {{"));
         depth += 1;
     }

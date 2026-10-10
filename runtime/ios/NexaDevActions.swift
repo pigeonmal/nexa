@@ -114,7 +114,6 @@ extension NexaDevStateStore {
                let name = assignment["name"] as? String,
                let expression = assignment["value"] {
                 setValue(name, value: evaluate(expression, locals: locals, scope: scope), scope: scope)
-                revision += 1
             } else if let expression = tagged["Expression"] {
                 _ = evaluate(expression, locals: locals, scope: scope)
             } else if let branch = tagged["If"] as? [String: Any],
@@ -686,7 +685,6 @@ extension NexaDevStateStore {
                let expression = assignment["value"] {
                 let value = try await evaluateAsync(expression, locals: locals, scope: scope)
                 setValue(name, value: value, scope: scope)
-                revision += 1
             } else if let assignment = tagged["NativePropertyAssign"] as? [String: Any],
                       let receiverExpression = assignment["receiver"],
                       let property = assignment["property"] as? String,

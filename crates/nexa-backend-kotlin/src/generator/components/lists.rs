@@ -3,8 +3,12 @@ use nexa_codegen::names::state_name;
 use nexa_ir::{Action, Expr, FastListMove, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
-    components::render_children, controls::render_actions, engine::types::kotlin_type,
-    expressions::expression, features::Features, utils::indent,
+    components::{render_children, render_node},
+    controls::render_actions,
+    engine::types::kotlin_type,
+    expressions::expression,
+    features::Features,
+    utils::indent,
 };
 
 use crate::generator::engine::imports::ImportSet;
@@ -26,6 +30,8 @@ struct SectionedPieces<'a> {
 }
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    imports.add(features.uses_fast_list, "androidx.compose.ui.Modifier");
+    imports.add(features.uses_fast_list, "androidx.compose.ui.Alignment");
     imports.add(
         features.uses_list,
         "androidx.compose.foundation.lazy.LazyColumn",
@@ -491,7 +497,10 @@ pub(crate) fn render_virtualized_list(
     );
     if pieces.axis == ListAxis::Vertical {
         out.push('\n');
-        out.line_at(list_depth + 2, format_args!("HorizontalDivider()"));
+        out.line_at(
+            list_depth + 2,
+            format_args!("NexaFastListDividerPrimitive()"),
+        );
     }
     out.push('\n');
     indent(out, list_depth + 1);
@@ -1106,10 +1115,7 @@ fn render_row_content(
     out: &mut SourceWriter,
 ) {
     let modifier = match sizing {
-        ListRowSizing::Content => {
-            render_children(children, module, features, depth, out);
-            return;
-        }
+        ListRowSizing::Content => "Modifier".to_owned(),
         ListRowSizing::Viewport => "Modifier.fillParentMaxSize()".to_owned(),
         ListRowSizing::PagerViewport => "Modifier.fillMaxSize()".to_owned(),
         ListRowSizing::Fixed(item_extent) => {
@@ -1124,8 +1130,23 @@ fn render_row_content(
             }
         }
     };
-    out.line_at(depth, format_args!("Box(modifier = {modifier}) {{"));
-    render_children(children, module, features, depth + 1, out);
+    let horizontal_alignment = if children.len() > 1 {
+        "CenterHorizontally"
+    } else {
+        "Start"
+    };
+    out.line_at(
+        depth,
+        format_args!(
+            "NexaFastListRowPrimitive(modifier = {modifier}, horizontalAlignment = Alignment.{horizontal_alignment}) {{"
+        ),
+    );
+    for (index, child) in children.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        render_node(child, module, features, depth + 1, out);
+    }
     out.push('\n');
     indent(out, depth);
     out.push('}');
@@ -1301,44 +1322,17 @@ fn render_row_content_with_actions(
         render_reorderable_row(row, module, features, depth, out);
         return;
     };
-    let swipe_id = out.next_id();
-    let state = format!("nexaSwipeState{swipe_id}");
-    out.line_at(
-        depth,
-        format_args!("val {state} = rememberSwipeToDismissBoxState()"),
-    );
-    out.line_at(
-        depth,
-        format_args!("LaunchedEffect({state}.currentValue) {{"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("if ({state}.currentValue == SwipeToDismissBoxValue.EndToStart) {{"),
-    );
+    out.line_at(depth, format_args!("NexaFastListSwipePrimitive("));
+    out.line_at(depth + 1, format_args!("onEndToStart = {{"));
     if let Some(Node::Button { actions, .. }) = actions.first() {
         render_actions(actions, depth + 2, out);
     }
-    out.line_at(depth + 1, format_args!("}}"));
-    out.line_at(depth, format_args!("}}"));
-    out.line_at(depth, format_args!("SwipeToDismissBox("));
-    out.line_at(depth + 1, format_args!("state = {state},"));
+    out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth + 1, format_args!("backgroundContent = {{"));
-    out.line_at(
-        depth + 2,
-        format_args!("Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {{"),
-    );
     render_children(actions, module, features, depth + 3, out);
-    out.push('\n');
-    out.line_at(depth + 2, format_args!("}}"));
     out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth + 1, format_args!("content = {{"));
-    out.line_at(
-        depth + 2,
-        format_args!("Box(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {{"),
-    );
     render_reorderable_row(row, module, features, depth + 2, out);
-    out.push('\n');
-    out.line_at(depth + 2, format_args!("}}"));
     out.line_at(depth + 1, format_args!("}}"));
     indent(out, depth);
     out.push(')');

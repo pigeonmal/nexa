@@ -1,6 +1,5 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::walk::contains_scrollable;
 use nexa_ir::{Action, Module, Node};
 
 use crate::generator::{
@@ -9,12 +8,7 @@ use crate::generator::{
 
 use crate::generator::engine::imports::ImportSet;
 
-pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    imports.add(
-        features.uses_refresh_control,
-        "androidx.compose.material3.pulltorefresh.PullToRefreshBox",
-    );
-}
+pub(crate) fn imports(_features: &Features, _imports: &mut ImportSet) {}
 
 pub(crate) fn render_refresh_control(
     state: &str,
@@ -26,28 +20,23 @@ pub(crate) fn render_refresh_control(
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
-    out.push_str("PullToRefreshBox(\n");
+    out.push_str("NexaRefreshControlPrimitive(\n");
     out.line_at(
         depth + 1,
         format_args!("isRefreshing = {},", state_name(state)),
     );
-    indent(out, depth + 1);
-    out.push_str("onRefresh = {\n");
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "scrollContent = {},",
+            !nexa_ir::walk::contains_scrollable(children)
+        ),
+    );
+    out.line_at(depth + 1, format_args!("onRefresh = {{"));
     render_actions(actions, depth + 2, out);
-    indent(out, depth + 1);
-    out.push_str("},\n");
-    indent(out, depth);
-    out.push_str(") {\n");
-    if !contains_scrollable(children) {
-        indent(out, depth + 1);
-        out.push_str("Column(modifier = Modifier.verticalScroll(rememberScrollState())) {\n");
-        render_children(children, module, features, depth + 2, out);
-        out.push('\n');
-        indent(out, depth + 1);
-        out.push('}');
-    } else {
-        render_children(children, module, features, depth + 1, out);
-    }
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth, format_args!(") {{"));
+    render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');

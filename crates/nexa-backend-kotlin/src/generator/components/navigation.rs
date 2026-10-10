@@ -40,25 +40,8 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         context.has_navigation,
         "androidx.compose.material3.IconButton",
     );
-    imports.add(
-        context.has_navigation,
-        "androidx.compose.material3.Scaffold",
-    );
-    imports.add(
-        context.has_navigation,
-        "androidx.compose.material3.TopAppBar",
-    );
     imports.add(context.has_navigation, "androidx.compose.material3.Text");
     imports.add(context.has_navigation, "androidx.compose.ui.Modifier");
-    imports.add(
-        context.has_navigation,
-        "androidx.compose.ui.semantics.contentDescription",
-    );
-    imports.add(
-        context.has_navigation,
-        "androidx.compose.ui.semantics.semantics",
-    );
-    imports.add(context.has_navigation, "androidx.compose.ui.unit.sp");
     imports.add(
         context.has_navigation,
         "androidx.compose.ui.platform.LocalContext",
@@ -148,36 +131,28 @@ pub(crate) fn render_link(
         return;
     }
     let route = route_value(scope.module, destination, arguments);
-    let click_handler = guard.map_or_else(
-        || format!("Modifier.fillMaxWidth().clickable {{ navController.navigate({route}) }}"),
-        |guard| {
-            format!(
-                "Modifier.fillMaxWidth().clickable(enabled = {}, onClick = {{ navController.navigate({route}) }})",
-                crate::generator::engine::expressions::expression(guard)
-            )
-        },
+    let enabled = guard.map_or_else(
+        || "true".to_owned(),
+        crate::generator::engine::expressions::expression,
     );
-    out.line_at(
-        depth,
-        format_args!(
-            "Row(modifier = {click_handler}, verticalAlignment = Alignment.CenterVertically) {{"
-        ),
-    );
+    out.line_at(depth, format_args!("NexaNavigationLinkPrimitive("));
+    out.line_at(depth + 1, format_args!("enabled = {enabled},"));
     out.line_at(
         depth + 1,
-        format_args!("Box(modifier = Modifier.weight(1f)) {{"),
+        format_args!("onClick = {{ navController.navigate({route}) }},"),
     );
-    render_children(children, scope.module, scope.features, depth + 2, out);
-    out.push('\n');
-    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(depth + 1, format_args!("trailing = {{"));
     out.line_at(
-        depth + 1,
+        depth + 2,
         format_args!(
             "Icon(imageVector = Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)"
         ),
     );
-    indent(out, depth);
-    out.push('}');
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth, format_args!(") {{"));
+    render_children(children, scope.module, scope.features, depth + 1, out);
+    out.push('\n');
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_toolbar_link(
@@ -320,42 +295,22 @@ pub(crate) fn render_navigation_stack(
         if screen.id == root {
             render_screen_body(screen, module, features, themed_content_depth, out);
         } else {
-            out.line_at(themed_content_depth, format_args!("Scaffold("));
-            out.line_at(themed_content_depth + 1, format_args!("topBar = {{"));
-            out.line_at(themed_content_depth + 2, format_args!("TopAppBar("));
             out.line_at(
-                themed_content_depth + 3,
-                format_args!("title = {{ Text({}) }},", kotlin_string(&screen.name)),
+                themed_content_depth,
+                format_args!("NexaNavigationScreenPrimitive("),
             );
-            out.line_at(
-                themed_content_depth + 3,
-                format_args!("navigationIcon = {{"),
-            );
-            out.line_at(
-                themed_content_depth + 4,
-                format_args!("IconButton(onClick = {{ navController.popBackStack() }}) {{"),
-            );
-            out.line_at(
-                themed_content_depth + 5,
-                format_args!("Text(\"‹\", modifier = Modifier.semantics {{ contentDescription = \"Back\" }}, fontSize = 32.sp)"),
-            );
-            out.line_at(themed_content_depth + 4, format_args!("}}"));
-            out.line_at(themed_content_depth + 3, format_args!("}},"));
-            out.line_at(themed_content_depth + 2, format_args!(")"));
-            out.line_at(themed_content_depth + 1, format_args!("}},"));
             out.line_at(
                 themed_content_depth + 1,
-                format_args!("content = {{ innerPadding ->"),
+                format_args!("title = {},", kotlin_string(&screen.name)),
             );
             out.line_at(
-                themed_content_depth + 2,
-                format_args!("Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {{"),
+                themed_content_depth + 1,
+                format_args!("onBack = {{ navController.popBackStack() }},"),
             );
-            render_screen_body(screen, module, features, themed_content_depth + 3, out);
+            out.line_at(themed_content_depth, format_args!(") {{"));
+            render_screen_body(screen, module, features, themed_content_depth + 1, out);
             out.push('\n');
-            out.line_at(themed_content_depth + 2, format_args!("}}"));
-            out.line_at(themed_content_depth + 1, format_args!("}}"));
-            out.line_at(themed_content_depth, format_args!(")"));
+            out.line_at(themed_content_depth, format_args!("}}"));
         }
         if app_appearance_mode.is_some() {
             appearance::render_theme_end(theme_depth, out);

@@ -1622,17 +1622,17 @@ fn constant_conditional_expressions_fold_to_the_selected_branch() {
 }
 
 #[test]
-fn chained_text_styles_lower_to_native_text_style_fields() {
+fn text_style_arguments_lower_to_native_text_style_fields() {
     let module = compile(
         r#"
-        app ChainedTextStyles {
+        app TextStyles {
             body {
-                Text("Hi").fontSize(18).bold().padding(12)
+                Text("Hi", fontSize: 18, fontWeight: Bold, padding: 12)
             }
         }
         "#,
     )
-    .expect("text style chains should lower to native style fields");
+    .expect("text style arguments should lower to native style fields");
 
     assert!(matches!(
         &module.body[0],
@@ -1681,26 +1681,27 @@ fn semantic_text_font_roles_lower_and_validate() {
 }
 
 #[test]
-fn visual_modifiers_lower_to_validated_static_effects() {
+fn visual_style_arguments_lower_to_validated_static_effects() {
     let module = compile(
         r##"
         app VisualEffects {
             body {
-                Column {
-                    Text("Card").scale(0.95).clip(shape: Rounded(5))
+                Column(
+                    opacity: 0.8,
+                    scale: 1.1,
+                    rotation: -6,
+                    shadow: Shadow(4, 1, -2, "#00000080"),
+                    blur: 2,
+                    clip: Rounded(12),
+                    zIndex: -3
+                ) {
+                    Text("Card", scale: 0.95, clip: Rounded(5))
                 }
-                .opacity(0.8)
-                .scale(1.1)
-                .rotation(-6)
-                .shadow(radius: 4, x: 1, y: -2, color: "#00000080")
-                .blur(2)
-                .clip(shape: Rounded(12))
-                .zIndex(-3)
             }
         }
         "##,
     )
-    .expect("valid static visual effects should compile");
+    .expect("valid static visual style arguments should compile");
 
     let Node::Layout {
         style, children, ..
@@ -1728,6 +1729,29 @@ fn visual_modifiers_lower_to_validated_static_effects() {
     };
     assert_eq!(style.effects.scale, Some(0.95));
     assert_eq!(style.effects.clip_rounded, Some(5.0));
+}
+
+#[test]
+fn visual_styles_are_rejected_as_dot_modifiers() {
+    for (component, modifier) in [
+        ("Text(\"Hi\")", ".fontSize(18)"),
+        ("Text(\"Hi\")", ".bold()"),
+        ("Text(\"Hi\")", ".padding(12)"),
+        ("Column { Text(\"Hi\") }", ".opacity(0.8)"),
+        ("Column { Text(\"Hi\") }", ".scale(1.1)"),
+        ("Column { Text(\"Hi\") }", ".rotation(15)"),
+        (
+            "Column { Text(\"Hi\") }",
+            ".shadow(radius: 4, x: 0, y: 2, color: \"#00000040\")",
+        ),
+        ("Column { Text(\"Hi\") }", ".blur(2)"),
+        ("Column { Text(\"Hi\") }", ".clip(shape: Rounded(12))"),
+        ("Column { Text(\"Hi\") }", ".zIndex(1)"),
+    ] {
+        let source = format!("app Invalid {{ body {{ {component}{modifier} }} }}");
+        let error = compile(&source).expect_err("visual styles must use component arguments");
+        assert!(error.to_string().contains("unknown"), "{error}");
+    }
 }
 
 #[test]
@@ -2211,18 +2235,15 @@ fn pressable_long_press_duration_is_typed_and_tap_uses_its_canonical_name() {
 fn visual_modifiers_reject_invalid_ranges_and_shapes() {
     for (body, expected) in [
         (
-            "Column { Text(\"x\") }.opacity(1.1)",
+            "Column(opacity: 1.1) { Text(\"x\") }",
             "opacity must be between 0 and 1",
         ),
-        ("Column { Text(\"x\") }.blur(-1)", "blur radius"),
-        (
-            "Column { Text(\"x\") }.clip(shape: Circle())",
-            "Rounded(radius)",
-        ),
-        ("Column { Text(\"x\") }.zIndex(2147483648)", "Int32 range"),
+        ("Column(blur: -1) { Text(\"x\") }", "blur radius"),
+        ("Column(clip: Circle()) { Text(\"x\") }", "Rounded(radius)"),
+        ("Column(zIndex: 2147483648) { Text(\"x\") }", "Int32 range"),
     ] {
         let source = format!("app Invalid {{ body {{ {body} }} }}");
-        let error = compile(&source).expect_err("invalid visual modifiers should fail");
+        let error = compile(&source).expect_err("invalid visual style arguments should fail");
         assert!(error.to_string().contains(expected), "{error}");
     }
 }

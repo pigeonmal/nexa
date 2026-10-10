@@ -98,29 +98,42 @@ pub(crate) fn render_form_section(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    out.line_at(depth, format_args!("Section {{"));
+    out.line_at(depth, format_args!("NexaFormSectionPrimitive("));
+    out.line_at(depth + 1, format_args!("content: {{"));
     for (index, child) in children.iter().enumerate() {
-        render_form_row(child, scope, depth + 1, out);
+        render_form_row(child, scope, depth + 2, out);
         if index + 1 < children.len() {
             out.push('\n');
         }
     }
-    out.push('\n');
-    indent(out, depth);
-    out.push('}');
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth + 1, format_args!("header: {{"));
     if let Some(title) = title {
-        out.push_str(&format!(
-            " header: {{ {} }}",
-            crate::generator::expressions::localized_text_view(title, comment)
-        ));
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "{}",
+                crate::generator::expressions::localized_text_view(title, comment)
+            ),
+        );
+    } else {
+        out.line_at(depth + 2, format_args!("EmptyView()"));
     }
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth + 1, format_args!("footer: {{"));
     if let Some(footer) = footer {
-        out.push_str(&format!(
-            " footer: {{ {} }}",
-            crate::generator::expressions::localized_text_view(footer, comment)
-        ));
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "{}",
+                crate::generator::expressions::localized_text_view(footer, comment)
+            ),
+        );
+    } else {
+        out.line_at(depth + 2, format_args!("EmptyView()"));
     }
-    out.push('\n');
+    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(depth, format_args!(")"));
 }
 
 pub(crate) fn render_form_row(

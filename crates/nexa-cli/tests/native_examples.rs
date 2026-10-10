@@ -18,6 +18,7 @@ const EXAMPLES: &[&str] = &[
     "pressable_pinch",
     "spring_animation",
     "showcase",
+    "adaptive_workspace",
     "todo_app",
     "virtual_list",
 ];
@@ -467,6 +468,38 @@ fn generated_ios_example_hosts_build_with_xcode_when_available() {
         String::from_utf8_lossy(&built.stderr)
     );
 
+    let split_view_dev_project = temp.join("adaptive-workspace-dev-ios");
+    nexa_cli::generate_dev_project(
+        &example_path("adaptive_workspace.nx"),
+        "ios",
+        &split_view_dev_project,
+        "NexaAdaptiveWorkspace",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate iOS split-view DevRuntime host");
+    let sources = swift_sources(&split_view_dev_project.join("ios/NexaAdaptiveWorkspace"));
+    let built = Command::new("xcrun")
+        .args([
+            "--sdk",
+            "iphonesimulator",
+            "swiftc",
+            "-typecheck",
+            "-sdk",
+            sdk,
+            "-target",
+            "arm64-apple-ios16.0-simulator",
+        ])
+        .args(&sources)
+        .output()
+        .expect("Swift compiler should start for the iOS split-view DevRuntime host");
+    assert!(
+        built.status.success(),
+        "iOS split-view DevRuntime host failed to type-check:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+
     let plugin_dev_project = temp.join("video-player-dev-ios");
     nexa_cli::generate_dev_project(
         &Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -708,6 +741,28 @@ fn generated_android_example_hosts_build_with_gradle_when_available() {
     assert!(
         built.status.success(),
         "Android plugin DevRuntime host failed to compile:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let split_view_dev_project = temp.join("adaptive-workspace-dev-android");
+    nexa_cli::generate_dev_project(
+        &example_path("adaptive_workspace.nx"),
+        "android",
+        &split_view_dev_project,
+        "NexaAdaptiveWorkspace",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Android split-view DevRuntime host");
+    let built = Command::new(gradle)
+        .args([":app:assembleDebug"])
+        .current_dir(split_view_dev_project.join("android"))
+        .output()
+        .expect("Gradle should start for the Android split-view DevRuntime host");
+    assert!(
+        built.status.success(),
+        "Android split-view DevRuntime host failed to compile:\n{}\n{}",
         String::from_utf8_lossy(&built.stdout),
         String::from_utf8_lossy(&built.stderr)
     );

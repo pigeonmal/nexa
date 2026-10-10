@@ -1,0 +1,517 @@
+component ParityCard(title: String) {
+    body {
+        Column(spacing: 6, padding: 12, background: "#252525", cornerRadius: 10) {
+            Text(title, fontWeight: Semibold)
+            Content()
+        }
+    }
+}
+
+app RenderParity {
+    state count: Int32 = 0
+    state enabled: Bool = false
+    state title: String = ""
+    state toolbarActionCount: Int32 = 0
+    state sliderValue: Float64 = 0.35
+    state progress: Float64 = 0.72
+    state period: String = "Week"
+    state periods: Array<String> = ["Day", "Week", "Month"]
+    state sectionItems: Array<Array<String>> = [["First section row", "Second section row"], ["Third section row"]]
+    state movableItems: Array<String> = ["Move one", "Move two", "Move three"]
+    state sort: String = "Due date"
+    state sortOptions: Array<String> = ["Due date", "Priority", "Title"]
+    state timestamp: Int64 = Time.now()
+    state hasTime: Bool = false
+    state selectedTab: Int32 = 0
+    state selectedPage: Int32 = 0
+    state detailVisible: Bool = true
+    state refreshing: Bool = false
+    state refreshCount: Int32 = 0
+    state listPosition: Int32 = 0
+    state pagePosition: Int32 = 0
+    state canNavigate: Bool = true
+    state loading: Bool = false
+    state disabled: Bool = true
+    state largeSheetPresented: Bool = false
+    state inputFocused: Bool = false
+    state sheetPresented: Bool = false
+    state dialogPresented: Bool = false
+    state confirmationPresented: Bool = false
+
+    screen Main {
+        StatusBar(style: Default, hidden: false, background: "#000000")
+        Appearance(mode: "dark") {
+            Column {
+                AppBottomBar(selected: selectedTab, tint: "#E11D48") {
+                Tab(index: 0, label: "Controls", icon: "tune", title: "Controls") {
+                    Toolbar(placement: Trailing) {
+                        Button("Toolbar action", accessibilityLabel: "Toolbar action") {
+                            toolbarActionCount = toolbarActionCount + 1
+                        }
+                    }
+                    Text("Toolbar actions: $toolbarActionCount", fontSize: 12)
+                    Form {
+                        Text("Parity heading", fontSize: 20, fontWeight: Semibold)
+                        NavigationLink(destination: Detail, when: canNavigate) {
+                            Text("Open detail screen")
+                        }
+                        NavigationLink(destination: TextEntry) {
+                            Text("Open text input screen")
+                        }
+                        NavigationLink(destination: StyleParameters) {
+                            Text("Open style parameters")
+                        }
+                        Button("Increment: $count") {
+                            count = count + 1
+                        }
+                        Switch(value: enabled, label: "Enabled", comment: "Controls the task filter")
+                        Text("Enabled: $enabled", fontSize: 12)
+                        Section(title: "Layout and content", footer: "Native form section footer", comment: "General layout samples") {
+                            ParityCard(title: "Custom component") {
+                                Text("Projected content", fontSize: 12, color: "#A0A0A0")
+                            }
+                            Row(spacing: 8, alignment: Center) {
+                                Text("Row layout")
+                                Icon(system: "check_circle", size: 24, tint: "#E11D48", description: "Completed")
+                            }
+                            Stack(alignment: Center, width: 120, height: 44, background: "#303030", cornerRadius: 8) {
+                                Text("Stack layout")
+                            }
+                            Divider(color: "#606060", thickness: 1)
+                            Row {
+                                Text("Flexible row")
+                                Spacer()
+                            }
+                            ContentUnavailable(title: "No archived tasks", icon: "inbox", description: "Archived tasks appear here.", comment: "Empty state sample")
+                            Text("Conditional content", fontSize: 12)
+                            if enabled {
+                                Text("If branch enabled", accessibilityLabel: "If branch enabled")
+                            } else {
+                                Text("If branch disabled", accessibilityLabel: "If branch disabled")
+                            }
+                            when period {
+                                "Day": { Text("When branch: day") }
+                                else: { Text("When branch: other") }
+                            }
+                        }
+                        Section(title: "Input and controls") {
+                            Slider(value: sliderValue, min: 0, max: 1, step: 0.05, accessibilityLabel: "Progress slider")
+                            ProgressBar(progress: progress, accessibilityLabel: "Task progress")
+                            ProgressRing(progress: progress, accessibilityLabel: "Circular task progress")
+                            SegmentedControl(items: periods, selected: period, comment: "Task date range", accessibilityLabel: "Period")
+                            Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Sort tasks by", accessibilityLabel: "Sort tasks")
+                            DatePicker(timestamp: timestamp, hasTime: hasTime, accessibilityLabel: "Due date")
+                            Pressable(accessibilityLabel: "Pressable action", accessibilityRole: Button) {
+                                Text("Pressable region")
+                            }.onTap {
+                                count = count + 1
+                            }.onLongPress(durationMs: 500) {
+                                count = count + 1
+                            }.contextMenu {
+                                Button("Context action") { count = count + 1 }
+                            }.onDoubleTap {
+                                count = count + 2
+                            }.onDrag { translationX, translationY, velocityX, velocityY ->
+                                sliderValue = translationX
+                            }.onPinch { scaleFactor ->
+                                sliderValue = scaleFactor
+                            }
+                            Text("Accessible header", accessibilityLabel: "Parity section", accessibilityHint: "Opens this section", accessibilityValue: "Ready", accessibilityRole: Header)
+                        }
+                        Section(title: "Images and links") {
+                            Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, maxHeight: 64)
+                                .sharedElement(id: "parity-image")
+                            Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 64)
+                            Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
+                            Icon(system: "star", size: 24, tint: "#E11D48", description: "Favorite")
+                            Icon(sfsymbol: "star.fill", size: 24, tint: "#E11D48", description: "Native iOS symbol")
+                            Icon(materialsymbol: "star", size: 24, tint: "#E11D48", description: "Native Android symbol")
+                            Text(
+                                "Style parameter coverage",
+                                comment: "All visual styling is provided as named component parameters.",
+                                color: "#F5F5F5",
+                                alignment: Center,
+                                fontSize: 14,
+                                fontStyle: Subheadline,
+                                fontWeight: Bold,
+                                padding: 4,
+                                lineLimit: 2,
+                                lineHeight: 18,
+                                letterSpacing: 0.2,
+                                strikethrough: true,
+                                selectable: true,
+                                opacity: 0.95,
+                                scale: 1.0,
+                                rotation: 0,
+                                shadow: Shadow(1, 0, 0, "#00000020"),
+                                blur: 0,
+                                clip: Rounded(4),
+                                zIndex: 1
+                            )
+                            LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: TopToBottom, height: 32)
+                            Link(url: "https://example.com") {
+                                Text("External documentation link")
+                            }
+                        }
+                        Section(title: "Presentations") {
+                            Button("Open bottom sheet") { sheetPresented = true }
+                            Button("Open dialog") { dialogPresented = true }
+                            Button("Open confirmation") { confirmationPresented = true }
+                        }
+                    }
+                }
+
+                Tab(index: 1, label: "Lists", icon: "list", title: "Lists") {
+                    Column(spacing: 8) {
+                        Text("Virtualized list", fontSize: 20, fontWeight: Semibold)
+                        NavigationLink(destination: ListParameters) {
+                            Text("Open list parameters")
+                        }
+                        Text("Refresh count: $refreshCount", accessibilityLabel: "Refresh count")
+                        RefreshControl(isRefreshing: refreshing) {
+                            Column(spacing: 8, padding: 12) {
+                                Text("Pull to refresh")
+                                Button("Refresh now") { refreshCount = refreshCount + 1 }
+                            }
+                        }.onRefresh {
+                            refreshing = false
+                            refreshCount = refreshCount + 1
+                        }
+                        FastList(count: 24, native: true, accessibilityLabel: "Parity task list") { index in
+                            Row(spacing: 8, padding: 8) {
+                                Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                                Text("Virtual row \(index)")
+                            }
+                        }.swipeActions {
+                            Button("Delete row", icon: "delete", style: Borderless) {
+                                refreshCount = refreshCount + 1
+                            }
+                        }
+                        Text("Reverse list parameters")
+                        FastList(count: 5, rowHeight: 48, scrollPosition: listPosition, reverseLayout: true) { index in
+                            Text("Reverse row \(index)")
+                        }
+                        FastList(count: 12, rowHeight: 48, accessibilityLabel: "Scroll event list") { index in
+                            Text("Scroll event row \(index)")
+                        }.onScroll {
+                            progress = progress
+                        }.onEndReached {
+                            refreshCount = refreshCount + 1
+                        }.stickyHeader {
+                            Text("Sticky list header")
+                        }
+                        FastList(count: 8, axis: Horizontal, rowHeight: 120) { index in
+                            Text("Horizontal row \(index)")
+                        }
+                        FastList(count: 8, axis: Grid(2), rowHeight: 92) { index in
+                            Text("Grid row \(index)")
+                        }
+                        FastList(sections: sectionItems, native: true) { item, index, section in
+                            Text("Section \(section), row \(index): \(item)")
+                        }.sectionHeader {
+                            Text("Sectioned list header")
+                        }
+                        FastList(movableItems, native: true) { item, index in
+                            Text(item)
+                        }.onMove { from, to ->
+                            movableItems.move(from, to)
+                        }
+                    }
+                }
+
+                Tab(index: 2, label: "Workspace", icon: "folder", title: "Workspace") {
+                    NavigationSplitView(detailVisible: detailVisible) {
+                        Sidebar {
+                            Column(spacing: 12, padding: 16) {
+                                Text("Workspace sidebar")
+                                Button("Show detail") { detailVisible = true }
+                                NavigationLink(destination: Detail) { Text("Open detail") }
+                            }
+                        }
+                        Detail {
+                            Column(spacing: 12, padding: 16) {
+                                Text("Workspace detail")
+                                Button("Show sidebar") { detailVisible = false }
+                            }
+                        }
+                    }
+                }
+
+                Tab(index: 3, label: "Pages", icon: "calendar", title: "Pages") {
+                    PagePager(selected: selectedPage) {
+                        Tab(index: 0) {
+                            Column(spacing: 16, padding: 24) {
+                                Text("Pager page one")
+                                Button("Next page") { selectedPage = 1 }
+                            }
+                        }
+                        Tab(index: 1) {
+                            Column(spacing: 16, padding: 24) {
+                                Text("Pager page two")
+                                Button("Previous page") { selectedPage = 0 }
+                            }
+                        }
+                    }
+                }
+                }
+
+                BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet") {
+                    Column(spacing: 12, padding: 24) {
+                        Text("Sheet content", accessibilityLabel: "Sheet content")
+                        Button("Close sheet") { sheetPresented = false }
+                    }
+                }
+                Dialog(isPresented: dialogPresented, title: "Parity dialog", message: "Dialog content", comment: "Dialog localization coverage") {
+                    Button("Dismiss dialog") { dialogPresented = false }
+                }
+                ConfirmationDialog(isPresented: confirmationPresented, title: "Confirm parity", comment: "Confirmation localization coverage") {
+                    Button("Confirm action") { confirmationPresented = false }
+                }
+            }
+        }
+    }
+
+    screen Detail {
+        Column(spacing: 12, padding: 16) {
+            NavigationBack(label: "Back to catalog")
+            Text("Navigation destination", accessibilityLabel: "Navigation destination")
+        }
+    }
+
+    screen TextEntry {
+        KeyboardAware(dismiss: Never) {
+            Column(spacing: 12, padding: 16) {
+                NavigationBack(label: "Back to catalog")
+                TextInput(value: title, placeholder: "Task title", keyboardType: Text, capitalization: None, comment: "Task title input").onChange { changed ->
+                    title = changed
+                }
+                Text("Title: $title", fontSize: 12)
+            }
+        }
+    }
+
+    screen StyleParameters {
+        Form {
+            NavigationBack(label: "Back to catalog", comment: "Return to component catalog")
+            Section(title: "Layout style parameters", comment: "Named style options across native containers") {
+                Column(
+                    spacing: 6,
+                    alignment: Center,
+                    padding: 4,
+                    width: 240,
+                    height: 72,
+                    minWidth: 220,
+                    maxWidth: 260,
+                    minHeight: 64,
+                    maxHeight: 80,
+                    background: "#252525",
+                    cornerRadius: 8,
+                    borderColor: "#E11D48",
+                    borderWidth: 1,
+                    opacity: 0.98,
+                    scale: 1.0,
+                    rotation: 0,
+                    shadow: Shadow(1, 0, 0, "#00000020"),
+                    blur: 0,
+                    clip: Rounded(8),
+                    zIndex: 1,
+                    animation: Spring(response: 0.35, damping: 0.8)
+                ) {
+                    Text("Column style parameters")
+                }
+                Row(
+                    spacing: 8,
+                    alignment: Center,
+                    padding: 4,
+                    width: 280,
+                    height: 56,
+                    minWidth: 240,
+                    maxWidth: 300,
+                    minHeight: 48,
+                    maxHeight: 64,
+                    background: "#252525",
+                    cornerRadius: 8,
+                    borderColor: "#2563EB",
+                    borderWidth: 1,
+                    opacity: 0.98,
+                    scale: 1.0,
+                    rotation: 0,
+                    shadow: Shadow(1, 0, 0, "#00000020"),
+                    blur: 0,
+                    clip: Rounded(8),
+                    zIndex: 1,
+                    animation: EaseInOut
+                ) {
+                    Text("Row style parameters")
+                }
+                Stack(
+                    alignment: Center,
+                    padding: 4,
+                    width: 280,
+                    height: 56,
+                    minWidth: 240,
+                    maxWidth: 300,
+                    minHeight: 48,
+                    maxHeight: 64,
+                    background: "#252525",
+                    cornerRadius: 8,
+                    borderColor: "#34C759",
+                    borderWidth: 1,
+                    opacity: 0.98,
+                    scale: 1.0,
+                    rotation: 0,
+                    shadow: Shadow(1, 0, 0, "#00000020"),
+                    blur: 0,
+                    clip: Rounded(8),
+                    zIndex: 1,
+                    animation: Linear
+                ) {
+                    Text("Stack style parameters")
+                }
+            }
+            Section(title: "Typography style parameters", comment: "Text appearance and line layout") {
+                Text(
+                    "Typography and accessibility style sample with wrapping text",
+                    comment: "Text localization coverage",
+                    color: "#F5F5F5",
+                    alignment: Center,
+                    fontSize: 16,
+                    fontStyle: Subheadline,
+                    fontWeight: Semibold,
+                    padding: 4,
+                    opacity: 0.95,
+                    scale: 1.0,
+                    rotation: 0,
+                    shadow: Shadow(1, 0, 0, "#00000020"),
+                    blur: 0,
+                    clip: Rounded(4),
+                    zIndex: 1,
+                    lineLimit: 2,
+                    lineHeight: 20,
+                    letterSpacing: 0.2,
+                    strikethrough: true,
+                    selectable: true
+                )
+            }
+            Section(title: "Button style parameters", comment: "Native control states and button styles") {
+                Button(
+                    "Configured button",
+                    comment: "Configured button localization coverage",
+                    icon: "star",
+                    loading: loading,
+                    disabled: disabled,
+                    style: Bordered,
+                    size: Large,
+                    shape: Rounded(8),
+                    tint: "#E11D48",
+                    glass: true
+                ) {
+                    loading = !loading
+                }
+                Button("Enable configured button", style: BorderedProminent) {
+                    disabled = false
+                }
+                Button("Open large sheet") {
+                    largeSheetPresented = true
+                }
+                Text("Configured state: loading=$loading, disabled=$disabled")
+            }
+            Section(title: "Text input parameters", comment: "Keyboard, autofill, and text layout options") {
+                TextInput(
+                    value: title,
+                    placeholder: "Email search",
+                    comment: "Email search input localization coverage",
+                    keyboardType: Email,
+                    isSecure: false,
+                    autofill: Username,
+                    returnKeyType: Next,
+                    multiline: false,
+                    autocorrect: false,
+                    capitalization: Words,
+                    focused: inputFocused,
+                    maxLength: 24,
+                    font: Body,
+                    searchable: true
+                ).onChange { changed ->
+                    title = changed
+                }
+                TextInput(
+                    value: title,
+                    placeholder: "Password",
+                    keyboardType: Text,
+                    isSecure: true,
+                    autofill: Password,
+                    returnKeyType: Done,
+                    multiline: false,
+                    autocorrect: false,
+                    capitalization: None,
+                    maxLength: 64,
+                    font: Body
+                )
+                TextInput(
+                    value: title,
+                    placeholder: "Task notes",
+                    keyboardType: Text,
+                    isSecure: false,
+                    multiline: true,
+                    autocorrect: true,
+                    capitalization: Sentences,
+                    maxLength: 120,
+                    font: Title3,
+                    minLines: 2,
+                    maxLines: 3
+                )
+            }
+            Section(title: "Image and icon parameters", comment: "Asset, URL, file, and system symbol sources") {
+                Image(asset: "parity_sample", description: "Asset image", scale: Fit, maxHeight: 64)
+                Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 64)
+                Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
+                Icon(system: "star", size: 24, tint: "#E11D48", description: "Shared system icon")
+                Icon(sfsymbol: "star.fill", size: 24, tint: "#E11D48", description: "Native iOS symbol")
+                Icon(materialsymbol: "star", size: 24, tint: "#E11D48", description: "Native Android symbol")
+            }
+            Section(title: "Pressable parameters", comment: "Disabled state, haptics, and full-size layout") {
+                Stack(width: 220, height: 48, background: "#252525", cornerRadius: 8) {
+                    Pressable(disabled: false, haptic: Light, fillMaxSize: true, accessibilityLabel: "Full-size pressable", accessibilityRole: Button) {
+                        Text("Full-size pressable")
+                    }.onTap {
+                        count = count + 1
+                    }
+                }
+                Pressable(disabled: true, haptic: Medium, accessibilityLabel: "Disabled pressable", accessibilityRole: Button) {
+                    Text("Disabled pressable")
+                }.onTap {
+                    count = count + 1
+                }
+            }
+        }
+        BottomSheet(isPresented: largeSheetPresented, partial: false, largeOnly: true, title: "Large parity sheet") {
+            Column(spacing: 12, padding: 24) {
+                Text("Large sheet content")
+                Button("Close large sheet") { largeSheetPresented = false }
+            }
+        }
+    }
+
+    screen ListParameters {
+        Column(spacing: 12, padding: 16) {
+            NavigationBack(label: "Back to lists")
+            Text("Page snap list parameters", accessibilityLabel: "Page snap list parameters")
+            FastList(count: 3, scrollPosition: pagePosition, pageSnap: true, accessibilityLabel: "Page snap parity list") { index in
+                Column(spacing: 12, padding: 24) {
+                    Text("Page snap row \(index)")
+                }
+            }
+        }
+    }
+
+    body {
+        OnAppear { count = count }
+        OnDisappear { count = count }
+        OnActive { count = count }
+        OnInactive { count = count }
+        OnBackground { count = count }
+        Direction(value: LTR)
+        NavigationStack(root: Main)
+    }
+}

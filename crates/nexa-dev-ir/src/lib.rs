@@ -64,21 +64,30 @@ pub fn diff(previous: &DevModule, next: &DevModule) -> Option<DevModulePatch> {
     {
         return None;
     }
-    let previous_fields = serde_json::to_value(&previous.module)
-        .ok()?
-        .as_object()?
-        .clone();
-    let next_fields = serde_json::to_value(&next.module)
-        .ok()?
-        .as_object()?
-        .clone();
+    let previous_fields = serde_json::to_value(&previous.module).ok()?;
+    let next_fields = serde_json::to_value(&next.module).ok()?;
+    diff_with_module_values(previous, &previous_fields, next, &next_fields)
+}
+
+/// Build a deterministic patch from cached JSON representations of two Dev IR
+/// modules. DevServer uses this to reuse the previous serialized shape instead
+/// of serializing the last-good module on every hot reload.
+pub fn diff_with_module_values(
+    previous: &DevModule,
+    previous_fields: &serde_json::Value,
+    next: &DevModule,
+    next_fields: &serde_json::Value,
+) -> Option<DevModulePatch> {
+    if previous.protocol_version != next.protocol_version
+        || next.protocol_version != DEV_IR_FORMAT_VERSION
+        || previous.revision == next.revision
+        || !previous_fields.is_object()
+        || !next_fields.is_object()
+    {
+        return None;
+    }
     let mut operations = Vec::new();
-    diff_json(
-        &serde_json::Value::Object(previous_fields),
-        &serde_json::Value::Object(next_fields),
-        "",
-        &mut operations,
-    );
+    diff_json(previous_fields, next_fields, "", &mut operations);
     Some(DevModulePatch {
         protocol_version: next.protocol_version,
         base_revision: previous.revision.clone(),

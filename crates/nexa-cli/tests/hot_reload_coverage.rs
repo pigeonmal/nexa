@@ -1,9 +1,17 @@
-use std::{collections::BTreeSet, fs, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::PathBuf,
+};
 
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_ir::{Expr, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{
+    AccessibilityRole, Expr, LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node, NumericType,
+    Screen, ScreenId, ViewStyle,
+};
+use nexa_syntax::catalog;
 use serde_json::Value;
 
 fn variants(source: &str, enum_name: &str) -> BTreeSet<String> {
@@ -105,6 +113,41 @@ fn android_dev_runtime_unboxes_primitive_state_and_closes_its_event_scope() {
     assert!(kotlin_runtime.contains("store.dispose()"));
 }
 
+#[test]
+fn android_dev_node_dispatch_is_split_into_art_jittable_composable_families() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+    let dispatch = renderer
+        .split_once("internal fun NexaDevNode(")
+        .expect("find Android DevRuntime node dispatcher")
+        .1
+        .split_once("private fun nexaDevContainsForm(")
+        .expect("find Android DevRuntime node dispatcher end")
+        .0;
+
+    for family in [
+        "NexaDevRenderTextNode",
+        "NexaDevRenderControlNode",
+        "NexaDevRenderListNode",
+        "NexaDevRenderNavigationNode",
+    ] {
+        assert!(renderer.contains(&format!("private fun {family}(")));
+        assert!(dispatch.contains(family), "dispatcher omitted {family}");
+    }
+    for extracted in [
+        "NexaDevRenderPressableNode",
+        "NexaDevRenderTextInputNode",
+        "NexaDevRenderFastListNode",
+        "NexaDevRenderAppBottomBarNode",
+    ] {
+        assert!(renderer.contains(&format!("private fun {extracted}(")));
+        assert!(renderer.contains(&format!(
+            "{extracted}(fields, module, store, locals, scope, modifier)"
+        )));
+    }
+}
+
 fn is_semantically_probed_plugin_variant(enum_name: &str, variant_name: &str) -> bool {
     matches!(
         (enum_name, variant_name),
@@ -121,6 +164,169 @@ fn fixture() -> (PathBuf, Value) {
     )
     .expect("parse hot-reload coverage inventory");
     (root, fixture)
+}
+
+fn collect_parity_components(
+    nodes: &[nexa_syntax::ast::Node],
+    found: &mut BTreeSet<String>,
+    arguments: &mut BTreeMap<String, BTreeSet<String>>,
+) {
+    use nexa_syntax::ast::{ChildBody, ModifierBody, Node};
+
+    for node in nodes {
+        match node {
+            Node::Platform { children, .. } => {
+                collect_parity_components(children, found, arguments)
+            }
+            Node::ComponentInvocation(invocation) => {
+                found.insert(invocation.name.clone());
+                arguments
+                    .entry(invocation.name.clone())
+                    .or_default()
+                    .extend(invocation.arguments.keys().cloned());
+                match &invocation.children {
+                    ChildBody::Nodes(children) => {
+                        collect_parity_components(children, found, arguments)
+                    }
+                    ChildBody::Tabs(tabs) => {
+                        found.insert("Tab".to_owned());
+                        for tab in tabs {
+                            collect_parity_components(&tab.children, found, arguments);
+                        }
+                    }
+                    ChildBody::SplitPanes { sidebar, detail } => {
+                        collect_parity_components(sidebar, found, arguments);
+                        collect_parity_components(detail, found, arguments);
+                    }
+                    ChildBody::Rows(rows) => {
+                        collect_parity_components(&rows.children, found, arguments)
+                    }
+                    ChildBody::None | ChildBody::Actions(_) => {}
+                }
+                for modifier in &invocation.modifiers {
+                    if let ModifierBody::Nodes(children) = &modifier.body {
+                        collect_parity_components(children, found, arguments);
+                    }
+                }
+            }
+            Node::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                collect_parity_components(then_body, found, arguments);
+                if let Some(else_body) = else_body {
+                    collect_parity_components(else_body, found, arguments);
+                }
+            }
+            Node::When {
+                cases, else_body, ..
+            } => {
+                for case in cases {
+                    collect_parity_components(&case.body, found, arguments);
+                }
+                collect_parity_components(else_body, found, arguments);
+            }
+            Node::ComponentCall { children, .. } | Node::NativeComponentCall { children, .. } => {
+                if let Some(children) = children {
+                    collect_parity_components(children, found, arguments);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn render_parity_fixture_exercises_every_catalog_component_and_modifier() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let source = fs::read_to_string(root.join("../../tests/fixtures/render_parity.nx"))
+        .expect("read render parity fixture");
+    let app = nexa_syntax::parse(&source).expect("parse render parity fixture");
+    let mut found = BTreeSet::new();
+    let mut arguments = BTreeMap::new();
+    collect_parity_components(&app.body, &mut found, &mut arguments);
+    for screen in &app.screens {
+        collect_parity_components(&screen.body, &mut found, &mut arguments);
+    }
+    for component in &app.components {
+        collect_parity_components(&component.body, &mut found, &mut arguments);
+    }
+    for widget in &app.widgets {
+        collect_parity_components(&widget.body, &mut found, &mut arguments);
+    }
+    for component in catalog::COMPONENTS {
+        assert!(
+            found.contains(component.name),
+            "render parity fixture is missing catalog component {}",
+            component.name
+        );
+    }
+    let mut missing_arguments = Vec::new();
+    for schema in catalog::COMPONENT_SCHEMAS {
+        let covered = arguments.get(schema.name);
+        for argument in schema.arguments {
+            if !covered.is_some_and(|covered| covered.contains(argument.name)) {
+                missing_arguments.push(format!("{}({})", schema.name, argument.name));
+            }
+        }
+    }
+    assert!(
+        missing_arguments.is_empty(),
+        "render parity fixture is missing component parameters: {}",
+        missing_arguments.join(", ")
+    );
+    let accessibility_arguments = catalog::ACCESSIBILITY_ARGUMENTS
+        .iter()
+        .filter(|argument| {
+            !arguments
+                .values()
+                .any(|covered| covered.contains(**argument))
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    assert!(
+        accessibility_arguments.is_empty(),
+        "render parity fixture is missing shared accessibility parameters: {}",
+        accessibility_arguments.join(", ")
+    );
+    for modifier in catalog::DOT_MODIFIERS {
+        assert!(
+            source.contains(&format!(".{}(", modifier.name))
+                || source.contains(&format!(".{} {{", modifier.name)),
+            "render parity fixture is missing catalog behavior modifier .{}",
+            modifier.name
+        );
+    }
+}
+
+#[test]
+fn android_aot_and_dev_runtime_share_refresh_control_layout() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let refresh_generator = fs::read_to_string(
+        root.join("../../crates/nexa-backend-kotlin/src/generator/components/refresh.rs"),
+    )
+    .expect("read Android refresh-control generator");
+    let primitives =
+        fs::read_to_string(root.join("../../crates/nexa-backend-kotlin/src/generator/mod.rs"))
+            .expect("read Android shared component primitives");
+    let dev_renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+
+    assert!(refresh_generator.contains("NexaRefreshControlPrimitive("));
+    assert!(primitives.contains("internal fun NexaRefreshControlPrimitive("));
+    assert!(dev_renderer.contains("NexaRefreshControlPrimitive("));
+    assert!(dev_renderer.contains("scrollContent = !nexaDevContainsScrollable(children)"));
+
+    let column_children = dev_renderer
+        .split_once("internal fun ColumnScope.RenderColumnChildren(")
+        .expect("find Android DevRuntime column child renderer")
+        .1
+        .split_once("@Composable\n@OptIn")
+        .expect("find end of Android DevRuntime column child renderer")
+        .0;
+    assert!(column_children.contains("if (child.has(\"Spacer\")) Modifier.weight(1f)"));
+    assert!(!column_children.contains("child.has(\"RefreshControl\")"));
+    assert!(!column_children.contains("child.has(\"FastList\")"));
 }
 
 fn empty_module(body: Vec<Node>) -> Module {
@@ -147,6 +353,37 @@ fn empty_module(body: Vec<Node>) -> Module {
         on_inactive: None,
         on_background: None,
     }
+}
+
+fn keyed_fast_list_module(native: bool) -> Module {
+    let item_type = nexa_ir::Type::String;
+    empty_module(vec![Node::FastList {
+        plan: ListPlan::Items {
+            collection: Expr::Array(vec![Expr::String("task-a".to_owned())]),
+            element_type: item_type.clone(),
+            item: "task".to_owned(),
+            common: ListCommon {
+                axis: ListAxis::Vertical,
+                native,
+                reverse_layout: false,
+                page_snap: false,
+                item_extent: None,
+                index: "index".to_owned(),
+                key: Some(Expr::State("task".to_owned(), item_type.clone())),
+                scroll_position: None,
+                children: vec![Node::Text {
+                    value: Expr::State("task".to_owned(), item_type),
+                    style: nexa_ir::TextStyle::default(),
+                }],
+                on_end_reached: None,
+                on_scroll: None,
+                on_move: None,
+                swipe_actions: None,
+                sticky_header: None,
+                refresh: None,
+            },
+        },
+    }])
 }
 
 #[test]
@@ -210,8 +447,120 @@ fn every_view_node_has_aot_and_dev_dispatch_on_both_platforms() {
 }
 
 #[test]
+fn android_dev_runtime_treats_a_null_transition_as_no_animation() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+
+    assert!(renderer.contains("private fun JSONObject.nexaDevTransition(): String"));
+    assert!(renderer.contains("null, JSONObject.NULL -> \"\""));
+    assert!(renderer.contains("conditional.nexaDevTransition().isEmpty()"));
+    assert!(renderer.contains("val transition = fields.nexaDevTransition()"));
+    assert!(
+        !renderer.contains("optString(\"transition\")"),
+        "nullable transition fields must never use optString, which turns JSON null into \"null\""
+    );
+}
+
+#[test]
+fn android_dev_runtime_treats_null_optional_strings_as_absent() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+
+    assert!(
+        renderer.contains("private fun JSONObject.nexaDevOptionalString(name: String): String?")
+    );
+    assert!(renderer.contains("null, JSONObject.NULL -> null"));
+    for field in [
+        "NexaDevKeys.PINCH_PARAMETER",
+        "\"navigation_title\"",
+        "\"search_prompt\"",
+        "\"scroll_position\"",
+    ] {
+        assert!(
+            renderer.contains(&format!("nexaDevOptionalString({field})")),
+            "nullable field {field} must use the null-safe string reader"
+        );
+    }
+    assert!(
+        !renderer.contains("optString(NexaDevKeys.PINCH_PARAMETER)"),
+        "JSON null must not enable pinch handling as the literal parameter name \"null\""
+    );
+}
+
+#[test]
 fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     let module = empty_module(vec![
+        Node::Image {
+            source: nexa_ir::ImageSource::Asset("task_avatar".to_owned()),
+            description: "Task owner".to_owned(),
+            scale: nexa_ir::ImageScale::Fit,
+            placeholder: None,
+            max_height: Some(96.0),
+            shared_element: None,
+        },
+        Node::Image {
+            source: nexa_ir::ImageSource::RemoteUrl(Expr::String(
+                "https://example.test/task.png".to_owned(),
+            )),
+            description: "Task attachment".to_owned(),
+            scale: nexa_ir::ImageScale::Fill,
+            placeholder: Some("task_placeholder".to_owned()),
+            max_height: Some(144.0),
+            shared_element: None,
+        },
+        Node::Image {
+            source: nexa_ir::ImageSource::LocalFile(Expr::String(
+                "file:///tmp/task.png".to_owned(),
+            )),
+            description: "Local task photo".to_owned(),
+            scale: nexa_ir::ImageScale::Fit,
+            placeholder: None,
+            max_height: None,
+            shared_element: None,
+        },
+        Node::PagePager {
+            state: "page".to_owned(),
+            pages: vec![
+                vec![Node::Text {
+                    value: Expr::String("First page".to_owned()),
+                    style: nexa_ir::TextStyle::default(),
+                }],
+                vec![Node::Text {
+                    value: Expr::String("Second page".to_owned()),
+                    style: nexa_ir::TextStyle::default(),
+                }],
+            ],
+        },
+        Node::NavigationSplitView {
+            detail_visible: "detailVisible".to_owned(),
+            sidebar: vec![Node::Text {
+                value: Expr::String("Task categories".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+            detail: vec![Node::Text {
+                value: Expr::String("Selected task".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+        },
+        Node::AppBottomBar {
+            state: "selectedTab".to_owned(),
+            tint: None,
+            tabs: vec![nexa_ir::BottomBarTab {
+                index: 0,
+                label: "Today".to_owned(),
+                comment: None,
+                icon: None,
+                badge: None,
+                role: None,
+                navigation_title: Some("Settings".to_owned()),
+                large_title: true,
+                search_state: None,
+                search_prompt: None,
+                children: Vec::new(),
+            }],
+        },
         Node::Layout {
             kind: LayoutKind::Column,
             spacing: 8.0,
@@ -222,22 +571,38 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             }],
         },
         Node::Button {
-            label: Expr::String("Add task".to_owned()),
-            icon: None,
+            label: Expr::String(String::new()),
+            icon: Some(nexa_ir::SystemIcon::Shared("add".to_owned())),
             loading: None,
             disabled: None,
             style: Some(nexa_ir::ButtonStyle::BorderedProminent),
-            size: Some(nexa_ir::ButtonSize::Regular),
-            shape: None,
+            size: None,
+            shape: Some(nexa_ir::ButtonShape::Circle),
             tint: None,
-            glass: false,
+            glass: true,
             actions: Vec::new(),
         },
         Node::Form {
-            children: vec![Node::Text {
-                value: Expr::String("Shared form row".to_owned()),
-                style: nexa_ir::TextStyle::default(),
-            }],
+            children: vec![
+                Node::FormSection {
+                    title: Some(Expr::String("General".to_owned())),
+                    footer: Some(Expr::String("Task preferences".to_owned())),
+                    children: vec![
+                        Node::Text {
+                            value: Expr::String("Shared form row".to_owned()),
+                            style: nexa_ir::TextStyle::default(),
+                        },
+                        Node::Text {
+                            value: Expr::String("Second shared form row".to_owned()),
+                            style: nexa_ir::TextStyle::default(),
+                        },
+                    ],
+                },
+                Node::Text {
+                    value: Expr::String("Unsectioned shared form row".to_owned()),
+                    style: nexa_ir::TextStyle::default(),
+                },
+            ],
         },
         Node::BottomSheet {
             state: "showEditor".to_owned(),
@@ -373,6 +738,23 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             direction: nexa_ir::GradientDirection::LeadingToTrailing,
             height: 100.0,
         },
+        Node::Accessibility {
+            label: Expr::String("Task priority".to_owned()),
+            hint: Some(Expr::String("Double tap to change".to_owned())),
+            value: Some(Expr::String("High".to_owned())),
+            role: AccessibilityRole::Button,
+            children: vec![Node::Text {
+                value: Expr::String("High priority".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+        },
+        Node::Link {
+            url: Expr::String("https://example.test/task".to_owned()),
+            children: vec![Node::Text {
+                value: Expr::String("Open task details".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+        },
     ]);
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
@@ -387,8 +769,31 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(swift.contains("struct NexaTextPrimitive: View"));
     assert!(swift.contains("struct NexaButtonPrimitive<Label: View>"));
     assert!(swift.contains("NexaTextPrimitive("));
+    assert!(swift.contains("Image(systemName: \"plus\").font(.system(size: 17))"));
+    assert!(swift.contains("NexaFormPrimitive {"));
+    assert!(swift_runtime.contains("NexaFormPrimitive {"));
+    assert!(swift.contains("NexaAppBottomBarPrimitive("));
+    assert!(swift_runtime.contains("NexaAppBottomBarPrimitive("));
+    assert!(swift_runtime.contains("nexaDevUsesIconOnlyButtonLabel"));
+    assert!(swift_runtime.contains("Image(systemName: symbol)"));
+    for primitive in ["NexaAssetImagePrimitive(", "NexaRemoteImagePrimitive("] {
+        assert!(swift.contains(primitive), "iOS AOT omitted {primitive}");
+        assert!(
+            swift_runtime.contains(primitive),
+            "iOS DevRuntime omitted {primitive}"
+        );
+    }
+    assert!(swift.contains("NexaPageIndicatorRow("));
+    assert!(swift_runtime.contains("NexaPageIndicatorRow("));
+    for output in [&swift, &swift_runtime] {
+        assert!(
+            output.contains("NexaNavigationSplitViewPrimitive("),
+            "iOS AOT and DevRuntime must share the split-view primitive"
+        );
+    }
     for primitive in [
         "NexaButtonPrimitive(",
+        "NexaFormSectionPrimitive(",
         "NexaFormRowPrimitive(",
         "NexaSwitchPrimitive(label:",
         "NexaTextInputPrimitive(",
@@ -402,6 +807,8 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         "NexaContentUnavailablePrimitive(title:",
         "NexaSystemIconPrimitive(symbol:",
         "NexaLinearGradientPrimitive(colors:",
+        "NexaAccessibilityPrimitive(",
+        "NexaLinkPrimitive(destination:",
     ] {
         assert!(swift.contains(primitive), "iOS AOT omitted {primitive}");
         assert!(
@@ -409,6 +816,10 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             "iOS DevRuntime omitted {primitive}"
         );
     }
+    assert!(
+        kotlin.contains("}) {"),
+        "Android AOT link action must close before the trailing content lambda"
+    );
     assert!(swift_runtime.contains("NexaColumnPrimitive(alignment: columnAlignment"));
     assert!(swift_runtime.contains("NexaTextPrimitive("));
     assert!(swift_runtime.contains("NexaTextInputPrimitive("));
@@ -436,8 +847,34 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(kotlin.contains("NexaColumnPrimitive("));
     assert!(kotlin.contains("internal fun NexaTextPrimitive("));
     assert!(kotlin.contains("internal fun NexaButtonPrimitive("));
+    assert!(kotlin.contains("internal fun NexaLargeTitlePrimitive("));
+    assert!(kotlin.contains("NexaLargeTitlePrimitive("));
+    assert!(kotlin.contains("NexaAppBottomBarPrimitive("));
+    assert!(kotlin.contains("internal fun NexaAppBottomBarPrimitive("));
+    assert!(kotlin_runtime.contains("NexaLargeTitlePrimitive("));
+    assert!(kotlin_runtime.contains("NexaAppBottomBarPrimitive("));
     assert!(kotlin.contains("NexaTextPrimitive(text ="));
+    for primitive in ["NexaAssetImagePrimitive(", "NexaRemoteImagePrimitive("] {
+        assert!(
+            kotlin.contains(primitive),
+            "Android AOT omitted {primitive}"
+        );
+        assert!(
+            kotlin_runtime.contains(primitive),
+            "Android DevRuntime omitted {primitive}"
+        );
+    }
+    assert!(kotlin.contains("NexaPageIndicatorRow("));
+    assert!(kotlin_runtime.contains("NexaPageIndicatorRow("));
+    for output in [&kotlin, &kotlin_runtime] {
+        assert!(
+            output.contains("NexaNavigationSplitViewPrimitive("),
+            "Android AOT and DevRuntime must share the split-view primitive"
+        );
+    }
     for primitive in [
+        "NexaFormPrimitive",
+        "NexaFormSectionPrimitive(",
         "NexaButtonPrimitive(",
         "NexaFormRowPrimitive(",
         "NexaSwitchPrimitive(",
@@ -452,6 +889,8 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         "NexaContentUnavailablePrimitive(title =",
         "NexaSystemIconPrimitive(image =",
         "NexaLinearGradientPrimitive(startColor =",
+        "NexaAccessibilityPrimitive(",
+        "NexaLinkPrimitive(onClick =",
     ] {
         assert!(
             kotlin.contains(primitive),
@@ -459,6 +898,8 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         );
     }
     for primitive in [
+        "NexaFormPrimitive",
+        "NexaFormSectionPrimitive(",
         "NexaFormRowPrimitive(",
         "NexaSwitchPrimitive(",
         "NexaSliderPrimitive(",
@@ -480,6 +921,8 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(kotlin_runtime.contains("NexaColumnPrimitive("));
     assert!(kotlin_runtime.contains("NexaTextPrimitive("));
     assert!(kotlin_runtime.contains("NexaTextInputPrimitive("));
+    assert!(kotlin.contains("NexaFormDividerPrimitive()"));
+    assert!(kotlin_runtime.contains("NexaFormDividerPrimitive()"));
 }
 
 #[test]
@@ -516,9 +959,29 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
             "NexaStackPrimitive(",
         ),
         (
+            "struct NexaFormPrimitive<Content: View>",
+            "internal fun NexaFormPrimitive(",
+            "NexaFormPrimitive",
+        ),
+        (
+            "struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>",
+            "internal fun NexaFormSectionPrimitive(",
+            "NexaFormSectionPrimitive(",
+        ),
+        (
             "struct NexaFormRowPrimitive<Content: View>",
             "internal fun NexaFormRowPrimitive(",
             "NexaFormRowPrimitive(",
+        ),
+        (
+            "struct NexaAccessibilityPrimitive<Content: View>",
+            "internal fun NexaAccessibilityPrimitive(",
+            "NexaAccessibilityPrimitive(",
+        ),
+        (
+            "struct NexaLinkPrimitive<Content: View>",
+            "internal fun NexaLinkPrimitive(",
+            "NexaLinkPrimitive(",
         ),
         (
             "struct NexaTextPrimitive: View",
@@ -605,7 +1068,25 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
             "internal fun NexaConfirmationDialogPrimitive(",
             "NexaConfirmationDialogPrimitive(",
         ),
+        (
+            "struct NexaPageIndicatorRow: View",
+            "internal fun NexaPageIndicatorRow(",
+            "NexaPageIndicatorRow(",
+        ),
+        (
+            "struct NexaNavigationSplitViewPrimitive<Sidebar: View, Detail: View>",
+            "internal fun NexaNavigationSplitViewPrimitive(",
+            "NexaNavigationSplitViewPrimitive(",
+        ),
     ];
+    assert!(swift_dev.contains("struct NexaAssetImagePrimitive"));
+    assert!(swift_dev.contains("struct NexaRemoteImagePrimitive"));
+    assert!(kotlin_dev.contains("internal fun NexaAssetImagePrimitive("));
+    assert!(kotlin_dev.contains("internal fun NexaRemoteImagePrimitive("));
+    assert!(swift_runtime.contains("NexaAssetImagePrimitive("));
+    assert!(swift_runtime.contains("NexaRemoteImagePrimitive("));
+    assert!(kotlin_runtime.contains("NexaAssetImagePrimitive("));
+    assert!(kotlin_runtime.contains("NexaRemoteImagePrimitive("));
 
     for (swift_declaration, kotlin_declaration, call) in catalog {
         assert!(
@@ -634,7 +1115,25 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
         );
     }
 
+    assert!(kotlin_release.contains("internal fun NexaFormDividerPrimitive()"));
+    assert!(kotlin_dev.contains("internal fun NexaFormDividerPrimitive()"));
+    assert!(kotlin_runtime.contains("NexaFormDividerPrimitive()"));
+    assert!(!swift_release.contains("struct NexaAppBottomBarPrimitive: ViewModifier"));
+    assert!(swift_dev.contains("struct NexaAppBottomBarPrimitive: ViewModifier"));
+    assert!(swift_runtime.contains("NexaAppBottomBarPrimitive("));
+
+    // Dev hosts may add a tab bar in a hot-reloaded module even when the
+    // starting app is empty. Release apps include this primitive only when
+    // their optimized IR actually uses AppBottomBar.
+    assert!(!kotlin_release.contains("internal fun NexaAppBottomBarPrimitive("));
+    assert!(kotlin_dev.contains("internal fun NexaAppBottomBarPrimitive("));
+    assert!(kotlin_runtime.contains("NexaAppBottomBarPrimitive("));
+
     for (declaration, call) in [
+        (
+            "internal fun NexaLargeTitlePrimitive(",
+            "NexaLargeTitlePrimitive(",
+        ),
         (
             "internal fun NexaBottomSheetPrimitive(",
             "NexaBottomSheetPrimitive(",
@@ -762,6 +1261,25 @@ fn shared_element_image_fields_have_dev_renderers_on_both_platforms() {
     assert!(kotlin.contains("fields.opt(\"shared_element\")"));
     assert!(kotlin.contains("nexaSharedElementModifier("));
     assert!(kotlin_root.contains("NexaSharedTransitionContent {"));
+}
+
+#[test]
+fn dev_runtime_roots_preserve_aot_layout_background_and_binding_updates() {
+    let (root, _) = fixture();
+    let swift_root = fs::read_to_string(root.join("../../runtime/ios/NexaDevRuntime.swift"))
+        .expect("read iOS dev root");
+    let swift_state = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS dev state store");
+    let kotlin_root = fs::read_to_string(root.join("../../runtime/android/NexaDevRuntime.kt"))
+        .expect("read Android dev root");
+
+    assert!(swift_root.contains("if let module = runtime.module {"));
+    assert!(swift_root.contains(".overlay(alignment: .topTrailing)"));
+    assert!(!swift_root.contains("alignment: .topLeading"));
+    assert!(swift_state.contains("func setValue(_ name: String, value: Any, scope: String)"));
+    assert!(swift_state.contains("current.isEqual(next)"));
+    assert!(swift_state.contains("invalidateReaders(of: storageKey, sourceScope: scope)"));
+    assert!(kotlin_root.contains("Surface(Modifier.fillMaxSize()) {"));
 }
 
 #[test]
@@ -1320,7 +1838,11 @@ fn pressable_pinch_actions_are_consumed_by_both_dev_renderers() {
     assert!(swift.contains("fields[NexaDevKeys.pinchParameter]"));
     assert!(swift.contains("MagnificationGesture()"));
     assert!(swift.contains("store.perform(pinchActions"));
-    assert!(kotlin.contains("fields.optString(NexaDevKeys.PINCH_PARAMETER)"));
+    assert!(kotlin.contains("fields.nexaDevOptionalString(NexaDevKeys.PINCH_PARAMETER)"));
+    assert!(
+        !kotlin.contains("fields.optString(NexaDevKeys.PINCH_PARAMETER)"),
+        "JSON null must not make a non-pinch Pressable install a transform gesture"
+    );
     assert!(kotlin.contains("detectTransformGestures"));
     assert!(kotlin.contains("store.perform(pinchActions"));
 }
@@ -1461,10 +1983,17 @@ fn appearance_wrapper_is_rendered_by_both_dev_runtimes() {
         .expect("read iOS renderer");
     let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android renderer");
+    let kotlin_navigation =
+        fs::read_to_string(root.join("../../runtime/android/NexaDevNavigation.kt"))
+            .expect("read Android navigation renderer");
+    let (kotlin_dev_host, _) =
+        KotlinBackend.generate_for_dev_with_project_features(&empty_module(Vec::new()));
     assert!(swift.contains("case \"Appearance\":"));
     assert!(swift.contains("preferredColorScheme(mode == \"dark\""));
     assert!(kotlin.contains("\"Appearance\" -> {"));
-    assert!(kotlin.contains("MaterialTheme(colorScheme = scheme)"));
+    assert!(kotlin.contains("NexaAppearancePrimitive(mode = mode)"));
+    assert!(kotlin_navigation.contains("NexaAppearancePrimitive(mode = appearanceMode)"));
+    assert!(kotlin_dev_host.contains("internal fun NexaAppearancePrimitive("));
 }
 
 #[test]
@@ -1520,6 +2049,196 @@ fn plugin_hot_reload_coverage_uses_log_only_semantic_device_evidence() {
             );
         }
     }
+}
+
+#[test]
+fn hot_reload_latency_gate_checks_end_to_end_apply_on_both_platforms() {
+    let (root, _) = fixture();
+    let script = fs::read_to_string(root.join("../../tests/hot-reload-latency.sh"))
+        .expect("read end-to-end hot-reload latency gate");
+    let workflow =
+        fs::read_to_string(root.join("../../.github/workflows/ci.yml")).expect("read CI workflow");
+
+    for marker in [
+        "time.monotonic_ns()",
+        "os.replace(temporary, path)",
+        "hr_get_patch_count",
+        "Nexa %s hot reload %s applied in %s ms (budget: 1000 ms)",
+        "hr_wait_for_visible_text \"Reload 3\"",
+    ] {
+        assert!(script.contains(marker), "latency gate omitted {marker}");
+    }
+    assert!(
+        script.contains("for revision in 1 2 3"),
+        "latency gate must sample 3 edits"
+    );
+    assert_eq!(
+        workflow.matches("tests/hot-reload-latency.sh").count(),
+        2,
+        "the iOS and Android CI jobs must both run the latency gate"
+    );
+    assert!(workflow.contains("Run the iOS hot-reload latency gate"));
+    assert!(workflow.contains("Run the Android hot-reload latency gate"));
+}
+
+#[test]
+fn hot_reload_component_and_fast_list_gates_run_on_both_platforms() {
+    let (root, _) = fixture();
+    let workflow =
+        fs::read_to_string(root.join("../../.github/workflows/ci.yml")).expect("read CI workflow");
+    let components = fs::read_to_string(root.join("../../tests/hot-reload-components.sh"))
+        .expect("read cross-platform component smoke gate");
+
+    for (script, label) in [
+        ("tests/hot-reload-components.sh", "component and state"),
+        ("tests/hot-reload-fast-list.sh", "FastList"),
+    ] {
+        assert_eq!(
+            workflow.matches(script).count(),
+            2,
+            "iOS and Android CI jobs must both run {script}"
+        );
+        for platform in ["iOS", "Android"] {
+            assert!(
+                workflow.contains(&format!("Run the {platform} hot-reload {label} gate")),
+                "{platform} CI job omitted the {label} gate"
+            );
+        }
+    }
+    assert!(components.contains("Nexa app state restarted in the running app."));
+    assert!(components.contains("Android Button action did not update state"));
+    assert!(components.contains("Android If branch did not update after Button interaction"));
+    assert!(components.contains("text=\"Size classes: "));
+    assert!(
+        !components.contains("input swipe 360"),
+        "Android smoke interactions must use device-derived coordinates"
+    );
+}
+
+#[test]
+fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms() {
+    let (root, _) = fixture();
+    let workflow =
+        fs::read_to_string(root.join("../../.github/workflows/ci.yml")).expect("read CI workflow");
+    let script = fs::read_to_string(root.join("../../tests/hot-reload-aot-parity.sh"))
+        .expect("read paired AOT and DevRuntime gate");
+    let comparator = fs::read_to_string(root.join("../../tests/compare-render-parity.py"))
+        .expect("read rendering parity comparator");
+    let ios_ui_test = fs::read_to_string(root.join("../../tests/ios-render-parity-ui.swift"))
+        .expect("read iOS rendering parity UI test");
+    let fixture = fs::read_to_string(root.join("../../tests/fixtures/render_parity.nx"))
+        .expect("read rendering parity fixture");
+
+    assert_eq!(
+        workflow.matches("tests/hot-reload-aot-parity.sh").count(),
+        2
+    );
+    assert!(workflow.contains("Compare iOS AOT and DevRuntime rendering"));
+    assert!(workflow.contains("Compare Android AOT and DevRuntime rendering"));
+    for marker in [
+        "Nexa iOS dev runtime applied module",
+        "Nexa Android dev runtime applied module",
+        "nexa-render-parity-$phase.png",
+        "compare-render-parity.py",
+        "uiautomator dump",
+        "xcodebuild test",
+        "adb shell pm clear \"$app_id\" >/dev/null",
+    ] {
+        assert!(script.contains(marker), "paired gate omitted {marker}");
+    }
+    for marker in [
+        "initial",
+        "toolbar",
+        "button",
+        "switch",
+        "text-entry",
+        "controls-scroll-3",
+        "controls-scroll-5",
+        "navigation",
+        "lists",
+        "lists-refresh",
+        "lists-scroll-1",
+        "lists-scroll-3",
+        "list-parameters",
+        "list-parameters-next",
+        "workspace",
+        "pages",
+        "pages-next",
+        "style-layout",
+        "style-typography",
+        "style-button",
+        "style-button-interaction",
+        "style-input",
+        "style-images",
+        "style-pressable",
+        "large-sheet",
+        "bottom-sheet",
+        "dialog",
+        "confirmation",
+    ] {
+        assert!(
+            script.contains(marker),
+            "paired gate omitted {marker} phase"
+        );
+        assert!(
+            ios_ui_test.contains(marker),
+            "iOS interaction test omitted {marker} phase"
+        );
+    }
+    for marker in [
+        "roles, labels, actions, and frames",
+        "screenshot matches",
+        "status and navigation",
+    ] {
+        assert!(comparator.contains(marker), "comparator omitted {marker}");
+    }
+    for marker in [
+        "Button(\"Increment:",
+        "Button(\"Toolbar action\"",
+        "Switch(value:",
+        "TextInput(value:",
+        "ParityCard(",
+        "\"Style parameter coverage\",",
+        "fontSize: 14,",
+        "screen StyleParameters {",
+        "Typography style parameters",
+        "alignment: Center,",
+        "fontStyle: Subheadline,",
+        "lineHeight: 20,",
+        "Button(\n                    \"Configured button\"",
+        "searchable: true",
+        "materialsymbol: \"star\"",
+        "reverseLayout: true",
+        "pageSnap: true",
+        "screen ListParameters {",
+    ] {
+        assert!(fixture.contains(marker), "parity fixture omitted {marker}");
+    }
+    let main_and_detail = fixture.split("screen TextEntry").next().unwrap_or_default();
+    assert!(
+        !main_and_detail.contains("KeyboardAware"),
+        "KeyboardAware must not be nested in the vertically scrolling Form"
+    );
+    assert!(fixture.contains("screen TextEntry {\n        KeyboardAware(dismiss: Never)"));
+    for style_modifier in [
+        ".fontSize(",
+        ".bold()",
+        ".padding(",
+        ".opacity(",
+        ".scale(",
+        ".rotation(",
+        ".shadow(",
+        ".blur(",
+        ".clip(",
+        ".zIndex(",
+    ] {
+        assert!(
+            !fixture.contains(style_modifier),
+            "style coverage must pass styling as parameters, not dot modifiers: {style_modifier}"
+        );
+    }
+    assert!(ios_ui_test.contains("enabled.value as? String, \"1\""));
+    assert!(ios_ui_test.contains("app.screenshot()"));
 }
 
 #[test]
@@ -1583,18 +2302,33 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
         .expect("read iOS renderer");
     let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android renderer");
+    let swift_primitives =
+        fs::read_to_string(root.join("../nexa-backend-swift/src/generator/mod.rs"))
+            .expect("read shared Swift component primitives");
 
     for marker in [
         "else if nodes.count == 1",
         "spacing: nativeSpacing",
         "nexaDevGlass(tint:",
-        "navigationBarTitleDisplayMode(.large)",
-        "tabViewStyle(.sidebarAdaptable)",
-        "Tab(title, systemImage: name, value: tag, role: .search)",
-        "ProgressView()",
+        "NexaNavigationTitleDisplayModePrimitive(",
+        "NexaTabLabelPrimitive(title: Text(title), systemImage: name)",
     ] {
         assert!(swift.contains(marker), "iOS DevRuntime is missing {marker}");
     }
+    assert!(
+        swift_primitives
+            .contains("content.toolbarTitleDisplayMode(large ? .inlineLarge : .inline)")
+    );
+    assert!(
+        swift_primitives
+            .contains("content.navigationBarTitleDisplayMode(large ? .large : .inline)")
+    );
+    assert!(swift_primitives.contains(".tabViewStyle(.sidebarAdaptable)"));
+    assert!(swift_primitives.contains(".tabViewSearchActivation(.searchTabSelection)"));
+    assert!(swift_primitives.contains("struct NexaTabLabelPrimitive: View"));
+    assert!(swift_primitives.contains("Image(systemName: systemImage).accessibilityHidden(true)"));
+    assert!(swift_primitives.contains(".accessibilityIdentifier(\"\")"));
+    assert!(swift.contains("NexaRemoteImagePrimitive("));
     for marker in [
         "1 -> NexaDevNode(nexaDevNodeObject(nodes.opt(0))",
         "NexaTextInputPrimitive(",
@@ -1611,6 +2345,222 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
             .expect("read shared Kotlin component primitives");
     assert!(kotlin_primitives.contains("val enabled = !loading && !disabled"));
     assert!(kotlin_primitives.contains("DialogProperties(usePlatformDefaultWidth = false)"));
+}
+
+#[test]
+fn hot_reload_patch_application_avoids_full_module_clones_and_long_retry_waits() {
+    let (root, _) = fixture();
+    let android_state = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state store");
+    let android_protocol =
+        fs::read_to_string(root.join("../../runtime/android/NexaDevProtocol.kt"))
+            .expect("read Android dev protocol");
+    let ios_protocol = fs::read_to_string(root.join("../../runtime/ios/NexaDevProtocol.swift"))
+        .expect("read iOS dev protocol");
+
+    assert!(android_state.contains("val updated = shallowCopy(root)"));
+    assert!(android_state.contains("private fun shallowCopy(value: Any): Any?"));
+    assert!(
+        !android_state.contains("JSONObject(root.toString())"),
+        "an ordinary Android patch must not serialize and reparse the full Dev IR module"
+    );
+    assert!(android_protocol.contains("var retryDelayMs = 50L"));
+    assert!(android_protocol.contains("Thread.sleep(retryDelayMs)"));
+    assert!(!android_protocol.contains("Thread.sleep(1_000)"));
+    assert!(ios_protocol.contains("var retryDelayNanoseconds: UInt64 = 50_000_000"));
+    assert!(ios_protocol.contains("Task.sleep(nanoseconds: retryDelayNanoseconds)"));
+    assert!(!ios_protocol.contains("Task.sleep(for: .seconds(1))"));
+}
+
+#[test]
+fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
+    let count = Expr::Number {
+        raw: "2".to_owned(),
+        ty: NumericType::Int32,
+    };
+    let row = |value: &str| Node::Text {
+        value: Expr::String(value.to_owned()),
+        style: nexa_ir::TextStyle::default(),
+    };
+    let module = empty_module(vec![Node::FastList {
+        plan: ListPlan::Count {
+            count,
+            common: ListCommon {
+                axis: ListAxis::Vertical,
+                native: false,
+                reverse_layout: false,
+                page_snap: false,
+                item_extent: Some(72.0),
+                index: "index".to_owned(),
+                key: None,
+                scroll_position: None,
+                children: vec![row("Task title"), row("Task details")],
+                on_end_reached: None,
+                on_scroll: None,
+                on_move: None,
+                swipe_actions: Some(vec![Node::Button {
+                    label: Expr::String("Delete".to_owned()),
+                    icon: Some(nexa_ir::SystemIcon::Shared("delete".to_owned())),
+                    loading: None,
+                    disabled: None,
+                    style: None,
+                    size: None,
+                    shape: None,
+                    tint: None,
+                    glass: false,
+                    actions: Vec::new(),
+                }]),
+                sticky_header: None,
+                refresh: None,
+            },
+        },
+    }]);
+    let aot = KotlinBackend.generate(&module);
+    let keyed_aot = KotlinBackend.generate(&keyed_fast_list_module(false));
+    let (dev_host, _) =
+        KotlinBackend.generate_for_dev_with_project_features(&empty_module(Vec::new()));
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime list renderer");
+
+    assert!(aot.contains("NexaFastListRowPrimitive("));
+    assert!(aot.contains("NexaFastListDividerPrimitive()"));
+    assert!(aot.contains("Modifier.fillMaxWidth().height(72.dp)"));
+    assert!(aot.contains("horizontalAlignment = Alignment.CenterHorizontally"));
+    assert!(aot.contains("NexaFastListSwipePrimitive("));
+    assert!(keyed_aot.contains("key = { itemPosition ->"));
+    assert!(dev_host.contains("internal fun NexaFastListRowPrimitive("));
+    assert!(dev_host.contains("internal fun NexaFastListDividerPrimitive()"));
+    assert!(dev_host.contains("internal fun NexaFastListSwipePrimitive("));
+    assert!(renderer.contains("NexaFastListRowPrimitive("));
+    assert!(renderer.contains("NexaFastListDividerPrimitive()"));
+    assert!(renderer.contains("horizontalAlignment = if (rowNodes.length() > 1)"));
+    assert!(renderer.contains("NexaFastListSwipePrimitive("));
+    assert!(renderer.contains("val keyExpression = options?.opt(\"key\")"));
+    assert!(
+        renderer
+            .contains("store.evaluate(expression, listRowLocals(itemIndex, sectionIndex), scope)")
+    );
+    assert!(renderer.contains("stableRowKey(itemIndex)"));
+    assert!(renderer.contains("store.perform(swipeButtonActions, scope, rowLocals)"));
+
+    let empty_release = KotlinBackend.generate(&empty_module(Vec::new()));
+    assert!(!empty_release.contains("internal fun NexaFastListRowPrimitive("));
+}
+
+#[test]
+fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
+    let module = empty_module(vec![Node::FastList {
+        plan: ListPlan::Count {
+            count: Expr::Number {
+                raw: "3".to_owned(),
+                ty: NumericType::Int32,
+            },
+            common: ListCommon {
+                axis: ListAxis::Vertical,
+                native: false,
+                reverse_layout: false,
+                page_snap: false,
+                item_extent: Some(64.0),
+                index: "index".to_owned(),
+                key: None,
+                scroll_position: None,
+                children: vec![Node::Text {
+                    value: Expr::String("AOT and DevRuntime row".to_owned()),
+                    style: nexa_ir::TextStyle::default(),
+                }],
+                on_end_reached: None,
+                on_scroll: None,
+                on_move: None,
+                swipe_actions: None,
+                sticky_header: None,
+                refresh: None,
+            },
+        },
+    }]);
+    let aot = SwiftBackend.generate(&module);
+    let keyed_native_aot = SwiftBackend.generate(&keyed_fast_list_module(true));
+    let dev_host = SwiftBackend.generate_for_dev(&empty_module(Vec::new()));
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime list renderer");
+
+    assert!(aot.contains("NexaFastListPrimitive(rowCount:"));
+    assert!(keyed_native_aot.contains("NexaIdentifiedListRow(id: AnyHashable("));
+    assert!(
+        dev_host.contains("func NexaFastListPrimitive<RowContent: View, HeaderContent: View>(")
+    );
+    assert!(renderer.contains("NexaFastListPrimitive("));
+    assert!(renderer.contains("sectionCounts == nil, onMove == nil"));
+    assert!(renderer.contains("let rowKey: ((Int, Int, Int) -> AnyHashable)?"));
+    assert!(renderer.contains("ForEach(identifiedRows(count: count))"));
+    assert!(renderer.contains("rowKey: rowKey.map"));
+    for declaration in [
+        "func NexaFastHorizontalListPrimitive<RowContent: View>(",
+        "func NexaFastGridListPrimitive<RowContent: View>(",
+        "func NexaFastSectionedListPrimitive<RowContent: View, HeaderContent: View>(",
+        "struct NexaNativeListPrimitive<Content: View>",
+    ] {
+        assert!(
+            dev_host.contains(declaration),
+            "Dev host omitted {declaration}"
+        );
+    }
+    for call in [
+        "NexaFastHorizontalListPrimitive(",
+        "NexaFastGridListPrimitive(",
+        "NexaFastSectionedListPrimitive(",
+        "NexaNativeListPrimitive {",
+    ] {
+        assert!(renderer.contains(call), "DevRuntime omitted {call}");
+    }
+    assert!(renderer.contains("listFields[\"swipe_actions\"]"));
+    assert!(renderer.contains("row.swipeActions(edge: .trailing)"));
+
+    let empty_release = SwiftBackend.generate(&empty_module(Vec::new()));
+    assert!(!empty_release.contains("func NexaFastListPrimitive<"));
+
+    let swipe_actions_aot = SwiftBackend.generate(&empty_module(vec![Node::FastList {
+        plan: ListPlan::Count {
+            count: Expr::Number {
+                raw: "1".to_owned(),
+                ty: NumericType::Int32,
+            },
+            common: ListCommon {
+                axis: ListAxis::Vertical,
+                native: true,
+                reverse_layout: false,
+                page_snap: false,
+                item_extent: None,
+                index: "index".to_owned(),
+                key: None,
+                scroll_position: None,
+                children: vec![Node::Text {
+                    value: Expr::String("Task".to_owned()),
+                    style: nexa_ir::TextStyle::default(),
+                }],
+                on_end_reached: None,
+                on_scroll: None,
+                on_move: None,
+                swipe_actions: Some(vec![Node::Button {
+                    label: Expr::String("Delete".to_owned()),
+                    icon: Some(nexa_ir::SystemIcon::Shared("delete".to_owned())),
+                    loading: None,
+                    disabled: None,
+                    style: None,
+                    size: None,
+                    shape: None,
+                    tint: None,
+                    glass: false,
+                    actions: Vec::new(),
+                }]),
+                sticky_header: None,
+                refresh: None,
+            },
+        },
+    }]));
+    assert!(swipe_actions_aot.contains("NexaNativeListPrimitive {"));
+    assert!(swipe_actions_aot.contains(".swipeActions(edge: .trailing)"));
 }
 
 #[test]
@@ -1631,4 +2581,96 @@ fn development_button_shape_defaults_match_on_both_platforms() {
     assert!(kotlin_primitives.contains(
         "val resolvedShape = shape ?: androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
     ));
+}
+
+#[test]
+fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntime() {
+    let mut module = empty_module(vec![Node::NavigationStack {
+        root: ScreenId(0),
+        arguments: Vec::new(),
+    }]);
+    module.screens = vec![
+        Screen {
+            id: ScreenId(0),
+            name: "Home".to_owned(),
+            parameters: Vec::new(),
+            states: Vec::new(),
+            body: vec![Node::Text {
+                value: Expr::String("Home screen".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+            status_bar: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+        },
+        Screen {
+            id: ScreenId(1),
+            name: "Task Details".to_owned(),
+            parameters: Vec::new(),
+            states: Vec::new(),
+            body: vec![Node::Text {
+                value: Expr::String("Task details".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+            status_bar: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+        },
+    ];
+    module.states.push(nexa_ir::State {
+        name: "canOpenDetails".to_owned(),
+        ty: nexa_ir::Type::Bool,
+        initial: Expr::Bool(true),
+        mutable: true,
+    });
+    module.screens[0].body.push(Node::NavigationLink {
+        destination: ScreenId(1),
+        arguments: Vec::new(),
+        guard: Some(Expr::State(
+            "canOpenDetails".to_owned(),
+            nexa_ir::Type::Bool,
+        )),
+        children: vec![Node::Text {
+            value: Expr::String("Open details".to_owned()),
+            style: nexa_ir::TextStyle::default(),
+        }],
+    });
+
+    let swift = SwiftBackend.generate(&module);
+    let kotlin = KotlinBackend.generate(&module);
+    let (root, _) = fixture();
+    let swift_runtime = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime navigation renderer");
+    let kotlin_runtime =
+        fs::read_to_string(root.join("../../runtime/android/NexaDevNavigation.kt"))
+            .expect("read Android DevRuntime navigation renderer");
+    let kotlin_renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime node renderer");
+
+    assert!(swift.contains("struct NexaNavigationScreenPrimitive<Content: View>"));
+    assert!(swift.contains("struct NexaNavigationTitleDisplayModePrimitive: ViewModifier"));
+    assert!(swift.contains("NexaNavigationScreenPrimitive(title: \"Task Details\")"));
+    assert!(swift.contains(".modifier(NexaNavigationTitleDisplayModePrimitive(large: true))"));
+    assert!(swift.contains("struct NexaNavigationLinkPrimitive<Value: Hashable, Label: View>"));
+    assert!(swift.contains("NexaNavigationLinkPrimitive(value:"));
+    assert!(swift_runtime.contains("NexaNavigationScreenPrimitive(title: destination.screen)"));
+    assert!(swift_runtime.contains("NexaNavigationTitleDisplayModePrimitive("));
+    assert!(swift_runtime.contains("NexaNavigationLinkPrimitive(value: route, enabled: enabled)"));
+    assert!(swift_runtime.contains("staticallyDisabled"));
+
+    assert!(kotlin.contains("internal fun NexaNavigationScreenPrimitive("));
+    assert!(kotlin.contains(
+        "@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\ninternal fun NexaNavigationScreenPrimitive("
+    ));
+    assert!(kotlin.contains("contentDescription = \"Back\""));
+    assert!(kotlin.contains("NexaNavigationScreenPrimitive("));
+    assert!(kotlin.contains("title = \"Task Details\""));
+    assert!(kotlin.contains("internal fun NexaNavigationLinkPrimitive("));
+    assert!(kotlin.contains("NexaNavigationLinkPrimitive("));
+    assert!(kotlin_runtime.contains("NexaNavigationScreenPrimitive("));
+    assert!(kotlin_runtime.contains("title = screen.optString(\"name\")"));
+    assert!(kotlin_renderer.contains("NexaNavigationLinkPrimitive("));
+    assert!(kotlin_renderer.contains("staticallyDisabled"));
 }

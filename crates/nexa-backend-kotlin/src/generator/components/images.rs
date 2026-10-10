@@ -2,32 +2,16 @@ use nexa_codegen::SourceWriter;
 use nexa_ir::{ImageScale, ImageSource};
 
 use crate::generator::{
+    engine::{features::Features, imports::ImportSet},
     expressions::expression,
     utils::{indent, kotlin_string},
 };
 
-use crate::generator::engine::features::Features;
-use crate::generator::engine::imports::ImportSet;
-
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    imports.add(features.uses_asset, "androidx.compose.foundation.Image");
-    imports.add(features.uses_remote_image, "coil3.compose.AsyncImage");
-    imports.add(
-        features.uses_remote_image,
-        "androidx.compose.runtime.remember",
-    );
-    imports.add(
-        features.uses_asset || features.uses_remote_image,
-        "androidx.compose.ui.layout.ContentScale",
-    );
-    imports.add(
-        features.uses_asset || features.uses_remote_image,
-        "androidx.compose.ui.Modifier",
-    );
-    imports.add(
-        features.uses_asset || features.uses_remote_image,
-        "androidx.compose.foundation.layout.heightIn",
-    );
+    let uses_images =
+        features.uses_asset || features.uses_placeholder || features.uses_remote_image;
+    imports.add(uses_images, "androidx.compose.ui.Modifier");
+    imports.add(uses_images, "androidx.compose.ui.unit.dp");
     imports.add(features.uses_remote_image, "coil3.ImageLoader");
     imports.add(features.uses_remote_image, "coil3.network.NetworkClient");
     imports.add(features.uses_remote_image, "coil3.network.NetworkFetcher");
@@ -54,79 +38,132 @@ pub(crate) fn render_image(
 ) {
     indent(out, depth);
     let content_scale = match scale {
-        ImageScale::Fit => "ContentScale.Fit",
-        ImageScale::Fill => "ContentScale.Crop",
+        ImageScale::Fit => "androidx.compose.ui.layout.ContentScale.Fit",
+        ImageScale::Fill => "androidx.compose.ui.layout.ContentScale.Crop",
     };
-    let description = if description.is_empty() {
+    let content_description = if description.is_empty() {
         "null".to_owned()
     } else {
         kotlin_string(description)
     };
-    let mut modifier = shared_element.map_or_else(
+    let modifier = shared_element.map_or_else(
         || "Modifier".to_owned(),
         |id| format!("nexaSharedElementModifier({})", expression(id)),
     );
-    if let Some(max_height) = max_height {
-        modifier.push_str(&format!(
-            ".heightIn(max = {}.dp)",
-            crate::generator::engine::utils::number(max_height)
-        ));
-    }
-    let modifier_argument = format!("{}    modifier = {modifier},\n", "    ".repeat(depth));
+    let max_height = max_height.map_or_else(
+        || "null".to_owned(),
+        |height| format!("{}.dp", crate::generator::engine::utils::number(height)),
+    );
+    let indent = "    ".repeat(depth);
     match source {
-        ImageSource::Asset(asset) => {
-            out.push_str(&format!(
-                "Image(\n{}    painter = nexaDrawablePainter({}),\n{}    contentDescription = {description},\n{}    contentScale = {content_scale},\n{}{})",
-                "    ".repeat(depth),
-                kotlin_string(asset),
-                "    ".repeat(depth),
-                "    ".repeat(depth),
-                modifier_argument,
-                "    ".repeat(depth),
-            ));
-        }
-        ImageSource::RemoteUrl(url) => {
-            let model = if matches!(url, nexa_ir::Expr::String(_)) {
-                expression(url)
-            } else {
-                format!(
-                    "({}).takeIf {{ it.startsWith(\"https://\") }}",
-                    expression(url)
-                )
-            };
-            out.push_str(&format!(
-                "AsyncImage(\n{}    model = {model},\n{}    imageLoader = nexaImageLoader(),\n{}    contentDescription = {description},\n",
-                "    ".repeat(depth),
-                "    ".repeat(depth),
-                "    ".repeat(depth),
-            ));
-            if let Some(placeholder) = placeholder {
-                out.push_str(&format!(
-                    "{}    placeholder = nexaDrawablePainter({}),\n{}    error = nexaDrawablePainter({}),\n",
-                    "    ".repeat(depth),
-                    kotlin_string(placeholder),
-                    "    ".repeat(depth),
-                    kotlin_string(placeholder),
-                ));
-            }
-            out.push_str(&format!(
-                "{}    contentScale = {content_scale},\n{}{})",
-                "    ".repeat(depth),
-                modifier_argument,
-                "    ".repeat(depth)
-            ));
-        }
-        ImageSource::LocalFile(file) => {
-            out.push_str(&format!(
-                "AsyncImage(\n{}    model = {},\n{}    imageLoader = nexaImageLoader(),\n{}    contentDescription = {description},\n{}    contentScale = {content_scale},\n{}{})",
-                "    ".repeat(depth),
-                expression(file),
-                "    ".repeat(depth),
-                "    ".repeat(depth),
-                "    ".repeat(depth),
-                modifier_argument,
-                "    ".repeat(depth),
-            ));
-        }
+        ImageSource::Asset(asset) => out.push_str(&format!(
+            "NexaAssetImagePrimitive(\n{indent}    name = {},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
+            kotlin_string(asset),
+        )),
+        ImageSource::RemoteUrl(url) => out.push_str(&format!(
+            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = false,\n{indent}    placeholder = {},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
+            expression(url),
+            placeholder.map(kotlin_string).unwrap_or_else(|| "null".to_owned()),
+        )),
+        ImageSource::LocalFile(file) => out.push_str(&format!(
+            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = true,\n{indent}    placeholder = null,\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
+            expression(file),
+        )),
+    }
+}
+
+pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: &mut SourceWriter) {
+    if include_asset {
+        out.push_str(
+            r#"@Composable
+internal fun NexaAssetImagePrimitive(
+    name: String,
+    contentDescription: String?,
+    contentScale: androidx.compose.ui.layout.ContentScale,
+    maxHeight: androidx.compose.ui.unit.Dp?,
+    modifier: androidx.compose.ui.Modifier,
+) {
+    val imageModifier = modifier.then(
+        maxHeight?.let { androidx.compose.ui.Modifier.heightIn(max = it) }
+            ?: androidx.compose.ui.Modifier
+    )
+    androidx.compose.foundation.Image(
+        painter = nexaDrawablePainter(name),
+        contentDescription = contentDescription,
+        contentScale = contentScale,
+        modifier = imageModifier,
+    )
+}
+
+"#,
+        );
+    }
+    if include_remote {
+        out.push_str(
+            r#"@Composable
+internal fun NexaRemoteImagePrimitive(
+    url: String,
+    allowsFile: Boolean,
+    placeholder: String?,
+    contentDescription: String?,
+    contentScale: androidx.compose.ui.layout.ContentScale,
+    maxHeight: androidx.compose.ui.unit.Dp?,
+    modifier: androidx.compose.ui.Modifier,
+) {
+    val safeModel = if (allowsFile) {
+        url.takeIf { it.startsWith("file://") }
+    } else {
+        url.takeIf { it.startsWith("https://") }
+    }
+    val placeholderPainter = if (placeholder == null) null else nexaDrawablePainter(placeholder)
+    val imageModifier = modifier.then(
+        maxHeight?.let { androidx.compose.ui.Modifier.heightIn(max = it) }
+            ?: androidx.compose.ui.Modifier
+    )
+    coil3.compose.AsyncImage(
+        model = safeModel,
+        imageLoader = nexaImageLoader(),
+        contentDescription = contentDescription,
+        contentScale = contentScale,
+        placeholder = placeholderPainter,
+        error = placeholderPainter,
+        modifier = imageModifier,
+    )
+}
+
+"#,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_codegen::SourceWriter;
+
+    use super::render_primitives;
+
+    #[test]
+    fn asset_image_primitive_owns_resource_fallback_sizing_and_accessibility() {
+        let mut output = SourceWriter::new();
+        render_primitives(true, false, &mut output);
+
+        assert!(output.contains("internal fun NexaAssetImagePrimitive("));
+        assert!(output.contains("painter = nexaDrawablePainter(name)"));
+        assert!(output.contains("Modifier.heightIn(max = it)"));
+        assert!(output.contains("contentDescription = contentDescription"));
+        assert!(!output.contains("NexaRemoteImagePrimitive("));
+    }
+
+    #[test]
+    fn remote_image_primitive_owns_scheme_validation_coil_and_placeholder() {
+        let mut output = SourceWriter::new();
+        render_primitives(false, true, &mut output);
+
+        assert!(output.contains("url.takeIf { it.startsWith(\"https://\") }"));
+        assert!(output.contains("url.takeIf { it.startsWith(\"file://\") }"));
+        assert!(output.contains("imageLoader = nexaImageLoader()"));
+        assert!(output.contains("placeholder = placeholderPainter"));
+        assert!(output.contains("error = placeholderPainter"));
+        assert!(!output.contains("NexaAssetImagePrimitive("));
     }
 }

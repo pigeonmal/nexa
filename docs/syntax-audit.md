@@ -2,7 +2,7 @@
 
 | **Scope**: accepted `.nx` component grammar | **Source**: compiler catalog | **Status**: generated and parse-checked |
 
-This reference lists every built-in component's accepted arguments, child blocks, and event or style modifiers. The entries are generated from the parser catalog and checked by parser probes.
+This reference lists every built-in component's accepted arguments, child blocks, and event, interaction, or composition modifiers. Visual styling is expressed through component arguments. The entries are generated from the parser catalog and checked by parser probes.
 
 > Generated from `crates/nexa-syntax/src/catalog.rs` — do not edit by hand.
 > Run `cargo test -p nexa-syntax` with `NEXA_UPDATE_SNAPSHOTS=1` to regenerate.
@@ -185,9 +185,9 @@ Reference: components.md#spacer
 
 Overlapping layout container
 
-Signature: `Stack(spacing:, alignment:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, borderColor:, borderWidth:, opacity:, scale:, rotation:, shadow:, blur:, clip:, zIndex:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Stack(alignment:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, borderColor:, borderWidth:, opacity:, scale:, rotation:, shadow:, blur:, clip:, zIndex:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `spacing`, `alignment`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `borderColor`, `borderWidth`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `alignment`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `borderColor`, `borderWidth`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 

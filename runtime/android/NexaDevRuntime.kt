@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Surface
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -113,40 +114,42 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
             previousFrame = frame
         }
     }
-    Box(Modifier.fillMaxSize()) {
-        if (module == null) {
-            Text("Connecting to Nexa…")
-        } else {
-            val statusBar = module.optJSONObject("status_bar")
-            NexaDevStatusBar(statusBar, isSystemInDarkTheme())
-            val style = module.optJSONObject("direction")?.optString("style")
-            val direction = when (style) {
-                "Rtl" -> LayoutDirection.Rtl
-                "Ltr" -> LayoutDirection.Ltr
-                else -> LocalLayoutDirection.current
-            }
-            CompositionLocalProvider(LocalRippleConfiguration provides null) {
-                NexaSharedTransitionContent {
-                    CompositionLocalProvider(LocalLayoutDirection provides direction) {
-                        NexaDevNodeList(
-                            module.optJSONArray("body") ?: JSONArray(),
-                            module,
-                            store,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+    Surface(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()) {
+            if (module == null) {
+                Text("Connecting to Nexa…")
+            } else {
+                val statusBar = module.optJSONObject("status_bar")
+                NexaDevStatusBar(statusBar, isSystemInDarkTheme())
+                val style = module.optJSONObject("direction")?.optString("style")
+                val direction = when (style) {
+                    "Rtl" -> LayoutDirection.Rtl
+                    "Ltr" -> LayoutDirection.Ltr
+                    else -> LocalLayoutDirection.current
+                }
+                CompositionLocalProvider(LocalRippleConfiguration provides null) {
+                    NexaSharedTransitionContent {
+                        CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                            NexaDevNodeList(
+                                module.optJSONArray("body") ?: JSONArray(),
+                                module,
+                                store,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
             }
-        }
-        if (store.diagnostics.isNotEmpty()) {
-            NexaDevErrorOverlay(
-                diagnostics = store.diagnostics,
-                modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = 12.dp, vertical = 8.dp),
-                onOpenInEditor = store::requestEditorOpen,
-            )
-        }
-        if (store.performanceOverlayEnabled) {
-            NexaDevPerformanceOverlay(fps, frameTimeMs, Modifier.align(Alignment.TopEnd).padding(8.dp))
+            if (store.diagnostics.isNotEmpty()) {
+                NexaDevErrorOverlay(
+                    diagnostics = store.diagnostics,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = 12.dp, vertical = 8.dp),
+                    onOpenInEditor = store::requestEditorOpen,
+                )
+            }
+            if (store.performanceOverlayEnabled) {
+                NexaDevPerformanceOverlay(fps, frameTimeMs, Modifier.align(Alignment.TopEnd).padding(8.dp))
+            }
         }
     }
 }

@@ -18,20 +18,39 @@ use nexa_dev_protocol::{
     ClientMessage, Diagnostic, EditorRequest, PROTOCOL_VERSION, ServerMessage, TargetPlatform,
     decode_client, encode_server,
 };
-use tungstenite::{Message, WebSocket, accept};
+use tungstenite::{Bytes, Message, Utf8Bytes, WebSocket, accept};
 
-const READ_TIMEOUT: Duration = Duration::from_millis(100);
+// The blocking WebSocket read also waits on this interval before the loop can
+// observe a newly published module. Keep that delivery bound small enough for
+// interactive edits while avoiding a busy spin on connected dev clients.
+const READ_TIMEOUT: Duration = Duration::from_millis(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
 struct Client {
     target: TargetPlatform,
-    sender: Sender<ServerMessage>,
+    sender: Sender<Arc<ClientUpdate>>,
+}
+
+/// One encoded broadcast frame shared by all clients that receive the update.
+struct ClientUpdate {
+    frame: Utf8Bytes,
+    revision: Option<String>,
+    is_patch: bool,
+}
+
+/// Keep the last serialized IR shape so diffing a reload does not serialize the
+/// previous full module again. The JSON and full-frame size are lazy because
+/// a disconnected dev session only needs to retain its latest typed module.
+struct PublishedModule {
+    module: DevModule,
+    json: Option<serde_json::Value>,
+    full_frame_len: Option<usize>,
 }
 
 #[derive(Default)]
 struct SharedState {
-    modules: HashMap<TargetPlatform, DevModule>,
+    modules: HashMap<TargetPlatform, PublishedModule>,
     diagnostics: HashMap<TargetPlatform, Vec<Diagnostic>>,
     clients: HashMap<u64, Client>,
     performance_overlay_enabled: bool,
@@ -72,7 +91,26 @@ impl DevServer {
                     nexa_dev_ir::DEV_IR_FORMAT_VERSION
                 ));
             }
-            if state.modules.insert(target, module).is_some() {
+            let json = serde_json::to_value(&module.module)
+                .map_err(|error| format!("cannot cache the {target:?} dev module: {error}"))?;
+            let full_frame_len = encode_update(&ServerMessage::FullModule {
+                revision: module.revision.clone(),
+                module: Box::new(module.clone()),
+            })?
+            .frame
+            .len();
+            if state
+                .modules
+                .insert(
+                    target,
+                    PublishedModule {
+                        module,
+                        json: Some(json),
+                        full_frame_len: Some(full_frame_len),
+                    },
+                )
+                .is_some()
+            {
                 return Err(format!("duplicate dev module for {target:?}"));
             }
         }
@@ -160,6 +198,34 @@ impl DevServer {
                 nexa_dev_ir::DEV_IR_FORMAT_VERSION
             ));
         }
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "Nexa dev server state is unavailable".to_owned())?;
+            if !state.modules.contains_key(&target) {
+                return Err(format!("no dev session was started for {target:?}"));
+            }
+            let has_client = state.clients.values().any(|client| client.target == target);
+            if !has_client {
+                state.modules.insert(
+                    target,
+                    PublishedModule {
+                        module,
+                        json: None,
+                        // A disconnected update can change the module size by
+                        // an arbitrary amount. Force one full publish after a
+                        // runtime reconnect to refresh the size baseline.
+                        full_frame_len: None,
+                    },
+                );
+                state.diagnostics.remove(&target);
+                return Ok(());
+            }
+        }
+
+        let module_json = serde_json::to_value(&module.module)
+            .map_err(|error| format!("cannot cache the {target:?} dev module: {error}"))?;
         let mut state = self
             .state
             .lock()
@@ -167,35 +233,73 @@ impl DevServer {
         if !state.modules.contains_key(&target) {
             return Err(format!("no dev session was started for {target:?}"));
         }
+
         let revision = module.revision.clone();
-        let reload_revision = revision.clone();
-        let previous = state.modules.insert(target, module.clone());
-        state.diagnostics.remove(&target);
-        let full_message = ServerMessage::FullModule {
-            revision,
-            module: Box::new(module.clone()),
-        };
-        let patch_message = previous
-            .as_ref()
-            .and_then(|previous| nexa_dev_ir::diff(previous, &module))
-            .map(|patch| ServerMessage::Patch {
-                patch: Box::new(patch),
+        let patch = state.modules.get(&target).and_then(|previous| {
+            previous.json.as_ref().map_or_else(
+                || nexa_dev_ir::diff(&previous.module, &module),
+                |previous_json| {
+                    nexa_dev_ir::diff_with_module_values(
+                        &previous.module,
+                        previous_json,
+                        &module,
+                        &module_json,
+                    )
+                },
+            )
+        });
+        if patch.as_ref().is_some_and(|patch| {
+            patch.operations.is_empty()
+                && patch.identities.is_none()
+                && patch.translations.is_none()
+        }) {
+            // Filesystem watchers can report a generated localization write
+            // after the source edit that caused it. The second compile then
+            // produces a new revision with no semantic IR changes. Keep the
+            // runtime and cached revision aligned, and avoid a redundant
+            // empty patch/recomposition.
+            return Ok(());
+        }
+        let patch_message = patch
+            .map(|patch| {
+                encode_update(&ServerMessage::Patch {
+                    patch: Box::new(patch),
+                })
             })
-            .filter(|patch| {
-                let patch_size = serde_json::to_vec(patch).map_or(usize::MAX, |data| data.len());
-                let full_size =
-                    serde_json::to_vec(&full_message).map_or(usize::MAX, |data| data.len());
-                patch_size < full_size
-            });
-        let message = patch_message.unwrap_or(full_message);
-        broadcast(&mut state, target, message);
-        broadcast(
-            &mut state,
+            .transpose()?;
+        let previous_full_frame_len = state
+            .modules
+            .get(&target)
+            .and_then(|previous| previous.full_frame_len);
+        // Tiny patches are guaranteed to be much smaller than a full module
+        // frame at the last known size. Avoid cloning and encoding the full IR
+        // on the common source-edit path; fall back to a full module for large
+        // structural changes and refresh the cached size then.
+        let patch_is_clearly_smaller = patch_message.as_ref().is_some_and(|patch| {
+            previous_full_frame_len.is_some_and(|full_len| patch.frame.len() < full_len / 2)
+        });
+        let (update, full_frame_len) = match (patch_is_clearly_smaller, patch_message) {
+            (true, Some(patch)) => (patch, previous_full_frame_len),
+            _ => {
+                let full_update = encode_update(&ServerMessage::FullModule {
+                    revision: revision.clone(),
+                    module: Box::new(module.clone()),
+                })?;
+                let full_frame_len = full_update.frame.len();
+                (full_update, Some(full_frame_len))
+            }
+        };
+        state.modules.insert(
             target,
-            ServerMessage::Reload {
-                revision: reload_revision,
+            PublishedModule {
+                module,
+                json: Some(module_json),
+                full_frame_len,
             },
         );
+        state.diagnostics.remove(&target);
+        broadcast_encoded(&mut state, Some(target), update);
+        broadcast(&mut state, Some(target), ServerMessage::Reload { revision })?;
         Ok(())
     }
 
@@ -215,9 +319,9 @@ impl DevServer {
         state.diagnostics.insert(target, diagnostics.clone());
         broadcast(
             &mut state,
-            target,
+            Some(target),
             ServerMessage::Diagnostics { diagnostics },
-        );
+        )?;
         Ok(())
     }
 
@@ -226,11 +330,8 @@ impl DevServer {
         let message = ServerMessage::Restart {
             reason: reason.into(),
         };
-        if let Ok(state) = self.state.lock() {
-            let clients = state.clients.values().map(|client| client.sender.clone());
-            for client in clients {
-                let _ = client.send(message.clone());
-            }
+        if let Ok(mut state) = self.state.lock() {
+            let _ = broadcast(&mut state, None, message);
         }
     }
 
@@ -239,9 +340,7 @@ impl DevServer {
         let message = ServerMessage::PerformanceOverlay { enabled };
         if let Ok(mut state) = self.state.lock() {
             state.performance_overlay_enabled = enabled;
-            for client in state.clients.values() {
-                let _ = client.sender.send(message.clone());
-            }
+            let _ = broadcast(&mut state, None, message);
         }
     }
 }
@@ -255,10 +354,44 @@ impl Drop for DevServer {
     }
 }
 
-fn broadcast(state: &mut SharedState, target: TargetPlatform, message: ServerMessage) {
-    state
-        .clients
-        .retain(|_, client| client.target != target || client.sender.send(message.clone()).is_ok());
+fn encode_update(message: &ServerMessage) -> Result<Arc<ClientUpdate>, String> {
+    let (revision, is_patch) = match message {
+        ServerMessage::FullModule { revision, .. } => (Some(revision.clone()), false),
+        ServerMessage::Patch { patch } => (Some(patch.revision.clone()), true),
+        _ => (None, false),
+    };
+    let frame = encode_server(message)
+        .map_err(|error| format!("cannot encode Nexa dev update: {error}"))?;
+    let frame = Utf8Bytes::try_from(Bytes::from(frame))
+        .map_err(|error| format!("cannot encode Nexa dev update as UTF-8: {error}"))?;
+    Ok(Arc::new(ClientUpdate {
+        frame,
+        revision,
+        is_patch,
+    }))
+}
+
+fn broadcast(
+    state: &mut SharedState,
+    target: Option<TargetPlatform>,
+    message: ServerMessage,
+) -> Result<(), String> {
+    let update = encode_update(&message)?;
+    broadcast_encoded(state, target, update);
+    Ok(())
+}
+
+fn broadcast_encoded(
+    state: &mut SharedState,
+    target: Option<TargetPlatform>,
+    update: Arc<ClientUpdate>,
+) {
+    state.clients.retain(|_, client| {
+        if target.is_some_and(|target| target != client.target) {
+            return true;
+        }
+        client.sender.send(Arc::clone(&update)).is_ok()
+    });
 }
 
 fn serve_client(
@@ -303,13 +436,17 @@ fn serve_client(
         }
     };
 
-    let (updates_tx, updates_rx) = mpsc::channel();
+    let (updates_tx, updates_rx) = mpsc::channel::<Arc<ClientUpdate>>();
     let (module, diagnostics, performance_overlay_enabled) = {
         let Ok(mut shared) = state.lock() else {
             let _ = websocket.close(None);
             return;
         };
-        let Some(module) = shared.modules.get(&target).cloned() else {
+        let Some(module) = shared
+            .modules
+            .get(&target)
+            .map(|published| published.module.clone())
+        else {
             let _ = websocket.close(None);
             return;
         };
@@ -367,28 +504,18 @@ fn serve_client(
     let mut pending_apply_times = HashMap::new();
     while !stopping.load(Ordering::Acquire) {
         match updates_rx.recv_timeout(READ_TIMEOUT) {
-            Ok(message) => {
+            Ok(update) => {
                 let sent_at = std::time::Instant::now();
-                if send(&mut websocket, &message).is_err() {
+                if websocket.send(Message::Text(update.frame.clone())).is_err() {
                     break;
                 }
-                let revision = match &message {
-                    ServerMessage::FullModule { revision, .. } => Some(revision.as_str()),
-                    ServerMessage::Patch { patch } => Some(patch.revision.as_str()),
-                    _ => None,
-                };
-                match &message {
-                    ServerMessage::Patch { patch } => {
-                        pending_patch_revisions.insert(patch.revision.clone());
-                        pending_apply_times.insert(patch.revision.clone(), sent_at);
-                    }
-                    ServerMessage::FullModule { revision, .. } => {
+                if let Some(revision) = update.revision.as_ref() {
+                    if update.is_patch {
+                        pending_patch_revisions.insert(revision.clone());
+                    } else {
                         pending_patch_revisions.remove(revision);
-                        pending_apply_times.insert(revision.clone(), sent_at);
                     }
-                    _ => {}
-                }
-                if let Some(revision) = revision {
+                    pending_apply_times.insert(revision.clone(), sent_at);
                     println!(
                         "Nexa {} dev runtime received module {revision}.",
                         target_name(target)
@@ -420,10 +547,12 @@ fn serve_client(
                     }
                 }
                 Ok(ClientMessage::RequestFullModule) => {
-                    let module = state
-                        .lock()
-                        .ok()
-                        .and_then(|shared| shared.modules.get(&target).cloned());
+                    let module = state.lock().ok().and_then(|shared| {
+                        shared
+                            .modules
+                            .get(&target)
+                            .map(|published| published.module.clone())
+                    });
                     let Some(module) = module else {
                         break;
                     };

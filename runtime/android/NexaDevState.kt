@@ -75,13 +75,10 @@ internal class NexaDevStateStore(internal val context: Context) {
     var performanceOverlayEnabled by mutableStateOf(false)
     var navigationEpoch by mutableIntStateOf(0)
         private set
-    var focusedFieldKey by mutableStateOf<String?>(null)
-        private set
     var moduleRevision by mutableIntStateOf(0)
         internal set
     private var navigationRoot: String? = null
     private var navigationScreensSignature: String? = null
-    internal var focusBindings = mutableMapOf<String, Pair<String, String?>>()
     internal val nativeEventSubscriptions = mutableListOf<NexaDevNativeEventSubscription>()
     internal val networkStatusSubscriptions = mutableListOf<NexaDevNetworkStatusSubscription>()
     internal val activeScreenParameters = mutableMapOf<String, Map<String, Any>>()
@@ -283,29 +280,6 @@ internal class NexaDevStateStore(internal val context: Context) {
                 .mapTo(mutableSetOf()) { it.optString("name") }
             activeScreenParameters.keys.removeAll { it.substringAfterLast('/') !in currentScreens }
         }
-        val nextFocusBindings = mutableMapOf<String, Pair<String, String?>>()
-        collectFocusBindings(next.optJSONArray("body") ?: JSONArray(), "app", nextFocusBindings)
-        for (screenIndex in 0 until screens.length()) {
-            val screen = screens.optJSONObject(screenIndex) ?: continue
-            val screenName = screen.optString("name").takeIf(String::isNotEmpty) ?: continue
-            collectFocusBindings(
-                screen.optJSONArray("body") ?: JSONArray(),
-                "screen/$screenName",
-                nextFocusBindings,
-            )
-        }
-        focusBindings = nextFocusBindings
-        val currentFocus = focusedFieldKey
-        if (currentFocus != null && currentFocus !in nextFocusBindings) {
-            focusedFieldKey = null
-        }
-        if (focusedFieldKey == null) {
-            val matching = nextFocusBindings.entries.firstOrNull { (_, binding) ->
-                val stateName = binding.second ?: return@firstOrNull false
-                values.containsKey("${binding.first}/state/$stateName")
-            }
-            if (matching != null) focusedFieldKey = matching.key
-        }
         val currentRoot = screens.optJSONObject(0)?.optString("name")
         val currentScreensSignature = (0 until screens.length()).joinToString(";") {
             screens.optJSONObject(it)?.optString("name").orEmpty()
@@ -359,57 +333,36 @@ internal class NexaDevStateStore(internal val context: Context) {
             }
         }
         navigationEpoch++
-        focusedFieldKey = focusBindings.keys.firstOrNull()
         moduleRevision++
         appLifecycleEpoch++
-    }
-
-    private fun collectFocusBindings(
-        nodes: JSONArray,
-        scope: String,
-        bindings: MutableMap<String, Pair<String, String?>>,
-    ) {
-        for (index in 0 until nodes.length()) {
-            val raw = nodes.opt(index)
-            val node = nexaDevNodeObject(raw)
-            val textInput = node.optJSONObject("TextInput")
-            if (textInput != null) {
-                val stateName = textInput.optString("state").takeIf(String::isNotEmpty)
-                val key = "$scope/input/${stateName ?: index}"
-                bindings[key] = scope to stateName
-            }
-            val children = node.optJSONObject("Layout")?.optJSONArray("children")
-                ?: node.optJSONObject("If")?.optJSONArray("then_body")
-                ?: node.optJSONObject("If")?.optJSONArray("else_body")
-                ?: node.optJSONObject("BottomSheet")?.optJSONArray("children")
-                ?: node.optJSONObject("Dialog")?.optJSONArray("children")
-                ?: node.optJSONObject("KeyboardAware")?.optJSONArray("children")
-                ?: node.optJSONObject("Accessibility")?.optJSONArray("children")
-                ?: node.optJSONObject("Pressable")?.optJSONArray("children")
-            if (children != null) collectFocusBindings(children, scope, bindings)
-            val whenCases = node.optJSONObject("When")?.optJSONArray("cases")
-            if (whenCases != null) {
-                for (caseIndex in 0 until whenCases.length()) {
-                    val caseBody = whenCases.optJSONObject(caseIndex)?.optJSONArray("body") ?: continue
-                    collectFocusBindings(caseBody, scope, bindings)
-                }
-            }
-        }
-    }
-
-    fun focusChanged(nextIdentity: String?) {
-        focusedFieldKey = nextIdentity
     }
 
     fun applyPatch(patch: JSONObject) {
         val root = module ?: return
         val operations = patch.optJSONArray("operations") ?: JSONArray()
-        var updated = JSONObject(root.toString())
+        // Copy only objects and arrays along edited paths. Serializing and
+        // reparsing the full module for every text/style edit made reload time
+        // proportional to the size of the whole app rather than the patch.
+        val updated = shallowCopy(root) as? JSONObject ?: return
         for (index in 0 until operations.length()) {
             val operation = operations.optJSONObject(index) ?: continue
             if (!applyOperation(updated, operation)) return
         }
         install(updated)
+    }
+
+    private fun shallowCopy(value: Any): Any? = when (value) {
+        is JSONObject -> JSONObject().also { copy ->
+            val keys = value.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                copy.put(key, value.opt(key))
+            }
+        }
+        is JSONArray -> JSONArray().also { copy ->
+            for (index in 0 until value.length()) copy.put(value.opt(index))
+        }
+        else -> null
     }
 
     private fun applyOperation(root: JSONObject, operation: JSONObject): Boolean {
@@ -442,7 +395,9 @@ internal class NexaDevStateStore(internal val context: Context) {
                 return true
             }
             val child = container.opt(key) ?: return false
-            return updateContainer(child, segments, index + 1, kind, value)
+            val childCopy = shallowCopy(child) ?: return false
+            container.put(key, childCopy)
+            return updateContainer(childCopy, segments, index + 1, kind, value)
         }
         if (container is JSONArray) {
             val arrayIndex = key.toIntOrNull() ?: return false
@@ -455,7 +410,9 @@ internal class NexaDevStateStore(internal val context: Context) {
                 return false
             }
             val child = container.opt(arrayIndex) ?: return false
-            return updateContainer(child, segments, index + 1, kind, value)
+            val childCopy = shallowCopy(child) ?: return false
+            container.put(arrayIndex, childCopy)
+            return updateContainer(childCopy, segments, index + 1, kind, value)
         }
         return false
     }

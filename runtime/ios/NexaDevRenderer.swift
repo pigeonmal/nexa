@@ -111,9 +111,39 @@ private func nexaDevTransition(_ raw: Any?) -> AnyTransition? {
     }
 }
 
+private func nexaDevUsesIconOnlyButtonLabel(_ rawLabel: Any?, comment: Any?) -> Bool {
+    guard comment == nil || comment is NSNull,
+          let expression = rawLabel as? [String: Any]
+    else { return false }
+    if let text = expression["String"] as? String {
+        return text.isEmpty
+    }
+    guard let localized = expression["LocalizedText"] as? [String: Any],
+          localized["comment"] == nil || localized["comment"] is NSNull,
+          let value = localized["value"] as? [String: Any],
+          let text = value["String"] as? String
+    else { return false }
+    return text.isEmpty
+}
+
 private func nexaDevSharedIconSymbol(_ name: String) -> String? {
     switch name {
 __NEXA_SHARED_ICON_SF_CASES__
+    default: return nil
+    }
+}
+
+private func nexaDevMaterialIconSymbol(_ name: String) -> String? {
+    let rawSymbol = name.split(separator: ":", maxSplits: 1).last.map(String.init) ?? name
+    let symbol = rawSymbol
+        .split(whereSeparator: { $0 == "." || $0 == "_" || $0 == "-" })
+        .map { part in
+            guard let first = part.first else { return "" }
+            return String(first).uppercased() + String(part.dropFirst())
+        }
+        .joined()
+    switch symbol {
+__NEXA_SHARED_ICON_MATERIAL_SF_CASES__
     default: return nil
     }
 }
@@ -231,15 +261,24 @@ enum NexaDevFastListAxis {
     }
 }
 
+private struct NexaDevFastListRow: Identifiable {
+    let id: AnyHashable
+    let index: Int
+    let sectionIndex: Int
+    let itemIndex: Int
+}
+
 @MainActor
 struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeaderContent: View>: View {
     let count: Int
+    let native: Bool
     let axis: NexaDevFastListAxis
     let reverseLayout: Bool
     let pageSnap: Bool
     let rowHeight: Double?
     let scrollPosition: Int?
     let sectionCounts: [Int]?
+    let rowKey: ((Int, Int, Int) -> AnyHashable)?
     let stickyHeader: StickyHeaderContent?
     let sectionHeader: ((Int) -> SectionHeaderContent)?
     let row: (Int, Int, Int) -> RowContent
@@ -254,18 +293,144 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     @State private var didReachEnd = false
     @State private var followsBottom = true
     @State private var horizontalViewportSize: CGSize = .zero
+    @State private var latestPosition = 0
+
+    private func identifiedRows(
+        count: Int,
+        sectionIndex: Int = 0,
+        flatOffset: Int = 0
+    ) -> [NexaDevFastListRow] {
+        (0..<max(0, count)).map { itemIndex in
+            let index = flatOffset + itemIndex
+            return NexaDevFastListRow(
+                id: rowKey?(index, sectionIndex, itemIndex) ?? AnyHashable(index),
+                index: index,
+                sectionIndex: sectionIndex,
+                itemIndex: itemIndex
+            )
+        }
+    }
 
     @ViewBuilder
     var body: some View {
-        if let onMove {
+        if native {
+            NexaNativeListPrimitive {
+                if let sectionCounts {
+                    ForEach(sectionCounts.indices, id: \.self) { sectionIndex in
+                        let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
+                        if let sectionHeader {
+                            Section {
+                                ForEach(identifiedRows(
+                                    count: sectionCounts[sectionIndex],
+                                    sectionIndex: sectionIndex,
+                                    flatOffset: start
+                                )) { item in
+                                    row(item.index, item.sectionIndex, item.itemIndex)
+                                }
+                            } header: {
+                                sectionHeader(sectionIndex)
+                            }
+                        } else {
+                            ForEach(identifiedRows(
+                                count: sectionCounts[sectionIndex],
+                                sectionIndex: sectionIndex,
+                                flatOffset: start
+                            )) { item in
+                                row(item.index, item.sectionIndex, item.itemIndex)
+                            }
+                        }
+                    }
+                } else if let onMove {
+                    ForEach(identifiedRows(count: count)) { item in
+                        row(item.index, item.sectionIndex, item.itemIndex)
+                    }
+                    .onMove(perform: onMove)
+                    .moveDisabled(!moveEnabled)
+                } else {
+                    ForEach(identifiedRows(count: count)) { item in
+                        row(item.index, item.sectionIndex, item.itemIndex)
+                    }
+                }
+            }
+        } else if case .vertical = axis, sectionCounts == nil, onMove == nil {
+            NexaFastListPrimitive(
+                rowCount: count,
+                rowHeight: rowHeight.map { CGFloat($0) },
+                rowKey: rowKey.map { key in { index in key(index, 0, index) } },
+                reverseLayout: reverseLayout,
+                pageSnap: pageSnap,
+                scrollPosition: scrollPosition.map(Int32.init),
+                onScrollPositionChanged: { position in
+                    latestPosition = position
+                    onScrollPositionChanged(position)
+                },
+                isRefreshing: isRefreshing,
+                onRefresh: onRefresh,
+                onEndReached: onEndReached.map { callback in { callback(latestPosition) } },
+                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                headerContent: stickyHeader.map { header in { header } },
+                rowContent: { index in row(index, 0, index) }
+            )
+        } else if case .horizontal = axis, sectionCounts == nil {
+            NexaFastHorizontalListPrimitive(
+                rowCount: count,
+                itemExtent: rowHeight.map { CGFloat($0) },
+                rowKey: rowKey.map { key in { index in key(index, 0, index) } },
+                scrollPosition: scrollPosition.map(Int32.init),
+                onScrollPositionChanged: { position in
+                    latestPosition = position
+                    onScrollPositionChanged(position)
+                },
+                isRefreshing: isRefreshing,
+                onRefresh: onRefresh,
+                onEndReached: onEndReached.map { callback in { callback(latestPosition) } },
+                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                rowContent: { index in row(index, 0, index) }
+            )
+        } else if case let .grid(columns) = axis, sectionCounts == nil {
+            NexaFastGridListPrimitive(
+                rowCount: count,
+                columns: columns,
+                itemHeight: rowHeight.map { CGFloat($0) },
+                rowKey: rowKey.map { key in { index in key(index, 0, index) } },
+                scrollPosition: scrollPosition.map(Int32.init),
+                onScrollPositionChanged: { position in
+                    latestPosition = position
+                    onScrollPositionChanged(position)
+                },
+                isRefreshing: isRefreshing,
+                onRefresh: onRefresh,
+                onEndReached: onEndReached.map { callback in { callback(latestPosition) } },
+                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                rowContent: { index in row(index, 0, index) }
+            )
+        } else if case .vertical = axis, let sectionCounts {
+            NexaFastSectionedListPrimitive(
+                sectionCount: sectionCounts.count,
+                sectionCounts: sectionCounts,
+                rowHeight: rowHeight.map { CGFloat($0) },
+                rowKey: rowKey.map { key in
+                    { sectionIndex, itemIndex in
+                        let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
+                        return key(start + itemIndex, sectionIndex, itemIndex)
+                    }
+                },
+                isRefreshing: isRefreshing,
+                onRefresh: onRefresh,
+                headerContent: sectionHeader,
+                rowContent: { sectionIndex, itemIndex in
+                    let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
+                    row(start + itemIndex, sectionIndex, itemIndex)
+                }
+            )
+        } else if let onMove {
             List {
-                ForEach(0..<count, id: \.self) { index in
-                    row(index, 0, index)
+                ForEach(identifiedRows(count: count)) { item in
+                    row(item.index, item.sectionIndex, item.itemIndex)
                 }
                 .onMove(perform: onMove)
                 .moveDisabled(!moveEnabled)
             }
-            .listStyle(.plain)
         } else if pageSnap {
             GeometryReader { _ in
                 NexaDevPageSnapList(
@@ -637,10 +802,21 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
 }
 
 @MainActor
+private struct NexaDevScopedRevisionView<Content: View>: View {
+    @ObservedObject var revision: NexaDevScopeRevision
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        let _ = revision.revision
+        content()
+    }
+}
+
+@MainActor
 struct NexaDevNodeList: View {
     let nodes: [Any]
     let module: [String: Any]
-    @ObservedObject var store: NexaDevStateStore
+    let store: NexaDevStateStore
     var focusedField: FocusState<String?>.Binding
     var parameters: [String: Any] = [:]
     var stateScope: String = "app"
@@ -650,8 +826,13 @@ struct NexaDevNodeList: View {
     @Environment(\.nexaSharedNamespace) private var nexaSharedNamespace
     @Environment(\.nexaDevContentSlot) private var contentSlot
 
-    @ViewBuilder var body: some View {
-        let _ = store.revision
+    var body: some View {
+        NexaDevScopedRevisionView(revision: store.revisionObserver(for: stateScope)) {
+            renderedBody
+        }
+    }
+
+    @ViewBuilder private var renderedBody: some View {
         let locals = store.locals(scope: stateScope, parameters: parameters)
         if nodes.isEmpty {
             EmptyView()
@@ -700,26 +881,26 @@ struct NexaDevNodeList: View {
             return AnyView(content.preferredColorScheme(mode == "dark" ? .dark : mode == "light" ? .light : nil))
         case "Form":
             let children = fields["children"] as? [Any] ?? []
-            return AnyView(Form {
+            return AnyView(NexaFormPrimitive {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true, appliesFormRowMetrics: true)
             })
         case "FormSection":
             let children = fields["children"] as? [Any] ?? []
-            let section = Section {
+            let section = NexaFormSectionPrimitive(content: {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true, appliesFormRowMetrics: true)
-            } header: {
+            }, header: {
                 if let rawTitle = fields["title"], !(rawTitle is NSNull) {
                     Text(store.stringify(store.evaluate(rawTitle, locals: locals, scope: scope)))
                 } else {
                     EmptyView()
                 }
-            } footer: {
+            }, footer: {
                 if let rawFooter = fields["footer"], !(rawFooter is NSNull) {
                     Text(store.stringify(store.evaluate(rawFooter, locals: locals, scope: scope)))
                 } else {
                     EmptyView()
                 }
-            }
+            })
             return AnyView(section)
         case "Layout":
             let children = fields["children"] as? [Any] ?? []
@@ -825,7 +1006,7 @@ struct NexaDevNodeList: View {
                let response = spring["response"] as? Double,
                let damping = spring["damping"] as? Double {
                 let value = Animation.spring(response: response, dampingFraction: damping)
-                styled = AnyView(styled.animation(value, value: store.revision))
+                styled = AnyView(styled.animation(value, value: store.revisionObserver(for: scope).revision))
             } else if let animation = style["animation"] as? String {
                 let value: Animation
                 switch animation {
@@ -834,7 +1015,7 @@ struct NexaDevNodeList: View {
                 case "EaseInOut": value = .easeInOut
                 default: value = .linear
                 }
-                styled = AnyView(styled.animation(value, value: store.revision))
+                styled = AnyView(styled.animation(value, value: store.revisionObserver(for: scope).revision))
             }
             if !toolbarNodes.isEmpty {
                 styled = AnyView(styled.toolbar {
@@ -1036,7 +1217,9 @@ struct NexaDevNodeList: View {
             else if shapeFields["Capsule"] != nil || encodedShape == "Capsule" { shape = .capsule }
             else { shape = .capsule }
             let icon = fields["icon"] as? [String: String] ?? [:]
-            let symbol = icon["sf_symbol"] ?? icon["shared"].flatMap(nexaDevSharedIconSymbol)
+            let symbol = icon["sf_symbol"]
+                ?? icon["shared"].flatMap(nexaDevSharedIconSymbol)
+                ?? icon["material_symbol"].flatMap(nexaDevMaterialIconSymbol)
             let tint: Color? = {
                 guard let tintValue = fields["tint"] as? [String: Any] else { return nil }
                 if let dynamic = tintValue["Dynamic"] {
@@ -1055,7 +1238,11 @@ struct NexaDevNodeList: View {
                 action: { store.perform(actions, scope: scope, locals: locals) },
                 label: {
                     if let symbol {
-                        Label(label, systemImage: symbol)
+                        if nexaDevUsesIconOnlyButtonLabel(fields["label"], comment: fields["comment"]) {
+                            Image(systemName: symbol)
+                        } else {
+                            Label(label, systemImage: symbol)
+                        }
                     } else {
                         Text(label)
                     }
@@ -1239,7 +1426,9 @@ struct NexaDevNodeList: View {
             } else if fields["autocorrect"] as? Bool == true {
                 input = AnyView(input.autocorrectionDisabled(false))
             }
-            input = AnyView(input.focused(focusedField, equals: identity))
+            if fields["focused"] as? String != nil {
+                input = AnyView(input.focused(focusedField, equals: identity))
+            }
             let submitActions = fields["actions"] as? [Any] ?? []
             if !submitActions.isEmpty {
                 input = AnyView(input.onSubmit {
@@ -1295,6 +1484,7 @@ struct NexaDevNodeList: View {
             }
             let reverseLayout = listFields[NexaDevKeys.reverseLayout] as? Bool ?? false
             let pageSnap = listFields[NexaDevKeys.pageSnap] as? Bool ?? false
+            let native = listFields["native"] as? Bool ?? false
             let indexName = listFields["index"] as? String ?? "index"
             let itemName = listFields["item"] as? String
             let sectionName = listFields["section"] as? String ?? "section"
@@ -1305,6 +1495,7 @@ struct NexaDevNodeList: View {
                 (store.value(name, scope: scope) as? NSNumber)?.intValue
             }
             let stickyHeaderNodes = listFields["sticky_header"] as? [Any]
+            let swipeActionNodes = listFields["swipe_actions"] as? [Any]
             let stickyHeader: NexaDevNodeList? = stickyHeaderNodes.map { nodes in
                 NexaDevNodeList(nodes: nodes, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             }
@@ -1330,27 +1521,44 @@ struct NexaDevNodeList: View {
             let refresh = listFields["refresh"] as? [String: Any]
             let refreshState = refresh?["state"] as? String
             let refreshActions = refresh?["actions"] as? [Any] ?? []
+            let makeRowLocals: (Int, Int, Int) -> [String: Any] = { index, sectionIndex, itemIndex in
+                var rowLocals = locals.merging([indexName: itemIndex]) { _, newest in newest }
+                if let sourceSections, let itemName,
+                   sourceSections.indices.contains(sectionIndex),
+                   sourceSections[sectionIndex].indices.contains(itemIndex) {
+                    rowLocals[itemName] = sourceSections[sectionIndex][itemIndex]
+                    rowLocals[sectionName] = sectionIndex
+                } else if let itemName, let sourceItems, sourceItems.indices.contains(index) {
+                    rowLocals[itemName] = sourceItems[index]
+                }
+                return rowLocals
+            }
+            let keyExpression = listFields["key"].flatMap { $0 is NSNull ? nil : $0 }
+            let rowKey: ((Int, Int, Int) -> AnyHashable)? = keyExpression.map { expression in
+                { index, sectionIndex, itemIndex in
+                    let value = store.evaluate(
+                        expression,
+                        locals: makeRowLocals(index, sectionIndex, itemIndex),
+                        scope: scope
+                    )
+                    return (value as? AnyHashable) ?? AnyHashable(store.stringify(value))
+                }
+            }
             return AnyView(NexaDevFastList(
                 count: count,
+                native: native,
                 axis: axis,
                 reverseLayout: reverseLayout,
                 pageSnap: pageSnap,
                 rowHeight: itemExtent,
                 scrollPosition: requestedIndex,
                 sectionCounts: sourceSections?.map(\.count),
+                rowKey: rowKey,
                 stickyHeader: stickyHeader,
                 sectionHeader: sectionHeader,
                 row: { index, sectionIndex, itemIndex in
-                    var rowLocals = locals.merging([indexName: itemIndex]) { _, newest in newest }
-                    if let sourceSections, let itemName,
-                       sourceSections.indices.contains(sectionIndex),
-                       sourceSections[sectionIndex].indices.contains(itemIndex) {
-                        rowLocals[itemName] = sourceSections[sectionIndex][itemIndex]
-                        rowLocals[sectionName] = sectionIndex
-                    } else if let itemName, let sourceItems, sourceItems.indices.contains(index) {
-                        rowLocals[itemName] = sourceItems[index]
-                    }
-                    return NexaDevNodeList(
+                    let rowLocals = makeRowLocals(index, sectionIndex, itemIndex)
+                    let row = NexaDevNodeList(
                         nodes: children,
                         module: module,
                         store: store,
@@ -1358,6 +1566,17 @@ struct NexaDevNodeList: View {
                         parameters: rowLocals,
                         stateScope: scope
                     )
+                    guard let swipeActionNodes else { return AnyView(row) }
+                    return AnyView(row.swipeActions(edge: .trailing) {
+                        NexaDevNodeList(
+                            nodes: swipeActionNodes,
+                            module: module,
+                            store: store,
+                            focusedField: focusedField,
+                            parameters: rowLocals,
+                            stateScope: scope
+                        )
+                    })
                 },
                 onMove: onMove.map { callback in
                     { source, destination in
@@ -1422,7 +1641,9 @@ struct NexaDevNodeList: View {
             let name = fields["state"] as? String ?? ""
             let items = store.evaluate(fields["items"] ?? NSNull(), locals: locals, scope: scope) as? [String] ?? []
             let iconSelection = fields["icon"] as? [String: String] ?? [:]
-            let icon = iconSelection["sf_symbol"] ?? iconSelection["shared"].flatMap(nexaDevSharedIconSymbol)
+            let icon = iconSelection["sf_symbol"]
+                ?? iconSelection["shared"].flatMap(nexaDevSharedIconSymbol)
+                ?? iconSelection["material_symbol"].flatMap(nexaDevMaterialIconSymbol)
             let label = fields["label"].flatMap { value in
                 value is NSNull ? nil : store.stringify(store.evaluate(value, locals: locals, scope: scope))
             }
@@ -1460,8 +1681,8 @@ struct NexaDevNodeList: View {
                 symbol = nexaDevSharedIconSymbol(shared) ?? "questionmark"
             } else if let sfSymbol = icon["sf_symbol"] {
                 symbol = sfSymbol
-            } else if icon["material_symbol"] != nil {
-                symbol = "questionmark"
+            } else if let materialSymbol = icon["material_symbol"] {
+                symbol = nexaDevMaterialIconSymbol(materialSymbol) ?? "questionmark"
             } else {
                 symbol = "questionmark"
             }
@@ -1490,51 +1711,51 @@ struct NexaDevNodeList: View {
         case "Image":
             let source = fields["source"] as? [String: Any] ?? [:]
             let description = fields["description"] as? String ?? ""
-            let mode: ContentMode = fields["scale"] as? String == "Fill" ? .fill : .fit
+            let scale: NexaImageScale = fields["scale"] as? String == "Fill" ? .fill : .fit
             let placeholder = fields["placeholder"] as? String
+            let maxHeight = fields["max_height"] as? CGFloat
             var rendered: AnyView
             if let asset = source["Asset"] as? String {
-                rendered = AnyView(Image(asset).resizable().aspectRatio(contentMode: mode))
+                rendered = AnyView(NexaAssetImagePrimitive(
+                    name: asset,
+                    description: description,
+                    scale: scale,
+                    maxHeight: maxHeight
+                ))
             } else if let expression = source["RemoteUrl"] {
                 let urlText = store.stringify(store.evaluate(expression, locals: locals, scope: scope))
-                let remoteURL = URL(string: urlText).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
-                rendered = AnyView(AsyncImage(url: remoteURL) { phase in
-                    if let image = phase.image {
-                        image.resizable().aspectRatio(contentMode: mode)
-                    } else if let placeholder {
-                        Image(placeholder).resizable().aspectRatio(contentMode: mode)
-                    } else if phase.error != nil {
-                        Image(systemName: "photo")
-                    } else {
-                        ProgressView()
-                    }
-                })
+                rendered = AnyView(NexaRemoteImagePrimitive(
+                    url: urlText,
+                    scale: scale,
+                    placeholder: placeholder,
+                    allowsFile: false,
+                    description: description,
+                    maxHeight: maxHeight
+                ))
             } else if let expression = source["LocalFile"] {
                 let urlText = store.stringify(store.evaluate(expression, locals: locals, scope: scope))
-                let fileURL = URL(string: urlText).flatMap { $0.isFileURL ? $0 : nil }
-                rendered = AnyView(AsyncImage(url: fileURL) { phase in
-                    if let image = phase.image {
-                        image.resizable().aspectRatio(contentMode: mode)
-                    } else {
-                        Image(systemName: "photo")
-                    }
-                })
+                rendered = AnyView(NexaRemoteImagePrimitive(
+                    url: urlText,
+                    scale: scale,
+                    placeholder: nil,
+                    allowsFile: true,
+                    description: description,
+                    maxHeight: maxHeight
+                ))
             } else {
-                if let placeholder {
-                    rendered = AnyView(Image(placeholder).resizable().aspectRatio(contentMode: mode))
-                } else {
-                    rendered = AnyView(Image(systemName: "photo"))
-                }
-            }
-            if let maxHeight = fields["max_height"] as? Double {
-                rendered = AnyView(rendered.frame(maxHeight: maxHeight))
+                rendered = AnyView(NexaImageFallbackPrimitive(
+                    placeholder: placeholder,
+                    description: description,
+                    scale: scale,
+                    maxHeight: maxHeight
+                ))
             }
             if let sharedExpression = fields["shared_element"] as? [String: Any],
                let namespace = nexaSharedNamespace {
                 let id = store.evaluate(sharedExpression, locals: locals, scope: scope) as? String ?? ""
                 rendered = AnyView(rendered.matchedGeometryEffect(id: id, in: namespace))
             }
-            return AnyView(rendered.accessibilityLabel(description).accessibilityHidden(description.isEmpty))
+            return rendered
         case "RefreshControl":
             let state = fields["state"] as? String ?? ""
             let actions = fields["actions"] as? [Any] ?? []
@@ -1576,11 +1797,8 @@ struct NexaDevNodeList: View {
             return AnyView(rendered.transition(transition).animation(.default, value: value))
         case "Link":
             let urlText = store.stringify(store.evaluate(fields["url"] ?? "", locals: locals, scope: scope))
-            guard let destination = URL(string: urlText) else {
-                return AnyView(NexaDevNodeList(nodes: fields["children"] as? [Any] ?? [], module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
-            }
             let children = fields["children"] as? [Any] ?? []
-            return AnyView(Link(destination: destination) {
+            return AnyView(NexaLinkPrimitive(destination: URL(string: urlText)) {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             })
         case "Accessibility":
@@ -1588,17 +1806,17 @@ struct NexaDevNodeList: View {
             let hint = fields["hint"].flatMap { $0 is NSNull ? nil : store.stringify(store.evaluate($0, locals: locals, scope: scope)) }
             let value = fields["value"].flatMap { $0 is NSNull ? nil : store.stringify(store.evaluate($0, locals: locals, scope: scope)) }
             let children = fields["children"] as? [Any] ?? []
-            let content = NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
-            var accessible = AnyView(content.accessibilityElement(children: .combine).accessibilityLabel(label).accessibilityHint(hint ?? ""))
-            if let value { accessible = AnyView(accessible.accessibilityValue(value)) }
-            let role = fields["role"] as? String
-            switch role {
-            case "Button": return AnyView(accessible.accessibilityAddTraits(.isButton))
-            case "Link": return AnyView(accessible.accessibilityAddTraits(.isLink))
-            case "Header": return AnyView(accessible.accessibilityAddTraits(.isHeader))
-            case "Image": return AnyView(accessible.accessibilityAddTraits(.isImage))
-            default: return accessible
-            }
+            let omitLabel = children.count == 1
+                && ((children.first as? [String: Any])?["Image"] as? [String: Any])?["description"] as? String == label
+            return AnyView(NexaAccessibilityPrimitive(
+                label: Text(label),
+                hint: hint.map { Text($0) },
+                value: value.map { Text($0) },
+                role: fields["role"] as? String ?? "None",
+                omitLabel: omitLabel
+            ) {
+                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
+            })
         case "KeyboardAware":
             let children = fields["children"] as? [Any] ?? []
             let dismissMode = fields["dismiss"] as? String == "Interactive" ? ScrollDismissesKeyboardMode.interactively : .never
@@ -1620,7 +1838,6 @@ struct NexaDevNodeList: View {
                 get: { (store.value(state, scope: scope) as? NSNumber)?.intValue ?? 0 },
                 set: {
                     store.setValue(state, value: $0, scope: scope)
-                    store.revision += 1
                 }
             )
             let selectedTab = selection.wrappedValue
@@ -1673,16 +1890,24 @@ struct NexaDevNodeList: View {
                         if let name = icon["sf_symbol"] ?? icon["shared"].flatMap(nexaDevSharedIconSymbol) {
                             if tab["role"] as? String == "search" {
                                 if badge.isEmpty {
-                                    Tab(title, systemImage: name, value: tag, role: .search) { tabContent(index) }
+                                    Tab(value: tag, role: .search) { tabContent(index) } label: {
+                                        NexaTabLabelPrimitive(title: Text(title), systemImage: name)
+                                    }
                                 } else {
-                                    Tab(title, systemImage: name, value: tag, role: .search) { tabContent(index) }
+                                    Tab(value: tag, role: .search) { tabContent(index) } label: {
+                                        NexaTabLabelPrimitive(title: Text(title), systemImage: name)
+                                    }
                                         .badge(badge)
                                 }
                             } else {
                                 if badge.isEmpty {
-                                    Tab(title, systemImage: name, value: tag) { tabContent(index) }
+                                    Tab(value: tag) { tabContent(index) } label: {
+                                        NexaTabLabelPrimitive(title: Text(title), systemImage: name)
+                                    }
                                 } else {
-                                    Tab(title, systemImage: name, value: tag) { tabContent(index) }
+                                    Tab(value: tag) { tabContent(index) } label: {
+                                        NexaTabLabelPrimitive(title: Text(title), systemImage: name)
+                                    }
                                         .badge(badge)
                                 }
                             }
@@ -1695,10 +1920,11 @@ struct NexaDevNodeList: View {
                             }
                         }
                     }
-                }.tabViewStyle(.sidebarAdaptable))
-                if tabs.contains(where: { $0["role"] as? String == "search" }), #available(iOS 26.0, *) {
-                    tabView = AnyView(tabView.tabViewSearchActivation(.searchTabSelection))
-                }
+                }.modifier(NexaAppBottomBarPrimitive(
+                    tint: tint,
+                    adaptiveStyle: true,
+                    activatesSearchTab: tabs.contains { $0["role"] as? String == "search" }
+                )))
             } else {
                 tabView = AnyView(TabView(selection: selection) {
                     ForEach(tabs.indices, id: \.self) { index in
@@ -1719,9 +1945,12 @@ struct NexaDevNodeList: View {
                             tabItem.badge(badge)
                         }
                     }
-                })
+                }.modifier(NexaAppBottomBarPrimitive(
+                    tint: tint,
+                    adaptiveStyle: false,
+                    activatesSearchTab: false
+                )))
             }
-            if let tint { tabView = AnyView(tabView.tint(tint)) }
             let titledTabs = tabs.filter {
                 guard let title = $0["navigation_title"] as? String else { return false }
                 return !title.isEmpty
@@ -1729,15 +1958,11 @@ struct NexaDevNodeList: View {
             if !titledTabs.isEmpty {
                 let activeTitle = tabs.first(where: { ($0["index"] as? Int) == selectedTab })?["navigation_title"] as? String ?? ""
                 tabView = AnyView(tabView.navigationTitle(activeTitle))
-                if titledTabs.allSatisfy({ $0["large_title"] as? Bool == true }) {
-                    if #available(iOS 26.0, *) {
-                        tabView = AnyView(tabView.toolbarTitleDisplayMode(.inlineLarge))
-                    } else {
-                        tabView = AnyView(tabView.navigationBarTitleDisplayMode(.large))
-                    }
-                } else {
-                    tabView = AnyView(tabView.navigationBarTitleDisplayMode(.inline))
-                }
+                tabView = AnyView(tabView.modifier(
+                    NexaNavigationTitleDisplayModePrimitive(
+                        large: titledTabs.allSatisfy({ $0["large_title"] as? Bool == true })
+                    )
+                ))
             }
             let activeToolbars = tabs.indices.first { tabIndex in
                 let tab = tabs[tabIndex]
@@ -1785,21 +2010,9 @@ struct NexaDevNodeList: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.default, value: selected)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                HStack(spacing: __NEXA_PAGE_INDICATOR_SPACING__) {
-                    ForEach(pages.indices, id: \.self) { index in
-                        Button {
-                            store.setValue(state, value: index, scope: scope)
-                        } label: {
-                            Circle()
-                                .fill(index == selected ? __NEXA_SWIFT_DEFAULT_ACCENT_COLOR__ : Color(red: __NEXA_MUTED_TEXT_RED__, green: __NEXA_MUTED_TEXT_GREEN__, blue: __NEXA_MUTED_TEXT_BLUE__).opacity(__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__))
-                                .frame(width: index == selected ? __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ : __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__, height: index == selected ? __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ : __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Page \(index + 1)")
-                            .animation(.default, value: selected)
-                    }
+                NexaPageIndicatorRow(pageCount: pages.count, selectedIndex: selected) { index in
+                    store.setValue(state, value: index, scope: scope)
                 }
-                .padding(.bottom, __NEXA_PAGE_INDICATOR_BOTTOM_INSET__)
             }.frame(maxWidth: .infinity, maxHeight: .infinity))
         case "Toolbar":
             let children = fields["children"] as? [Any] ?? []
@@ -1873,24 +2086,18 @@ struct NexaDevNodeList: View {
             let visibleState = fields["detail_visible"] as? String ?? ""
             let sidebarView = NexaDevNodeList(nodes: sidebar, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             let detailView = NexaDevNodeList(nodes: detail, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
-            if #available(iOS 17.0, *) {
-                return AnyView(NavigationSplitView(preferredCompactColumn: Binding(
-                    get: { (store.value(visibleState, scope: scope) as? Bool ?? false) ? .detail : .sidebar },
-                    set: { store.setValue(visibleState, value: $0 == .detail, scope: scope) }
-                )) {
+            return AnyView(NexaNavigationSplitViewPrimitive(
+                detailVisible: Binding(
+                    get: { store.value(visibleState, scope: scope) as? Bool ?? false },
+                    set: { store.setValue(visibleState, value: $0, scope: scope) }
+                ),
+                sidebar: {
                     sidebarView
-                } detail: {
+                },
+                detail: {
                     detailView
-                })
-            }
-            if #available(iOS 16.0, *) {
-                return AnyView(NavigationSplitView {
-                    sidebarView
-                } detail: {
-                    detailView
-                })
-            }
-            return AnyView(HStack(spacing: 0) { sidebarView; Divider(); detailView })
+                }
+            ))
         case "NavigationLink":
             let screenIndex = fields["destination"] as? Int ?? -1
             let screens = module["screens"] as? [[String: Any]] ?? []
@@ -1902,7 +2109,8 @@ struct NexaDevNodeList: View {
             let enabled = guardExpression.map { expression in
                 expression is NSNull || store.truthy(store.evaluate(expression, locals: locals, scope: scope))
             } ?? true
-            guard enabled else {
+            let staticallyDisabled = (guardExpression as? [String: Any])?["Bool"] as? Bool == false
+            guard !staticallyDisabled else {
                 return AnyView(NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
             }
             let arguments = fields["arguments"] as? [Any] ?? []
@@ -1913,13 +2121,16 @@ struct NexaDevNodeList: View {
             })
             let signature = NexaDevStateStore.canonicalSignature(parameters)
             let route = store.navigationRoute(screen: screenName, values: argumentValues, signature: signature)
-            return AnyView(NavigationLink(value: route) {
+            return AnyView(NexaNavigationLinkPrimitive(value: route, enabled: enabled) {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             })
         case "NavigationBack":
             let label = store.stringify(store.evaluate(fields["label"] ?? "Back", locals: locals, scope: scope))
             return AnyView(Button(label) {
-                if !store.navigationPath.isEmpty { store.navigationPath.removeLast() }
+                if !store.navigationPath.isEmpty {
+                    store.navigationPath.removeLast()
+                    store.invalidateScope("app")
+                }
             })
         default:
             return AnyView(EmptyView())
@@ -1938,16 +2149,22 @@ struct NexaDevNodeList: View {
         let rootArguments = fields["arguments"] as? [Any] ?? []
         let rootValues = argumentValues(rootScreen, expressions: rootArguments, locals: locals, scope: scope)
         let content = renderScreen(rootScreen, parameters: rootValues)
-        return AnyView(NavigationStack(path: $store.navigationPath) {
+        let path = Binding(
+            get: { store.navigationPath },
+            set: {
+                store.navigationPath = $0
+                store.invalidateScope(scope)
+            }
+        )
+        return AnyView(NavigationStack(path: path) {
             content.navigationDestination(for: NexaDevRoute.self) { route in
                 guard let destination = store.routeDestination(route),
                       let screen = screens.first(where: { $0["name"] as? String == destination.screen })
                 else { return AnyView(EmptyView()) }
                 return AnyView(
-                    renderScreen(screen, parameters: destination.values)
-                        .navigationTitle(destination.screen)
-                        .navigationBarTitleDisplayMode(.large)
-                        .toolbar(.hidden, for: .tabBar)
+                    NexaNavigationScreenPrimitive(title: destination.screen) {
+                        renderScreen(screen, parameters: destination.values)
+                    }
                 )
             }
         })

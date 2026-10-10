@@ -44,8 +44,11 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
         .join("\n");
     assert!(swift.contains("Form {"));
     assert!(swift.contains("Section {"));
-    assert!(swift.contains("header: { Text(\"General\") }"));
-    assert!(swift.contains("footer: { Text(\"Version 1.0\") }"));
+    assert!(swift.contains("NexaFormSectionPrimitive("));
+    assert!(swift.contains("header: {"));
+    assert!(swift.contains("Text(\"General\")"));
+    assert!(swift.contains("footer: {"));
+    assert!(swift.contains("Text(\"Version 1.0\")"));
     assert!(swift.contains("NexaPickerPrimitive(selection: $nexa_startPage"));
     assert!(swift.contains("hasLabel: true) {"));
     assert!(swift.contains("Text(\"Start Page\")"));
@@ -57,9 +60,9 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
         .module;
     let (kotlin, _) =
         nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&kotlin_module);
-    assert!(kotlin.contains("verticalScroll(rememberScrollState())"));
+    assert!(kotlin.contains("NexaFormPrimitive {"));
     let section_title = nexa_codegen::names::localization_resource_name("General");
-    assert!(kotlin.contains(&format!("Text(stringResource(R.string.{section_title})")));
+    assert!(kotlin.contains(&format!("title = stringResource(R.string.{section_title})")));
     assert!(kotlin.contains("NexaPickerPrimitive(items ="));
     let picker_label = nexa_codegen::names::localization_resource_name("Start Page");
     assert!(

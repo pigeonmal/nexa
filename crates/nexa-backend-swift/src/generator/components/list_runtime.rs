@@ -1363,6 +1363,171 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         runtime = strip_markers(&mut runtime, "list-runtime", section);
     }
     out.push_str(&runtime);
+    if uses_vertical_list {
+        out.push_str(&fast_list_primitive(uses_sticky_header, uses_scroll_events));
+    }
+    if uses_horizontal_list {
+        out.push_str(&horizontal_list_primitive(uses_scroll_events));
+    }
+    if uses_grid_list {
+        out.push_str(&grid_list_primitive(uses_scroll_events));
+    }
+    if uses_sectioned_list {
+        out.push_str(sectioned_list_primitive());
+    }
+}
+
+fn horizontal_list_primitive(uses_scroll_events: bool) -> String {
+    let mut out = String::from(
+        "\n@available(iOS 16.0, *)\n@MainActor\nfunc NexaFastHorizontalListPrimitive<RowContent: View>(\n",
+    );
+    out.push_str("    rowCount: Int,\n    itemExtent: CGFloat? = nil,\n");
+    out.push_str("    rowKey: ((Int) -> AnyHashable)? = nil,\n");
+    out.push_str("    scrollPosition: Int32? = nil,\n");
+    out.push_str("    onScrollPositionChanged: ((Int) -> Void)? = nil,\n");
+    out.push_str("    isRefreshing: Bool = false,\n");
+    out.push_str("    onRefresh: (() -> Void)? = nil,\n");
+    out.push_str("    onEndReached: (() -> Void)? = nil,\n");
+    if uses_scroll_events {
+        out.push_str("    onScroll: (() -> Void)? = nil,\n");
+    }
+    out.push_str("    @ViewBuilder rowContent: @escaping (Int) -> RowContent\n");
+    out.push_str(") -> some View {\n    NexaFastHorizontalList<RowContent>(\n");
+    out.push_str("        rowCount: rowCount,\n        itemExtent: itemExtent,\n");
+    out.push_str("        rowKey: rowKey,\n        scrollPosition: scrollPosition,\n");
+    out.push_str("        onScrollPositionChanged: onScrollPositionChanged,\n");
+    out.push_str("        isRefreshing: isRefreshing,\n        onRefresh: onRefresh,\n");
+    out.push_str("        onEndReached: onEndReached,\n");
+    if uses_scroll_events {
+        out.push_str("        onScroll: onScroll,\n");
+    }
+    out.push_str("        rowContent: rowContent\n    )\n}\n");
+    out
+}
+
+fn grid_list_primitive(uses_scroll_events: bool) -> String {
+    let mut out = String::from(
+        "\n@available(iOS 16.0, *)\n@MainActor\nfunc NexaFastGridListPrimitive<RowContent: View>(\n",
+    );
+    out.push_str("    rowCount: Int,\n    columns: Int,\n    itemHeight: CGFloat? = nil,\n");
+    out.push_str("    rowKey: ((Int) -> AnyHashable)? = nil,\n");
+    out.push_str("    scrollPosition: Int32? = nil,\n");
+    out.push_str("    onScrollPositionChanged: ((Int) -> Void)? = nil,\n");
+    out.push_str("    isRefreshing: Bool = false,\n");
+    out.push_str("    onRefresh: (() -> Void)? = nil,\n");
+    out.push_str("    onEndReached: (() -> Void)? = nil,\n");
+    if uses_scroll_events {
+        out.push_str("    onScroll: (() -> Void)? = nil,\n");
+    }
+    out.push_str("    @ViewBuilder rowContent: @escaping (Int) -> RowContent\n");
+    out.push_str(") -> some View {\n    NexaFastGridList<RowContent>(\n");
+    out.push_str(
+        "        rowCount: rowCount,\n        columns: columns,\n        itemHeight: itemHeight,\n",
+    );
+    out.push_str("        rowKey: rowKey,\n        scrollPosition: scrollPosition,\n");
+    out.push_str("        onScrollPositionChanged: onScrollPositionChanged,\n");
+    out.push_str("        isRefreshing: isRefreshing,\n        onRefresh: onRefresh,\n");
+    out.push_str("        onEndReached: onEndReached,\n");
+    if uses_scroll_events {
+        out.push_str("        onScroll: onScroll,\n");
+    }
+    out.push_str("        rowContent: rowContent\n    )\n}\n");
+    out
+}
+
+fn sectioned_list_primitive() -> &'static str {
+    r#"
+@available(iOS 16.0, *)
+@MainActor
+func NexaFastSectionedListPrimitive<RowContent: View, HeaderContent: View>(
+    sectionCount: Int,
+    sectionCounts: [Int],
+    rowHeight: CGFloat? = nil,
+    rowKey: ((Int, Int) -> AnyHashable)? = nil,
+    isRefreshing: Bool = false,
+    onRefresh: (() -> Void)? = nil,
+    headerContent: ((Int) -> HeaderContent)? = nil,
+    @ViewBuilder rowContent: @escaping (Int, Int) -> RowContent
+) -> some View {
+    NexaFastSectionedList<RowContent, HeaderContent>(
+        sectionCount: sectionCount,
+        sectionCounts: sectionCounts,
+        rowHeight: rowHeight,
+        rowKey: rowKey,
+        isRefreshing: isRefreshing,
+        onRefresh: onRefresh,
+        headerContent: headerContent,
+        rowContent: rowContent
+    )
+}
+"#
+}
+
+fn fast_list_primitive(uses_sticky_header: bool, uses_scroll_events: bool) -> String {
+    let mut out = String::new();
+    append_fast_list_primitive(&mut out, false, uses_sticky_header, uses_scroll_events);
+    if uses_sticky_header {
+        append_fast_list_primitive(&mut out, true, true, uses_scroll_events);
+    }
+    out
+}
+
+fn append_fast_list_primitive(
+    out: &mut String,
+    has_header: bool,
+    uses_sticky_header: bool,
+    uses_scroll_events: bool,
+) {
+    out.push_str("\n@available(iOS 16.0, *)\n@MainActor\nfunc NexaFastListPrimitive<");
+    out.push_str("RowContent: View");
+    if has_header {
+        out.push_str(", HeaderContent: View");
+    }
+    out.push_str(">(\n");
+    out.push_str("    rowCount: Int,\n");
+    out.push_str("    rowHeight: CGFloat? = nil,\n");
+    out.push_str("    rowKey: ((Int) -> AnyHashable)? = nil,\n");
+    out.push_str("    reverseLayout: Bool = false,\n");
+    out.push_str("    pageSnap: Bool = false,\n");
+    out.push_str("    scrollPosition: Int32? = nil,\n");
+    out.push_str("    onScrollPositionChanged: ((Int) -> Void)? = nil,\n");
+    out.push_str("    isRefreshing: Bool = false,\n");
+    out.push_str("    onRefresh: (() -> Void)? = nil,\n");
+    out.push_str("    onEndReached: (() -> Void)? = nil,\n");
+    if uses_scroll_events {
+        out.push_str("    onScroll: (() -> Void)? = nil,\n");
+    }
+    if has_header {
+        out.push_str("    headerContent: (() -> HeaderContent)?,\n");
+    }
+    out.push_str("    @ViewBuilder rowContent: @escaping (Int) -> RowContent\n");
+    out.push_str(") -> some View {\n    NexaFastList<");
+    out.push_str("RowContent");
+    if has_header {
+        out.push_str(", HeaderContent");
+    } else if uses_sticky_header {
+        out.push_str(", EmptyView");
+    }
+    out.push_str(">(\n");
+    out.push_str("        rowCount: rowCount,\n");
+    out.push_str("        rowHeight: rowHeight,\n");
+    out.push_str("        rowKey: rowKey,\n");
+    out.push_str("        reverseLayout: reverseLayout,\n");
+    out.push_str("        pageSnap: pageSnap,\n");
+    out.push_str("        scrollPosition: scrollPosition,\n");
+    out.push_str("        onScrollPositionChanged: onScrollPositionChanged,\n");
+    out.push_str("        isRefreshing: isRefreshing,\n");
+    out.push_str("        onRefresh: onRefresh,\n");
+    out.push_str("        onEndReached: onEndReached,\n");
+    if uses_scroll_events {
+        out.push_str("        onScroll: onScroll,\n");
+    }
+    if has_header {
+        out.push_str("        headerContent: headerContent,\n");
+    } else if uses_sticky_header {
+        out.push_str("        headerContent: nil,\n");
+    }
+    out.push_str("        rowContent: rowContent\n    )\n}\n");
 }
 
 fn remove_marked_section(source: &mut String, prefix: &str, section: &str) -> String {

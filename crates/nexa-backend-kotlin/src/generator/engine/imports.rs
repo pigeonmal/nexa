@@ -47,9 +47,17 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     // trees can use them even when the initial source has no forms.
     imports.add(true, "androidx.compose.foundation.background");
     imports.add(true, "androidx.compose.foundation.clickable");
+    imports.add(true, "androidx.compose.foundation.verticalScroll");
     imports.add(true, "androidx.compose.foundation.layout.defaultMinSize");
+    imports.add(true, "androidx.compose.foundation.layout.Row");
+    imports.add(true, "androidx.compose.foundation.layout.Box");
+    imports.add(true, "androidx.compose.foundation.layout.fillMaxHeight");
+    imports.add(true, "androidx.compose.foundation.layout.widthIn");
+    imports.add(true, "androidx.compose.ui.Alignment");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxSize");
+    imports.add(true, "androidx.compose.ui.graphics.luminance");
+    imports.add(true, "androidx.compose.ui.graphics.toArgb");
     imports.add(true, "androidx.compose.foundation.layout.height");
     imports.add(true, "androidx.compose.foundation.layout.heightIn");
     imports.add(true, "androidx.compose.foundation.layout.padding");
@@ -58,6 +66,10 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.ui.unit.sp");
     imports.add(true, "androidx.compose.ui.semantics.semantics");
     imports.add(true, "androidx.compose.ui.semantics.contentDescription");
+    imports.add(true, "androidx.compose.ui.semantics.stateDescription");
+    imports.add(true, "androidx.compose.ui.semantics.role");
+    imports.add(true, "androidx.compose.ui.semantics.heading");
+    imports.add(true, "androidx.compose.ui.semantics.Role");
     imports.add(
         context.has_immutable_structs,
         "androidx.compose.runtime.Immutable",
@@ -192,7 +204,7 @@ mod tests {
         assert!(!imports.contains("import androidx.compose.material3.AlertDialog\n"));
         assert!(imports.contains("import androidx.compose.foundation.clickable\n"));
         assert!(!imports.contains("import androidx.compose.material3.TextButton\n"));
-        assert!(imports.contains("import androidx.compose.material.icons.filled.UnfoldMore\n"));
+        assert!(!imports.contains("import androidx.compose.material.icons.filled.UnfoldMore\n"));
         assert!(imports.contains("import androidx.compose.runtime.mutableStateOf\n"));
         assert!(imports.contains("import androidx.compose.runtime.remember\n"));
         assert!(!imports.contains("import androidx.compose.material3.SegmentedButton\n"));
@@ -251,7 +263,7 @@ mod tests {
         features.uses_asset = true;
         let imports = render_features(&features);
 
-        assert!(imports.contains("import androidx.compose.foundation.Image\n"));
+        assert!(!imports.contains("import androidx.compose.foundation.Image\n"));
         assert!(!imports.contains("import coil3."));
         assert!(!imports.contains("import org.chromium.net."));
     }
@@ -288,7 +300,7 @@ mod tests {
         features.uses_remote_image = true;
         let imports = render_features(&features);
 
-        assert!(imports.contains("import coil3.compose.AsyncImage\n"));
+        assert!(!imports.contains("import coil3.compose.AsyncImage\n"));
         assert!(imports.contains("import coil3.network.NetworkFetcher\n"));
         assert!(imports.contains("import org.chromium.net.CronetEngine\n"));
         assert!(!imports.contains("import org.chromium.net.UploadDataProvider\n"));

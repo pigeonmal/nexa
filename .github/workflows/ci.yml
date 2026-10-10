@@ -133,6 +133,55 @@ jobs:
       - name: Compile the iOS hot-reload host
         working-directory: ${{ runner.temp }}/nexa-ios-compile
         run: $GITHUB_WORKSPACE/target/debug/nexa dev --ios --compile-only
+      - name: Compile the iOS split-view release and DevRuntime hosts
+        shell: bash
+        run: |
+          project="$RUNNER_TEMP/nexa-ios-split-view"
+          target/debug/nexa create SplitViewRenderSmoke --directory "$project"
+          cp "$GITHUB_WORKSPACE/examples/adaptive_workspace.nx" "$project/App.nx"
+          cd "$project"
+          "$GITHUB_WORKSPACE/target/debug/nexa" test --ios
+          "$GITHUB_WORKSPACE/target/debug/nexa" dev --ios --compile-only
+      - name: Run the iOS hot-reload latency gate
+        shell: bash
+        run: |
+          device_id=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          print(next((device["udid"] for devices in data["devices"].values() for device in devices
+                      if device.get("isAvailable", True) and device["name"].startswith("iPhone")), ""))
+          ')
+          if [[ -z "$device_id" ]]; then
+            echo "No available iPhone simulator was found" >&2
+            exit 1
+          fi
+          xcrun simctl boot "$device_id" 2>/dev/null || true
+          xcrun simctl bootstatus "$device_id" -b
+          bash tests/hot-reload-latency.sh \
+            "$GITHUB_WORKSPACE/target/debug/nexa" ios "$RUNNER_TEMP/nexa-ios-hot-reload-latency"
+      - name: Run the iOS hot-reload component and state gate
+        shell: bash
+        run: |
+          bash tests/hot-reload-components.sh \
+            "$GITHUB_WORKSPACE/target/debug/nexa" ios "$RUNNER_TEMP/nexa-ios-hot-reload-components"
+      - name: Run the iOS hot-reload FastList gate
+        shell: bash
+        run: |
+          bash tests/hot-reload-fast-list.sh \
+            "$GITHUB_WORKSPACE/target/debug/nexa" ios \
+            "$RUNNER_TEMP/nexa-ios-hot-reload-fast-list" "$RUNNER_TEMP/nexa-ios-hot-reload-fast-list.log"
+      - name: Prepare render parity screenshot comparison
+        shell: bash
+        run: |
+          parity_venv="$RUNNER_TEMP/nexa-render-parity-venv"
+          python3 -m venv "$parity_venv"
+          "$parity_venv/bin/python" -m pip install -r "$GITHUB_WORKSPACE/tests/requirements-render-parity.txt"
+          echo "$parity_venv/bin" >> "$GITHUB_PATH"
+      - name: Compare iOS AOT and DevRuntime rendering
+        shell: bash
+        run: |
+          bash tests/hot-reload-aot-parity.sh \
+            "$GITHUB_WORKSPACE/target/debug/nexa" ios "$RUNNER_TEMP/nexa-ios-render-parity"
 
   android-compile:
     name: Android APK compile
@@ -148,6 +197,13 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: true
+          packages: |-
+            platform-tools
+            emulator
+            platforms;android-35
+            system-images;android-35;google_apis;x86_64
       - name: Build Nexa CLI
         run: cargo build -p nexa-cli --locked
       - name: Generate Android networking compile project
@@ -173,3 +229,62 @@ jobs:
           project="$GITHUB_WORKSPACE/build/ci-android"
           cd "$project"
           "$GITHUB_WORKSPACE/target/debug/nexa" dev --android --compile-only
+      - name: Compile the Android split-view release and DevRuntime hosts
+        shell: bash
+        run: |
+          project="$GITHUB_WORKSPACE/build/ci-android-split-view"
+          target/debug/nexa create SplitViewRenderSmoke --directory "$project"
+          cp "$GITHUB_WORKSPACE/examples/adaptive_workspace.nx" "$project/App.nx"
+          cd "$project"
+          "$GITHUB_WORKSPACE/target/debug/nexa" test --android
+          "$GITHUB_WORKSPACE/target/debug/nexa" dev --android --compile-only
+      - name: Start Android emulator
+        shell: bash
+        run: |
+          echo no | avdmanager create avd --force --name nexa-ci \
+            --package 'system-images;android-35;google_apis;x86_64'
+          emulator -avd nexa-ci -no-window -no-audio -no-boot-anim \
+            -no-snapshot-save -gpu swiftshader_indirect >"$RUNNER_TEMP/nexa-emulator.log" 2>&1 &
+          adb wait-for-device
+          for _ in $(seq 1 300); do
+            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+              adb shell input keyevent 82 >/dev/null 2>&1 || true
+              # Give the exhaustive component accessibility fixture enough
+              # vertical space on AVDs that default to a tiny 320x640 display.
+              adb shell wm size 800x1800
+              adb shell wm density 160
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/nexa-emulator.log" >&2
+          echo "Android emulator did not finish booting" >&2
+          exit 1
+      - name: Run the Android hot-reload latency gate
+        shell: bash
+        run: |
+          bash tests/hot-reload-latency.sh \
+            "$GITHUB_WORKSPACE/target/debug/nexa" android "$RUNNER_TEMP/nexa-android-hot-reload-latency"
+      - name: Run the Android hot-reload component and state gate
+        shell: bash
+        run: |
+          bash tests/hot-reload-components.sh \
+            "$GITHUB_WORKSPACE/target/debug/nexa" android "$RUNNER_TEMP/nexa-android-hot-reload-components"
+      - name: Run the Android hot-reload FastList gate
+        shell: bash
+        run: |
+          bash tests/hot-reload-fast-list.sh \
+            "$GITHUB_WORKSPACE/target/debug/nexa" android \
+            "$RUNNER_TEMP/nexa-android-hot-reload-fast-list" "$RUNNER_TEMP/nexa-android-hot-reload-fast-list.log"
+      - name: Prepare render parity screenshot comparison
+        shell: bash
+        run: |
+          parity_venv="$RUNNER_TEMP/nexa-render-parity-venv"
+          python3 -m venv "$parity_venv"
+          "$parity_venv/bin/python" -m pip install -r "$GITHUB_WORKSPACE/tests/requirements-render-parity.txt"
+          echo "$parity_venv/bin" >> "$GITHUB_PATH"
+      - name: Compare Android AOT and DevRuntime rendering
+        shell: bash
+        run: |
+          bash tests/hot-reload-aot-parity.sh \
+            "$GITHUB_WORKSPACE/target/debug/nexa" android "$RUNNER_TEMP/nexa-android-render-parity"

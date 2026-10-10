@@ -41,7 +41,7 @@ pub(crate) fn render_node(
             children,
         } => layout::render_layout(*kind, *spacing, style, children, &scope, depth, out),
         Node::Form { children } => {
-            out.line_at(depth, format_args!("Form {{"));
+            out.line_at(depth, format_args!("NexaFormPrimitive {{"));
             for (index, child) in children.iter().enumerate() {
                 if matches!(child, Node::FormSection { .. }) {
                     render_node(child, module, features, depth + 1, out);

@@ -43,7 +43,9 @@ fn project_features_from_analysis(
         uses_network: features.uses_network_transport(),
         uses_network_connectivity: features.uses_network_connectivity,
         uses_remote_image: features.uses_remote_image,
-        uses_system_icons: !features.facts.ui.system_icons.is_empty() || features.uses_picker,
+        uses_system_icons: !features.facts.ui.system_icons.is_empty()
+            || features.uses_picker
+            || features.uses_navigation_link,
         uses_coroutines: features.uses_network_transport()
             || features.uses_file_async
             || features.uses_permission_request
@@ -105,9 +107,20 @@ pub(super) fn generate_for_dev_units_with_project_features(
     // initial source has none, so the development host always carries the same
     // Coil/Cronet support that release output uses for remote images.
     features.uses_remote_image = true;
+    // Local image assets can also appear after the development host is built.
+    features.uses_asset = true;
+    features.uses_placeholder = true;
     // Shared-transition APIs can be introduced by hot reload without
     // rebuilding the development host.
     features.uses_shared_elements = true;
+    // Appearance can be introduced by a hot reload without a native rebuild.
+    features.facts.ui.appearance = true;
+    // Tab bars can be added or replaced by a DevRuntime module after the host
+    // is built, so include their Compose NavigationSuite primitive/dependency.
+    features.uses_adaptive_tabs = true;
+    // A virtualized list can be introduced by a hot reload after host build.
+    features.uses_fast_list = true;
+    features.facts.ui.lists.swipe_actions = true;
     // Async native calls can be added while a dev session is running, so keep
     // the same first-party Cronet adapter available even if the initial app
     // does not call Network yet.
@@ -238,6 +251,58 @@ private fun <K, V> nexaSnapshotEntries(values: androidx.compose.runtime.snapshot
 /// interpreted DevRuntime. Keep rendering defaults here so both render paths
 /// use the same Compose components and layout behavior.
 const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = r#"@androidx.compose.runtime.Composable
+internal fun NexaAppearancePrimitive(
+    mode: String,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val scheme = androidx.compose.runtime.remember(mode, systemDark) {
+        when (mode) {
+            "dark" -> __NEXA_DARK_COLOR_SCHEME__
+            "light" -> __NEXA_LIGHT_COLOR_SCHEME__
+            else -> if (systemDark) __NEXA_DARK_COLOR_SCHEME__ else __NEXA_LIGHT_COLOR_SCHEME__
+        }
+    }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val statusColor = scheme.background
+    val navigationColor = scheme.surfaceContainer
+    androidx.compose.runtime.SideEffect {
+        var context: android.content.Context = view.context
+        while (context is android.content.ContextWrapper && context !is android.app.Activity) {
+            context = context.baseContext
+        }
+        val window = (context as? android.app.Activity)?.window
+        if (window != null) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
+            }
+            window.decorView.setBackgroundColor(statusColor.toArgb())
+            val controller = androidx.core.view.WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = statusColor.luminance() > 0.5f
+            controller.isAppearanceLightNavigationBars = navigationColor.luminance() > 0.5f
+        }
+    }
+    androidx.compose.material3.MaterialTheme(
+        colorScheme = scheme,
+        typography = androidx.compose.material3.MaterialTheme.typography,
+        shapes = androidx.compose.material3.MaterialTheme.shapes,
+    ) {
+        androidx.compose.material3.Surface(
+            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+            color = androidx.compose.material3.MaterialTheme.colorScheme.background,
+            contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onBackground,
+        ) {
+            content()
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaFastListDividerPrimitive() {
+    androidx.compose.material3.HorizontalDivider()
+}
+
+@androidx.compose.runtime.Composable
 internal fun NexaTextPrimitive(
     text: String,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
@@ -268,6 +333,33 @@ internal fun NexaTextPrimitive(
         )
     }
     if (selectable) androidx.compose.foundation.text.selection.SelectionContainer { content() } else content()
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaRefreshControlPrimitive(
+    isRefreshing: Boolean,
+    scrollContent: Boolean,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    onRefresh: () -> Unit,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier,
+    ) {
+        if (scrollContent) {
+            androidx.compose.foundation.layout.Column(
+                androidx.compose.ui.Modifier.verticalScroll(
+                    androidx.compose.foundation.rememberScrollState(),
+                ),
+            ) {
+                content()
+            }
+        } else {
+            content()
+        }
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -447,6 +539,104 @@ internal fun NexaConfirmationDialogPrimitive(
         },
         confirmButton = {},
     )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaNavigationSplitViewPrimitive(
+    detailVisible: Boolean,
+    onDetailVisibleChange: (Boolean) -> Unit,
+    sidebar: @androidx.compose.runtime.Composable () -> Unit,
+    detail: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        androidx.compose.ui.Modifier.fillMaxSize(),
+    ) {
+        if (maxWidth >= androidx.compose.ui.unit.Dp(840.toFloat())) {
+            androidx.compose.foundation.layout.Row(
+                androidx.compose.ui.Modifier.fillMaxSize(),
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier
+                        .widthIn(
+                            min = androidx.compose.ui.unit.Dp(260.toFloat()),
+                            max = androidx.compose.ui.unit.Dp(360.toFloat()),
+                        )
+                        .fillMaxHeight(),
+                ) {
+                    sidebar()
+                }
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                ) {
+                    detail()
+                }
+            }
+        } else {
+            androidx.activity.compose.BackHandler(enabled = detailVisible) {
+                onDetailVisibleChange(false)
+            }
+            if (detailVisible) detail() else sidebar()
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+internal fun NexaNavigationScreenPrimitive(
+    title: String,
+    onBack: () -> Unit,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    androidx.compose.material3.Scaffold(
+        topBar = {
+            androidx.compose.material3.TopAppBar(
+                title = { androidx.compose.material3.Text(title) },
+                navigationIcon = {
+                    androidx.compose.material3.IconButton(onClick = onBack) {
+                        androidx.compose.material3.Text(
+                            "‹",
+                            modifier = androidx.compose.ui.Modifier.semantics {
+                                contentDescription = "Back"
+                            },
+                            fontSize = 32.sp,
+                        )
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            content()
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaNavigationLinkPrimitive(
+    enabled: Boolean,
+    onClick: () -> Unit,
+    trailing: @androidx.compose.runtime.Composable () -> Unit,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier.weight(1f),
+        ) {
+            content()
+        }
+        trailing()
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -720,6 +910,136 @@ internal fun NexaFormRowPrimitive(
 }
 
 @androidx.compose.runtime.Composable
+internal fun NexaAccessibilityPrimitive(
+    label: String,
+    hint: String?,
+    value: String?,
+    role: String?,
+    isHeading: Boolean,
+    omitLabel: Boolean,
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+) {
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.semantics(mergeDescendants = true) {
+            val description = when {
+                omitLabel && hint != null -> hint
+                omitLabel -> null
+                hint != null -> "$label, $hint"
+                else -> label
+            }
+            if (description != null) contentDescription = description
+            if (value != null) stateDescription = value
+            if (isHeading) heading()
+            else when (role) {
+                "Button" -> this.role = androidx.compose.ui.semantics.Role.Button
+                "Image" -> this.role = androidx.compose.ui.semantics.Role.Image
+            }
+        },
+        content = content,
+    )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaLinkPrimitive(
+    onClick: () -> Unit,
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+) {
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.clickable(
+            interactionSource = null,
+            indication = null,
+            onClick = onClick,
+        ),
+        content = content,
+    )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaFormPrimitive(
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val background = if (androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black) {
+        androidx.compose.material3.MaterialTheme.colorScheme.background
+    } else {
+        androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant
+    }
+    androidx.compose.foundation.layout.Column(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxSize()
+            .background(background)
+            .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+        content = content,
+    )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaFormSectionPrimitive(
+    title: String?,
+    footer: String?,
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    androidx.compose.foundation.layout.Column(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxWidth()
+            .padding(
+                start = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_HORIZONTAL_INSET__.toFloat()),
+                top = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_TOP_PADDING__.toFloat()),
+                end = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_HORIZONTAL_INSET__.toFloat()),
+                bottom = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_BOTTOM_PADDING__.toFloat()),
+            ),
+    ) {
+        if (title != null) {
+            androidx.compose.material3.Text(
+                title,
+                modifier = androidx.compose.ui.Modifier.padding(vertical = androidx.compose.ui.unit.Dp(8f)),
+                style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
+            )
+        }
+        androidx.compose.material3.Surface(
+            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(androidx.compose.ui.unit.Dp(24f)),
+            color = if (androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black) {
+                androidx.compose.ui.graphics.Color(__NEXA_FORM_DARK_SECTION_ARGB__)
+            } else {
+                androidx.compose.ui.graphics.Color(__NEXA_FORM_LIGHT_SECTION_ARGB__)
+            },
+            contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+        ) {
+            androidx.compose.foundation.layout.Column(content = content)
+        }
+        if (footer != null) {
+            androidx.compose.material3.Text(
+                footer,
+                modifier = androidx.compose.ui.Modifier.padding(
+                    start = androidx.compose.ui.unit.Dp(__NEXA_FORM_FOOTER_START_INSET__.toFloat()),
+                    top = androidx.compose.ui.unit.Dp(8f),
+                    bottom = androidx.compose.ui.unit.Dp(8f),
+                ),
+                fontSize = androidx.compose.ui.unit.TextUnit(__NEXA_FORM_FOOTER_FONT_SIZE__.toFloat(), androidx.compose.ui.unit.TextUnitType.Sp),
+                lineHeight = androidx.compose.ui.unit.TextUnit(__NEXA_FORM_FOOTER_FONT_SIZE__.toFloat() * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f, androidx.compose.ui.unit.TextUnitType.Sp),
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaFormDividerPrimitive() {
+    androidx.compose.material3.HorizontalDivider(
+        modifier = androidx.compose.ui.Modifier.fillMaxWidth().padding(
+            start = androidx.compose.ui.unit.Dp(__NEXA_FORM_DIVIDER_START_INSET__.toFloat()),
+            end = androidx.compose.ui.unit.Dp(__NEXA_FORM_DIVIDER_END_INSET__.toFloat()),
+        ),
+        thickness = androidx.compose.ui.unit.Dp(0.5f),
+        color = if (androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black) {
+            androidx.compose.ui.graphics.Color(__NEXA_FORM_DARK_SEPARATOR_ARGB__)
+        } else {
+            androidx.compose.ui.graphics.Color(__NEXA_FORM_LIGHT_SEPARATOR_ARGB__)
+        },
+    )
+}
+
+@androidx.compose.runtime.Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 internal fun NexaPickerPrimitive(
     items: List<String>,
@@ -775,12 +1095,28 @@ internal fun NexaPickerPrimitive(
                         softWrap = false,
                     )
                     androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(4f)))
-                    androidx.compose.material3.Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Filled.UnfoldMore,
-                        contentDescription = null,
-                        tint = tint ?: androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    val indicatorTint = tint ?: androidx.compose.material3.MaterialTheme.colorScheme.primary
+                    androidx.compose.foundation.Canvas(
                         modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(16f)),
-                    )
+                    ) {
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(size.width * 0.28f, size.height * 0.39f)
+                            lineTo(size.width * 0.5f, size.height * 0.18f)
+                            lineTo(size.width * 0.72f, size.height * 0.39f)
+                            moveTo(size.width * 0.28f, size.height * 0.61f)
+                            lineTo(size.width * 0.5f, size.height * 0.82f)
+                            lineTo(size.width * 0.72f, size.height * 0.61f)
+                        }
+                        drawPath(
+                            path = path,
+                            color = indicatorTint,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = size.minDimension * 0.1f,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                            ),
+                        )
+                    }
                 }
             }
             androidx.compose.material3.DropdownMenu(
@@ -957,9 +1293,239 @@ internal fun NexaDatePickerPrimitive(
     }
 }
 
+@androidx.compose.runtime.Composable
+internal fun NexaPageIndicatorPrimitive(
+    index: Int,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    val size = androidx.compose.ui.unit.Dp(
+        (if (selected) __NEXA_PAGE_INDICATOR_SELECTED_SIZE__ else __NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__).toFloat()
+    )
+    val color = if (selected) {
+        androidx.compose.material3.MaterialTheme.colorScheme.primary
+    } else {
+        androidx.compose.ui.graphics.Color(__NEXA_MUTED_TEXT_ARGB__).copy(alpha = __NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__.toFloat())
+    }
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier
+            .size(size)
+            .background(color, shape = androidx.compose.foundation.shape.CircleShape)
+            .clickable(
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClickLabel = "Page ${index + 1}",
+                onClick = onSelect,
+            ),
+    )
+}
+
+@androidx.compose.runtime.Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+internal fun NexaLargeTitlePrimitive(
+    identity: String,
+    title: String,
+    containerColor: androidx.compose.ui.graphics.Color,
+    modifier: androidx.compose.ui.Modifier,
+    navigationIcon: @androidx.compose.runtime.Composable () -> Unit = {},
+    actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    androidx.compose.runtime.key(identity) {
+        val scrollState = androidx.compose.material3.rememberTopAppBarState()
+        val scrollBehavior = androidx.compose.material3.TopAppBarDefaults.exitUntilCollapsedScrollBehavior(scrollState)
+        val titleWidth = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        androidx.compose.foundation.layout.Column(
+            modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        ) {
+            androidx.compose.material3.LargeTopAppBar(
+                collapsedHeight = androidx.compose.ui.unit.Dp(__NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT__.toFloat()),
+                expandedHeight = androidx.compose.ui.unit.Dp(__NEXA_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT__.toFloat()),
+                title = {
+                    androidx.compose.foundation.layout.BoxWithConstraints(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    ) {
+                        val availableTitleWidth = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }
+                        androidx.compose.material3.Text(
+                            title,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                            modifier = androidx.compose.ui.Modifier.graphicsLayer {
+                                val collapseFraction = scrollState.collapsedFraction
+                                val titleScale = 1f - 0.5f * collapseFraction
+                                translationX = ((availableTitleWidth - titleWidth.intValue * titleScale).coerceAtLeast(0f) / 2f) * collapseFraction
+                                scaleX = titleScale
+                                scaleY = titleScale
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                            },
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            style = androidx.compose.material3.MaterialTheme.typography.headlineLarge.copy(
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                fontSize = __NEXA_FORM_LARGE_TITLE_FONT_SIZE__.sp,
+                            ),
+                            onTextLayout = { titleWidth.intValue = it.size.width },
+                        )
+                    }
+                },
+                navigationIcon = navigationIcon,
+                actions = actions,
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = containerColor,
+                    scrolledContainerColor = containerColor,
+                ),
+                scrollBehavior = scrollBehavior,
+            )
+            content()
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaPageIndicatorRow(
+    pageCount: Int,
+    currentPage: Int,
+    onSelect: (Int) -> Unit,
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxWidth()
+            .padding(bottom = androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_BOTTOM_INSET__.toFloat())),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(
+            androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_SPACING__.toFloat()),
+            androidx.compose.ui.Alignment.CenterHorizontally,
+        ),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        repeat(pageCount) { index ->
+            NexaPageIndicatorPrimitive(index = index, selected = currentPage == index) {
+                onSelect(index)
+            }
+        }
+    }
+}
+
+"#;
+
+/// The adaptive tab shell used by both release output and DevRuntime. Keep
+/// the NavigationSuite setup and tint semantics here so dynamic tabs do not
+/// grow a second Compose implementation.
+const NEXA_APP_BOTTOM_BAR_PRIMITIVE: &str = r#"@androidx.compose.runtime.Composable
+internal fun NexaAppBottomBarPrimitive(
+    tint: androidx.compose.ui.graphics.Color?,
+    navigationSuiteItems: androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScope.(androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItemColors?) -> Unit,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val itemColors = if (tint == null) {
+        null
+    } else {
+        androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults.itemColors(
+            navigationBarItemColors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                selectedIconColor = tint,
+                selectedTextColor = tint,
+                indicatorColor = tint.copy(alpha = 0.12f),
+            ),
+            navigationRailItemColors = androidx.compose.material3.NavigationRailItemDefaults.colors(
+                selectedIconColor = tint,
+                selectedTextColor = tint,
+                indicatorColor = tint.copy(alpha = 0.12f),
+            ),
+            navigationDrawerItemColors = androidx.compose.material3.NavigationDrawerItemDefaults.colors(
+                selectedIconColor = tint,
+                selectedTextColor = tint,
+                selectedContainerColor = tint.copy(alpha = 0.12f),
+            ),
+        )
+    }
+    val currentScheme = androidx.compose.material3.MaterialTheme.colorScheme
+    val themedContent: @androidx.compose.runtime.Composable () -> Unit = {
+        androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold(
+            navigationSuiteItems = { navigationSuiteItems(itemColors) },
+            content = content,
+        )
+    }
+    if (tint == null) {
+        themedContent()
+    } else {
+        androidx.compose.material3.MaterialTheme(
+            colorScheme = currentScheme.copy(primary = tint),
+            typography = androidx.compose.material3.MaterialTheme.typography,
+            shapes = androidx.compose.material3.MaterialTheme.shapes,
+        ) {
+            themedContent()
+        }
+    }
+}
+
+"#;
+
+const NEXA_FAST_LIST_ROW_PRIMITIVE: &str = r#"@androidx.compose.runtime.Composable
+internal fun NexaFastListRowPrimitive(
+    modifier: androidx.compose.ui.Modifier,
+    horizontalAlignment: androidx.compose.ui.Alignment.Horizontal,
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier,
+        horizontalAlignment = horizontalAlignment,
+        content = content,
+    )
+}
+
+"#;
+
+const NEXA_FAST_LIST_SWIPE_PRIMITIVE: &str = r#"@androidx.compose.runtime.Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+internal fun NexaFastListSwipePrimitive(
+    onEndToStart: () -> Unit,
+    backgroundContent: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val state = androidx.compose.material3.rememberSwipeToDismissBoxState()
+    androidx.compose.runtime.LaunchedEffect(state.currentValue) {
+        if (state.currentValue == androidx.compose.material3.SwipeToDismissBoxValue.EndToStart) {
+            onEndToStart()
+        }
+    }
+    androidx.compose.material3.SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            androidx.compose.foundation.layout.Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                content = backgroundContent,
+            )
+        },
+        content = {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxWidth()
+                    .background(androidx.compose.material3.MaterialTheme.colorScheme.surface),
+            ) {
+                content()
+            }
+        },
+    )
+}
+
 "#;
 
 fn shared_component_primitives() -> String {
+    let qualified_scheme = |dark| {
+        nexa_codegen::design_system::kotlin_color_scheme(dark)
+            .replace(
+                "darkColorScheme(",
+                "androidx.compose.material3.darkColorScheme(",
+            )
+            .replace(
+                "lightColorScheme(",
+                "androidx.compose.material3.lightColorScheme(",
+            )
+            .replace("Color(", "androidx.compose.ui.graphics.Color(")
+            .replace("Color.White", "androidx.compose.ui.graphics.Color.White")
+    };
+    let source = NEXA_SHARED_COMPONENT_PRIMITIVES
+        .replace("__NEXA_DARK_COLOR_SCHEME__", &qualified_scheme(true))
+        .replace("__NEXA_LIGHT_COLOR_SCHEME__", &qualified_scheme(false));
     let tokens = [
         (
             "__NEXA_BUTTON_LARGE_MIN_HEIGHT__",
@@ -1006,6 +1572,98 @@ fn shared_component_primitives() -> String {
             nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
         ),
         (
+            "__NEXA_FORM_SECTION_HORIZONTAL_INSET__",
+            nexa_codegen::design_system::FORM_SECTION_HORIZONTAL_INSET.to_string(),
+        ),
+        (
+            "__NEXA_FORM_SECTION_TOP_PADDING__",
+            nexa_codegen::design_system::FORM_SECTION_TOP_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_FORM_SECTION_BOTTOM_PADDING__",
+            nexa_codegen::design_system::FORM_SECTION_BOTTOM_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_FORM_DIVIDER_START_INSET__",
+            nexa_codegen::design_system::FORM_DIVIDER_START_INSET.to_string(),
+        ),
+        (
+            "__NEXA_FORM_DIVIDER_END_INSET__",
+            nexa_codegen::design_system::FORM_DIVIDER_END_INSET.to_string(),
+        ),
+        (
+            "__NEXA_FORM_FOOTER_START_INSET__",
+            nexa_codegen::design_system::FORM_FOOTER_START_INSET.to_string(),
+        ),
+        (
+            "__NEXA_FORM_FOOTER_FONT_SIZE__",
+            nexa_codegen::design_system::FORM_FOOTER_FONT_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_FORM_DARK_SECTION_ARGB__",
+            format!(
+                "0x{:08X}",
+                nexa_codegen::design_system::FORM_DARK_SECTION_ARGB
+            ),
+        ),
+        (
+            "__NEXA_FORM_LIGHT_SECTION_ARGB__",
+            format!(
+                "0x{:08X}",
+                nexa_codegen::design_system::FORM_LIGHT_SECTION_ARGB
+            ),
+        ),
+        (
+            "__NEXA_FORM_DARK_SEPARATOR_ARGB__",
+            format!(
+                "0x{:08X}",
+                nexa_codegen::design_system::FORM_DARK_SEPARATOR_ARGB
+            ),
+        ),
+        (
+            "__NEXA_FORM_LIGHT_SEPARATOR_ARGB__",
+            format!(
+                "0x{:08X}",
+                nexa_codegen::design_system::FORM_LIGHT_SEPARATOR_ARGB
+            ),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_SELECTED_SIZE__",
+            nexa_codegen::design_system::PAGE_INDICATOR_SELECTED_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__",
+            nexa_codegen::design_system::PAGE_INDICATOR_UNSELECTED_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_SPACING__",
+            nexa_codegen::design_system::PAGE_INDICATOR_SPACING.to_string(),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_BOTTOM_INSET__",
+            nexa_codegen::design_system::PAGE_INDICATOR_BOTTOM_INSET.to_string(),
+        ),
+        (
+            "__NEXA_MUTED_TEXT_ARGB__",
+            format!("0x{:08X}", nexa_codegen::design_system::MUTED_TEXT_ARGB),
+        ),
+        (
+            "__NEXA_PAGE_INDICATOR_INACTIVE_OPACITY__",
+            nexa_codegen::design_system::PAGE_INDICATOR_INACTIVE_OPACITY.to_string(),
+        ),
+        (
+            "__NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT__",
+            nexa_codegen::design_system::ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT.to_string(),
+        ),
+        (
+            "__NEXA_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT__",
+            nexa_codegen::design_system::ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT.to_string(),
+        ),
+        (
+            "__NEXA_FORM_LARGE_TITLE_FONT_SIZE__",
+            nexa_codegen::design_system::FORM_LARGE_TITLE_FONT_SIZE.to_string(),
+        ),
+        (
             "__NEXA_DARK_ACCENT_ARGB__",
             format!("0x{:08X}", nexa_codegen::design_system::DARK_ACCENT_ARGB),
         ),
@@ -1014,10 +1672,9 @@ fn shared_component_primitives() -> String {
             format!("0x{:08X}", nexa_codegen::design_system::DEFAULT_ACCENT_ARGB),
         ),
     ];
-    tokens.iter().fold(
-        NEXA_SHARED_COMPONENT_PRIMITIVES.to_owned(),
-        |source, (token, value)| source.replace(token, value),
-    )
+    tokens.iter().fold(source, |source, (token, value)| {
+        source.replace(token, value)
+    })
 }
 
 const NEXA_REGEX_HELPERS: &str = r#"internal data class NexaRegexMatch(
@@ -1093,6 +1750,15 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     units.set_imports(&imports);
     units.write("types", |out| {
         out.push_str(&shared_component_primitives());
+        if features.uses_fast_list {
+            out.push_str(NEXA_FAST_LIST_ROW_PRIMITIVE);
+        }
+        if features.facts.ui.lists.swipe_actions {
+            out.push_str(NEXA_FAST_LIST_SWIPE_PRIMITIVE);
+        }
+        if features.uses_adaptive_tabs {
+            out.push_str(NEXA_APP_BOTTOM_BAR_PRIMITIVE);
+        }
         if features.facts.ui.style.dynamic_color {
             out.push_str(NEXA_DYNAMIC_COLOR_HELPER);
         }
@@ -1145,6 +1811,15 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             out.push_str(COLLECTION_REPLACE_HELPERS);
         }
     });
+    if features.uses_asset || features.uses_placeholder || features.uses_remote_image {
+        units.write("image-primitives", |out| {
+            components::images::render_primitives(
+                features.uses_asset,
+                features.uses_remote_image,
+                out,
+            );
+        });
+    }
 
     if features.facts.capabilities.uses_json_api {
         units.write("json", |out| {
@@ -1358,7 +2033,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     if features.facts.capabilities.uses_clipboard_api {
         units.write("clipboard", api::clipboard::render);
     }
-    if features.uses_asset || features.uses_placeholder {
+    if features.uses_asset || features.uses_placeholder || features.uses_remote_image {
         units.write("assets", |out| {
             assets::render(out);
         });
@@ -1397,7 +2072,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
 
 #[cfg(test)]
 mod tests {
-    use super::{generate, shared_component_primitives};
+    use super::{generate, generate_units_with_project_features, shared_component_primitives};
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
         ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
@@ -1405,10 +2080,57 @@ mod tests {
     };
 
     #[test]
+    fn split_view_uses_shared_layout_without_route_or_icon_dependencies() {
+        let module = Module {
+            app_name: "SplitViewApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::NavigationSplitView {
+                detail_visible: "showDetail".to_owned(),
+                sidebar: Vec::new(),
+                detail: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let (sources, project_features) = generate_units_with_project_features(&module);
+        let generated = sources
+            .into_files(&[], "")
+            .into_iter()
+            .map(|file| file.contents)
+            .collect::<String>();
+
+        assert!(generated.contains("NexaNavigationSplitViewPrimitive("));
+        assert!(generated.contains("internal fun NexaNavigationSplitViewPrimitive("));
+        assert!(!generated.contains("import androidx.navigation.NavHostController"));
+        assert!(!generated.contains("import androidx.compose.material.icons.Icons"));
+        assert!(!project_features.uses_navigation);
+        assert!(!project_features.uses_system_icons);
+    }
+
+    #[test]
     fn shared_button_primitive_owns_platform_defaults_for_aot_and_dev_runtime() {
         let primitives = shared_component_primitives();
 
         assert!(primitives.contains("internal fun NexaButtonPrimitive("));
+        assert!(primitives.contains("internal fun NexaFormPrimitive("));
+        assert!(primitives.contains("internal fun NexaFormSectionPrimitive("));
+        assert!(primitives.contains("internal fun NexaFormDividerPrimitive()"));
         assert!(primitives.contains("Dp(64.toFloat())"));
         assert!(primitives.contains("Dp(48.toFloat())"));
         assert!(primitives.contains("Dp(50.toFloat())"));
@@ -1434,7 +2156,9 @@ mod tests {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaPickerPrimitive("));
         assert!(primitives.contains("DropdownMenuItem("));
-        assert!(primitives.contains("Icons.Filled.UnfoldMore"));
+        assert!(primitives.contains("androidx.compose.foundation.Canvas("));
+        assert!(primitives.contains("androidx.compose.ui.graphics.Path().apply"));
+        assert!(!primitives.contains("Icons.Filled.UnfoldMore"));
         assert!(primitives.contains("Modifier.clickable { expanded.value = true }"));
         assert!(primitives.contains("fontSize = 17.sp"));
     }
@@ -1450,6 +2174,36 @@ mod tests {
         assert!(primitives.contains("onTimestampChanged(calendar.timeInMillis)"));
         assert!(primitives.contains("LaunchedEffect(timestamp)"));
         assert!(primitives.contains("key(identity)"));
+    }
+
+    #[test]
+    fn shared_page_indicator_owns_dot_geometry_color_and_accessibility() {
+        let primitives = shared_component_primitives();
+        assert!(primitives.contains("internal fun NexaPageIndicatorPrimitive("));
+        assert!(primitives.contains("(if (selected) 8 else 6).toFloat()"));
+        assert!(primitives.contains("Color(0xFF8E8E93).copy(alpha = 0.45.toFloat())"));
+        assert!(primitives.contains("onClickLabel = \"Page ${index + 1}\""));
+        assert!(primitives.contains("internal fun NexaPageIndicatorRow("));
+        assert!(primitives.contains("Dp(8.toFloat()),"));
+        assert!(primitives.contains("padding(bottom = androidx.compose.ui.unit.Dp(24.toFloat()))"));
+    }
+
+    #[test]
+    fn shared_large_title_primitive_owns_scroll_layout_and_title_metrics() {
+        let primitives = shared_component_primitives();
+        assert!(primitives.contains("internal fun NexaLargeTitlePrimitive("));
+        assert!(primitives.contains("key(identity)"));
+        assert!(
+            primitives.contains("TopAppBarDefaults.exitUntilCollapsedScrollBehavior(scrollState)")
+        );
+        assert!(primitives.contains("collapsedHeight = androidx.compose.ui.unit.Dp(64.toFloat())"));
+        assert!(primitives.contains("expandedHeight = androidx.compose.ui.unit.Dp(112.toFloat())"));
+        assert!(primitives.contains("fontSize = 34.sp"));
+        assert!(
+            primitives.contains(
+                "transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)"
+            )
+        );
     }
 
     #[test]
@@ -1565,13 +2319,11 @@ mod tests {
         };
         let kotlin = generate(&module);
         assert!(kotlin.contains("import androidx.compose.material3.darkColorScheme"));
-        assert!(
-            kotlin.contains("MaterialTheme(colorScheme = remember(\"dark\", nexaSystemDarkTheme")
-        );
-        assert!(kotlin.contains(
-            "Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground)"
-        ));
-        assert!(kotlin.contains("window.decorView.setBackgroundColor(nexaAppearanceStatusColor"));
+        assert!(kotlin.contains("NexaAppearancePrimitive(mode = \"dark\") {"));
+        assert!(kotlin.contains("internal fun NexaAppearancePrimitive("));
+        assert!(kotlin.contains("androidx.compose.material3.MaterialTheme("));
+        assert!(kotlin.contains("androidx.compose.material3.Surface("));
+        assert!(kotlin.contains("window.decorView.setBackgroundColor(statusColor.toArgb())"));
         assert!(kotlin.contains(".isAppearanceLightNavigationBars = "));
         assert!(kotlin.contains("window.isNavigationBarContrastEnforced = false"));
         assert!(kotlin.contains(
@@ -1713,7 +2465,7 @@ mod tests {
             )
         );
         assert!(kotlin.contains("if (firstVisiblePosition >= 0)"));
-        assert_eq!(kotlin.matches("@OptIn(").count(), 3);
+        assert_eq!(kotlin.matches("@OptIn(").count(), 6);
         assert!(kotlin.contains(
             "@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\ninternal fun NexaPickerPrimitive("
         ));
@@ -1859,15 +2611,14 @@ mod tests {
             .expect("pushed destination exists");
 
         assert!(!root.contains("Scaffold("));
-        assert!(destination.contains("Scaffold("));
-        assert!(destination.contains("title = { Text(\"Task Details\") }"));
-        assert!(destination.contains(
-            "MaterialTheme(colorScheme = remember(nexa_appearanceMode, nexaSystemDarkTheme"
-        ));
-        assert!(destination.contains("navController.popBackStack()"));
-        assert!(destination.contains("contentDescription = \"Back\""));
-        assert!(destination.contains("Modifier.fillMaxSize().padding(innerPadding)"));
-        assert!(kotlin.contains("import androidx.compose.material3.TopAppBar\n"));
+        assert!(destination.contains("NexaNavigationScreenPrimitive("));
+        assert!(destination.contains("title = \"Task Details\""));
+        assert!(destination.contains("onBack = { navController.popBackStack() }"));
+        assert!(destination.contains("NexaAppearancePrimitive(mode = nexa_appearanceMode) {"));
+        assert!(kotlin.contains("internal fun NexaNavigationScreenPrimitive("));
+        assert!(kotlin.contains("contentDescription = \"Back\""));
+        assert!(kotlin.contains(".padding(innerPadding)"));
+        assert!(!kotlin.contains("import androidx.compose.material3.TopAppBar\n"));
     }
 
     #[test]
@@ -2132,7 +2883,13 @@ mod tests {
                     raw: "500".to_owned(),
                     ty: NumericType::Int32,
                 },
-                long_press_actions: Vec::new(),
+                long_press_actions: vec![Action::Assign {
+                    name: "distance".to_owned(),
+                    value: Expr::Number {
+                        raw: "0.0".to_owned(),
+                        ty: NumericType::Float64,
+                    },
+                }],
                 context_menu: Vec::new(),
                 drag_parameters: vec![
                     "translationX".to_owned(),
@@ -2164,6 +2921,10 @@ mod tests {
         assert!(kotlin.contains("import androidx.compose.ui.input.pointer.util.VelocityTracker"));
         assert!(kotlin.contains(".pointerInput(nexaDragDensity, !(false))"));
         assert!(kotlin.contains("nexaVelocityTracker.calculateVelocity()"));
+        assert!(kotlin.contains("val nexaBaseViewConfiguration"));
+        assert!(kotlin.contains("remember(nexaBaseViewConfiguration"));
+        assert!(kotlin.contains("ViewConfiguration by nexaBaseViewConfiguration"));
+        assert!(!kotlin.contains("ViewConfiguration by LocalViewConfiguration.current"));
         assert!(
             kotlin.contains(
                 "val nexa_translationX = (nexaTranslationX / nexaDragDensity).toDouble()"
@@ -2255,7 +3016,8 @@ mod tests {
         );
         assert!(kotlin.contains("import androidx.compose.ui.input.pointer.pointerInput"));
         assert!(!kotlin.contains("detectDragGestures"));
-        assert!(!kotlin.contains("LocalDensity"));
+        // Shared large-title primitives are preloaded into every app, so their
+        // imports are present even when this particular module has no title.
         assert!(kotlin.contains("if (nexaZoomChange != 1f)"));
         assert!(kotlin.contains("val nexa_scaleFactor = nexaZoomChange.toDouble()"));
         assert!(kotlin.contains("nexa_zoom = nexa_scaleFactor"));
@@ -2436,9 +3198,9 @@ mod tests {
         )));
         assert!(kotlin.contains("composable(route = \"nexa_screen_1\")"));
         assert!(kotlin.contains("nexa_appPlayer.play()"));
-        assert!(kotlin.contains(
-            "Row(modifier = Modifier.fillMaxWidth().clickable { navController.navigate(\"nexa_screen_1\") }, verticalAlignment = Alignment.CenterVertically)"
-        ));
+        assert!(kotlin.contains("NexaNavigationLinkPrimitive("));
+        assert!(kotlin.contains("onClick = { navController.navigate(\"nexa_screen_1\") }"));
+        assert!(kotlin.contains("trailing = {"));
         assert!(kotlin.contains("Icons.Filled.ChevronRight"));
     }
 

@@ -1,0 +1,8 @@
+config {
+    app { displayName: "NexaAudit", version: "1.0.0", buildNumber: 1, stagingSuffix: "staging", deepLinks: [], orientation: "all" }
+    assets { icon: "", splash: "" }
+    ios { minVersion: "16.0", bundleIdentifier: "com.nexa.nexaaudit", appGroupIdentifier: "", icon: "", alternateIcons: [] }
+    android { minSdk: 23, targetSdk: 36, applicationId: "com.nexa.nexaaudit", icon: "", alternateIcons: [], cronet { provider: "play-services", diskCacheSizeMb: 64 } }
+    permissions {
+    }
+}

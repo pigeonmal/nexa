@@ -1,0 +1,203 @@
+component ParityCard(title: String) {
+    body {
+        Column(spacing: 6, padding: 12, background: "#252525", cornerRadius: 10) {
+            Text(title, fontWeight: Semibold)
+            Content()
+        }
+    }
+}
+
+app RenderParityCatalog {
+    state count: Int32 = 0
+    state enabled: Bool = false
+    state title: String = ""
+    state sliderValue: Float64 = 0.35
+    state progress: Float64 = 0.72
+    state period: String = "Week"
+    state periods: Array<String> = ["Day", "Week", "Month"]
+    state sort: String = "Due date"
+    state sortOptions: Array<String> = ["Due date", "Priority", "Title"]
+    state timestamp: Int64 = Time.now()
+    state hasTime: Bool = false
+    state selectedTab: Int32 = 0
+    state selectedPage: Int32 = 0
+    state detailVisible: Bool = false
+    state refreshing: Bool = false
+    state refreshCount: Int32 = 0
+    state sheetPresented: Bool = false
+    state dialogPresented: Bool = false
+    state confirmationPresented: Bool = false
+
+    screen Main {
+        StatusBar(style: Default, hidden: false, background: "#000000")
+        Appearance(mode: "dark") {
+            Column {
+                AppBottomBar(selected: selectedTab, tint: "#E11D48") {
+                Tab(index: 0, label: "Controls", icon: "tune", title: "Controls") {
+                    Toolbar(placement: Trailing) {
+                        Button("Toolbar action", accessibilityLabel: "Toolbar action") {
+                            count = count + 1
+                        }
+                        NavigationLink(destination: Detail) {
+                            Text("Open detail screen")
+                        }
+                    }
+                    Form {
+                        Section(title: "Layout and content", footer: "Native form section footer") {
+                            Text("Parity catalog", fontSize: 20, fontWeight: Semibold)
+                            ParityCard(title: "Custom component") {
+                                Text("Projected content", fontSize: 12, color: "#A0A0A0")
+                            }
+                            Row(spacing: 8, alignment: Center) {
+                                Text("Row layout")
+                                Icon(system: "check_circle", size: 24, tint: "#E11D48", description: "Completed")
+                            }
+                            Stack(alignment: Center, width: 120, height: 44, background: "#303030", cornerRadius: 8) {
+                                Text("Stack layout")
+                            }
+                            Divider(color: "#606060", thickness: 1)
+                            Row {
+                                Text("Flexible row")
+                                Spacer()
+                            }
+                            ContentUnavailable(title: "No archived tasks", icon: "inbox", description: "Archived tasks appear here.")
+                            Text("Conditional content", fontSize: 12)
+                            if enabled {
+                                Text("If branch enabled", accessibilityLabel: "If branch enabled")
+                            } else {
+                                Text("If branch disabled", accessibilityLabel: "If branch disabled")
+                            }
+                            when period {
+                                "Day": { Text("When branch: day") }
+                                else: { Text("When branch: other") }
+                            }
+                        }
+                        Section(title: "Input and controls") {
+                            Button("Increment: $count") {
+                                count = count + 1
+                            }
+                            Switch(value: enabled, label: "Enabled")
+                            Text("Enabled: $enabled", fontSize: 12)
+                            TextInput(value: title, placeholder: "Task title", keyboardType: Text, capitalization: None)
+                            Text("Title: $title", fontSize: 12)
+                            Slider(value: sliderValue, min: 0, max: 1, step: 0.05, accessibilityLabel: "Progress slider")
+                            ProgressBar(progress: progress, accessibilityLabel: "Task progress")
+                            ProgressRing(progress: progress, accessibilityLabel: "Circular task progress")
+                            SegmentedControl(items: periods, selected: period, accessibilityLabel: "Period")
+                            Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", accessibilityLabel: "Sort tasks")
+                            DatePicker(timestamp: timestamp, hasTime: hasTime, accessibilityLabel: "Due date")
+                            Pressable(accessibilityLabel: "Pressable action", accessibilityRole: Button) {
+                                Text("Pressable region")
+                            }.onTap {
+                                count = count + 1
+                            }
+                            Text("Accessible header", accessibilityLabel: "Parity section", accessibilityRole: Header)
+                        }
+                        Section(title: "Images and links") {
+                            Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, maxHeight: 64)
+                            Icon(system: "star", size: 24, tint: "#E11D48", description: "Favorite")
+                            LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: TopToBottom, height: 32)
+                            Link(url: "https://example.com") {
+                                Text("External documentation link")
+                            }
+                        }
+                        Section(title: "Presentations") {
+                            Button("Open bottom sheet") { sheetPresented = true }
+                            Button("Open dialog") { dialogPresented = true }
+                            Button("Open confirmation") { confirmationPresented = true }
+                        }
+                    }
+                }
+
+                Tab(index: 1, label: "Lists", icon: "list", title: "Lists") {
+                    Column(spacing: 8) {
+                        Text("Virtualized list", fontSize: 20, fontWeight: Semibold)
+                        Text("Refresh count: $refreshCount", accessibilityLabel: "Refresh count")
+                        RefreshControl(isRefreshing: refreshing) {
+                            Column(spacing: 8, padding: 12) {
+                                Text("Pull to refresh")
+                                Button("Refresh now") { refreshCount = refreshCount + 1 }
+                            }
+                        }.onRefresh {
+                            refreshing = false
+                            refreshCount = refreshCount + 1
+                        }
+                        FastList(count: 24, rowHeight: 56, accessibilityLabel: "Parity task list") { index in
+                            Row(spacing: 8, padding: 8) {
+                                Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                                Text("Virtual row \(index)")
+                            }
+                        }.onScroll {
+                            progress = progress
+                        }
+                    }
+                }
+
+                Tab(index: 2, label: "Workspace", icon: "folder", title: "Workspace") {
+                    NavigationSplitView(detailVisible: detailVisible) {
+                        Sidebar {
+                            Column(spacing: 12, padding: 16) {
+                                Text("Workspace sidebar")
+                                Button("Show detail") { detailVisible = true }
+                                NavigationLink(destination: Detail) { Text("Open detail") }
+                            }
+                        }
+                        Detail {
+                            Column(spacing: 12, padding: 16) {
+                                Text("Workspace detail")
+                                Button("Show sidebar") { detailVisible = false }
+                            }
+                        }
+                    }
+                }
+
+                Tab(index: 3, label: "Pages", icon: "calendar", title: "Pages") {
+                    PagePager(selected: selectedPage) {
+                        Tab(index: 0) {
+                            Column(spacing: 16, padding: 24) {
+                                Text("Pager page one")
+                                Button("Next page") { selectedPage = 1 }
+                            }
+                        }
+                        Tab(index: 1) {
+                            Column(spacing: 16, padding: 24) {
+                                Text("Pager page two")
+                                Button("Previous page") { selectedPage = 0 }
+                            }
+                        }
+                    }
+                }
+                }
+
+                BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet") {
+                    Column(spacing: 12, padding: 24) {
+                        Text("Sheet content", accessibilityLabel: "Sheet content")
+                        Button("Close sheet") { sheetPresented = false }
+                    }
+                }
+                Dialog(isPresented: dialogPresented, title: "Parity dialog", message: "Dialog content") {
+                    Button("Dismiss dialog") { dialogPresented = false }
+                }
+                ConfirmationDialog(isPresented: confirmationPresented, title: "Confirm parity") {
+                    Button("Confirm action") { confirmationPresented = false }
+                }
+            }
+        }
+    }
+
+    screen Detail {
+        KeyboardAware(dismiss: Never) {
+            Column(spacing: 12, padding: 16) {
+                NavigationBack(label: "Back to catalog")
+                Text("Navigation destination", accessibilityLabel: "Navigation destination")
+                Text("Keyboard-aware content")
+            }
+        }
+    }
+
+    body {
+        OnAppear { count = count }
+        Direction(value: LTR)
+        NavigationStack(root: Main)
+    }
+}

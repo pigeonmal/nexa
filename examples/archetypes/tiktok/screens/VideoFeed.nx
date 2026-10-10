@@ -202,21 +202,21 @@ screen VideoFeed {
                             }
 
                             platform android {
-                                Column(spacing: 0) {
+                                Column(spacing: 0, zIndex: 1) {
                                     Spacer()
                                     Pressable() {
                                         LinearGradient(startColor: "#00000000", endColor: "#00000000", direction: BottomToTop, height: 56)
                                     }.onTap { }
-                                }.zIndex(1)
+                                }
                             }
 
                             platform ios {
-                                Column(spacing: 0) {
+                                Column(spacing: 0, zIndex: 1) {
                                     Spacer()
                                     Pressable() {
                                         LinearGradient(startColor: "#00000000", endColor: "#00000000", direction: BottomToTop, height: 90)
                                     }.onTap { }
-                                }.zIndex(1)
+                                }
                             }
                         }
                     }.onScroll {
@@ -343,7 +343,7 @@ screen VideoFeed {
                             Text(feedStatus, color: "#EEEEEE", fontSize: 10, lineLimit: 1)
                         }
                         Spacer()
-                        Column(spacing: 8) {
+                        Column(spacing: 8, zIndex: 1000) {
                             Stack(alignment: Center, width: 48, height: 58) {
                                 Stack(alignment: Center, width: 46, height: 46, cornerRadius: 23, clip: Rounded(23), borderColor: "#FFFFFF", borderWidth: 1) {
                                     Image(url: clips[currentPage].avatarUrl, description: "Creator avatar", scale: Fill)
@@ -443,14 +443,14 @@ screen VideoFeed {
                         }
                     }
 
-                }.zIndex(1000)
+                }
 
-                Column(spacing: 0) {
+                Column(spacing: 0, zIndex: 1) {
                     Spacer()
                     LinearGradient(startColor: "#000000E8", endColor: "#00000000", direction: BottomToTop, height: 240)
-                }.zIndex(1)
+                }
 
-                Column(spacing: 0) {
+                Column(spacing: 0, zIndex: 2000) {
                     Spacer()
                     Stack(alignment: Center, background: "#000000") {
                         Pressable() {
@@ -541,7 +541,7 @@ screen VideoFeed {
                             }
                         }
                     }
-                }.zIndex(2000)
+                }
 
                 if isRefreshing {
                     Row(spacing: 7, padding: 12) {

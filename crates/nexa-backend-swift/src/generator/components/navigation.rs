@@ -31,10 +31,14 @@ pub(crate) fn render_link(
         render_children(children, scope.module, scope.features, depth, out);
         return;
     }
+    let enabled = guard.map_or_else(
+        || "true".to_owned(),
+        crate::generator::engine::expressions::expression,
+    );
     out.line_at(
         depth,
         format_args!(
-            "NavigationLink(value: {}) {{",
+            "NexaNavigationLinkPrimitive(value: {}, enabled: {enabled}) {{",
             route_value(destination, arguments)
         ),
     );
@@ -42,9 +46,6 @@ pub(crate) fn render_link(
     out.push('\n');
     indent(out, depth);
     out.push('}');
-    if let Some(guard) = guard {
-        out.push_str(&format!(".disabled(!({}))", expression(guard)));
-    }
 }
 
 pub(crate) fn render_back(
@@ -123,9 +124,14 @@ pub(crate) fn render_navigation_stack(
             "routeIdentity",
         );
         out.push_str(&format!(
-            "{destination}\n.navigationTitle({})\n.nexaLargeTitleDisplayMode()\n.toolbar(.hidden, for: .tabBar)",
+            "NexaNavigationScreenPrimitive(title: {}) {{\n",
             swift_string(&screen.name)
         ));
+        indent(out, depth + 5);
+        out.push_str(&destination);
+        out.push('\n');
+        indent(out, depth + 4);
+        out.push('}');
         out.push('\n');
     }
     indent(out, depth + 3);

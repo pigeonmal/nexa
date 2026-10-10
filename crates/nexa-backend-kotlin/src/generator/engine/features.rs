@@ -40,6 +40,7 @@ pub(crate) struct Features {
     pub(crate) uses_accessibility_role: bool,
     pub(crate) uses_accessibility_heading: bool,
     pub(crate) uses_list: bool,
+    pub(crate) uses_fast_list: bool,
     pub(crate) uses_linear_list: bool,
     pub(crate) uses_reverse_layout: bool,
     pub(crate) uses_page_snap: bool,
@@ -199,6 +200,7 @@ impl Features {
         self.uses_placeholder = ui.image.placeholder;
 
         let lists = &ui.lists;
+        self.uses_fast_list = lists.any;
         self.uses_sticky_header = lists.sticky_header || lists.section_header;
         self.uses_reverse_layout = lists.reverse_layout;
         self.uses_page_snap = lists.page_snap;
@@ -358,8 +360,7 @@ impl Features {
             });
         self.uses_size_class =
             ui.app.size_class || ui.components.values().any(|scope| scope.size_class);
-        self.uses_navigation_link =
-            ui.app.navigation || ui.components.values().any(|scope| scope.navigation);
+        self.uses_navigation_link = ui.navigation_link;
         self.uses_navigation_back =
             ui.app.navigation_back || ui.components.values().any(|scope| scope.navigation_back);
         self.uses_navigation_split_view = ui.navigation_split_view;

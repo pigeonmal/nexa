@@ -57,6 +57,7 @@ final class NexaDevRuntime: ObservableObject {
         guard connectionTask == nil, let url = URL(string: serverURL) else { return }
         connectionTask = Task { [weak self] in
             guard let self else { return }
+            var retryDelayNanoseconds: UInt64 = 50_000_000
             while !Task.isCancelled {
                 let socket = URLSession.shared.webSocketTask(with: url)
                 self.socket = socket
@@ -70,6 +71,7 @@ final class NexaDevRuntime: ObservableObject {
                             NexaDevKeys.target: NexaDevSchema.targetPlatform,
                         ],
                     ])))
+                    retryDelayNanoseconds = 50_000_000
                     while !Task.isCancelled {
                         let message = try await socket.receive()
                         guard case let .string(text) = message else { continue }
@@ -81,7 +83,8 @@ final class NexaDevRuntime: ObservableObject {
                 }
                 self.socket = nil
                 if !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(1))
+                    try? await Task.sleep(nanoseconds: retryDelayNanoseconds)
+                    retryDelayNanoseconds = min(retryDelayNanoseconds * 2, 1_000_000_000)
                 }
             }
             self.connectionTask = nil

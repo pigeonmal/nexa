@@ -61,6 +61,30 @@ internal fun NexaDevStateStore.screenParameters(screen: JSONObject, values: JSON
     }
 }
 
+private fun nexaDevFindAppearanceMode(value: Any?): Any? = when (value) {
+    is JSONArray -> {
+        var result: Any? = null
+        for (index in 0 until value.length()) {
+            result = nexaDevFindAppearanceMode(value.opt(index))
+            if (result != null) break
+        }
+        result
+    }
+    is JSONObject -> {
+        if (value.has("Appearance")) {
+            value.optJSONObject("Appearance")?.opt("mode") ?: "system"
+        } else {
+            var result: Any? = null
+            val keys = value.keys()
+            while (keys.hasNext() && result == null) {
+                result = nexaDevFindAppearanceMode(value.opt(keys.next()))
+            }
+            result
+        }
+    }
+    else -> null
+}
+
 @Composable
 internal fun RenderNavigationStack(
     fields: JSONObject,
@@ -77,6 +101,16 @@ internal fun RenderNavigationStack(
         locals,
         scope,
     )
+    val rootScope = "screen/${rootScreen.optString("name")}"
+    val rootParameters = store.screenParameters(
+        rootScreen,
+        store.decodeScreenRoute(route)?.optJSONObject("parameters") ?: JSONObject(),
+    )
+    val rootLocals = store.locals(rootScope, rootParameters)
+    val appearanceExpression = nexaDevFindAppearanceMode(rootScreen.optJSONArray("body"))
+    val appearanceMode = appearanceExpression?.let {
+        store.stringify(store.evaluatePresented(it, rootLocals, rootScope))
+    }
     androidx.compose.runtime.key(store.navigationEpoch) {
         val navController = rememberNavController()
         NavHost(navController = navController, startDestination = route) {
@@ -97,14 +131,34 @@ internal fun RenderNavigationStack(
                         LocalNexaDevNavController provides navController,
                         LocalNexaAnimatedVisibilityScope provides animatedVisibilityScope,
                     ) {
-                        NexaDevScreenLifecycle(screen, store, parameters)
-                        NexaDevNodeList(
-                            screen.optJSONArray("body") ?: JSONArray(),
-                            module,
-                            store,
-                            parameters,
-                            "screen/${screen.optString("name")}",
-                        )
+                        val screenContent: @Composable () -> Unit = {
+                            NexaDevScreenLifecycle(screen, store, parameters)
+                            NexaDevNodeList(
+                                screen.optJSONArray("body") ?: JSONArray(),
+                                module,
+                                store,
+                                parameters,
+                                "screen/${screen.optString("name")}",
+                            )
+                        }
+                        val routeContent: @Composable () -> Unit = {
+                            if (screen.optString("name") == rootScreen.optString("name")) {
+                                screenContent()
+                            } else {
+                                NexaNavigationScreenPrimitive(
+                                    title = screen.optString("name"),
+                                    onBack = { navController.popBackStack() },
+                                    content = screenContent,
+                                )
+                            }
+                        }
+                        if (appearanceMode == null) {
+                            routeContent()
+                        } else {
+                            NexaAppearancePrimitive(mode = appearanceMode) {
+                                routeContent()
+                            }
+                        }
                     }
                 }
             }

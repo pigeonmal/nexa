@@ -3023,7 +3023,22 @@ fn launch_android_emulator_on_device(
     run_command(install, "Android install")?;
     let mut launch = Command::new("adb");
     launch.args(["-s", &device.id, "shell", "monkey", "-p", &package, "1"]);
-    run_command(launch, "Android launch")?;
+    if let Err(monkey_error) = run_command(launch, "Android launch") {
+        let activity = format!("{package}/.MainActivity");
+        let mut direct_launch = Command::new("adb");
+        direct_launch.args([
+            "-s",
+            &device.id,
+            "shell",
+            "am",
+            "start",
+            "-n",
+            activity.as_str(),
+        ]);
+        run_command(direct_launch, "Android activity launch").map_err(|activity_error| {
+            format!("{monkey_error}; direct activity launch also failed: {activity_error}")
+        })?;
+    }
     Ok(())
 }
 

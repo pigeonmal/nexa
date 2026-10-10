@@ -118,11 +118,6 @@ pub(crate) fn render_page_pager(
 ) {
     let prefix = format!("nexa_{}_page", state_name(state));
     let selected = state_name(state);
-    let active_dot = nexa_codegen::design_system::PAGE_INDICATOR_SELECTED_SIZE;
-    let inactive_dot = nexa_codegen::design_system::PAGE_INDICATOR_UNSELECTED_SIZE;
-    let muted_dot = crate::generator::engine::colors::expression_from_argb(
-        nexa_codegen::design_system::MUTED_TEXT_ARGB,
-    );
     out.line_at(depth, format_args!("VStack(spacing: 0) {{"));
     out.line_at(
         depth + 1,
@@ -141,51 +136,8 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth + 1,
         format_args!(
-            "HStack(spacing: {}) {{",
-            nexa_codegen::design_system::PAGE_INDICATOR_SPACING,
-        ),
-    );
-    out.line_at(
-        depth + 2,
-        format_args!(
-            "ForEach(0..<{pages_len}, id: \\.self) {{ index in",
-            pages_len = pages.len()
-        ),
-    );
-    out.line_at(
-        depth + 3,
-        format_args!("Button {{ {selected} = Int32(index) }} label: {{"),
-    );
-    out.line_at(depth + 4, format_args!("Circle()"));
-    out.line_at(
-        depth + 5,
-        format_args!(
-            ".fill({selected} == Int32(index) ? {} : {muted_dot}.opacity({}))",
-            nexa_codegen::design_system::SWIFT_DEFAULT_ACCENT_COLOR,
-            nexa_codegen::design_system::PAGE_INDICATOR_INACTIVE_OPACITY,
-        ),
-    );
-    out.line_at(
-        depth + 5,
-        format_args!(
-            ".frame(width: {selected} == Int32(index) ? {active_dot} : {inactive_dot}, height: {selected} == Int32(index) ? {active_dot} : {inactive_dot})"
-        ),
-    );
-    out.line_at(depth + 3, format_args!("}}.buttonStyle(.plain)"));
-    out.line_at(
-        depth + 4,
-        format_args!(".animation(.default, value: {selected})"),
-    );
-    out.line_at(
-        depth + 4,
-        format_args!(".accessibilityLabel(\"Page \\(index + 1)\")"),
-    );
-    out.line_at(depth + 2, format_args!("}}"));
-    out.line_at(
-        depth + 1,
-        format_args!(
-            "}}.padding(.bottom, {})",
-            nexa_codegen::design_system::PAGE_INDICATOR_BOTTOM_INSET
+            "NexaPageIndicatorRow(pageCount: {}, selectedIndex: Int({selected})) {{ index in {selected} = Int32(index) }}",
+            pages.len()
         ),
     );
     out.line_at(
@@ -205,6 +157,10 @@ pub(crate) fn render_app_bottom_bar(
     out: &mut SourceWriter,
 ) {
     let prefix = format!("nexa_{}_tab", state_name(state));
+    let tint = tint
+        .map(crate::generator::colors::expression_for_color)
+        .unwrap_or_else(|| "nil".to_owned());
+    let activates_search = tabs.iter().any(|tab| tab.role.as_deref() == Some("search"));
 
     out.line_at(depth, format_args!("if #available(iOS 18.0, *) {{"));
     out.line_at(
@@ -215,13 +171,9 @@ pub(crate) fn render_app_bottom_bar(
         render_modern_tab_ref(tab, &prefix, i, depth + 2, out);
     }
     indent(out, depth + 1);
-    out.push_str("}.tabViewStyle(.sidebarAdaptable)");
-    if let Some(tint) = tint {
-        out.push_str(&format!(
-            ".tint({})",
-            crate::generator::colors::expression_for_color(tint)
-        ));
-    }
+    out.push_str(&format!(
+        "}}.modifier(NexaAppBottomBarPrimitive(tint: {tint}, adaptiveStyle: true, activatesSearchTab: {activates_search}))"
+    ));
     render_app_tab_navigation_modifiers(state, tabs, module, features, depth + 1, out);
     out.push('\n');
     out.line_at(depth, format_args!("}} else {{"));
@@ -234,16 +186,12 @@ pub(crate) fn render_app_bottom_bar(
     }
     indent(out, depth + 1);
     out.push('}');
-    if let Some(tint) = tint {
-        out.push_str(&format!(
-            ".tint({})",
-            crate::generator::colors::expression_for_color(tint)
-        ));
-    }
+    out.push_str(&format!(
+        ".modifier(NexaAppBottomBarPrimitive(tint: {tint}, adaptiveStyle: false, activatesSearchTab: false))"
+    ));
     render_app_tab_navigation_modifiers(state, tabs, module, features, depth + 1, out);
     out.push('\n');
-    indent(out, depth);
-    out.push('}');
+    out.line_at(depth, format_args!("}}"));
 }
 
 fn render_app_tab_navigation_modifiers(
@@ -271,9 +219,10 @@ fn render_app_tab_navigation_modifiers(
                 )
             });
         out.push_str(&format!("\n.navigationTitle({title})"));
-        if titled_tabs.iter().all(|(tab, _)| tab.large_title) {
-            out.push_str("\n.nexaLargeTitleDisplayMode()");
-        }
+        let large = titled_tabs.iter().all(|(tab, _)| tab.large_title);
+        out.push_str(&format!(
+            "\n.modifier(NexaNavigationTitleDisplayModePrimitive(large: {large}))"
+        ));
     }
 
     if tabs
@@ -412,7 +361,7 @@ fn swift_tab_label(tab: &BottomBarTab) -> String {
     };
     tab.icon.as_ref().map_or(text.clone(), |icon| {
         format!(
-            "Label {{ {text} }} icon: {{ Image(systemName: {}) }}",
+            "NexaTabLabelPrimitive(title: {text}, systemImage: {})",
             swift_string(&icon.sf_symbol_name())
         )
     })
@@ -425,7 +374,7 @@ mod tests {
 
     use crate::generator::engine::features::Features;
 
-    use super::{render_bottom_bar_helpers, render_page_pager};
+    use super::{render_app_bottom_bar, render_bottom_bar_helpers, render_page_pager};
 
     fn empty_module_with_search_tab() -> Module {
         let tab = BottomBarTab {
@@ -471,15 +420,15 @@ mod tests {
     }
 
     #[test]
-    fn page_indicator_uses_the_shared_dynamic_default_accent() {
+    fn page_indicator_calls_the_shared_native_row_primitive() {
         let mut output = SourceWriter::new();
         render_page_pager("currentPage", &[Vec::new(), Vec::new()], 0, &mut output);
-        let selected = nexa_codegen::names::state_name("currentPage");
 
-        assert!(output.contains(&format!(
-            ".fill({selected} == Int32(index) ? Color(uiColor: .systemBlue) :"
-        )));
-        assert!(output.contains("HStack(spacing: 8)"));
+        assert!(
+            output.contains(
+                "NexaPageIndicatorRow(pageCount: 2, selectedIndex: Int(nexa_currentPage))"
+            )
+        );
     }
 
     #[test]
@@ -494,5 +443,53 @@ mod tests {
         assert!(output.contains("searchable: true"));
         assert!(output.contains(".padding(.horizontal, 16)"));
         assert!(!output.contains(".searchable(text:"));
+    }
+
+    #[test]
+    fn app_bottom_bar_calls_the_shared_native_tab_shell() {
+        let module = empty_module_with_search_tab();
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            match &module.body[0] {
+                Node::AppBottomBar { tabs, .. } => tabs,
+                _ => unreachable!(),
+            },
+            &module,
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("NexaAppBottomBarPrimitive("));
+        assert!(output.contains(
+            ".modifier(NexaAppBottomBarPrimitive(tint: nil, adaptiveStyle: true, activatesSearchTab: true))"
+        ));
+        assert!(output.contains(
+            ".modifier(NexaAppBottomBarPrimitive(tint: nil, adaptiveStyle: false, activatesSearchTab: false))"
+        ));
+        assert!(output.contains("if #available(iOS 18.0"));
+    }
+
+    #[test]
+    fn titled_tabs_use_the_shared_navigation_title_mode_primitive() {
+        let module = empty_module_with_search_tab();
+        let Node::AppBottomBar { state, tint, tabs } = &module.body[0] else {
+            unreachable!("test module contains an app bottom bar")
+        };
+        let mut output = SourceWriter::new();
+        render_app_bottom_bar(
+            state,
+            tint.as_ref(),
+            tabs,
+            &module,
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(".modifier(NexaNavigationTitleDisplayModePrimitive(large: true))"));
     }
 }

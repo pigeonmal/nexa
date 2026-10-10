@@ -335,66 +335,21 @@ pub(crate) fn render_form_section(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    out.line_at(
-        depth,
-        format_args!(
-            "Column(modifier = Modifier.fillMaxWidth().padding(start = {}.dp, top = {}.dp, end = {}.dp, bottom = {}.dp)) {{",
-            nexa_codegen::design_system::FORM_SECTION_HORIZONTAL_INSET,
-            nexa_codegen::design_system::FORM_SECTION_TOP_PADDING,
-            nexa_codegen::design_system::FORM_SECTION_HORIZONTAL_INSET,
-            nexa_codegen::design_system::FORM_SECTION_BOTTOM_PADDING,
-        ),
-    );
-    if let Some(title) = title {
-        out.line_at(
-            depth + 1,
-            format_args!(
-                "Text({}, modifier = Modifier.padding(vertical = 8.dp), style = androidx.compose.material3.MaterialTheme.typography.titleSmall)",
-                crate::generator::engine::expressions::text_expression(title)
-            ),
-        );
-    }
-    out.line_at(
-        depth + 1,
-        format_args!(
-            "Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0x{:08X}) else Color(0x{:08X}), contentColor = MaterialTheme.colorScheme.onSurface) {{",
-            nexa_codegen::design_system::FORM_DARK_SECTION_ARGB,
-            nexa_codegen::design_system::FORM_LIGHT_SECTION_ARGB,
-        ),
-    );
-    out.line_at(depth + 2, format_args!("Column {{"));
+    let title = title
+        .map(crate::generator::engine::expressions::text_expression)
+        .unwrap_or_else(|| "null".to_owned());
+    let footer = footer
+        .map(crate::generator::engine::expressions::text_expression)
+        .unwrap_or_else(|| "null".to_owned());
+    out.line_at(depth, format_args!("NexaFormSectionPrimitive("));
+    out.line_at(depth + 1, format_args!("title = {title},"));
+    out.line_at(depth + 1, format_args!("footer = {footer},"));
+    out.line_at(depth, format_args!(") {{"));
     for (index, child) in children.iter().enumerate() {
-        render_form_row(child, scope, depth + 3, out);
+        render_form_row(child, scope, depth + 1, out);
         if index + 1 < children.len() {
-            out.line_at(
-                depth + 3,
-                format_args!(
-                    "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = {}.dp, end = {}.dp), thickness = 0.5.dp, color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0x{:08X}) else Color(0x{:08X}))",
-                    nexa_codegen::design_system::FORM_DIVIDER_START_INSET,
-                    nexa_codegen::design_system::FORM_DIVIDER_END_INSET,
-                    nexa_codegen::design_system::FORM_DARK_SEPARATOR_ARGB,
-                    nexa_codegen::design_system::FORM_LIGHT_SEPARATOR_ARGB,
-                ),
-            );
+            out.line_at(depth + 1, format_args!("NexaFormDividerPrimitive()"));
         }
-        if index + 1 < children.len() || footer.is_some() {
-            out.push('\n');
-        }
-    }
-    out.line_at(depth + 2, format_args!("}}"));
-    out.line_at(depth + 1, format_args!("}}"));
-    if let Some(footer) = footer {
-        out.line_at(
-            depth + 1,
-            format_args!(
-                "Text({}, modifier = Modifier.padding(start = {}.dp, top = 8.dp, bottom = 8.dp), fontSize = {}.sp, lineHeight = {}.sp * {}f, letterSpacing = 0.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)",
-                crate::generator::engine::expressions::text_expression(footer),
-                nexa_codegen::design_system::FORM_FOOTER_START_INSET,
-                nexa_codegen::design_system::FORM_FOOTER_FONT_SIZE,
-                nexa_codegen::design_system::FORM_FOOTER_FONT_SIZE,
-                nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER,
-            ),
-        );
     }
     out.line_at(depth, format_args!("}}"));
 }
@@ -418,12 +373,7 @@ pub(crate) fn render_form(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    out.line_at(
-            depth,
-            format_args!(
-            "Column(modifier = Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant).verticalScroll(rememberScrollState())) {{"
-        ),
-    );
+    out.line_at(depth, format_args!("NexaFormPrimitive {{"));
     for (index, child) in children.iter().enumerate() {
         if matches!(child, Node::FormSection { .. }) {
             render_node(child, scope.module, scope.features, depth + 1, out);
@@ -793,16 +743,17 @@ mod tests {
 
         render_form_section(None, Some(&footer), &children, &scope, 0, &mut output);
 
-        assert!(output.contains(
-            "Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 20.dp)) {"
-        ));
+        assert!(output.contains("NexaFormSectionPrimitive("));
+        assert!(output.contains("title = null,"));
+        assert!(output.contains("footer = \"ToDoList v1.0.0 (1)\","));
         assert!(output.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 16f) {"));
-        assert!(output.contains(
-            "HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp), thickness = 0.5.dp"
-        ));
-        assert_eq!(output.as_str().matches("HorizontalDivider(").count(), 3);
-        assert!(output.contains("Surface(modifier = Modifier.fillMaxWidth()"));
-        assert!(output.contains("shape = RoundedCornerShape(24.dp)"));
+        assert_eq!(
+            output
+                .as_str()
+                .matches("NexaFormDividerPrimitive()")
+                .count(),
+            children.len() - 1
+        );
         assert_eq!(
             output
                 .as_str()
@@ -812,14 +763,5 @@ mod tests {
         );
         assert!(!output.contains("heightIn(min = 44.dp)"));
         assert!(!output.contains("heightIn(min = 58.dp)"));
-        assert!(output.contains(
-            "color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)"
-        ));
-        assert!(output.contains(
-            "color = if (MaterialTheme.colorScheme.background == Color.Black) Color(0xFF38383A) else Color(0x493C3C43)"
-        ));
-        assert!(output.contains(
-            "fontSize = 13.sp, lineHeight = 13.sp * 1.2f, letterSpacing = 0.sp, color = MaterialTheme.colorScheme.onSurfaceVariant"
-        ));
     }
 }
