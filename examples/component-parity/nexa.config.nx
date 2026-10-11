@@ -1,0 +1,16 @@
+config {
+    app {
+        displayName: "Nexa Component Parity", version: "1.0.0", buildNumber: 1
+    }
+    assets {
+        icon: "", splash: ""
+    }
+    ios {
+        minVersion: "16.0", bundleIdentifier: "dev.nexa.componentparity", icon: ""
+    }
+    android {
+        minSdk: 23, targetSdk: 36, applicationId: "dev.nexa.componentparity", icon: ""
+    }
+    permissions {
+    }
+}

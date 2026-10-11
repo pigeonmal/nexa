@@ -5,6 +5,17 @@ import UIKit
 private let nexaDevFormRowMinHeight: CGFloat = __NEXA_FORM_ROW_MIN_HEIGHT__
 private let nexaDevFormRowHorizontalInset: CGFloat = __NEXA_FORM_ROW_HORIZONTAL_INSET__
 
+private func nexaDevTextBaseFontSize(_ style: [String: Any]) -> CGFloat {
+    if let fontSize = style["font_size"] as? Double {
+        return CGFloat(fontSize)
+    }
+    switch style["font_style"] as? String {
+__NEXA_SWIFT_TEXT_FONT_STYLE_SIZE_CASES__
+    default:
+        return CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)
+    }
+}
+
 @MainActor
 private final class NexaDevDragVelocityTracker {
     private var lastTranslation = CGSize.zero
@@ -1063,6 +1074,10 @@ struct NexaDevNodeList: View {
             case "Caption2": .caption2
             default: nil
             }
+            let lineHeightFontSize = nexaDevTextBaseFontSize(style)
+            let lineHeightFactor = (style["line_height"] as? Double).map {
+                CGFloat($0) / lineHeightFontSize
+            }
             let resolvedFont = (style["font_size"] as? Double).map { Font.system(size: $0) } ?? font
             let weight: Font.Weight? = switch style["font_weight"] as? String {
             case "Normal": .regular
@@ -1078,7 +1093,8 @@ struct NexaDevNodeList: View {
                 font: resolvedFont,
                 weight: weight,
                 lineLimit: style["line_limit"] as? Int,
-                lineSpacing: style["line_height"] as? CGFloat,
+                lineHeightFactor: lineHeightFactor,
+                lineHeightFontSize: lineHeightFontSize,
                 tracking: style["letter_spacing"] as? CGFloat,
                 strikethrough: style["strikethrough"] as? Bool == true,
                 selectable: style["selectable"] as? Bool == true
@@ -2194,6 +2210,7 @@ struct NexaDevNodeList: View {
             parameters: parameters,
             stateScope: scope
         )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             store.screenDidAppear(scope: scope, parameters: parameters)
             let actions = screen["on_appear"] as? [Any] ?? []

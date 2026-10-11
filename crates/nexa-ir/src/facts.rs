@@ -252,6 +252,7 @@ pub struct TextFacts {
     pub present: bool,
     pub font_weight: bool,
     pub sp: bool,
+    pub line_height: bool,
     pub selectable: bool,
     pub color: bool,
     pub padding: bool,
@@ -799,6 +800,7 @@ fn observe_node(
         Node::Text { style, .. } => {
             ui.text.present = true;
             ui.text.font_weight |= style.font_weight.is_some();
+            ui.text.line_height |= style.line_height.is_some();
             ui.text.sp |= style.font_size.is_some()
                 || style.line_height.is_some()
                 || style.letter_spacing.is_some();
@@ -1463,7 +1465,7 @@ mod tests {
     use super::ModuleFacts;
     use crate::{
         Action, BottomBarTab, Expr, ImageScale, ImageSource, LayoutKind, Module, Node, SystemIcon,
-        Type, ViewStyle,
+        TextStyle, Type, ViewStyle,
     };
 
     fn empty_module(body: Vec<Node>) -> Module {
@@ -1490,6 +1492,19 @@ mod tests {
             on_inactive: None,
             on_background: None,
         }
+    }
+
+    #[test]
+    fn explicit_text_line_height_is_a_backend_capability_fact() {
+        let module = empty_module(vec![Node::Text {
+            value: Expr::String("Two lines".to_owned()),
+            style: TextStyle {
+                line_height: Some(22.0),
+                ..TextStyle::default()
+            },
+        }]);
+
+        assert!(ModuleFacts::analyze(&module).ui.text.line_height);
     }
 
     #[test]

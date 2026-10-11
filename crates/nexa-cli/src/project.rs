@@ -16,7 +16,7 @@ use std::{
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_compiler::{CompileWarning, Target};
-use nexa_ir::{Module, system_icons::SHARED_ICONS};
+use nexa_ir::{Module, TextFontStyle, system_icons::SHARED_ICONS};
 
 use crate::{cache, config, config::ProjectConfig};
 
@@ -824,7 +824,33 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
         let muted_red = (design::MUTED_TEXT_ARGB >> 16) & 0xFF;
         let muted_green = (design::MUTED_TEXT_ARGB >> 8) & 0xFF;
         let muted_blue = design::MUTED_TEXT_ARGB & 0xFF;
+        let swift_text_font_style_sizes = [
+            (TextFontStyle::LargeTitle, "LargeTitle"),
+            (TextFontStyle::Title, "Title"),
+            (TextFontStyle::Title2, "Title2"),
+            (TextFontStyle::Title3, "Title3"),
+            (TextFontStyle::Headline, "Headline"),
+            (TextFontStyle::Subheadline, "Subheadline"),
+            (TextFontStyle::Body, "Body"),
+            (TextFontStyle::Callout, "Callout"),
+            (TextFontStyle::Footnote, "Footnote"),
+            (TextFontStyle::Caption, "Caption"),
+            (TextFontStyle::Caption2, "Caption2"),
+        ]
+        .iter()
+        .map(|(style, name)| {
+            format!(
+                "    case \"{name}\": return CGFloat({})",
+                design::text_metrics(*style).size
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
         let replacements = [
+            (
+                "__NEXA_SWIFT_TEXT_FONT_STYLE_SIZE_CASES__",
+                swift_text_font_style_sizes,
+            ),
             (
                 "__NEXA_DEFAULT_BODY_FONT_SIZE__",
                 design::DEFAULT_BODY_FONT_SIZE.to_string(),
@@ -2404,6 +2430,8 @@ mod tests {
         );
         assert!(swift.contains("NexaTextPrimitive("));
         assert!(swift.contains("font: resolvedFont"));
+        assert!(swift.contains("case \"Body\": return CGFloat(17)"));
+        assert!(swift.contains("lineHeightFactor: lineHeightFactor"));
         assert!(swift.contains("private let nexaDevFormRowMinHeight: CGFloat = 56"));
         assert!(swift.contains("minHeight: nexaDevFormRowMinHeight"));
         assert!(swift.contains("NexaFormRowPrimitive("));

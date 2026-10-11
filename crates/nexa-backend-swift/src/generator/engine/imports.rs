@@ -27,6 +27,10 @@ impl ImportSet {
 }
 
 pub(crate) fn render(features: &Features) -> String {
+    render_with_dev_runtime(features, false)
+}
+
+pub(crate) fn render_with_dev_runtime(features: &Features, dev_runtime: bool) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "SwiftUI");
     imports.add(true, "Foundation");
@@ -53,6 +57,8 @@ pub(crate) fn render(features: &Features) -> String {
             || features.uses_remote_image
             || features.facts.ui.bottom_sheet.present
             || features.facts.ui.button.present
+            || features.facts.ui.text.line_height
+            || dev_runtime
             || features.facts.ui.page_pager
             || (features.facts.ui.bottom_bar.present && features.facts.ui.layout.form)
             || features.facts.ui.style.dynamic_color,
@@ -63,7 +69,7 @@ pub(crate) fn render(features: &Features) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render;
+    use super::{render, render_with_dev_runtime};
     use crate::generator::engine::features::Features;
 
     #[test]
@@ -94,6 +100,16 @@ mod tests {
         let imports = render(&features);
 
         assert!(imports.contains("import UIKit\n"));
+    }
+
+    #[test]
+    fn text_line_height_imports_uikit_only_when_its_legacy_metric_fallback_is_needed() {
+        let mut features = Features::default();
+        features.facts.ui.text.line_height = true;
+
+        assert!(render(&features).contains("import UIKit\n"));
+        assert!(!render(&Features::default()).contains("import UIKit\n"));
+        assert!(render_with_dev_runtime(&Features::default(), true).contains("import UIKit\n"));
     }
 
     #[test]

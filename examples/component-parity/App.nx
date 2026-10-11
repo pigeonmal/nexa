@@ -1,0 +1,687 @@
+component ParityCard(title: String) {
+    body {
+        Column(spacing: 8, padding: 12, background: "#FFFFFF", cornerRadius: 16) {
+            Text(title, fontSize: 13, color: "#777780")
+            Content()
+        }
+    }
+}
+
+app ComponentParity {
+    screen Catalog {
+        Form {
+            Section(title: "Layout") {
+                NavigationLink(destination: ColumnCases) {
+                    Text("Column spacing and padding")
+                }
+                NavigationLink(destination: RowCases) {
+                    Text("Row spacing and alignment")
+                }
+                NavigationLink(destination: StackCases) {
+                    Text("Stack overlay and alignment")
+                }
+                NavigationLink(destination: SpacerCases) {
+                    Text("Spacer distribution")
+                }
+                NavigationLink(destination: DividerCases) {
+                    Text("Divider thickness and color")
+                }
+            }
+            Section(title: "Text and controls") {
+                NavigationLink(destination: TextCases) {
+                    Text("Text styles and sizing")
+                }
+                NavigationLink(destination: ButtonCases) {
+                    Text("Button styles and states")
+                }
+                NavigationLink(destination: TextInputCases) {
+                    Text("Text input variants")
+                }
+                NavigationLink(destination: SwitchCases) {
+                    Text("Switch states")
+                }
+                NavigationLink(destination: SliderCases) {
+                    Text("Slider values")
+                }
+                NavigationLink(destination: SegmentedCases) {
+                    Text("Segmented control")
+                }
+                NavigationLink(destination: PickerCases) {
+                    Text("Picker options")
+                }
+                NavigationLink(destination: DatePickerCases) {
+                    Text("Date picker modes")
+                }
+            }
+            Section(title: "Content and lists") {
+                NavigationLink(destination: FormCases) {
+                    Text("Form and section")
+                }
+                NavigationLink(destination: EmptyCases) {
+                    Text("Content unavailable")
+                }
+                NavigationLink(destination: ProgressBarCases) {
+                    Text("Progress bar values")
+                }
+                NavigationLink(destination: ProgressRingCases) {
+                    Text("Progress ring values")
+                }
+                NavigationLink(destination: FastListCases) {
+                    Text("FastList row sizing")
+                }
+                NavigationLink(destination: RefreshCases) {
+                    Text("Pull to refresh")
+                }
+                NavigationLink(destination: KeyboardCases) {
+                    Text("Keyboard-aware layout")
+                }
+            }
+            Section(title: "Media and navigation") {
+                NavigationLink(destination: IconCases) {
+                    Text("Icon sizes and tint")
+                }
+                NavigationLink(destination: ImageCases) {
+                    Text("Image asset rendering")
+                }
+                NavigationLink(destination: GradientCases) {
+                    Text("Linear gradient")
+                }
+                NavigationLink(destination: LinkCases) {
+                    Text("External link")
+                }
+                NavigationLink(destination: NavigationBackCases) {
+                    Text("NavigationBack behavior")
+                }
+                NavigationLink(destination: ToolbarCases) {
+                    Text("Toolbar placement")
+                }
+                NavigationLink(destination: PagerCases) {
+                    Text("Page pager")
+                }
+                NavigationLink(destination: BottomBarCases) {
+                    Text("App bottom bar")
+                }
+                NavigationLink(destination: SplitViewCases) {
+                    Text("Adaptive split view")
+                }
+            }
+            Section(title: "Presentation and environment") {
+                NavigationLink(destination: SheetCases) {
+                    Text("Bottom sheet")
+                }
+                NavigationLink(destination: DialogCases) {
+                    Text("Dialog")
+                }
+                NavigationLink(destination: ConfirmationCases) {
+                    Text("Confirmation dialog")
+                }
+                NavigationLink(destination: AppearanceCases) {
+                    Text("Appearance")
+                }
+                NavigationLink(destination: StatusBarCases) {
+                    Text("Status bar")
+                }
+                NavigationLink(destination: AccessibilityCases) {
+                    Text("Accessibility semantics")
+                }
+                NavigationLink(destination: LifecycleCases) {
+                    Text("Screen lifecycle")
+                }
+            }
+        }
+    }
+
+    screen ColumnCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Column", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Spacing: 0, 8, and 20 dp") {
+                Column(spacing: 0) {
+                    Text("Zero")
+                    Text("Spacing")
+                }
+                Column(spacing: 8) {
+                    Text("Eight")
+                    Text("Spacing")
+                }
+                Column(spacing: 20, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                    Text("Twenty with explicit padding")
+                    Text("Custom background and radius")
+                }
+            }
+        }
+    }
+
+    screen RowCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Row", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Spacing and vertical alignment") {
+                Row(spacing: 0, height: 48, background: "#F2F2F7") {
+                    Text("Zero")
+                    Text("Gap")
+                }
+                Row(spacing: 12, height: 48, alignment: Center, background: "#F2F2F7") {
+                    Text("Twelve")
+                    Text("Centered")
+                }
+                Row(spacing: 24, height: 48, padding: 8, background: "#F2F2F7") {
+                    Text("Twenty-four")
+                    Text("With padding")
+                }
+            }
+        }
+    }
+
+    screen StackCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Stack", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Center and corner alignment") {
+                Stack(alignment: Center, width: 160, height: 96, background: "#DDEBFF", cornerRadius: 12) {
+                    Text("Centered")
+                    Icon(system: "star", size: 24, tint: "#E11D48", description: "Star")
+                }
+                Stack(alignment: End, width: 160, height: 96, background: "#F2F2F7", cornerRadius: 12) {
+                    Text("End aligned")
+                }
+            }
+        }
+    }
+
+    screen SpacerCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Spacer", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Flexible space in a row") {
+                Row(height: 56, padding: 8, background: "#F2F2F7") {
+                    Text("Leading")
+                    Spacer()
+                    Text("Trailing")
+                }
+                Row(height: 80, padding: 8, background: "#F2F2F7") {
+                    Text("Two spacers")
+                    Spacer()
+                    Text("Center")
+                    Spacer()
+                    Text("End")
+                }
+            }
+        }
+    }
+
+    screen DividerCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Divider", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Same color, varied thickness") {
+                Text("One dp")
+                Divider(color: "#8E8E93", thickness: 1)
+                Text("Two dp")
+                Divider(color: "#8E8E93", thickness: 2)
+                Text("Four dp")
+                Divider(color: "#8E8E93", thickness: 4)
+            }
+        }
+    }
+
+    screen TextCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Text", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Shared font size, weight, and line metrics") {
+                Text("Normal 14", fontSize: 14, fontWeight: Normal)
+                Text("Medium 18", fontSize: 18, fontWeight: Medium)
+                Text("Semibold 22", fontSize: 22, fontWeight: Semibold)
+                Text("Bold 26", fontSize: 26, fontWeight: Bold)
+                Text("Two-line text checks line height and wrapping across both platforms.", fontSize: 16, lineHeight: 22)
+            }
+        }
+    }
+
+    screen ButtonCases {
+        state taps: Int32 = 0
+        Column(spacing: 12, padding: 16) {
+            Text("Button", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Style, size, shape, and state") {
+                Text("Enabled taps: $taps")
+                Button("Prominent", style: BorderedProminent, tint: "#E11D48") {
+                    taps = taps + 1
+                }
+                Button("Bordered", style: Bordered) {
+                    taps = taps + 1
+                }
+                Button("Plain", style: Plain) {
+                    taps = taps + 1
+                }
+                Button("Disabled", disabled: true)
+                Button("Loading", loading: true)
+                Button("Large capsule", size: Large, shape: Capsule) {
+                    taps = taps + 1
+                }
+            }
+        }
+    }
+
+    screen TextInputCases {
+        state shortText: String = ""
+        state email: String = ""
+        state notes: String = ""
+        Column(spacing: 12, padding: 16) {
+            Text("TextInput", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Placeholder, keyboard, and multiline") {
+                TextInput(value: shortText, placeholder: "Task name", maxLength: 40)
+                TextInput(value: email, placeholder: "Email", keyboardType: Email, capitalization: None, autocorrect: false)
+                TextInput(value: notes, placeholder: "Notes", multiline: true, minLines: 3, maxLines: 5)
+            }
+        }
+    }
+
+    screen SwitchCases {
+        state off: Bool = false
+        state on: Bool = true
+        Column(spacing: 12, padding: 16) {
+            Text("Switch", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Off and on states with labels") {
+                Switch(value: off, label: "Notifications")
+                Switch(value: on, label: "Open links in app")
+            }
+        }
+    }
+
+    screen SliderCases {
+        state sliderLow: Float64 = 0.0
+        state sliderMiddle: Float64 = 0.5
+        state sliderHigh: Float64 = 1.0
+        Column(spacing: 12, padding: 16) {
+            Text("Slider", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Minimum, middle, maximum, and stepped values") {
+                Text("Min: $sliderLow")
+                Slider(value: sliderLow, min: 0, max: 1, step: 0.1)
+                Text("Middle: $sliderMiddle")
+                Slider(value: sliderMiddle, min: 0, max: 1, step: 0.05)
+                Text("Max: $sliderHigh")
+                Slider(value: sliderHigh, min: 0, max: 1, step: 0.25)
+            }
+        }
+    }
+
+    screen SegmentedCases {
+        state segment: String = "Day"
+        state choices: Array<String> = ["Day", "Week", "Month"]
+        Column(spacing: 12, padding: 16) {
+            Text("SegmentedControl", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Selection, widths, and longer labels") {
+                SegmentedControl(items: choices, selected: segment, accessibilityLabel: "Time range")
+                Text("Selected: $segment")
+            }
+        }
+    }
+
+    screen PickerCases {
+        state sort: String = "Due date"
+        state sortOptions: Array<String> = ["Due date", "Priority", "Title"]
+        Column(spacing: 12, padding: 16) {
+            Text("Picker", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Selected value and custom label") {
+                Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", tint: "#E11D48")
+                Text("Selected: $sort")
+            }
+        }
+    }
+
+    screen DatePickerCases {
+        state timestamp: Int64 = Time.now()
+        state includeTime: Bool = false
+        state dateAndTime: Bool = true
+        Column(spacing: 12, padding: 16) {
+            Text("DatePicker", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Date-only and date-with-time modes") {
+                DatePicker(timestamp: timestamp, hasTime: includeTime, accessibilityLabel: "Date only")
+                DatePicker(timestamp: timestamp, hasTime: dateAndTime, accessibilityLabel: "Date and time")
+            }
+        }
+    }
+
+    screen FormCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Form and Section", fontSize: 28, fontWeight: Bold)
+            Form {
+                Section(title: "First group", footer: "First section footer") {
+                    Text("First row")
+                    Divider(color: "#8E8E93", thickness: 1)
+                    Text("Second row")
+                }
+                Section(title: "Second group") {
+                    Text("One row")
+                }
+            }
+        }
+    }
+
+    screen EmptyCases {
+        Column(spacing: 12, padding: 16) {
+            Text("ContentUnavailable", fontSize: 28, fontWeight: Bold)
+            ContentUnavailable(title: "No saved tasks", icon: "inbox", description: "Saved tasks will appear here.")
+            ContentUnavailable(title: "No search results", icon: "search", description: "Try a different keyword.")
+        }
+    }
+
+    screen ProgressBarCases {
+        state barZero: Float64 = 0.0
+        state barMiddle: Float64 = 0.45
+        state barFull: Float64 = 1.0
+        Column(spacing: 12, padding: 16) {
+            Text("ProgressBar", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Zero, partial, and complete") {
+                ProgressBar(progress: barZero, accessibilityLabel: "No progress")
+                ProgressBar(progress: barMiddle, accessibilityLabel: "Partial progress")
+                ProgressBar(progress: barFull, accessibilityLabel: "Complete progress")
+            }
+        }
+    }
+
+    screen ProgressRingCases {
+        state ringZero: Float64 = 0.0
+        state ringMiddle: Float64 = 0.45
+        state ringFull: Float64 = 1.0
+        Column(spacing: 12, padding: 16) {
+            Text("ProgressRing", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Zero, partial, and complete") {
+                Row(spacing: 24, alignment: Center) {
+                    ProgressRing(progress: ringZero, accessibilityLabel: "No progress")
+                    ProgressRing(progress: ringMiddle, accessibilityLabel: "Partial progress")
+                    ProgressRing(progress: ringFull, accessibilityLabel: "Complete progress")
+                }
+            }
+        }
+    }
+
+    screen FastListCases {
+        Column(spacing: 12, padding: 16) {
+            Text("FastList", fontSize: 28, fontWeight: Bold)
+            Text("Fixed row height: 56 dp")
+            FastList(count: 12, rowHeight: 56, accessibilityLabel: "Component parity rows") {
+                index in
+                Row(spacing: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
+                    Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                    Text("Parity row \(index)")
+                }
+            }
+        }
+    }
+
+    screen RefreshCases {
+        state refreshing: Bool = false
+        state refreshCount: Int32 = 0
+        Column(spacing: 12, padding: 16) {
+            Text("RefreshControl", fontSize: 28, fontWeight: Bold)
+            Text("Refreshes: $refreshCount")
+            RefreshControl(isRefreshing: refreshing) {
+                Column(spacing: 16, padding: 20, minHeight: 320, background: "#FFFFFF", cornerRadius: 16) {
+                    Text("Pull down to refresh")
+                    Text("Keep scrolling content stable while refreshing.")
+                }
+            }.onRefresh {
+                refreshing = false
+                refreshCount = refreshCount + 1
+            }
+        }
+    }
+
+    screen KeyboardCases {
+        state text: String = ""
+        Column(spacing: 12, padding: 16) {
+            Text("KeyboardAware", fontSize: 28, fontWeight: Bold)
+            KeyboardAware(dismiss: Never) {
+                Column(spacing: 12, padding: 16, background: "#FFFFFF", cornerRadius: 16) {
+                    TextInput(value: text, placeholder: "Enter a task")
+                    Button("Save draft") {
+                        text = text
+                    }
+                    Text("Content above should remain visible when the keyboard opens.")
+                }
+            }
+        }
+    }
+
+    screen IconCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Icon", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Size and tint") {
+                Row(spacing: 24, alignment: Center) {
+                    Icon(system: "search", size: 20, tint: "#8E8E93", description: "Small search")
+                    Icon(system: "search", size: 32, tint: "#007AFF", description: "Medium search")
+                    Icon(system: "search", size: 48, tint: "#E11D48", description: "Large search")
+                }
+            }
+        }
+    }
+
+    screen ImageCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Image", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Asset, fit, and crop") {
+                Image(asset: "parity_sample", description: "Parity sample", scale: Fit, maxHeight: 120)
+                Image(asset: "parity_sample", description: "Parity sample cropped", scale: Fill, maxHeight: 80)
+            }
+        }
+    }
+
+    screen GradientCases {
+        Column(spacing: 12, padding: 16) {
+            Text("LinearGradient", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Direction and fixed height") {
+                LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: LeadingToTrailing, height: 64)
+                LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: TopToBottom, height: 120)
+            }
+        }
+    }
+
+    screen LinkCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Link", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Inline link sizing and accessibility") {
+                Link(url: "https://example.com", accessibilityLabel: "Open example website") {
+                    Text("Open example website")
+                }
+            }
+        }
+    }
+
+    screen NavigationBackCases {
+        Column(spacing: 12, padding: 16) {
+            Text("NavigationBack", fontSize: 28, fontWeight: Bold)
+            Text("Compare the explicit back control with each platform's navigation header.")
+            NavigationBack(label: "Return to component index")
+        }
+    }
+
+    screen ToolbarCases {
+        state actions: Int32 = 0
+        Column(spacing: 12, padding: 16) {
+            Toolbar(placement: Trailing) {
+                Button("Action $actions", accessibilityLabel: "Toolbar action") {
+                    actions = actions + 1
+                }
+            }
+            Text("Toolbar", fontSize: 28, fontWeight: Bold)
+            Text("Tap the trailing action and compare title placement.")
+        }
+    }
+
+    screen PagerCases {
+        state page: Int32 = 0
+        Column(spacing: 12, padding: 16) {
+            Text("PagePager", fontSize: 28, fontWeight: Bold)
+            PagePager(selected: page, accessibilityLabel: "Parity pages") {
+                Tab(index: 0) {
+                    Column(spacing: 12, padding: 24, alignment: Center) {
+                        Text("First page")
+                        Button("Next") {
+                            page = 1
+                        }
+                    }
+                }
+                Tab(index: 1) {
+                    Column(spacing: 12, padding: 24, alignment: Center) {
+                        Text("Second page")
+                        Button("Previous") {
+                            page = 0
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    screen BottomBarCases {
+        state selectedTab: Int32 = 0
+        AppBottomBar(selected: selectedTab, tint: "#E11D48") {
+            Tab(index: 0, label: "Inbox", icon: "inbox", title: "Inbox") {
+                Column(spacing: 12, padding: 16) {
+                    Text("Inbox tab content")
+                }
+            }
+            Tab(index: 1, label: "Today", icon: "sun", title: "Today") {
+                Column(spacing: 12, padding: 16) {
+                    Text("Today tab content")
+                }
+            }
+            Tab(index: 2, label: "Search", icon: "search", title: "Search") {
+                Column(spacing: 12, padding: 16) {
+                    Text("Search tab content")
+                }
+            }
+        }
+    }
+
+    screen SplitViewCases {
+        state detailVisible: Bool = false
+        NavigationSplitView(detailVisible: detailVisible) {
+            Sidebar {
+                Column(spacing: 12, padding: 16) {
+                    Text("Sidebar")
+                    Button("Show detail") {
+                        detailVisible = true
+                    }
+                }
+            }
+            Detail {
+                Column(spacing: 12, padding: 16) {
+                    Text("Detail")
+                    Button("Show sidebar") {
+                        detailVisible = false
+                    }
+                }
+            }
+        }
+    }
+
+    screen SheetCases {
+        state sheetPresented: Bool = false
+        Column(spacing: 12, padding: 16) {
+            Text("BottomSheet", fontSize: 28, fontWeight: Bold)
+            Button("Open partial sheet") {
+                sheetPresented = true
+            }
+            BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet") {
+                Column(spacing: 12, padding: 24) {
+                    Text("Sheet content")
+                    Button("Dismiss") {
+                        sheetPresented = false
+                    }
+                }
+            }
+        }
+    }
+
+    screen DialogCases {
+        state dialogPresented: Bool = false
+        Column(spacing: 12, padding: 16) {
+            Text("Dialog", fontSize: 28, fontWeight: Bold)
+            Button("Open dialog") {
+                dialogPresented = true
+            }
+            Dialog(isPresented: dialogPresented, title: "Delete task?", message: "This action can be undone.") {
+                Button("Cancel") {
+                    dialogPresented = false
+                }
+                Button("Delete") {
+                    dialogPresented = false
+                }
+            }
+        }
+    }
+
+    screen ConfirmationCases {
+        state confirmationPresented: Bool = false
+        Column(spacing: 12, padding: 16) {
+            Text("ConfirmationDialog", fontSize: 28, fontWeight: Bold)
+            Button("Open actions") {
+                confirmationPresented = true
+            }
+            ConfirmationDialog(isPresented: confirmationPresented, title: "Task actions") {
+                Button("Mark complete") {
+                    confirmationPresented = false
+                }
+                Button("Cancel") {
+                    confirmationPresented = false
+                }
+            }
+        }
+    }
+
+    screen AppearanceCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Appearance", fontSize: 28, fontWeight: Bold)
+            Appearance(mode: "light") {
+                Column(spacing: 8, padding: 12, cornerRadius: 16) {
+                    Text("Light appearance surface")
+                }
+            }
+            Appearance(mode: "dark") {
+                Column(spacing: 8, padding: 12, cornerRadius: 16) {
+                    Text("Dark appearance surface")
+                }
+            }
+        }
+    }
+
+    screen StatusBarCases {
+        StatusBar(style: Default, hidden: false, background: "#F2F2F7")
+        Column(spacing: 12, padding: 16) {
+            Text("StatusBar", fontSize: 28, fontWeight: Bold)
+            Text("Compare status-bar foreground, background, and safe-area handling.")
+        }
+    }
+
+    screen AccessibilityCases {
+        state selected: Bool = false
+        Column(spacing: 12, padding: 16) {
+            Text("Accessibility", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Role, label, value, and action") {
+                Text("Section title", accessibilityLabel: "Parity section heading", accessibilityRole: Header)
+                Button("Toggle selection", accessibilityLabel: "Selection", accessibilityValue: "Selected: $selected") {
+                    selected =!selected
+                }
+                Icon(system: "check_circle", size: 24, tint: "#E11D48", description: "Selected state", accessibilityLabel: "Selected state", accessibilityRole: Image)
+            }
+        }
+    }
+
+    screen LifecycleCases {
+        state appearances: Int32 = 0
+        state departures: Int32 = 0
+        OnAppear {
+            appearances = appearances + 1
+        }
+        OnDisappear {
+            departures = departures + 1
+        }
+        Column(spacing: 12, padding: 16) {
+            Text("Screen lifecycle", fontSize: 28, fontWeight: Bold)
+            Text("Appearances: $appearances")
+            Text("Departures: $departures")
+            Text("Navigate away and back to compare lifecycle delivery.")
+        }
+    }
+
+    body {
+        NavigationStack(root: Catalog)
+    }
+}

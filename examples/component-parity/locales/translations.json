@@ -1,0 +1,814 @@
+{
+  "format": 1,
+  "sourceLanguage": "en",
+  "strings": {
+    "Accessibility": {
+      "source": "Accessibility",
+      "translations": {}
+    },
+    "Accessibility semantics": {
+      "source": "Accessibility semantics",
+      "translations": {}
+    },
+    "Action {actions}": {
+      "source": "Action {actions}",
+      "arguments": [
+        "actions"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Adaptive split view": {
+      "source": "Adaptive split view",
+      "translations": {}
+    },
+    "App bottom bar": {
+      "source": "App bottom bar",
+      "translations": {}
+    },
+    "Appearance": {
+      "source": "Appearance",
+      "translations": {}
+    },
+    "Appearances: {appearances}": {
+      "source": "Appearances: {appearances}",
+      "arguments": [
+        "appearances"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Bold 26": {
+      "source": "Bold 26",
+      "translations": {}
+    },
+    "Bordered": {
+      "source": "Bordered",
+      "translations": {}
+    },
+    "Bottom sheet": {
+      "source": "Bottom sheet",
+      "translations": {}
+    },
+    "BottomSheet": {
+      "source": "BottomSheet",
+      "translations": {}
+    },
+    "Button": {
+      "source": "Button",
+      "translations": {}
+    },
+    "Button styles and states": {
+      "source": "Button styles and states",
+      "translations": {}
+    },
+    "Cancel": {
+      "source": "Cancel",
+      "translations": {}
+    },
+    "Center": {
+      "source": "Center",
+      "translations": {}
+    },
+    "Centered": {
+      "source": "Centered",
+      "translations": {}
+    },
+    "Column": {
+      "source": "Column",
+      "translations": {}
+    },
+    "Column spacing and padding": {
+      "source": "Column spacing and padding",
+      "translations": {}
+    },
+    "Compare status-bar foreground, background, and safe-area handling.": {
+      "source": "Compare status-bar foreground, background, and safe-area handling.",
+      "translations": {}
+    },
+    "Compare the explicit back control with each platform's navigation header.": {
+      "source": "Compare the explicit back control with each platform's navigation header.",
+      "translations": {}
+    },
+    "Complete progress": {
+      "source": "Complete progress",
+      "translations": {}
+    },
+    "Component parity rows": {
+      "source": "Component parity rows",
+      "translations": {}
+    },
+    "Confirmation dialog": {
+      "source": "Confirmation dialog",
+      "translations": {}
+    },
+    "ConfirmationDialog": {
+      "source": "ConfirmationDialog",
+      "translations": {}
+    },
+    "Content above should remain visible when the keyboard opens.": {
+      "source": "Content above should remain visible when the keyboard opens.",
+      "translations": {}
+    },
+    "Content and lists": {
+      "source": "Content and lists",
+      "translations": {}
+    },
+    "Content unavailable": {
+      "source": "Content unavailable",
+      "translations": {}
+    },
+    "ContentUnavailable": {
+      "source": "ContentUnavailable",
+      "translations": {}
+    },
+    "Custom background and radius": {
+      "source": "Custom background and radius",
+      "translations": {}
+    },
+    "Dark appearance surface": {
+      "source": "Dark appearance surface",
+      "translations": {}
+    },
+    "Date and time": {
+      "source": "Date and time",
+      "translations": {}
+    },
+    "Date only": {
+      "source": "Date only",
+      "translations": {}
+    },
+    "Date picker modes": {
+      "source": "Date picker modes",
+      "translations": {}
+    },
+    "DatePicker": {
+      "source": "DatePicker",
+      "translations": {}
+    },
+    "Delete": {
+      "source": "Delete",
+      "translations": {}
+    },
+    "Delete task?": {
+      "source": "Delete task?",
+      "translations": {}
+    },
+    "Departures: {departures}": {
+      "source": "Departures: {departures}",
+      "arguments": [
+        "departures"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Detail": {
+      "source": "Detail",
+      "translations": {}
+    },
+    "Dialog": {
+      "source": "Dialog",
+      "translations": {}
+    },
+    "Disabled": {
+      "source": "Disabled",
+      "translations": {}
+    },
+    "Dismiss": {
+      "source": "Dismiss",
+      "translations": {}
+    },
+    "Divider": {
+      "source": "Divider",
+      "translations": {}
+    },
+    "Divider thickness and color": {
+      "source": "Divider thickness and color",
+      "translations": {}
+    },
+    "Eight": {
+      "source": "Eight",
+      "translations": {}
+    },
+    "Email": {
+      "source": "Email",
+      "translations": {}
+    },
+    "Enabled taps: {taps}": {
+      "source": "Enabled taps: {taps}",
+      "arguments": [
+        "taps"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "End": {
+      "source": "End",
+      "translations": {}
+    },
+    "End aligned": {
+      "source": "End aligned",
+      "translations": {}
+    },
+    "Enter a task": {
+      "source": "Enter a task",
+      "translations": {}
+    },
+    "External link": {
+      "source": "External link",
+      "translations": {}
+    },
+    "FastList": {
+      "source": "FastList",
+      "translations": {}
+    },
+    "FastList row sizing": {
+      "source": "FastList row sizing",
+      "translations": {}
+    },
+    "First group": {
+      "source": "First group",
+      "translations": {}
+    },
+    "First page": {
+      "source": "First page",
+      "translations": {}
+    },
+    "First row": {
+      "source": "First row",
+      "translations": {}
+    },
+    "First section footer": {
+      "source": "First section footer",
+      "translations": {}
+    },
+    "Fixed row height: 56 dp": {
+      "source": "Fixed row height: 56 dp",
+      "translations": {}
+    },
+    "Form and Section": {
+      "source": "Form and Section",
+      "translations": {}
+    },
+    "Form and section": {
+      "source": "Form and section",
+      "translations": {}
+    },
+    "Four dp": {
+      "source": "Four dp",
+      "translations": {}
+    },
+    "Gap": {
+      "source": "Gap",
+      "translations": {}
+    },
+    "Icon": {
+      "source": "Icon",
+      "translations": {}
+    },
+    "Icon sizes and tint": {
+      "source": "Icon sizes and tint",
+      "translations": {}
+    },
+    "Image": {
+      "source": "Image",
+      "translations": {}
+    },
+    "Image asset rendering": {
+      "source": "Image asset rendering",
+      "translations": {}
+    },
+    "Inbox": {
+      "source": "Inbox",
+      "translations": {}
+    },
+    "Inbox tab content": {
+      "source": "Inbox tab content",
+      "translations": {}
+    },
+    "Keep scrolling content stable while refreshing.": {
+      "source": "Keep scrolling content stable while refreshing.",
+      "translations": {}
+    },
+    "Keyboard-aware layout": {
+      "source": "Keyboard-aware layout",
+      "translations": {}
+    },
+    "KeyboardAware": {
+      "source": "KeyboardAware",
+      "translations": {}
+    },
+    "Large capsule": {
+      "source": "Large capsule",
+      "translations": {}
+    },
+    "Layout": {
+      "source": "Layout",
+      "translations": {}
+    },
+    "Leading": {
+      "source": "Leading",
+      "translations": {}
+    },
+    "Light appearance surface": {
+      "source": "Light appearance surface",
+      "translations": {}
+    },
+    "Linear gradient": {
+      "source": "Linear gradient",
+      "translations": {}
+    },
+    "LinearGradient": {
+      "source": "LinearGradient",
+      "translations": {}
+    },
+    "Link": {
+      "source": "Link",
+      "translations": {}
+    },
+    "Loading": {
+      "source": "Loading",
+      "translations": {}
+    },
+    "Mark complete": {
+      "source": "Mark complete",
+      "translations": {}
+    },
+    "Max: {sliderHigh}": {
+      "source": "Max: {sliderHigh}",
+      "arguments": [
+        "sliderHigh"
+      ],
+      "argument_types": [
+        "Float64"
+      ],
+      "translations": {}
+    },
+    "Media and navigation": {
+      "source": "Media and navigation",
+      "translations": {}
+    },
+    "Medium 18": {
+      "source": "Medium 18",
+      "translations": {}
+    },
+    "Middle: {sliderMiddle}": {
+      "source": "Middle: {sliderMiddle}",
+      "arguments": [
+        "sliderMiddle"
+      ],
+      "argument_types": [
+        "Float64"
+      ],
+      "translations": {}
+    },
+    "Min: {sliderLow}": {
+      "source": "Min: {sliderLow}",
+      "arguments": [
+        "sliderLow"
+      ],
+      "argument_types": [
+        "Float64"
+      ],
+      "translations": {}
+    },
+    "Navigate away and back to compare lifecycle delivery.": {
+      "source": "Navigate away and back to compare lifecycle delivery.",
+      "translations": {}
+    },
+    "NavigationBack": {
+      "source": "NavigationBack",
+      "translations": {}
+    },
+    "NavigationBack behavior": {
+      "source": "NavigationBack behavior",
+      "translations": {}
+    },
+    "Next": {
+      "source": "Next",
+      "translations": {}
+    },
+    "No progress": {
+      "source": "No progress",
+      "translations": {}
+    },
+    "No saved tasks": {
+      "source": "No saved tasks",
+      "translations": {}
+    },
+    "No search results": {
+      "source": "No search results",
+      "translations": {}
+    },
+    "Normal 14": {
+      "source": "Normal 14",
+      "translations": {}
+    },
+    "Notes": {
+      "source": "Notes",
+      "translations": {}
+    },
+    "Notifications": {
+      "source": "Notifications",
+      "translations": {}
+    },
+    "One dp": {
+      "source": "One dp",
+      "translations": {}
+    },
+    "One row": {
+      "source": "One row",
+      "translations": {}
+    },
+    "Open actions": {
+      "source": "Open actions",
+      "translations": {}
+    },
+    "Open dialog": {
+      "source": "Open dialog",
+      "translations": {}
+    },
+    "Open example website": {
+      "source": "Open example website",
+      "translations": {}
+    },
+    "Open links in app": {
+      "source": "Open links in app",
+      "translations": {}
+    },
+    "Open partial sheet": {
+      "source": "Open partial sheet",
+      "translations": {}
+    },
+    "Page pager": {
+      "source": "Page pager",
+      "translations": {}
+    },
+    "PagePager": {
+      "source": "PagePager",
+      "translations": {}
+    },
+    "Parity pages": {
+      "source": "Parity pages",
+      "translations": {}
+    },
+    "Parity row {index}": {
+      "source": "Parity row {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Parity section heading": {
+      "source": "Parity section heading",
+      "translations": {}
+    },
+    "Parity sheet": {
+      "source": "Parity sheet",
+      "translations": {}
+    },
+    "Partial progress": {
+      "source": "Partial progress",
+      "translations": {}
+    },
+    "Picker": {
+      "source": "Picker",
+      "translations": {}
+    },
+    "Picker options": {
+      "source": "Picker options",
+      "translations": {}
+    },
+    "Plain": {
+      "source": "Plain",
+      "translations": {}
+    },
+    "Presentation and environment": {
+      "source": "Presentation and environment",
+      "translations": {}
+    },
+    "Previous": {
+      "source": "Previous",
+      "translations": {}
+    },
+    "Progress bar values": {
+      "source": "Progress bar values",
+      "translations": {}
+    },
+    "Progress ring values": {
+      "source": "Progress ring values",
+      "translations": {}
+    },
+    "ProgressBar": {
+      "source": "ProgressBar",
+      "translations": {}
+    },
+    "ProgressRing": {
+      "source": "ProgressRing",
+      "translations": {}
+    },
+    "Prominent": {
+      "source": "Prominent",
+      "translations": {}
+    },
+    "Pull down to refresh": {
+      "source": "Pull down to refresh",
+      "translations": {}
+    },
+    "Pull to refresh": {
+      "source": "Pull to refresh",
+      "translations": {}
+    },
+    "RefreshControl": {
+      "source": "RefreshControl",
+      "translations": {}
+    },
+    "Refreshes: {refreshCount}": {
+      "source": "Refreshes: {refreshCount}",
+      "arguments": [
+        "refreshCount"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Return to component index": {
+      "source": "Return to component index",
+      "translations": {}
+    },
+    "Row": {
+      "source": "Row",
+      "translations": {}
+    },
+    "Row spacing and alignment": {
+      "source": "Row spacing and alignment",
+      "translations": {}
+    },
+    "Save draft": {
+      "source": "Save draft",
+      "translations": {}
+    },
+    "Saved tasks will appear here.": {
+      "source": "Saved tasks will appear here.",
+      "translations": {}
+    },
+    "Screen lifecycle": {
+      "source": "Screen lifecycle",
+      "translations": {}
+    },
+    "Search": {
+      "source": "Search",
+      "translations": {}
+    },
+    "Search tab content": {
+      "source": "Search tab content",
+      "translations": {}
+    },
+    "Second group": {
+      "source": "Second group",
+      "translations": {}
+    },
+    "Second page": {
+      "source": "Second page",
+      "translations": {}
+    },
+    "Second row": {
+      "source": "Second row",
+      "translations": {}
+    },
+    "Section title": {
+      "source": "Section title",
+      "translations": {}
+    },
+    "Segmented control": {
+      "source": "Segmented control",
+      "translations": {}
+    },
+    "SegmentedControl": {
+      "source": "SegmentedControl",
+      "translations": {}
+    },
+    "Selected state": {
+      "source": "Selected state",
+      "translations": {}
+    },
+    "Selected: {segment}": {
+      "source": "Selected: {segment}",
+      "arguments": [
+        "segment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Selected: {selected}": {
+      "source": "Selected: {selected}",
+      "arguments": [
+        "selected"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
+      "translations": {}
+    },
+    "Selected: {sort}": {
+      "source": "Selected: {sort}",
+      "arguments": [
+        "sort"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Selection": {
+      "source": "Selection",
+      "translations": {}
+    },
+    "Semibold 22": {
+      "source": "Semibold 22",
+      "translations": {}
+    },
+    "Sheet content": {
+      "source": "Sheet content",
+      "translations": {}
+    },
+    "Show detail": {
+      "source": "Show detail",
+      "translations": {}
+    },
+    "Show sidebar": {
+      "source": "Show sidebar",
+      "translations": {}
+    },
+    "Sidebar": {
+      "source": "Sidebar",
+      "translations": {}
+    },
+    "Slider": {
+      "source": "Slider",
+      "translations": {}
+    },
+    "Slider values": {
+      "source": "Slider values",
+      "translations": {}
+    },
+    "Sort tasks": {
+      "source": "Sort tasks",
+      "translations": {}
+    },
+    "Spacer": {
+      "source": "Spacer",
+      "translations": {}
+    },
+    "Spacer distribution": {
+      "source": "Spacer distribution",
+      "translations": {}
+    },
+    "Spacing": {
+      "source": "Spacing",
+      "translations": {}
+    },
+    "Stack": {
+      "source": "Stack",
+      "translations": {}
+    },
+    "Stack overlay and alignment": {
+      "source": "Stack overlay and alignment",
+      "translations": {}
+    },
+    "Status bar": {
+      "source": "Status bar",
+      "translations": {}
+    },
+    "StatusBar": {
+      "source": "StatusBar",
+      "translations": {}
+    },
+    "Switch": {
+      "source": "Switch",
+      "translations": {}
+    },
+    "Switch states": {
+      "source": "Switch states",
+      "translations": {}
+    },
+    "Tap the trailing action and compare title placement.": {
+      "source": "Tap the trailing action and compare title placement.",
+      "translations": {}
+    },
+    "Task actions": {
+      "source": "Task actions",
+      "translations": {}
+    },
+    "Task name": {
+      "source": "Task name",
+      "translations": {}
+    },
+    "Text": {
+      "source": "Text",
+      "translations": {}
+    },
+    "Text and controls": {
+      "source": "Text and controls",
+      "translations": {}
+    },
+    "Text input variants": {
+      "source": "Text input variants",
+      "translations": {}
+    },
+    "Text styles and sizing": {
+      "source": "Text styles and sizing",
+      "translations": {}
+    },
+    "TextInput": {
+      "source": "TextInput",
+      "translations": {}
+    },
+    "This action can be undone.": {
+      "source": "This action can be undone.",
+      "translations": {}
+    },
+    "Time range": {
+      "source": "Time range",
+      "translations": {}
+    },
+    "Today": {
+      "source": "Today",
+      "translations": {}
+    },
+    "Today tab content": {
+      "source": "Today tab content",
+      "translations": {}
+    },
+    "Toggle selection": {
+      "source": "Toggle selection",
+      "translations": {}
+    },
+    "Toolbar": {
+      "source": "Toolbar",
+      "translations": {}
+    },
+    "Toolbar action": {
+      "source": "Toolbar action",
+      "translations": {}
+    },
+    "Toolbar placement": {
+      "source": "Toolbar placement",
+      "translations": {}
+    },
+    "Trailing": {
+      "source": "Trailing",
+      "translations": {}
+    },
+    "Try a different keyword.": {
+      "source": "Try a different keyword.",
+      "translations": {}
+    },
+    "Twelve": {
+      "source": "Twelve",
+      "translations": {}
+    },
+    "Twenty with explicit padding": {
+      "source": "Twenty with explicit padding",
+      "translations": {}
+    },
+    "Twenty-four": {
+      "source": "Twenty-four",
+      "translations": {}
+    },
+    "Two dp": {
+      "source": "Two dp",
+      "translations": {}
+    },
+    "Two spacers": {
+      "source": "Two spacers",
+      "translations": {}
+    },
+    "Two-line text checks line height and wrapping across both platforms.": {
+      "source": "Two-line text checks line height and wrapping across both platforms.",
+      "translations": {}
+    },
+    "With padding": {
+      "source": "With padding",
+      "translations": {}
+    },
+    "Zero": {
+      "source": "Zero",
+      "translations": {}
+    }
+  }
+}

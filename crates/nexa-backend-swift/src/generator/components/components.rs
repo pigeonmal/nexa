@@ -539,7 +539,17 @@ fn render_text(
         .line_limit
         .map(|value| value.to_string())
         .unwrap_or("nil".to_owned());
-    let line_spacing = style.line_height.map(number).unwrap_or("nil".to_owned());
+    let base_font_size = style.font_size.unwrap_or_else(|| {
+        style
+            .font_style
+            .map(|font_style| nexa_codegen::design_system::text_metrics(font_style).size as f32)
+            .unwrap_or(nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE as f32)
+    });
+    let line_height_factor = style
+        .line_height
+        .map(|line_height| number(line_height / base_font_size))
+        .unwrap_or("nil".to_owned());
+    let line_height_font_size = number(base_font_size);
     let tracking = style.letter_spacing.map(number).unwrap_or("nil".to_owned());
     let text = crate::generator::expressions::localized_text_view(value, None);
 
@@ -550,7 +560,14 @@ fn render_text(
     out.line_at(depth + 1, format_args!("font: {font},"));
     out.line_at(depth + 1, format_args!("weight: {weight},"));
     out.line_at(depth + 1, format_args!("lineLimit: {line_limit},"));
-    out.line_at(depth + 1, format_args!("lineSpacing: {line_spacing},"));
+    out.line_at(
+        depth + 1,
+        format_args!("lineHeightFactor: {line_height_factor},"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("lineHeightFontSize: {line_height_font_size},"),
+    );
     out.line_at(depth + 1, format_args!("tracking: {tracking},"));
     out.line_at(
         depth + 1,
@@ -617,5 +634,51 @@ pub(crate) fn render_children(
             depth,
             out,
         ),
+    }
+}
+
+#[cfg(test)]
+mod text_tests {
+    use super::render_text;
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::{Expr, TextFontStyle, TextStyle};
+
+    #[test]
+    fn explicit_text_line_height_is_passed_as_a_font_relative_factor() {
+        let mut output = SourceWriter::new();
+
+        render_text(
+            &Expr::String("Two lines".to_owned()),
+            &TextStyle {
+                font_size: Some(16.0),
+                line_height: Some(22.0),
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("lineHeightFactor: 1.375,"));
+        assert!(output.contains("lineHeightFontSize: 16,"));
+        assert!(!output.contains("lineSpacing:"));
+    }
+
+    #[test]
+    fn semantic_text_line_height_uses_the_shared_font_metrics() {
+        let mut output = SourceWriter::new();
+
+        render_text(
+            &Expr::String("Body text".to_owned()),
+            &TextStyle {
+                font_style: Some(TextFontStyle::Body),
+                line_height: Some(22.0),
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("lineHeightFactor: 1.2941177,"));
+        assert!(output.contains("lineHeightFontSize: 17,"));
     }
 }

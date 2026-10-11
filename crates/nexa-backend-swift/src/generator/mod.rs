@@ -249,7 +249,8 @@ struct NexaTextPrimitive: View {
     let font: Font?
     let weight: Font.Weight?
     let lineLimit: Int?
-    let lineSpacing: CGFloat?
+    let lineHeightFactor: CGFloat?
+    let lineHeightFontSize: CGFloat
     let tracking: CGFloat?
     let strikethrough: Bool
     let selectable: Bool
@@ -261,9 +262,9 @@ struct NexaTextPrimitive: View {
             .foregroundStyle(color ?? Color.primary)
             .multilineTextAlignment(alignment ?? .leading)
             .lineLimit(lineLimit)
-            .lineSpacing(lineSpacing ?? 0)
             .tracking(tracking ?? 0)
             .strikethrough(strikethrough)
+            .__NEXA_TEXT_LINE_HEIGHT_MODIFIER__
         if selectable {
             styledText.textSelection(.enabled)
         } else {
@@ -1235,6 +1236,7 @@ struct NexaNavigationScreenPrimitive<Content: View>: View {
         content
             .navigationTitle(title)
             .modifier(NexaNavigationTitleDisplayModePrimitive(large: true))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder
@@ -1367,7 +1369,7 @@ struct NexaTabLabelPrimitive: View {
 
 "#;
 
-fn shared_component_primitives() -> String {
+fn shared_component_primitives(line_height: bool) -> String {
     let tokens = [
         (
             "__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__",
@@ -1444,10 +1446,46 @@ fn shared_component_primitives() -> String {
             nexa_codegen::design_system::PAGE_INDICATOR_BOTTOM_INSET.to_string(),
         ),
     ];
-    tokens.iter().fold(
+    let mut source = tokens.iter().fold(
         NEXA_SHARED_COMPONENT_PRIMITIVES.to_owned(),
         |source, (token, value)| source.replace(token, value),
-    )
+    );
+    let line_height_modifier = if line_height {
+        r#"modifier(NexaTextLineHeightModifier(
+                factor: lineHeightFactor,
+                baseFontSize: lineHeightFontSize
+            ))"#
+    } else {
+        "lineSpacing(0)"
+    };
+    source = source.replace("__NEXA_TEXT_LINE_HEIGHT_MODIFIER__", line_height_modifier);
+    if line_height {
+        source.push_str(
+            r#"
+
+// nexa-codegen: NexaTextLineHeightModifier
+private struct NexaTextLineHeightModifier: ViewModifier {
+    let factor: CGFloat?
+    let baseFontSize: CGFloat
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let factor {
+            if #available(iOS 26.0, *) {
+                content.lineHeight(.multiple(factor: factor))
+            } else {
+                content.lineSpacing(
+                    baseFontSize * factor - UIFont.systemFont(ofSize: baseFontSize).lineHeight
+                )
+            }
+        } else {
+            content.lineSpacing(0)
+        }
+    }
+}
+"#,
+        );
+    }
+    source
 }
 
 const NEXA_REGEX_HELPERS: &str = r#"struct NexaRegexMatch {
@@ -1654,7 +1692,7 @@ fn generate_with_analysis_mode(
     }
     preamble.push_str(NEXA_COLLECTION_HELPERS);
     let mut units = SourceUnits::new("swift");
-    units.set_imports(&imports::render(&features));
+    units.set_imports(&imports::render_with_dev_runtime(&features, dev_runtime));
     units.set_preamble(&preamble);
     // Value codecs live in the types file: app structs and enums are
     // file-private, and a codec for one has to construct and read it.
@@ -1950,10 +1988,12 @@ fn generate_with_analysis_mode(
         .map(|unit| unit.contents.as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    let primitive_source =
+        shared_component_primitives(dev_runtime || features.facts.ui.text.line_height);
     let primitives = if dev_runtime {
-        nexa_codegen::source_sections::all(&shared_component_primitives())
+        nexa_codegen::source_sections::all(&primitive_source)
     } else {
-        nexa_codegen::source_sections::reachable(&shared_component_primitives(), &references)
+        nexa_codegen::source_sections::reachable(&primitive_source, &references)
     };
     generated.prepend_to_unit("NexaGenerated_types.swift", &primitives);
     generated
@@ -2113,7 +2153,7 @@ mod tests {
 
     #[test]
     fn shared_button_primitive_embeds_design_system_geometry() {
-        let primitives = shared_component_primitives();
+        let primitives = shared_component_primitives(false);
 
         assert!(primitives.contains("struct NexaButtonPrimitive<Label: View>"));
         assert!(primitives.contains("struct NexaFormPrimitive<Content: View>"));
@@ -2133,7 +2173,7 @@ mod tests {
 
     #[test]
     fn shared_picker_primitive_owns_all_native_picker_variants() {
-        let primitives = shared_component_primitives();
+        let primitives = shared_component_primitives(false);
         assert!(primitives.contains("struct NexaPickerPrimitive<LabelContent: View>"));
         assert!(primitives.contains("func nexaPickerTint(_ tint: Color?)"));
         assert!(primitives.contains(".nexaPickerTint(tint)"));
@@ -2145,7 +2185,7 @@ mod tests {
 
     #[test]
     fn shared_presentation_primitives_own_sheet_and_dialog_modifiers() {
-        let primitives = shared_component_primitives();
+        let primitives = shared_component_primitives(false);
         for declaration in [
             "struct NexaBottomSheetPrimitive<Content: View>",
             "struct NexaAlertDialogPrimitive<Actions: View>",
@@ -2165,7 +2205,7 @@ mod tests {
 
     #[test]
     fn shared_page_indicator_owns_dot_geometry_color_and_accessibility() {
-        let primitives = shared_component_primitives();
+        let primitives = shared_component_primitives(false);
         assert!(primitives.contains("struct NexaPageIndicatorPrimitive: View"));
         assert!(primitives.contains("Color(uiColor: .systemBlue)"));
         assert!(primitives.contains("width: selectedIndex == index ? 8 : 6"));
@@ -2173,6 +2213,15 @@ mod tests {
         assert!(primitives.contains("struct NexaPageIndicatorRow: View"));
         assert!(primitives.contains("HStack(spacing: 8)"));
         assert!(primitives.contains(".padding(.bottom, 24)"));
+    }
+
+    #[test]
+    fn text_line_height_uses_total_height_semantics_with_a_legacy_fallback() {
+        let primitives = shared_component_primitives(true);
+
+        assert!(primitives.contains("content.lineHeight(.multiple(factor: factor))"));
+        assert!(primitives.contains("UIFont.systemFont(ofSize: baseFontSize).lineHeight"));
+        assert!(!primitives.contains("__NEXA_TEXT_LINE_HEIGHT_MODIFIER__"));
     }
 
     fn regex_module(enabled: bool) -> Module {
@@ -2595,7 +2644,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_image_elements_use_a_namespace_across_navigation_screens() {
+    fn navigation_screens_fill_content_and_share_image_namespace() {
         let image = Node::Image {
             source: ImageSource::Asset("hero".to_owned()),
             description: "Hero".to_owned(),
@@ -2644,6 +2693,12 @@ mod tests {
         let swift = generate(&module);
         assert!(swift.contains("@Namespace private var nexaSharedNamespace"));
         assert!(swift.contains("Group {\n            NavigationStack"));
+        assert!(
+            swift.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)")
+        );
+        assert!(swift.contains(
+            ".modifier(NexaNavigationTitleDisplayModePrimitive(large: true))\n            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)"
+        ));
         assert!(swift.contains(".nexaSharedElement(id: \"hero-image\")"));
         assert!(swift.contains(".environment(\\.nexaSharedNamespace, nexaSharedNamespace)"));
         assert!(swift.contains("matchedGeometryEffect(id: id, in: namespace)"));

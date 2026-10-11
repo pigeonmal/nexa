@@ -1176,6 +1176,8 @@ private fun NexaDevRenderNavigationNode(
                 partial = partial,
                 largeOnly = fields.optBoolean("large_only", false),
                 title = title,
+                hasNavigationIcon = leading.length() > 0,
+                hasActions = trailing.length() > 0,
                 onDismissRequest = { store.setState(state, false, scope) },
                 navigationIcon = { RenderChildren(leading, module, store, locals, scope) },
                 actions = { RenderChildren(trailing, module, store, locals, scope) },
@@ -2242,6 +2244,7 @@ private fun NexaDevRenderAppBottomBarNode(
                                 NexaLargeTitlePrimitive(
                                     identity = "nexa-tab-title-$activeIndex",
                                     title = title,
+                                    centerCollapsedTitle = toolbarItems.isEmpty(),
                                     containerColor = contentBackground,
                                     modifier = contentModifier,
                                     navigationIcon = {

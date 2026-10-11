@@ -411,7 +411,9 @@ pub(crate) fn render_screen_view(
         .cloned()
         .collect::<Vec<_>>();
     render_children(&content, module, features, 3, out);
-    out.push_str("\n        }\n");
+    out.push_str(
+        "\n        }\n            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)\n",
+    );
     for toolbar in screen
         .body
         .iter()

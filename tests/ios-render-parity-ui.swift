@@ -114,7 +114,10 @@ final class NexaRenderParityTests: XCTestCase {
         label: String,
         targetY: CGFloat
     ) {
-        let anchor = app.staticTexts[label]
+        // Form section headers can be exposed as `Other` rather than
+        // `StaticText` on newer iOS releases. Resolve the already-discovered
+        // label without assuming a native accessibility element type.
+        let anchor = element(label, app: app)
         guard anchor.exists else { return }
         let scrollContainer: XCUIElement = scrollView(containing: anchor, app: app) ?? app
 
