@@ -23,6 +23,56 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v285` | Uses a compact iOS keyboard detent so focused sheet content scrolls without expanding to full height. |
+| `build-v284` | Animates keyboard-driven bottom-sheet detents and restores the prior detent after editing. |
+| `build-v283` | Opens Android sheets at the large detent like iOS and fills the expanded sheet viewport. |
+| `build-v282` | Aligns Compose title3 fields and bottom-sheet toolbar affordances with SwiftUI. |
+| `build-v281` | Renders shared Android text fields without Material decoration or internal padding. |
+| `build-v280` | Uses unpadded native Compose text fields so shared sheet inputs align with SwiftUI. |
+| `build-v279` | Shares compact navigation-title typography with Theme and expands Compose text fields to their SwiftUI-proposed width. |
+| `build-v278` | Positions an Android keyboard-expanded sheet below the system status bar. |
+| `build-v277` | Lets Android bottom sheets fill the keyboard-reduced viewport while editing, matching iOS expansion. |
+| `build-v276` | Expands Android modal sheets while the keyboard is visible and restores their partial detent after dismissal. |
+| `build-v275` | Matches Android destination large-title behavior to iOS and keeps bottom-sheet toolbars, keyboard focus, and conditional grouped surfaces aligned. |
+| `build-v274` | Matches Android navigation destination title scale and weight while retaining compact centered titles and grouped surfaces. |
+| `build-v273` | Keeps Android navigation destination titles compact and centered while matching grouped screen surfaces. |
+| `build-v272` | Extends Android grouped list and form surfaces behind matching navigation headers. |
+| `build-v271` | Keeps Android navigation destination headers at the existing height while starting them below the status bar. |
+| `build-v270` | Positions Android navigation-destination headers below the status bar to match iOS large-title placement. |
+| `build-v269` | Matches Android destination title spacing to the expanded native iOS navigation header. |
+| `build-v263` | Aligns SwiftUI native-list backgrounds, separators, and row insets with Android shared rows. |
+| `build-v262` | Keeps Android large titles anchored and vertically centered while enabling scroll gestures only for overflowing content. |
+| `build-v258` | Increases Android's collapsed app-tab title size to 17sp. |
+| `build-v257` | Paints Android searchable-tab backgrounds behind keyboard inset padding. |
+| `build-v256` | Increases the Android empty-state icon size from 55dp to 58dp. |
+| `build-v255` | Places the Android Form top inset inside scrollable content to preserve the header. |
+| `build-v254` | Sets the Android Form content top inset to align its first section with iOS. |
+| `build-v253` | Aligns the Android Form content top inset with the native iOS Form margin. |
+| `build-v252` | Adds the native-equivalent top content inset to Android Forms. |
+| `build-v251` | Reduces shared Android large-title app-bar height to tighten title-to-content spacing. |
+| `build-v250` | Uses one shared 28-point app-tab title size across SwiftUI and Compose. |
+| `build-v249` | Sets iOS app-tab large-title font attributes for the native navigation bar. |
+| `build-v248` | Reads optional native large-title text attributes before applying the iOS title font. |
+| `build-v247` | Sets a compact native large-title font for iOS app-tab navigation bars. |
+| `build-v246` | Emits explicit 28-point styling for inline large app-tab title text. |
+| `build-v245` | Passes app-tab navigation titles as styled SwiftUI text on iOS 26. |
+| `build-v239` | Uses modern top-bar placements for SwiftUI toolbar items. |
+| `build-v231` | Detects Android native lists inside conditional tab content for grouped headers. |
+| `build-v232` | Uses one shared Android large-title header size across screens. |
+| `build-v233` | Applies one Android hairline color and thickness to automatic separators. |
+| `build-v234` | Reduces the shared Android expanded large-title top padding. |
+| `build-v235` | Reduces the shared Android expanded large-title height. |
+| `build-v236` | Uses symmetrical horizontal insets for Android large-title toolbars. |
+| `build-v237` | Gives iOS large titles their native full-width row alongside toolbar actions. |
+| `build-v238` | Restores iOS inline large titles for alignment with native toolbar actions. |
+| `build-v230` | Aligns Android native-list tab headers, surfaces, row spacing, and divider insets with iOS. |
+| `build-v229` | Reduces the gap between Android Form large titles and their first section. |
+| `build-v228` | Moves Android Form large titles closer to the status bar. |
+| `build-v227` | Aligns Android Form row density, large-title placement, and divider insets with iOS. |
+| `build-v226` | Renders Android grouped-form separators as consistent single-pixel hairlines. |
+| `build-v225` | Prevents repeated Android back taps from popping the root screen during navigation transitions. |
+| `build-v224` | Makes the label area of iOS switches toggle the setting while preserving the native switch control. |
+| `build-v223` | Reduces the Android empty-state icon size from 60dp to 55dp. |
 | `build-v222` | Renders Android toolbar navigation links as compact icon actions instead of full-width rows. |
 | `build-v221` | Keeps Android large-title placement consistent across tabs and restores native large-title scrolling on iOS. |
 | `build-v220` | Reduces Android large-title app bar height on tabs without toolbar actions. |

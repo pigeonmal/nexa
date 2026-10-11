@@ -1,12 +1,7 @@
 component TaskListRow() {
     body {
-        platform ios {
+        Column(padding: 8) {
             Content()
-        }
-        platform android {
-            Column(padding: 8) {
-                Content()
-            }
         }
     }
 }

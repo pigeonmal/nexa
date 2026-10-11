@@ -70,6 +70,17 @@ Keep visual styling in named component parameters. Dot modifiers are not a styli
 dot modifiers catalog-driven. Change the syntax catalog and parser together, add
 acceptance/rejection tests, and regenerate syntax documentation from the catalog.
 
+### Simulator verification with Argent
+
+The repository configures Argent's MCP server in `.codex/config.toml` and keeps its focused
+simulator, emulator, screenshot-diff, and UI-flow skills under `.agents/skills/argent-*`. For a
+visible component or backend change, use Argent to inspect the same screen on iOS and Android,
+exercise the relevant controls, and capture comparable screenshots after rebuilding both targets.
+Use accessibility trees for element and interaction checks, and screenshot diffs for stable visual
+comparisons. Treat screenshots as evidence alongside native behavior checks; preserve intentional
+platform-native controls, bottom bars, and glass UI. Use the `nexa-app` skill's **Visual QA with
+Argent** workflow for the full paired-device loop.
+
 ## Development hot reload
 
 - Built-in components must route both AOT generation and DevRuntime dispatch through the same

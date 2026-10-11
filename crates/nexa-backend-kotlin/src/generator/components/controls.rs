@@ -109,6 +109,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_button,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_button,
         "androidx.compose.foundation.layout.Spacer",
     );
     imports.add(
@@ -145,8 +149,12 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.Row",
     );
     imports.add(
-        features.uses_switch,
+        features.uses_switch || features.uses_date_picker,
         "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_switch || features.uses_date_picker,
+        "androidx.compose.foundation.selection.toggleable",
     );
     imports.add(features.uses_switch, "androidx.compose.ui.Alignment");
     imports.add(features.uses_switch, "androidx.compose.ui.Modifier");
@@ -156,6 +164,14 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_picker,
         "androidx.compose.foundation.layout.Row",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.foundation.layout.wrapContentWidth",
     );
     imports.add(
         features.uses_picker,
@@ -318,6 +334,7 @@ pub(crate) fn render_button(
     tint: Option<&nexa_ir::ColorExpression>,
     actions: &[Action],
     full_width: bool,
+    leading_content: bool,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -377,6 +394,10 @@ pub(crate) fn render_button(
         format_args!("iconOnlyCircle = {icon_only_circle},"),
     );
     out.line_at(depth + 1, format_args!("fullWidth = {full_width},"));
+    out.line_at(
+        depth + 1,
+        format_args!("leadingContent = {leading_content},"),
+    );
     out.line_at(depth + 1, format_args!("onClick = {{"));
     render_actions(actions, depth + 2, out);
     out.line_at(depth + 1, format_args!("}},"));
@@ -495,12 +516,14 @@ pub(crate) fn render_segmented_control(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_picker(
     items: &Expr,
     state: &str,
     icon: Option<&SystemIcon>,
     label: Option<&Expr>,
     tint: Option<&nexa_ir::ColorExpression>,
+    fill_max_width: bool,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -511,10 +534,11 @@ pub(crate) fn render_picker(
         || "null".to_owned(),
         crate::generator::colors::expression_for_color,
     );
+    let fill_max_width = fill_max_width.to_string();
     out.line_at(
         depth,
         format_args!(
-            "NexaPickerPrimitive(items = {}, selected = {selected}, icon = {icon}, label = {label}, tint = {tint}) {{ {selected} = it }}",
+            "NexaPickerPrimitive(items = {}, selected = {selected}, icon = {icon}, label = {label}, tint = {tint}, fillMaxWidth = {fill_max_width}) {{ {selected} = it }}",
             expression(items),
         ),
     );
@@ -1340,13 +1364,17 @@ mod tests {
             Some(&SystemIcon::Shared("flag_filled".to_owned())),
             None,
             None,
+            true,
             0,
             &mut output,
         );
 
         assert!(output.contains("NexaPickerPrimitive(items = listOf(\"Low\")"));
         assert!(output.contains("icon = Icons.Filled.Flag"));
-        assert!(output.contains("label = null, tint = null) { nexa_priority = it }"));
+        assert!(
+            output
+                .contains("label = null, tint = null, fillMaxWidth = true) { nexa_priority = it }")
+        );
     }
 
     #[test]
@@ -1364,12 +1392,13 @@ mod tests {
             Some(&SystemIcon::Shared("flag_filled".to_owned())),
             None,
             Some(&tint),
+            true,
             0,
             &mut output,
         );
 
         assert!(output.contains("nexaColorFromHex(nexa_priorityTint)"));
-        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), selected = nexa_priority, icon = Icons.Filled.Flag, label = null, tint = nexaColorFromHex(nexa_priorityTint))"));
+        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), selected = nexa_priority, icon = Icons.Filled.Flag, label = null, tint = nexaColorFromHex(nexa_priorityTint), fillMaxWidth = true)"));
     }
 
     #[test]
@@ -1387,6 +1416,7 @@ mod tests {
             Some(nexa_ir::ButtonShape::Capsule),
             None,
             &[],
+            false,
             false,
             0,
             &mut output,
@@ -1418,6 +1448,7 @@ mod tests {
             None,
             &[],
             false,
+            false,
             0,
             &mut output,
         );
@@ -1442,6 +1473,7 @@ mod tests {
             None,
             None,
             &[],
+            false,
             false,
             0,
             &mut output,
@@ -1471,6 +1503,7 @@ mod tests {
             Some(nexa_ir::ButtonShape::Circle),
             None,
             &[],
+            false,
             false,
             0,
             &mut output,

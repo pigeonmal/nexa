@@ -37,4 +37,4 @@ pub(crate) mod status_bar;
 pub(crate) mod system_icons;
 pub(crate) mod text;
 
-pub(super) use node_renderer::{render_children, render_node};
+pub(super) use node_renderer::{render_children, render_node, render_node_in_form_row};

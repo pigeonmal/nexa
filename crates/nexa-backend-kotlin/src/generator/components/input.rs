@@ -33,6 +33,8 @@ pub(crate) struct TextInputProps<'a> {
 }
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
+    imports.add(true, "androidx.compose.foundation.layout.size");
     imports.add(
         features.uses_text_input,
         "androidx.compose.ui.res.stringResource",
@@ -56,6 +58,18 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_focus,
         "androidx.compose.ui.focus.onFocusChanged",
+    );
+    imports.add(
+        features.uses_text_input,
+        "androidx.compose.ui.focus.onFocusChanged",
+    );
+    imports.add(
+        features.uses_text_input,
+        "androidx.compose.foundation.relocation.bringIntoViewRequester",
+    );
+    imports.add(
+        features.uses_text_input,
+        "androidx.compose.foundation.layout.ime",
     );
     imports.add(
         features.uses_focus,
@@ -176,17 +190,27 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         out.line_at(depth + 1, format_args!("searchable = false,"));
     }
     out.line_at(depth + 1, format_args!("secure = {secure},"));
-    if weight_in_row || focused.is_some() || autofill.is_some() || horizontal_padding.is_some() {
+    if weight_in_row || horizontal_padding.is_some() || !searchable {
         indent(out, depth + 1);
         out.push_str("modifier = Modifier");
         if let Some(horizontal_padding) = horizontal_padding {
             out.push_str(&format!(
                 ".fillMaxWidth().padding(horizontal = {horizontal_padding}.dp)"
             ));
+        } else if !weight_in_row && !searchable {
+            // SwiftUI text fields take the width proposed by their parent stack.
+            // Compose TextField otherwise uses a narrower intrinsic width and
+            // gets centered in a Column, which makes form fields drift inward.
+            out.push_str(".fillMaxWidth()");
         }
         if weight_in_row {
             out.push_str(".weight(1f)");
         }
+        out.push_str(",\n");
+    }
+    if focused.is_some() || autofill.is_some() {
+        indent(out, depth + 1);
+        out.push_str("focusModifier = Modifier");
         if let Some(focused) = focused {
             out.push('\n');
             indent(out, depth + 2);
@@ -213,10 +237,13 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
     }
     if let Some(font) = font {
         let style = match font {
-            TextInputFont::Body => "androidx.compose.material3.MaterialTheme.typography.bodyLarge",
-            TextInputFont::Title3 => {
-                "androidx.compose.material3.MaterialTheme.typography.titleMedium"
+            TextInputFont::Body => {
+                "androidx.compose.material3.MaterialTheme.typography.bodyLarge".to_owned()
             }
+            TextInputFont::Title3 => format!(
+                "androidx.compose.material3.MaterialTheme.typography.titleMedium.copy(fontSize = {}.sp)",
+                nexa_codegen::design_system::TEXT_INPUT_TITLE3_FONT_SIZE
+            ),
         };
         out.line_at(depth + 1, format_args!("textStyle = {style},"));
     }

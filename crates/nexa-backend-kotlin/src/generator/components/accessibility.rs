@@ -2,7 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_ir::{AccessibilityRole, Expr, Node};
 
 use crate::generator::engine::imports::ImportSet;
-use crate::generator::{components::render_children, expressions::expression, features::Features};
+use crate::generator::{expressions::expression, features::Features};
 
 use super::RenderScope;
 
@@ -44,6 +44,37 @@ pub(crate) fn render_accessibility(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    render_accessibility_with_children(
+        label,
+        hint,
+        value,
+        role,
+        children,
+        depth,
+        out,
+        |children, child_depth, out| {
+            crate::generator::components::render_children(
+                children,
+                scope.module,
+                scope.features,
+                child_depth,
+                out,
+            );
+        },
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_accessibility_with_children(
+    label: &Expr,
+    hint: Option<&Expr>,
+    value: Option<&Expr>,
+    role: AccessibilityRole,
+    children: &[Node],
+    depth: usize,
+    out: &mut SourceWriter,
+    render_children: impl FnOnce(&[Node], usize, &mut SourceWriter),
+) {
     let child_has_same_image_label = matches!((label, children),
         (Expr::String(label), [Node::Image { description, .. }]) if description == label
     );
@@ -81,7 +112,7 @@ pub(crate) fn render_accessibility(
         format_args!("omitLabel = {child_has_same_image_label},"),
     );
     out.line_at(depth, format_args!(") {{"));
-    render_children(children, scope.module, scope.features, depth + 1, out);
+    render_children(children, depth + 1, out);
     out.push('\n');
     out.line_at(depth, format_args!("}}"));
 }

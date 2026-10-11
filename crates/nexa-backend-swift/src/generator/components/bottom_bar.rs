@@ -64,7 +64,13 @@ pub(crate) fn render_bottom_bar_helpers(
                         .cloned()
                         .collect();
                     render_children(&content, module, features, 3, out);
-                    out.push_str("\n        }\n    }\n");
+                    out.push_str("\n        }");
+                    if tab_contains_grouped_surface(&tab.children) {
+                        out.push_str(
+                            "\n        .frame(maxWidth: .infinity, maxHeight: .infinity)\n        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())",
+                        );
+                    }
+                    out.push_str("\n    }\n");
                 }
             } else if let Node::PagePager { state, pages } = node {
                 let prefix = format!("nexa_{}_page", state_name(state));
@@ -80,6 +86,19 @@ pub(crate) fn render_bottom_bar_helpers(
         },
         &mut |_| {},
     );
+}
+
+fn tab_contains_grouped_surface(children: &[Node]) -> bool {
+    let mut found = false;
+    walk_ir(
+        children,
+        &mut |node| {
+            found |= matches!(node, Node::Form { .. })
+                || matches!(node, Node::FastList { plan } if plan.native());
+        },
+        &mut |_| {},
+    );
+    found
 }
 
 pub(crate) fn render_navigation_toolbar(
@@ -218,10 +237,9 @@ fn render_app_tab_navigation_modifiers(
                     swift_string(title)
                 )
             });
-        out.push_str(&format!("\n.navigationTitle({title})"));
         let large = titled_tabs.iter().all(|(tab, _)| tab.large_title);
         out.push_str(&format!(
-            "\n.modifier(NexaNavigationTitleDisplayModePrimitive(large: {large}))"
+            "\n.modifier(NexaAppTabNavigationTitlePrimitive(title: {title}, large: {large}))"
         ));
     }
 
@@ -281,8 +299,8 @@ pub(crate) fn render_navigation_toolbar_items(
         return;
     };
     let placement = match placement {
-        ToolbarPlacement::Leading => ".navigationBarLeading",
-        ToolbarPlacement::Trailing => ".navigationBarTrailing",
+        ToolbarPlacement::Leading => ".topBarLeading",
+        ToolbarPlacement::Trailing => ".topBarTrailing",
     };
     for child in children {
         out.line_at(
@@ -490,6 +508,7 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains(".modifier(NexaNavigationTitleDisplayModePrimitive(large: true))"));
+        assert!(output.contains(".modifier(NexaAppTabNavigationTitlePrimitive(title:"));
+        assert!(output.contains("large: true))"));
     }
 }

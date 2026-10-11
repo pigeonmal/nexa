@@ -864,6 +864,14 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(kotlin.contains("NexaRuntime.bind(currentContext)"));
     assert!(kotlin.contains("NexaRuntime.bindPermissionLauncher(permissionLauncher)"));
 
+    let activity = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),
+    )
+    .expect("read Android activity edge-to-edge layout");
+    assert!(activity.contains("enableEdgeToEdge()"));
+    assert!(activity.contains("WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)"));
+    assert!(!activity.contains("WindowInsetsSides.Top"));
+
     let kotlin_primitives =
         fs::read_to_string(output.join(
             "android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_image_primitives.kt",
@@ -1669,8 +1677,34 @@ fn development_runtime_renders_bottom_tabs_on_both_platforms() {
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),
     )
     .expect("read Android bottom-bar activity");
-    assert!(activity.contains(
-        "WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)"
-    ));
+    assert!(activity.contains("WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)"));
+    assert!(!activity.contains("WindowInsetsSides.Top"));
     assert!(activity.contains("color = Color.Transparent"));
+}
+
+#[test]
+fn android_aot_activity_draws_under_status_bar_by_default() {
+    let root = temporary_project();
+    let source = root.path().join("edge-to-edge-app");
+    fs::create_dir(&source).expect("create isolated app source directory");
+    let entry = source.join("App.nx");
+    fs::write(
+        &entry,
+        "app EdgeToEdgeProbe { body { Text(\"Edge to edge\") } }",
+    )
+    .expect("write a simple Android app");
+    let output = source.join("build");
+
+    nexa_cli::generate_project(&entry, "android", &output, "EdgeToEdgeProbe")
+        .expect("generate an Android AOT app");
+
+    let activity = fs::read_to_string(
+        output.join("android/app/src/main/java/com/nexa/edgetoedgeprobe/MainActivity.kt"),
+    )
+    .expect("read generated Android AOT activity");
+    assert!(activity.contains("enableEdgeToEdge()"));
+    assert!(activity.contains(
+        "WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)"
+    ));
+    assert!(!activity.contains("safeDrawingPadding()"));
 }

@@ -2296,6 +2296,38 @@ fn keyboard_ergonomics_are_consumed_by_dev_runtime() {
 }
 
 #[test]
+fn searchable_tabs_paint_the_background_behind_keyboard_insets_in_dev_runtime() {
+    let (root, _) = fixture();
+    let kotlin_renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+    let content_modifier = kotlin_renderer
+        .split("val contentModifier = when {")
+        .nth(1)
+        .expect("find Android tab content modifier")
+        .split("if (activeTab.optBoolean(\"large_title\")")
+        .next()
+        .expect("find the end of the Android tab content modifier");
+    let search_inset_branch = content_modifier
+        .split("hasKeyboardInset -> Modifier")
+        .nth(1)
+        .expect("find the searchable tab keyboard-inset branch")
+        .split("hasGroupedSurface ->")
+        .next()
+        .expect("find the end of the searchable tab keyboard-inset branch");
+    let background = search_inset_branch
+        .find(".background(contentBackground)")
+        .expect("paint the search screen background");
+    let keyboard_inset = search_inset_branch
+        .find(".imePadding()")
+        .expect("keep the search screen keyboard-aware");
+
+    assert!(
+        background < keyboard_inset,
+        "the search screen background must include the keyboard inset area"
+    );
+}
+
+#[test]
 fn dev_renderers_keep_release_native_structure_for_common_controls() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))

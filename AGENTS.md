@@ -121,12 +121,29 @@ Nexa provides specialized AI agent skills located under `.agents/skills/`. Agent
    - **When to Use**: Eliminating heap allocations, avoiding view type erasure (`AnyView`), unboxing Kotlin states, profiling virtualized list scrolls, or optimizing zero-copy C++ buffers.
    - **Key Resources**: `crates/nexa-backend-*/`, [`.agents/learnings.md`](file:///.agents/learnings.md), [`docs/architecture.md`](file:///docs/architecture.md).
 
+5. **[`nexa-swift-expert`](file:///.agents/skills/nexa-swift-expert/SKILL.md)**:
+   - **Role**: SwiftUI and Swift Concurrency Specialist, sourced from independent upstream experts.
+   - **When to Use**: Reviewing or changing generated SwiftUI, Swift 6 concurrency, or Swift plugin code.
+   - **Upstream**: Paul Hudson's SwiftUI Pro and Swift Concurrency Pro, pinned in the skill folder.
+     Read the Nexa adapter for AOT and parity constraints.
+   - **Key Resources**: `.agents/skills/nexa-swift-expert/upstream/`, `crates/nexa-backend-swift/`.
+
+6. **[`nexa-kotlin-expert`](file:///.agents/skills/nexa-kotlin-expert/SKILL.md)**:
+   - **Role**: Jetpack Compose and Kotlin Specialist, routed to independent Compose and coroutine experts.
+   - **When to Use**: Reviewing or changing generated Compose UI, Kotlin lifecycle/coroutines, or
+     Kotlin plugin code.
+   - **Upstream**: Compose Agent by Ivan Morgillo and AlDefy's Compose Expert, pinned in the skill
+     folder. Read the Nexa adapter for AOT and parity constraints.
+   - **Key Resources**: `.agents/skills/nexa-kotlin-expert/upstream/`, `crates/nexa-backend-kotlin/`.
+
 ### Routing Matrix:
 
 | Task Type | Relevant Skill | Primary Code / Docs Location |
 |---|---|---|
 | **Authoring `.nx` Apps** | [`nexa-app`](file:///.agents/skills/nexa-app/SKILL.md) | `examples/`, [`docs/language-guide.md`](file:///docs/language-guide.md) |
 | **Compiler, AST, IR, or Backends** | [`nexa-framework`](file:///.agents/skills/nexa-framework/SKILL.md) | `crates/nexa-compiler/`, `crates/nexa-ir/`, [`docs/architecture.md`](file:///docs/architecture.md) |
+| **SwiftUI / Swift Concurrency output** | [`nexa-swift-expert`](file:///.agents/skills/nexa-swift-expert/SKILL.md) | `crates/nexa-backend-swift/`, `.agents/skills/nexa-swift-expert/upstream/` |
+| **Jetpack Compose / Kotlin output** | [`nexa-kotlin-expert`](file:///.agents/skills/nexa-kotlin-expert/SKILL.md) | `crates/nexa-backend-kotlin/`, `.agents/skills/nexa-kotlin-expert/upstream/` |
 | **Native Plugins (Swift, Kotlin, C++)** | [`nexa-plugin`](file:///.agents/skills/nexa-plugin/SKILL.md) | `crates/nexa-plugin-idl/`, `crates/nexa-codegen/`, [`docs/plugins.md`](file:///docs/plugins.md) |
 | **Performance Profiling & Optimization** | [`nexa-performance`](file:///.agents/skills/nexa-performance/SKILL.md) | `crates/nexa-backend-*/`, [`.agents/learnings.md`](file:///.agents/learnings.md) |
 

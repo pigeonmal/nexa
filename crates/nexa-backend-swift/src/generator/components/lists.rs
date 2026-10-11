@@ -103,7 +103,7 @@ pub(crate) fn render_virtualized_list(
             );
             if row_references_binding(&common.children, &common.index) {
                 out.line_at(
-                    depth + 1,
+                    depth + if common.native { 2 } else { 1 },
                     format_args!(
                         "let {}: Int32 = Int32(listPosition)",
                         state_name(&common.index)
@@ -159,7 +159,7 @@ pub(crate) fn render_virtualized_list(
             );
             if row_references_binding(&common.children, &common.index) {
                 out.line_at(
-                    depth + 1,
+                    depth + if common.native { 2 } else { 1 },
                     format_args!(
                         "let {}: Int32 = Int32(clamping: listPosition)",
                         state_name(&common.index)
@@ -167,7 +167,7 @@ pub(crate) fn render_virtualized_list(
                 );
             }
             out.line_at(
-                depth + 1,
+                depth + if common.native { 2 } else { 1 },
                 format_args!(
                     "let {}: {} = {collection}[listPosition]",
                     state_name(item),
@@ -180,13 +180,21 @@ pub(crate) fn render_virtualized_list(
         ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.native,
         ListPlan::Sections { .. } => false,
     };
+    if native {
+        out.line_at(depth + 2, format_args!("NexaNativeListRowPrimitive {{"));
+    }
     render_children(
         plan.children(),
         module,
         features,
-        depth + if native { 2 } else { 1 },
+        depth + if native { 3 } else { 1 },
         out,
     );
+    if native {
+        out.push('\n');
+        indent(out, depth + 2);
+        out.push('}');
+    }
     if let Some(actions) = plan.swipe_actions() {
         out.push('\n');
         indent(out, depth + 2);
@@ -360,8 +368,12 @@ fn render_sectioned_list(
                 state_name("sectionItems")
             ),
         );
-        out.line_at(depth + 4, format_args!("VStack(spacing: 0) {{"));
-        render_children(children, scope.module, scope.features, depth + 5, out);
+        out.line_at(depth + 4, format_args!("NexaNativeListRowPrimitive {{"));
+        out.line_at(depth + 5, format_args!("VStack(spacing: 0) {{"));
+        render_children(children, scope.module, scope.features, depth + 6, out);
+        out.push('\n');
+        indent(out, depth + 5);
+        out.push('}');
         out.push('\n');
         indent(out, depth + 4);
         out.push('}');
@@ -406,7 +418,7 @@ fn render_sectioned_list(
         indent(out, depth + 1);
         out.push_str("}\n");
         indent(out, depth);
-        out.push('}');
+        out.push_str("}.modifier(NexaNativeListStyleModifier())");
         return;
     }
     indent(out, depth);

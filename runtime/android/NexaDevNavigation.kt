@@ -147,7 +147,11 @@ internal fun RenderNavigationStack(
                             } else {
                                 NexaNavigationScreenPrimitive(
                                     title = screen.optString("name"),
-                                    onBack = { navController.popBackStack() },
+                                    onBack = {
+                                        if (navController.previousBackStackEntry != null) {
+                                            navController.popBackStack()
+                                        }
+                                    },
                                     content = screenContent,
                                 )
                             }

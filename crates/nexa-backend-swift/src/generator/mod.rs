@@ -276,7 +276,15 @@ struct NexaSwitchPrimitive: View {
     @Binding var isOn: Bool
 
     var body: some View {
-        Toggle(isOn: $isOn) { label }
+        HStack(spacing: 12) {
+            label
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { isOn.toggle() }
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .accessibilityLabel(label)
+        }
     }
 }
 
@@ -313,6 +321,17 @@ struct NexaTextInputPrimitive: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func nexaPickerTint(_ tint: Color?) -> some View {
+        if let tint {
+            self.tint(tint)
+        } else {
+            self
+        }
+    }
+}
+
 struct NexaPickerPrimitive<LabelContent: View>: View {
     @Binding var selection: String
     let items: [String]
@@ -335,7 +354,7 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
                     label()
                 }
             }
-            .tint(tint)
+            .nexaPickerTint(tint)
         } else if let icon {
             Menu {
                 ForEach(items, id: \.self) { item in
@@ -361,7 +380,7 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
             }
             .pickerStyle(.menu)
             .labelsHidden()
-            .tint(tint)
+            .nexaPickerTint(tint)
         }
     }
 }
@@ -769,6 +788,36 @@ struct NexaNativeListPrimitive<Content: View>: View {
 
     var body: some View {
         List { content }
+            .modifier(NexaNativeListStyleModifier())
+    }
+}
+
+struct NexaNativeListRowPrimitive<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .listRowInsets(EdgeInsets(
+                top: CGFloat(__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__),
+                leading: CGFloat(__NEXA_NATIVE_LIST_CONTENT_HORIZONTAL_INSET__),
+                bottom: CGFloat(__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__),
+                trailing: CGFloat(__NEXA_NATIVE_LIST_CONTENT_HORIZONTAL_INSET__)
+            ))
+            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+            .listRowSeparatorTint(Color(uiColor: .separator))
+    }
+}
+
+struct NexaNativeListStyleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 
@@ -942,6 +991,9 @@ struct NexaBottomSheetPrimitive<Content: View>: View {
     @Binding var isPresented: Bool
     let partial: Bool
     let largeOnly: Bool
+    @State private var isKeyboardVisible = false
+    @State private var selectedDetent: PresentationDetent = .large
+    @State private var detentBeforeKeyboard: PresentationDetent = .large
     private let content: Content
 
     init(
@@ -961,8 +1013,30 @@ struct NexaBottomSheetPrimitive<Content: View>: View {
         if partial {
             host.sheet(isPresented: $isPresented) {
                 content
-                    .presentationDetents(largeOnly ? [.large] : [.medium, .large])
+                    .presentationDetents(
+                        isKeyboardVisible && !largeOnly
+                            ? [.height(280)]
+                            : (largeOnly ? [.large] : [.medium, .large]),
+                        selection: $selectedDetent
+                    )
                     .presentationDragIndicator(.visible)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+                guard !largeOnly, !isKeyboardVisible else { return }
+                detentBeforeKeyboard = selectedDetent
+                let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+                withAnimation(.easeInOut(duration: duration)) {
+                    isKeyboardVisible = true
+                    selectedDetent = .height(280)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+                guard !largeOnly, isKeyboardVisible else { return }
+                let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+                withAnimation(.easeInOut(duration: duration)) {
+                    isKeyboardVisible = false
+                    selectedDetent = detentBeforeKeyboard
+                }
             }
         } else {
             host.fullScreenCover(isPresented: $isPresented) {
@@ -1144,6 +1218,32 @@ struct NexaNavigationTitleDisplayModePrimitive: ViewModifier {
     }
 }
 
+struct NexaAppTabNavigationTitlePrimitive: ViewModifier {
+    let title: String
+    let large: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if large {
+            content
+                .onAppear {
+                    let appearance = UINavigationBar.appearance()
+                    var attributes = appearance.largeTitleTextAttributes ?? [:]
+                    attributes[.font] = UIFontMetrics.default.scaledFont(
+                        for: .systemFont(ofSize: __NEXA_APP_TAB_LARGE_TITLE_FONT_SIZE__, weight: .bold)
+                    )
+                    appearance.largeTitleTextAttributes = attributes
+                }
+                .navigationTitle(title)
+                .modifier(NexaNavigationTitleDisplayModePrimitive(large: true))
+        } else {
+            content
+                .navigationTitle(title)
+                .modifier(NexaNavigationTitleDisplayModePrimitive(large: large))
+        }
+    }
+}
+
 struct NexaNavigationLinkPrimitive<Value: Hashable, Label: View>: View {
     let value: Value
     let enabled: Bool
@@ -1255,6 +1355,18 @@ fn shared_component_primitives() -> String {
         (
             "__NEXA_DEFAULT_BODY_FONT_SIZE__",
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_APP_TAB_LARGE_TITLE_FONT_SIZE__",
+            nexa_codegen::design_system::APP_TAB_LARGE_TITLE_FONT_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__",
+            nexa_codegen::design_system::NATIVE_LIST_ROW_VERTICAL_INSET.to_string(),
+        ),
+        (
+            "__NEXA_NATIVE_LIST_CONTENT_HORIZONTAL_INSET__",
+            nexa_codegen::design_system::NATIVE_LIST_CONTENT_HORIZONTAL_INSET.to_string(),
         ),
         (
             "__NEXA_SWIFT_DEFAULT_ACCENT_COLOR__",
@@ -1966,6 +2078,8 @@ mod tests {
     fn shared_picker_primitive_owns_all_native_picker_variants() {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("struct NexaPickerPrimitive<LabelContent: View>"));
+        assert!(primitives.contains("func nexaPickerTint(_ tint: Color?)"));
+        assert!(primitives.contains(".nexaPickerTint(tint)"));
         assert!(primitives.contains("if hasLabel {"));
         assert!(primitives.contains("} else if let icon {"));
         assert!(primitives.contains(".pickerStyle(.menu)"));
@@ -1983,7 +2097,9 @@ mod tests {
             assert!(primitives.contains(declaration), "missing {declaration}");
         }
         assert!(
-            primitives.contains(".presentationDetents(largeOnly ? [.large] : [.medium, .large])")
+            primitives.contains("isKeyboardVisible && !largeOnly")
+                && primitives.contains("selectedDetent = .height(280)")
+                && primitives.contains("detentBeforeKeyboard")
         );
         assert!(primitives.contains(".presentationDragIndicator(.visible)"));
         assert!(primitives.contains("host.alert(title, isPresented: $isPresented)"));

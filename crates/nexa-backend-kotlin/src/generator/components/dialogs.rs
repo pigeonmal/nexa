@@ -130,6 +130,7 @@ fn render_confirmation_actions(
                 tint.as_ref(),
                 actions,
                 true,
+                false,
                 depth,
                 out,
             );

@@ -211,6 +211,24 @@ mod tests {
     }
 
     #[test]
+    fn switch_and_date_picker_import_full_row_toggle_behavior() {
+        let mut features = Features::default();
+        features.uses_switch = true;
+        let switch_imports = render_features(&features);
+        assert!(
+            switch_imports.contains("import androidx.compose.foundation.selection.toggleable\n")
+        );
+
+        features.uses_switch = false;
+        features.uses_date_picker = true;
+        let date_picker_imports = render_features(&features);
+        assert!(
+            date_picker_imports
+                .contains("import androidx.compose.foundation.selection.toggleable\n")
+        );
+    }
+
+    #[test]
     fn text_input_imports_are_gated_to_text_input_usage() {
         let mut features = Features::default();
         features.uses_text_input = true;

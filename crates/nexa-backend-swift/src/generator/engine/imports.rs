@@ -30,6 +30,7 @@ pub(crate) fn render(features: &Features) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "SwiftUI");
     imports.add(true, "Foundation");
+    imports.add(features.facts.ui.bottom_sheet.present, "Combine");
     imports.add(features.uses_widgets, "WidgetKit");
     crate::generator::components::controls::imports(features, &mut imports);
     crate::generator::components::list_runtime::imports(features, &mut imports);
@@ -50,8 +51,10 @@ pub(crate) fn render(features: &Features) -> String {
             || features.facts.capabilities.uses_screen_orientation_api
             || features.facts.capabilities.uses_app_icon_api
             || features.uses_remote_image
+            || features.facts.ui.bottom_sheet.present
             || features.facts.ui.button.present
             || features.facts.ui.page_pager
+            || (features.facts.ui.bottom_bar.present && features.facts.ui.layout.form)
             || features.facts.ui.style.dynamic_color,
         "UIKit",
     );

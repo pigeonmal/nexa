@@ -179,7 +179,7 @@ private const val nexaDevDefaultMaterialIconSize = __NEXA_DEFAULT_MATERIAL_ICON_
 private const val nexaDevMaterialIconSizeScale = __NEXA_MATERIAL_ICON_SIZE_SCALE__
 private const val nexaDevDefaultLineHeightMultiplier = __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f
 private const val nexaDevFormRowHorizontalInset = __NEXA_FORM_ROW_HORIZONTAL_INSET__
-private const val nexaDevFormRowMinHeight = __NEXA_FORM_ROW_MIN_HEIGHT__
+private const val nexaDevFormRowMinHeight = __NEXA_ANDROID_FORM_ROW_MIN_HEIGHT__
 private const val nexaDevFormLargeTitleTopPadding = __NEXA_FORM_LARGE_TITLE_TOP_PADDING__
 private fun nexaDevSharedMaterialIcon(name: String) = when (name) {
 __NEXA_SHARED_ICON_MATERIAL_CASES__
@@ -209,6 +209,11 @@ internal fun nexaDevNodeObject(rawNode: Any?): JSONObject = when (rawNode) {
     is String -> JSONObject().put(rawNode, JSONObject.NULL)
     else -> JSONObject()
 }
+
+private fun nexaDevFormRowButton(node: JSONObject): JSONObject =
+    JSONObject(node.toString()).apply {
+        optJSONObject("Button")?.put("__nexa_leading_content", true)
+    }
 
 private fun JSONObject.nexaDevTransition(): String = when (val value = opt("transition")) {
     null, JSONObject.NULL -> ""
@@ -394,7 +399,7 @@ internal fun NexaDevNode(
                                 minHeight = nexaDevFormRowMinHeight.toFloat(),
                                 horizontalInset = nexaDevFormRowHorizontalInset.toFloat(),
                             ) {
-                                NexaDevNode(child, module, store, locals, scope)
+                                NexaDevNode(nexaDevFormRowButton(child), module, store, locals, scope)
                             }
                         }
                     }
@@ -409,7 +414,7 @@ internal fun NexaDevNode(
                 val children = fields.optJSONArray("children") ?: JSONArray()
                 for (index in 0 until children.length()) {
                     androidx.compose.runtime.key(index) {
-                        val rowNode = nexaDevNodeObject(children.opt(index))
+                        val rowNode = nexaDevFormRowButton(nexaDevNodeObject(children.opt(index)))
                         NexaFormRowPrimitive(
                             minHeight = nexaDevFormRowMinHeight.toFloat(),
                             horizontalInset = nexaDevFormRowHorizontalInset.toFloat(),
@@ -819,6 +824,7 @@ private fun NexaDevRenderControlNode(
                 disabled = disabled,
                 iconOnlyCircle = icon != null && buttonShape == CircleShape && label.isEmpty(),
                 fullWidth = fields.optBoolean("__nexa_full_width", false),
+                leadingContent = fields.optBoolean("__nexa_leading_content", false),
                 onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) },
             )
         }
@@ -1280,7 +1286,9 @@ private fun NexaDevRenderNavigationNode(
         "NavigationBack" -> {
             val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
             val controller = LocalNexaDevNavController.current
-            androidx.compose.material3.TextButton(onClick = { controller?.popBackStack() }) {
+            androidx.compose.material3.TextButton(onClick = {
+                if (controller?.previousBackStackEntry != null) controller.popBackStack()
+            }) {
                 Text(label)
             }
         }
@@ -1294,6 +1302,27 @@ private fun nexaDevContainsForm(nodes: JSONArray): Boolean {
         if (kind == "Form") return true
         val children = node.optJSONObject(kind)?.optJSONArray("children") ?: continue
         if (nexaDevContainsForm(children)) return true
+    }
+    return false
+}
+
+private fun nexaDevContainsNativeList(nodes: JSONArray): Boolean {
+    for (index in 0 until nodes.length()) {
+        val node = nodes.optJSONObject(index) ?: continue
+        val kind = node.keys().asSequence().firstOrNull() ?: continue
+        val fields = node.optJSONObject(kind) ?: continue
+        if (kind == "FastList" && fields.optJSONObject("options")?.optBoolean("native", false) == true) {
+            return true
+        }
+        for (childKey in arrayOf("children", "then_body", "else_body", "body")) {
+            val children = fields.optJSONArray(childKey) ?: continue
+            if (nexaDevContainsNativeList(children)) return true
+        }
+        val cases = fields.optJSONArray("cases") ?: continue
+        for (caseIndex in 0 until cases.length()) {
+            val body = cases.optJSONObject(caseIndex)?.optJSONArray("body") ?: continue
+            if (nexaDevContainsNativeList(body)) return true
+        }
     }
     return false
 }
@@ -1775,6 +1804,7 @@ private fun NexaDevRenderFastListNode(
         }
         val reverseLayout = options?.optBoolean(NexaDevKeys.REVERSE_LAYOUT, false) ?: false
         val pageSnap = options?.optBoolean(NexaDevKeys.PAGE_SNAP, false) ?: false
+        val native = options?.optBoolean("native", false) ?: false
         val keyExpression = options?.opt("key")?.takeUnless { it == JSONObject.NULL }
         val animateStableRows = keyExpression != null
         if (options == null || countExpression == null && sourceItems == null && sourceSections == null) {
@@ -1940,6 +1970,7 @@ private fun NexaDevRenderFastListNode(
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(gridColumns ?: 1),
                         state = listState,
+                        userScrollEnabled = listState.canScrollForward || listState.canScrollBackward,
                         modifier = modifier.fillMaxWidth(),
                     ) {
                         gridItems(items = itemIndices, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
@@ -1996,6 +2027,7 @@ private fun NexaDevRenderFastListNode(
                     } else {
                         LazyColumn(
                             state = listState,
+                            userScrollEnabled = listState.canScrollForward || listState.canScrollBackward,
                             reverseLayout = reverseLayout,
                             flingBehavior = if (pageSnap) {
                                 rememberSnapFlingBehavior(
@@ -2003,7 +2035,11 @@ private fun NexaDevRenderFastListNode(
                                     snapPosition = SnapPosition.Start,
                                 )
                             } else androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior(),
-                            modifier = modifier.fillMaxWidth(),
+                            modifier = if (native && axis == "Vertical") {
+                                NexaNativeListContainerModifier()
+                            } else {
+                                modifier.fillMaxWidth()
+                            },
                         ) {
                             if (stickyHeaderNodes != null && stickyHeaderNodes != JSONObject.NULL) {
                                 stickyHeader { renderHeader(stickyHeaderNodes, locals) }
@@ -2013,7 +2049,13 @@ private fun NexaDevRenderFastListNode(
                                     val sectionItems = rawSection as? List<*> ?: emptyList<Any?>()
                                     if (sectionHeader != null && sectionHeader != JSONObject.NULL) {
                                         stickyHeader {
-                                            renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
+                                            if (native && axis == "Vertical") {
+                                                NexaNativeListSectionHeaderPrimitive {
+                                                    renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
+                                                }
+                                            } else {
+                                                renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
+                                            }
                                         }
                                     }
                                     items(count = sectionItems.size, key = { itemIndex -> stableRowKey(itemIndex, sectionIndex) }) { itemIndex ->
@@ -2028,11 +2070,29 @@ private fun NexaDevRenderFastListNode(
                                         } else {
                                             Modifier
                                         }
-                                        renderListRow(
-                                            children,
-                                            rowLocals,
-                                            rowParentModifier.then(rowModifier),
-                                        )
+                                        if (native && axis == "Vertical") {
+                                            NexaNativeListRowPrimitive(position = itemIndex, count = sectionItems.size) {
+                                                renderListRow(
+                                                    children,
+                                                    rowLocals,
+                                                    rowParentModifier.then(rowModifier),
+                                                )
+                                                if (itemIndex + 1 < sectionItems.size) {
+                                                    NexaNativeListDividerPrimitive()
+                                                }
+                                            }
+                                        } else {
+                                            renderListRow(
+                                                children,
+                                                rowLocals,
+                                                rowParentModifier.then(rowModifier),
+                                            )
+                                        }
+                                    }
+                                    if (native && axis == "Vertical" && sectionIndex + 1 < sourceSections.size) {
+                                        item(key = "nexa-native-list-section-gap-$sectionIndex") {
+                                            NexaNativeListSectionSpacingPrimitive()
+                                        }
                                     }
                                 }
                             } else {
@@ -2051,6 +2111,13 @@ private fun NexaDevRenderFastListNode(
                                     }
                                     if (pageSnap) {
                                         renderItem(itemIndex, axis, Modifier.fillParentMaxSize())
+                                    } else if (native && axis == "Vertical" && sourceSections == null) {
+                                        NexaNativeListRowPrimitive(position = itemPosition, count = count) {
+                                            renderItem(itemIndex, axis, rowParentModifier)
+                                            if (itemPosition + 1 < count) {
+                                                NexaNativeListDividerPrimitive()
+                                            }
+                                        }
                                     } else {
                                         renderItem(itemIndex, axis, rowParentModifier)
                                         NexaFastListDividerPrimitive()
@@ -2137,6 +2204,9 @@ private fun NexaDevRenderAppBottomBarNode(
                         val children = activeTab.optJSONArray("children") ?: JSONArray()
                         val toolbarItems = nexaDevTabToolbars(children)
                         val contentChildren = nexaDevWithoutTabToolbars(children)
+                        val containsForm = nexaDevContainsForm(children)
+                        val containsNativeList = nexaDevContainsNativeList(children)
+                        val hasGroupedSurface = containsForm || containsNativeList
                         if (title == null && toolbarItems.isEmpty()) {
                             NexaDevNodeList(
                                 children,
@@ -2146,7 +2216,7 @@ private fun NexaDevRenderAppBottomBarNode(
                                 scope = scope,
                             )
                         } else {
-                            val contentBackground = if (nexaDevContainsForm(children)) {
+                            val contentBackground = if (hasGroupedSurface) {
                                 if (MaterialTheme.colorScheme.background == Color.Black) {
                                     MaterialTheme.colorScheme.background
                                 } else {
@@ -2155,10 +2225,18 @@ private fun NexaDevRenderAppBottomBarNode(
                             } else {
                                 MaterialTheme.colorScheme.background
                             }
-                            val contentModifier = if (nexaDevContainsForm(children)) {
-                                Modifier.fillMaxSize().background(contentBackground)
-                            } else {
-                                Modifier.fillMaxSize()
+                            val hasKeyboardInset = activeTab
+                                .nexaDevOptionalString("search_state")
+                                ?.isNotEmpty() == true
+                            val contentModifier = when {
+                                hasKeyboardInset -> Modifier
+                                    .fillMaxSize()
+                                    .background(contentBackground)
+                                    .imePadding()
+                                hasGroupedSurface -> Modifier
+                                    .fillMaxSize()
+                                    .background(contentBackground)
+                                else -> Modifier.fillMaxSize()
                             }
                             if (activeTab.optBoolean("large_title") && title != null) {
                                 NexaLargeTitlePrimitive(

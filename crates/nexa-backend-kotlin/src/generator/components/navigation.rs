@@ -111,7 +111,7 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
 
 pub(crate) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
     indent(out, depth);
-    out.push_str("TextButton(onClick = { navController.popBackStack() }) {\n");
+    out.push_str("TextButton(onClick = { if (navController.previousBackStackEntry != null) navController.popBackStack() }) {\n");
     out.line_at(depth + 1, format_args!("Text({})", text_expression(label)));
     indent(out, depth);
     out.push('}');
@@ -305,8 +305,14 @@ pub(crate) fn render_navigation_stack(
             );
             out.line_at(
                 themed_content_depth + 1,
-                format_args!("onBack = {{ navController.popBackStack() }},"),
+                format_args!("onBack = {{ if (navController.previousBackStackEntry != null) navController.popBackStack() }},"),
             );
+            if let Some(grouped_surface) = screen_grouped_surface_expression(&screen.body) {
+                out.line_at(
+                    themed_content_depth + 1,
+                    format_args!("groupedSurface = {grouped_surface},"),
+                );
+            }
             out.line_at(themed_content_depth, format_args!(") {{"));
             render_screen_body(screen, module, features, themed_content_depth + 1, out);
             out.push('\n');
@@ -352,6 +358,117 @@ pub(crate) fn render_navigation_stack(
     out.push('}');
     out.push('\n');
     render_deep_link_dispatch(module, depth, out);
+}
+
+fn screen_grouped_surface_expression(children: &[Node]) -> Option<String> {
+    let mut expressions = children
+        .iter()
+        .filter_map(node_grouped_surface_expression)
+        .collect::<Vec<_>>();
+    if expressions.iter().any(|expression| expression == "true") {
+        return Some("true".to_owned());
+    }
+    match expressions.len() {
+        0 => None,
+        1 => expressions.pop(),
+        _ => Some(format!("({})", expressions.join(" || "))),
+    }
+}
+
+fn node_grouped_surface_expression(node: &Node) -> Option<String> {
+    match node {
+        Node::Appearance { children, .. }
+        | Node::Layout { children, .. }
+        | Node::Toolbar { children, .. } => screen_grouped_surface_expression(children),
+        Node::Form { .. } => Some("true".to_owned()),
+        Node::FastList { plan } if plan.native() => Some("true".to_owned()),
+        Node::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => {
+            let then_surface = screen_grouped_surface_expression(then_body);
+            let else_surface = else_body
+                .as_deref()
+                .and_then(screen_grouped_surface_expression);
+            match (then_surface.as_deref(), else_surface.as_deref()) {
+                (None, None) => None,
+                (Some("true"), Some("true")) => Some("true".to_owned()),
+                (Some("true"), None) => Some(crate::generator::expressions::expression(condition)),
+                (None, Some("true")) => Some(format!(
+                    "!({})",
+                    crate::generator::expressions::expression(condition)
+                )),
+                (Some("true"), Some(else_surface)) => Some(format!(
+                    "!({}) || ({else_surface})",
+                    crate::generator::expressions::expression(condition)
+                )),
+                (Some(then_surface), Some("true")) => Some(format!(
+                    "({}) || ({then_surface})",
+                    crate::generator::expressions::expression(condition)
+                )),
+                (Some(then_surface), Some(else_surface)) => {
+                    let condition = crate::generator::expressions::expression(condition);
+                    Some(format!(
+                        "(({condition}) && ({then_surface})) || (!({condition}) && ({else_surface}))"
+                    ))
+                }
+                (Some(then_surface), None) => Some(format!(
+                    "({}) && ({then_surface})",
+                    crate::generator::expressions::expression(condition)
+                )),
+                (None, Some(else_surface)) => Some(format!(
+                    "!({}) && ({else_surface})",
+                    crate::generator::expressions::expression(condition)
+                )),
+            }
+        }
+        Node::When {
+            value,
+            cases,
+            else_body,
+            ..
+        } => {
+            let grouped_cases = cases
+                .iter()
+                .map(|case| {
+                    (
+                        crate::generator::expressions::expression(&case.value),
+                        screen_grouped_surface_expression(&case.body)
+                            .unwrap_or_else(|| "false".to_owned()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let else_surface =
+                screen_grouped_surface_expression(else_body).unwrap_or_else(|| "false".to_owned());
+            if grouped_cases
+                .iter()
+                .all(|(_, expression)| expression == "false")
+                && else_surface == "false"
+            {
+                None
+            } else if grouped_cases
+                .iter()
+                .all(|(_, expression)| expression == "true")
+                && else_surface == "true"
+            {
+                Some("true".to_owned())
+            } else {
+                let mut branches = grouped_cases
+                    .iter()
+                    .map(|(case, expression)| format!("{case} -> {expression}"))
+                    .collect::<Vec<_>>();
+                branches.push(format!("else -> {else_surface}"));
+                Some(format!(
+                    "when ({}) {{ {} }}",
+                    crate::generator::expressions::expression(value),
+                    branches.join("; ")
+                ))
+            }
+        }
+        _ => None,
+    }
 }
 
 fn render_screen_body(

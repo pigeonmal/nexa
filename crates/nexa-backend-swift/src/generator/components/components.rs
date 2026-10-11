@@ -72,8 +72,8 @@ pub(crate) fn render_node(
             children,
         } => {
             let placement = match placement {
-                ToolbarPlacement::Leading => ".navigationBarLeading",
-                ToolbarPlacement::Trailing => ".navigationBarTrailing",
+                ToolbarPlacement::Leading => ".topBarLeading",
+                ToolbarPlacement::Trailing => ".topBarTrailing",
             };
             out.line_at(depth, format_args!("EmptyView()"));
             out.line_at(depth, format_args!(".toolbar {{"));

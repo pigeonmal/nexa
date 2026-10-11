@@ -34,6 +34,35 @@ both generated apps without the user having to ask. Preview or inspect both targ
 UI. Use `platform ios` / `platform android` only for a deliberate, requested difference or a real
 native constraint, and keep that branch limited to the difference.
 
+## Visual QA with Argent
+
+Use Argent for simulator/emulator interaction and visual evidence when the MCP server is available
+in the workspace (`.codex/config.toml`) and the `argent` CLI is installed. The project installs the
+`argent-device-interact`, `argent-screenshot-diff`, `argent-test-ui-flow`,
+`argent-ios-simulator-setup`, and `argent-android-emulator-setup` skills under this directory.
+
+For a parity change:
+
+1. Build and launch the Nexa app with `nexa dev` for both targets. Use Argent `list-devices` to
+   identify the running iOS simulator and Android emulator.
+2. Navigate both apps to the same state. Use `describe` or the latest interaction's element tree to
+   find controls and confirm behavior; take tap coordinates from those trees, not screenshot pixels.
+   Capture screenshots for visual comparison. Keep data, app state, orientation, and display scale
+   comparable across platforms.
+3. After editing `.nx` or Nexa platform code, rebuild/reload and repeat the same path. Use
+   `screenshot-diff` when a stable baseline exists, then inspect the screenshots and accessibility
+   trees yourself before reporting parity.
+4. Compare shared app content and controls. Preserve intentional native behavior and appearance,
+   including native bottom bars, glass effects, and native UI controls; do not treat those as parity
+   defects just because their platform rendering differs.
+
+Argent inspects and drives the running apps; Nexa's build and reload commands remain responsible
+for compiling the `.nx` source. See the installed Argent skills for tool parameters and recovery
+guidance. On another development machine, install Node.js 20.12+, Xcode, and Android Platform Tools,
+then install Argent globally with `npm install -g @swmansion/argent` and run `argent init` from the
+repository to configure that machine's editor. Restart Codex after configuring MCP so the server is
+loaded.
+
 ## Reading order
 
 | Need | Read |

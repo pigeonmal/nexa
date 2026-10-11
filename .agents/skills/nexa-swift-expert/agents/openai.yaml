@@ -1,4 +1,4 @@
 interface:
-  display_name: "Nexa Swift Expert"
-  short_description: "Audit generated iOS SwiftUI and Swift plugin code"
-  default_prompt: "Audit the generated Swift for this Nexa project and report concrete correctness, lifecycle, concurrency, and performance issues."
+  display_name: "Nexa SwiftUI + Concurrency Expert"
+  short_description: "Use sourced SwiftUI and Swift concurrency guidance for Nexa output"
+  default_prompt: "Read the vendored SwiftUI Pro and Swift Concurrency Pro skills as relevant, then audit Nexa's generated Swift against its source, toolchain, AOT constraints, and Android parity."

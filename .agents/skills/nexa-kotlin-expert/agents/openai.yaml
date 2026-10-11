@@ -1,4 +1,4 @@
 interface:
-  display_name: "Nexa Kotlin Expert"
-  short_description: "Audit generated Android Compose and Kotlin plugin code"
-  default_prompt: "Audit the generated Kotlin for this Nexa project and report concrete correctness, lifecycle, threading, recomposition, and performance issues."
+  display_name: "Nexa Kotlin + Compose Expert"
+  short_description: "Use sourced Compose guidance for Nexa-generated Kotlin"
+  default_prompt: "Use vendored Compose Agent as the primary guide, consult Compose Expert for targeted implementation evidence, then audit Nexa's generated Kotlin against its source, actual dependency versions, AOT constraints, and iOS parity."

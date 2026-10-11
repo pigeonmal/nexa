@@ -23,6 +23,8 @@ pub const DARK_OUTLINE_ARGB: u32 = 0xFF54_5458;
 pub const MUTED_TEXT_ARGB: u32 = 0xFF8E_8E93;
 pub const DEFAULT_ERROR_ARGB: u32 = 0xFFFF_3B30;
 pub const DEFAULT_BODY_FONT_SIZE: u8 = 17;
+/// Native title3 text-input size (SwiftUI title3 / Android scaled sp equivalent).
+pub const TEXT_INPUT_TITLE3_FONT_SIZE: u8 = 20;
 /// Default Compose system icon canvas matched to the shared 24dp control size.
 pub const DEFAULT_MATERIAL_ICON_SIZE: u8 = 24;
 /// Material paths need a modest size adjustment to match SF Symbol metrics.
@@ -40,23 +42,48 @@ pub const BUTTON_LARGE_VERTICAL_PADDING: u8 = 12;
 pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 16;
 pub const FORM_SECTION_TOP_PADDING: u8 = 8;
 pub const FORM_SECTION_BOTTOM_PADDING: u8 = 20;
+/// Android Form content inset that matches SwiftUI's native Form top margin.
+pub const ANDROID_FORM_CONTENT_TOP_INSET: u8 = 24;
 pub const FORM_ROW_HORIZONTAL_INSET: u8 = 16;
 /// Shared baseline row size; content and explicit padding may expand it.
 pub const FORM_ROW_MIN_HEIGHT: u8 = 56;
-pub const FORM_DIVIDER_START_INSET: u8 = 56;
+/// Android Form rows need a slightly tighter baseline to match SwiftUI's grouped-list density.
+pub const ANDROID_FORM_ROW_MIN_HEIGHT: u8 = 52;
+pub const FORM_DIVIDER_START_INSET: u8 = 48;
 pub const FORM_DIVIDER_END_INSET: u8 = 16;
 pub const FORM_FOOTER_START_INSET: u8 = 16;
 pub const FORM_FOOTER_FONT_SIZE: u8 = 13;
 pub const FORM_LARGE_TITLE_TOP_PADDING: u8 = 20;
-pub const FORM_LARGE_TITLE_FONT_SIZE: u8 = 34;
-/// Shared Android large-title app bar heights across tabs with or without toolbar actions.
-pub const ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT: u8 = 112;
+/// Large app-tab title size shared by SwiftUI and Compose.
+pub const APP_TAB_LARGE_TITLE_FONT_SIZE: u8 = 28;
+/// Android's compact navigation titles share the native inline-title metric.
+pub const ANDROID_NAVIGATION_TITLE_FONT_SIZE: u8 = 17;
+/// Kept as a named alias for the app-tab large-title interpolation.
+pub const ANDROID_APP_TAB_COLLAPSED_TITLE_FONT_SIZE: u8 = ANDROID_NAVIGATION_TITLE_FONT_SIZE;
+/// Shared Android large-title height, matching the Settings screen layout.
+pub const ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT: u8 = 80;
 pub const ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT: u8 = 64;
+/// Keeps Android expanded-title controls below the edge-to-edge status icons.
+pub const ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_TITLE_TOP_PADDING: u8 = 28;
+/// The collapsed row fills the app bar and centers its title with its actions.
+pub const ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_TITLE_TOP_PADDING: u8 = 0;
+pub const ANDROID_LARGE_TITLE_HORIZONTAL_INSET: u8 = 16;
+pub const ANDROID_NATIVE_LIST_ROW_VERTICAL_INSET: u8 = 2;
+pub const ANDROID_NATIVE_LIST_DIVIDER_START_INSET: u8 = 54;
+/// Android's native-list approximation follows the inset section spacing of iOS `List`.
+pub const ANDROID_NATIVE_LIST_CONTENT_HORIZONTAL_INSET: u8 = 16;
+pub const ANDROID_NATIVE_LIST_CONTENT_VERTICAL_INSET: u8 = 12;
+pub const ANDROID_NATIVE_LIST_SECTION_HEADER_HORIZONTAL_INSET: u8 = 16;
+pub const ANDROID_NATIVE_LIST_SECTION_HEADER_VERTICAL_INSET: u8 = 8;
+pub const ANDROID_NATIVE_LIST_SECTION_SPACING: u8 = 16;
+/// Shared native-list row insets used to align SwiftUI rows with Compose rows.
+pub const NATIVE_LIST_ROW_VERTICAL_INSET: u8 = ANDROID_NATIVE_LIST_ROW_VERTICAL_INSET;
+pub const NATIVE_LIST_CONTENT_HORIZONTAL_INSET: u8 = ANDROID_NATIVE_LIST_CONTENT_HORIZONTAL_INSET;
 /// Grouped Form section colors matching the native iOS system palette.
 pub const FORM_LIGHT_SECTION_ARGB: u32 = 0xFFFF_FFFF;
 pub const FORM_DARK_SECTION_ARGB: u32 = 0xFF1C_1C1E;
-pub const FORM_LIGHT_SEPARATOR_ARGB: u32 = 0x493C_3C43;
-pub const FORM_DARK_SEPARATOR_ARGB: u32 = 0xFF38_383A;
+pub const SYSTEM_SEPARATOR_LIGHT_ARGB: u32 = 0x493C_3C43;
+pub const SYSTEM_SEPARATOR_DARK_ARGB: u32 = 0xFF38_383A;
 pub const FORM_SWITCH_OFF_TRACK_ARGB: u32 = 0xFF5E_5E62;
 /// Shared gap between a system icon and its adjacent label.
 pub const ICON_LABEL_SPACING: u8 = 8;

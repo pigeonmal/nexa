@@ -6,7 +6,7 @@ use nexa_ir::{
 
 use crate::generator::{
     components::{
-        RenderScope,
+        RenderScope, accessibility, controls,
         input::{self, TextInputProps},
         navigation, render_children, render_node,
     },
@@ -28,6 +28,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.rememberTopAppBarState",
         "androidx.compose.ui.graphics.TransformOrigin",
         "androidx.compose.ui.graphics.graphicsLayer",
+        "androidx.compose.ui.layout.onSizeChanged",
         "androidx.compose.ui.platform.LocalDensity",
         "androidx.compose.runtime.mutableIntStateOf",
         "androidx.compose.runtime.remember",
@@ -139,7 +140,8 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.padding",
     );
     imports.add(
-        features.uses_adaptive_tabs && features.uses_form,
+        features.uses_adaptive_tabs
+            && (features.uses_form || features.facts.ui.bottom_bar.searchable),
         "androidx.compose.foundation.background",
     );
     imports.add(
@@ -179,6 +181,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.facts.ui.bottom_bar.searchable,
         "androidx.compose.foundation.layout.padding",
+    );
+    imports.add(
+        features.facts.ui.bottom_bar.searchable,
+        "androidx.compose.foundation.layout.imePadding",
     );
     imports.add(
         features.facts.ui.bottom_bar.searchable,
@@ -284,7 +290,9 @@ pub(crate) fn render_app_bottom_bar(
         .map(crate::generator::colors::expression_for_color)
         .unwrap_or_else(|| "null".to_owned());
     let content_depth = depth;
-    let has_grouped_surface_tab = tabs.iter().any(|tab| tab_contains_form(&tab.children));
+    let has_grouped_surface_tab = tabs
+        .iter()
+        .any(|tab| tab_contains_form(&tab.children) || tab_contains_native_list(&tab.children));
     out.line_at(depth, format_args!("NexaAppBottomBarPrimitive("));
     out.line_at(depth + 1, format_args!("tint = {tint},"));
     out.line_at(
@@ -342,7 +350,9 @@ pub(crate) fn render_app_bottom_bar(
             ),
         );
         if has_grouped_surface_tab {
-            let tab_status_color = if tab_contains_form(&tab.children) {
+            let has_grouped_surface =
+                tab_contains_form(&tab.children) || tab_contains_native_list(&tab.children);
+            let tab_status_color = if has_grouped_surface {
                 "(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)"
             } else {
                 "MaterialTheme.colorScheme.background"
@@ -385,12 +395,17 @@ pub(crate) fn render_app_bottom_bar(
         let toolbars = tab_toolbars(&tab.children);
         if tab.large_title && tab.navigation_title.is_some() {
             let has_form = tab_contains_form(&tab.children);
-            let content_background = if has_form {
+            let has_native_list = tab_contains_native_list(&tab.children);
+            let has_grouped_surface = has_form || has_native_list;
+            let has_keyboard_inset = tab.search_state.is_some();
+            let content_background = if has_grouped_surface {
                 "if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant"
             } else {
                 "MaterialTheme.colorScheme.background"
             };
-            let content_modifier = if has_form {
+            let content_modifier = if has_keyboard_inset {
+                format!("Modifier.fillMaxSize().background({content_background}).imePadding()")
+            } else if has_grouped_surface {
                 format!("Modifier.fillMaxSize().background({content_background})")
             } else {
                 "Modifier.fillMaxSize()".to_owned()
@@ -405,6 +420,10 @@ pub(crate) fn render_app_bottom_bar(
             out.line_at(
                 content_depth + 4,
                 format_args!("title = stringResource(R.string.{title_resource}),"),
+            );
+            out.line_at(
+                content_depth + 4,
+                format_args!("centerCollapsedTitle = {},", toolbars.is_empty()),
             );
             out.line_at(
                 content_depth + 4,
@@ -482,10 +501,19 @@ pub(crate) fn render_app_bottom_bar(
             || tab.search_state.is_some()
             || !toolbars.is_empty()
         {
-            let content_modifier = if tab_contains_form(&tab.children) {
-                "Modifier.fillMaxSize().background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)"
+            let keyboard_inset = if tab.search_state.is_some() {
+                ".imePadding()"
             } else {
-                "Modifier.fillMaxSize()"
+                ""
+            };
+            let content_modifier = if tab_contains_form(&tab.children)
+                || tab_contains_native_list(&tab.children)
+            {
+                format!(
+                    "Modifier.fillMaxSize(){keyboard_inset}.background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)"
+                )
+            } else {
+                format!("Modifier.fillMaxSize(){keyboard_inset}")
             };
             let title_bottom_padding = if tab.large_title && tab.navigation_title.is_some() {
                 28
@@ -528,7 +556,7 @@ pub(crate) fn render_app_bottom_bar(
                     let style = if tab.large_title {
                         format!(
                             "MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold, fontSize = {}.sp)",
-                            nexa_codegen::design_system::FORM_LARGE_TITLE_FONT_SIZE
+                            nexa_codegen::design_system::APP_TAB_LARGE_TITLE_FONT_SIZE
                         )
                     } else {
                         "MaterialTheme.typography.titleLarge".to_owned()
@@ -617,6 +645,20 @@ fn tab_contains_form(children: &[Node]) -> bool {
     })
 }
 
+fn tab_contains_native_list(children: &[Node]) -> bool {
+    let mut found = false;
+    nexa_ir::walk::walk_ir(
+        children,
+        &mut |node| {
+            if let Node::FastList { plan } = node {
+                found |= plan.native();
+            }
+        },
+        &mut |_| {},
+    );
+    found
+}
+
 fn tab_toolbars(children: &[Node]) -> Vec<(ToolbarPlacement, &[Node])> {
     let mut toolbars = Vec::new();
     for child in children {
@@ -645,25 +687,72 @@ fn render_tab_toolbar_items(
         .filter(|(toolbar_placement, _)| *toolbar_placement == placement)
     {
         for child in *children {
-            match child {
-                Node::NavigationLink {
-                    destination,
-                    arguments,
-                    guard,
-                    children,
-                } => navigation::render_toolbar_link(
-                    *destination,
-                    arguments,
-                    guard.as_ref(),
-                    children,
-                    &RenderScope { module, features },
-                    depth,
-                    out,
-                ),
-                _ => render_node(child, module, features, depth, out),
-            }
+            render_tab_toolbar_item(child, module, features, depth, out);
             out.push('\n');
         }
+    }
+}
+
+fn render_tab_toolbar_item(
+    node: &Node,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    match node {
+        Node::NavigationLink {
+            destination,
+            arguments,
+            guard,
+            children,
+        } => navigation::render_toolbar_link(
+            *destination,
+            arguments,
+            guard.as_ref(),
+            children,
+            &RenderScope { module, features },
+            depth,
+            out,
+        ),
+        Node::Picker {
+            items,
+            state,
+            icon,
+            label,
+            tint,
+        } => controls::render_picker(
+            items,
+            state,
+            icon.as_ref(),
+            label.as_ref(),
+            tint.as_ref(),
+            false,
+            depth,
+            out,
+        ),
+        Node::Accessibility {
+            label,
+            hint,
+            value,
+            role,
+            children,
+        } => accessibility::render_accessibility_with_children(
+            label,
+            hint.as_ref(),
+            value.as_ref(),
+            *role,
+            children,
+            depth,
+            out,
+            |children, child_depth, out| {
+                for child in children {
+                    render_tab_toolbar_item(child, module, features, child_depth, out);
+                    out.push('\n');
+                }
+            },
+        ),
+        _ => render_node(node, module, features, depth, out),
     }
 }
 
@@ -768,11 +857,14 @@ pub(crate) fn render_page_pager(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{BottomBarTab, Module, Node, Screen, ScreenId, ToolbarPlacement};
+    use nexa_ir::{
+        AccessibilityRole, BottomBarTab, Expr, Module, Node, Screen, ScreenId, SystemIcon,
+        ToolbarPlacement, Type,
+    };
 
     use crate::generator::features::Features;
 
-    use super::{render_app_bottom_bar, render_page_pager};
+    use super::{imports, render_app_bottom_bar, render_page_pager};
 
     fn empty_module() -> Module {
         Module {
@@ -892,6 +984,56 @@ mod tests {
     }
 
     #[test]
+    fn toolbar_picker_wraps_content_instead_of_consuming_the_actions_slot() {
+        let tab = BottomBarTab {
+            index: 0,
+            label: "Today".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: None,
+            navigation_title: Some("Today".to_owned()),
+            large_title: true,
+            search_state: None,
+            search_prompt: None,
+            children: vec![Node::Toolbar {
+                placement: ToolbarPlacement::Trailing,
+                children: vec![Node::Accessibility {
+                    label: Expr::String("Sort".to_owned()),
+                    hint: None,
+                    value: Some(Expr::State("sortSelection".to_owned(), Type::String)),
+                    role: AccessibilityRole::None,
+                    children: vec![Node::Picker {
+                        items: Expr::State(
+                            "sortOptions".to_owned(),
+                            Type::Array(Box::new(Type::String)),
+                        ),
+                        state: "sortSelection".to_owned(),
+                        icon: Some(SystemIcon::Shared("sort".to_owned())),
+                        label: None,
+                        tint: None,
+                    }],
+                }],
+            }],
+        };
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            &[tab],
+            &empty_module(),
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "NexaPickerPrimitive(items = nexa_sortOptions, selected = nexa_sortSelection, icon = Icons.Filled.Sort, label = null, tint = null, fillMaxWidth = false)"
+        ));
+    }
+
+    #[test]
     fn form_tab_extends_grouped_surface_behind_navigation_title() {
         let tab = BottomBarTab {
             index: 3,
@@ -970,7 +1112,17 @@ mod tests {
         assert!(output.contains("NexaTextInputPrimitive("));
         assert!(output.contains("searchIcon = Icons.Filled.Search"));
         assert!(output.contains("modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)"));
+        assert!(output.contains(
+            "modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding(),"
+        ));
         assert!(output.contains("imeAction = ImeAction.Search"));
+
+        let features = Features::analyze(&module);
+        let mut generated_imports = crate::generator::engine::imports::ImportSet::default();
+        imports(&features, &mut generated_imports);
+        let rendered_imports = generated_imports.render();
+        assert!(rendered_imports.contains("import androidx.compose.foundation.layout.imePadding"));
+        assert!(rendered_imports.contains("import androidx.compose.foundation.background"));
     }
 
     #[test]

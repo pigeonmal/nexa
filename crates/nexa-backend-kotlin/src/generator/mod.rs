@@ -299,7 +299,7 @@ internal fun NexaAppearancePrimitive(
 
 @androidx.compose.runtime.Composable
 internal fun NexaFastListDividerPrimitive() {
-    androidx.compose.material3.HorizontalDivider()
+    NexaSystemDividerPrimitive()
 }
 
 @androidx.compose.runtime.Composable
@@ -374,6 +374,7 @@ internal fun NexaButtonPrimitive(
     disabled: Boolean,
     iconOnlyCircle: Boolean,
     fullWidth: Boolean,
+    leadingContent: Boolean,
     onClick: () -> Unit,
 ) {
     val minHeight = if (size == "Large") androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_MIN_HEIGHT__.toFloat()) else androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_TAP_TARGET__.toFloat())
@@ -389,7 +390,7 @@ internal fun NexaButtonPrimitive(
         size == "Large" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_VERTICAL_PADDING__.toFloat()))
         else -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(8f), vertical = androidx.compose.ui.unit.Dp(8f))
     }
-    val buttonContent: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+    val buttonContents: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
         if (loading) {
             androidx.compose.material3.CircularProgressIndicator()
         } else {
@@ -411,6 +412,19 @@ internal fun NexaButtonPrimitive(
             )
         }
     }
+    val buttonContent: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = if (leadingContent) {
+        {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                contentAlignment = androidx.compose.ui.Alignment.CenterStart,
+            ) {
+                androidx.compose.foundation.layout.Row(
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    content = buttonContents,
+                )
+            }
+        }
+    } else buttonContents
     val enabled = !loading && !disabled
     when (style) {
         "Plain", "Borderless" -> androidx.compose.material3.TextButton(
@@ -459,6 +473,8 @@ internal fun NexaBottomSheetPrimitive(
     partial: Boolean,
     largeOnly: Boolean,
     title: String?,
+    hasNavigationIcon: Boolean,
+    hasActions: Boolean,
     onDismissRequest: () -> Unit,
     navigationIcon: @androidx.compose.runtime.Composable () -> Unit,
     actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
@@ -466,29 +482,137 @@ internal fun NexaBottomSheetPrimitive(
 ) {
     if (!isPresented) return
     if (partial) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val keyboardInset = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
+        val keyboardVisible = keyboardInset > 0
+        val statusBarInsetPx = androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(density)
+        val statusBarInset = androidx.compose.ui.unit.Dp(statusBarInsetPx / density.density)
+        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+            skipPartiallyExpanded = largeOnly,
+        )
         androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = onDismissRequest,
-            sheetState = androidx.compose.material3.rememberModalBottomSheetState(
-                skipPartiallyExpanded = largeOnly,
+            modifier = androidx.compose.ui.Modifier.padding(
+                top = if (
+                    sheetState.currentValue == androidx.compose.material3.SheetValue.Expanded
+                ) statusBarInset else androidx.compose.ui.unit.Dp(0f),
             ),
+            sheetState = sheetState,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(
+                topStart = androidx.compose.ui.unit.Dp(32f),
+                topEnd = androidx.compose.ui.unit.Dp(32f),
+            ),
+            dragHandle = {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .height(androidx.compose.ui.unit.Dp(12f)),
+                    contentAlignment = androidx.compose.ui.Alignment.Center,
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier
+                            .size(
+                                width = androidx.compose.ui.unit.Dp(36f),
+                                height = androidx.compose.ui.unit.Dp(4f),
+                            )
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(
+                                androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                            ),
+                    )
+                }
+            },
         ) {
-            if (title != null) {
-                androidx.compose.material3.CenterAlignedTopAppBar(
-                    title = {
-                        androidx.compose.material3.Text(
-                            title,
-                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-                        )
-                    },
-                    navigationIcon = navigationIcon,
-                    actions = actions,
-                    colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    ),
-                    windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-                )
+            val restoreExpandedAfterKeyboard = androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(false)
             }
-            content()
+            androidx.compose.runtime.LaunchedEffect(keyboardVisible) {
+                if (!largeOnly && keyboardVisible) {
+                    restoreExpandedAfterKeyboard.value =
+                        sheetState.currentValue == androidx.compose.material3.SheetValue.Expanded ||
+                            sheetState.targetValue == androidx.compose.material3.SheetValue.Expanded
+                    if (restoreExpandedAfterKeyboard.value) {
+                        sheetState.partialExpand()
+                    }
+                } else if (!largeOnly && !keyboardVisible) {
+                    if (restoreExpandedAfterKeyboard.value) {
+                        restoreExpandedAfterKeyboard.value = false
+                        sheetState.expand()
+                    } else if (sheetState.currentValue != androidx.compose.material3.SheetValue.Expanded) {
+                        // Match SwiftUI's initial large detent while keeping the keyboard transition compact.
+                        sheetState.expand()
+                    }
+                }
+            }
+            androidx.compose.foundation.layout.Column(
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (
+                            sheetState.currentValue == androidx.compose.material3.SheetValue.Expanded
+                        ) {
+                            androidx.compose.ui.Modifier.fillMaxHeight()
+                        } else {
+                            androidx.compose.ui.Modifier
+                        },
+                    ),
+            ) {
+                if (title != null) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxWidth()
+                            .height(androidx.compose.ui.unit.Dp(48f))
+                            .padding(horizontal = androidx.compose.ui.unit.Dp(16f)),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.weight(1f),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            if (hasNavigationIcon) {
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = androidx.compose.ui.Modifier
+                                        .size(androidx.compose.ui.unit.Dp(48f)),
+                                    contentAlignment = androidx.compose.ui.Alignment.Center,
+                                ) {
+                                    navigationIcon()
+                                }
+                            }
+                        }
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                        ) {
+                            androidx.compose.material3.Text(
+                                title,
+                                style = NexaNavigationTitleTextStyle(),
+                                maxLines = 1,
+                            )
+                        }
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.weight(1f),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            if (hasActions) {
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = androidx.compose.ui.Modifier
+                                        .size(androidx.compose.ui.unit.Dp(48f)),
+                                    contentAlignment = androidx.compose.ui.Alignment.Center,
+                                ) {
+                                    androidx.compose.foundation.layout.Row(
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        content = actions,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                content()
+            }
         }
     } else {
         androidx.compose.ui.window.Dialog(
@@ -587,35 +711,66 @@ internal fun NexaNavigationSplitViewPrimitive(
 internal fun NexaNavigationScreenPrimitive(
     title: String,
     onBack: () -> Unit,
+    groupedSurface: Boolean = false,
     content: @androidx.compose.runtime.Composable () -> Unit,
 ) {
-    androidx.compose.material3.Scaffold(
-        topBar = {
-            androidx.compose.material3.TopAppBar(
-                title = { androidx.compose.material3.Text(title) },
-                navigationIcon = {
-                    androidx.compose.material3.IconButton(onClick = onBack) {
-                        androidx.compose.material3.Text(
-                            "‹",
-                            modifier = androidx.compose.ui.Modifier.semantics {
-                                contentDescription = "Back"
-                            },
-                            fontSize = 32.sp,
-                        )
-                    }
-                },
-            )
+    val colorScheme = androidx.compose.material3.MaterialTheme.colorScheme
+    val containerColor = if (groupedSurface && colorScheme.background != androidx.compose.ui.graphics.Color.Black) {
+        colorScheme.surfaceVariant
+    } else {
+        colorScheme.background
+    }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val statusBarInset = androidx.compose.foundation.layout.WindowInsets.statusBars
+        .getTop(density)
+        .let { androidx.compose.ui.unit.Dp(it / density.density) }
+    val navigationBarInset = androidx.compose.foundation.layout.WindowInsets.navigationBars
+        .getBottom(density)
+        .let { androidx.compose.ui.unit.Dp(it / density.density) }
+    NexaLargeTitlePrimitive(
+        identity = "nexa-navigation-$title",
+        title = title,
+        centerCollapsedTitle = false,
+        containerColor = containerColor,
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxSize()
+            .background(containerColor)
+            .padding(bottom = navigationBarInset),
+        headerTopInset = statusBarInset,
+        navigationIcon = {
+            androidx.compose.material3.IconButton(
+                onClick = onBack,
+                modifier = androidx.compose.ui.Modifier
+                    .size(androidx.compose.ui.unit.Dp(44f))
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(colorScheme.surface),
+            ) {
+                androidx.compose.material3.Text(
+                    "‹",
+                    modifier = androidx.compose.ui.Modifier.semantics {
+                        contentDescription = "Back"
+                    },
+                    fontSize = 32.sp,
+                )
+            }
         },
-    ) { innerPadding ->
+    ) {
         androidx.compose.foundation.layout.Box(
             modifier = androidx.compose.ui.Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .background(containerColor),
         ) {
             content()
         }
     }
 }
+
+@androidx.compose.runtime.Composable
+internal fun NexaNavigationTitleTextStyle(): androidx.compose.ui.text.TextStyle =
+    androidx.compose.material3.MaterialTheme.typography.titleMedium.copy(
+        fontSize = __NEXA_ANDROID_NAVIGATION_TITLE_FONT_SIZE__.sp,
+        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+    )
 
 @androidx.compose.runtime.Composable
 internal fun NexaNavigationLinkPrimitive(
@@ -641,10 +796,7 @@ internal fun NexaNavigationLinkPrimitive(
 
 @androidx.compose.runtime.Composable
 internal fun NexaDialogActionDividerPrimitive() {
-    androidx.compose.material3.HorizontalDivider(
-        thickness = androidx.compose.ui.unit.Dp(0.5f),
-        color = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant,
-    )
+    NexaSystemDividerPrimitive()
 }
 
 @androidx.compose.runtime.Composable
@@ -652,6 +804,7 @@ internal fun NexaTextInputPrimitive(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    focusModifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
     placeholder: String = "",
     searchable: Boolean = false,
     searchIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
@@ -663,36 +816,120 @@ internal fun NexaTextInputPrimitive(
     keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions(),
     keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions(),
 ) {
-    androidx.compose.material3.TextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier,
-        placeholder = placeholder.takeIf(String::isNotEmpty)?.let { { androidx.compose.material3.Text(it) } },
-        textStyle = textStyle,
-        minLines = minLines,
-        maxLines = maxLines,
-        leadingIcon = if (searchable && searchIcon != null) {
-            { androidx.compose.material3.Icon(imageVector = searchIcon, contentDescription = null) }
-        } else null,
-        singleLine = singleLine,
-        colors = androidx.compose.material3.TextFieldDefaults.colors(
-            focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-            unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-            disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-            errorContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            errorIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-        ),
-        visualTransformation = if (secure) {
-            androidx.compose.ui.text.input.PasswordVisualTransformation()
-        } else {
-            androidx.compose.ui.text.input.VisualTransformation.None
-        },
-        keyboardOptions = keyboardOptions,
-        keyboardActions = keyboardActions,
-    )
+    val bringIntoViewRequester = androidx.compose.runtime.remember {
+        androidx.compose.foundation.relocation.BringIntoViewRequester()
+    }
+    val inputHasFocus = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val keyboardInset = androidx.compose.foundation.layout.WindowInsets.ime
+        .getBottom(androidx.compose.ui.platform.LocalDensity.current)
+    val inputFocusModifier = focusModifier
+        .bringIntoViewRequester(bringIntoViewRequester)
+        .onFocusChanged { inputHasFocus.value = it.isFocused }
+    androidx.compose.runtime.LaunchedEffect(inputHasFocus.value, keyboardInset) {
+        if (inputHasFocus.value && keyboardInset > 0) {
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
+    if (searchable) {
+        androidx.compose.foundation.layout.Row(
+            modifier = modifier,
+            horizontalArrangement = if (searchIcon != null) {
+                androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(8f))
+            } else {
+                androidx.compose.foundation.layout.Arrangement.Start
+            },
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            if (searchIcon != null) {
+                androidx.compose.material3.Icon(
+                    imageVector = searchIcon,
+                    contentDescription = null,
+                    modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(20f)),
+                    tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.weight(1f),
+                contentAlignment = androidx.compose.ui.Alignment.CenterStart,
+            ) {
+                androidx.compose.foundation.text.BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = inputFocusModifier.fillMaxWidth(),
+                    textStyle = textStyle.copy(
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                    ),
+                    minLines = minLines,
+                    maxLines = maxLines,
+                    singleLine = singleLine,
+                    visualTransformation = if (secure) {
+                        androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    } else {
+                        androidx.compose.ui.text.input.VisualTransformation.None
+                    },
+                    keyboardOptions = keyboardOptions,
+                    keyboardActions = keyboardActions,
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                        androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    ),
+                    decorationBox = { innerTextField ->
+                        androidx.compose.foundation.layout.Box(
+                            contentAlignment = androidx.compose.ui.Alignment.CenterStart,
+                        ) {
+                            if (value.isEmpty() && placeholder.isNotEmpty()) {
+                                androidx.compose.material3.Text(
+                                    placeholder,
+                                    style = textStyle.copy(
+                                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                                    ),
+                                    maxLines = 1,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+            }
+        }
+    } else {
+        androidx.compose.foundation.text.BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = modifier.then(inputFocusModifier),
+            textStyle = textStyle.copy(
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+            ),
+            minLines = minLines,
+            maxLines = maxLines,
+            singleLine = singleLine,
+            visualTransformation = if (secure) {
+                androidx.compose.ui.text.input.PasswordVisualTransformation()
+            } else {
+                androidx.compose.ui.text.input.VisualTransformation.None
+            },
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                androidx.compose.material3.MaterialTheme.colorScheme.primary,
+            ),
+            decorationBox = { innerTextField ->
+                androidx.compose.foundation.layout.Box(
+                    contentAlignment = androidx.compose.ui.Alignment.CenterStart,
+                ) {
+                    if (value.isEmpty() && placeholder.isNotEmpty()) {
+                        androidx.compose.material3.Text(
+                            placeholder,
+                            style = textStyle.copy(
+                                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            maxLines = 1,
+                        )
+                    }
+                    innerTextField()
+                }
+            },
+        )
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -705,7 +942,13 @@ internal fun NexaSwitchPrimitive(
     offTrackColor: androidx.compose.ui.graphics.Color,
 ) {
     androidx.compose.foundation.layout.Row(
-        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                role = androidx.compose.ui.semantics.Role.Switch,
+                onValueChange = onCheckedChange,
+            ),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         NexaTextPrimitive(
@@ -717,7 +960,7 @@ internal fun NexaSwitchPrimitive(
         )
         androidx.compose.material3.Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             modifier = androidx.compose.ui.Modifier.semantics { contentDescription = label },
             colors = androidx.compose.material3.SwitchDefaults.colors(
                 checkedThumbColor = androidx.compose.ui.graphics.Color.White,
@@ -759,6 +1002,21 @@ internal fun NexaProgressRingPrimitive(progress: Float) {
 @androidx.compose.runtime.Composable
 internal fun NexaDividerPrimitive(color: androidx.compose.ui.graphics.Color, thickness: androidx.compose.ui.unit.Dp) {
     androidx.compose.material3.HorizontalDivider(color = color, thickness = thickness)
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaSystemDividerPrimitive(
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    startInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
+    endInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
+) {
+    val isDark = androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black
+    androidx.compose.material3.HorizontalDivider(
+        modifier = modifier.fillMaxWidth().padding(start = startInset, end = endInset),
+        thickness = androidx.compose.ui.unit.Dp.Hairline,
+        color = if (isDark) androidx.compose.ui.graphics.Color(__NEXA_SYSTEM_SEPARATOR_DARK_ARGB__)
+        else androidx.compose.ui.graphics.Color(__NEXA_SYSTEM_SEPARATOR_LIGHT_ARGB__),
+    )
 }
 
 @androidx.compose.runtime.Composable
@@ -839,7 +1097,7 @@ internal fun NexaContentUnavailablePrimitive(
         androidx.compose.material3.Icon(
             imageVector = icon,
             contentDescription = null,
-            modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(48f)),
+            modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(58f)),
             tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
         )
         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(androidx.compose.ui.unit.Dp(16f)))
@@ -963,13 +1221,20 @@ internal fun NexaFormPrimitive(
     } else {
         androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant
     }
+    val scrollState = androidx.compose.foundation.rememberScrollState()
     androidx.compose.foundation.layout.Column(
         modifier = androidx.compose.ui.Modifier
             .fillMaxSize()
             .background(background)
-            .verticalScroll(androidx.compose.foundation.rememberScrollState()),
-        content = content,
-    )
+            .verticalScroll(scrollState, enabled = scrollState.maxValue > 0),
+    ) {
+        androidx.compose.foundation.layout.Spacer(
+            modifier = androidx.compose.ui.Modifier.height(
+                androidx.compose.ui.unit.Dp(__NEXA_FORM_CONTENT_TOP_INSET__.toFloat()),
+            ),
+        )
+        content()
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -985,7 +1250,13 @@ internal fun NexaFormSectionPrimitive(
                 start = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_HORIZONTAL_INSET__.toFloat()),
                 top = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_TOP_PADDING__.toFloat()),
                 end = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_HORIZONTAL_INSET__.toFloat()),
-                bottom = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_BOTTOM_PADDING__.toFloat()),
+                bottom = androidx.compose.ui.unit.Dp(
+                    if (footer == null) {
+                        __NEXA_FORM_SECTION_BOTTOM_PADDING__.toFloat()
+                    } else {
+                        __NEXA_FORM_SECTION_TOP_PADDING__.toFloat()
+                    },
+                ),
             ),
     ) {
         if (title != null) {
@@ -1025,17 +1296,9 @@ internal fun NexaFormSectionPrimitive(
 
 @androidx.compose.runtime.Composable
 internal fun NexaFormDividerPrimitive() {
-    androidx.compose.material3.HorizontalDivider(
-        modifier = androidx.compose.ui.Modifier.fillMaxWidth().padding(
-            start = androidx.compose.ui.unit.Dp(__NEXA_FORM_DIVIDER_START_INSET__.toFloat()),
-            end = androidx.compose.ui.unit.Dp(__NEXA_FORM_DIVIDER_END_INSET__.toFloat()),
-        ),
-        thickness = androidx.compose.ui.unit.Dp(0.5f),
-        color = if (androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black) {
-            androidx.compose.ui.graphics.Color(__NEXA_FORM_DARK_SEPARATOR_ARGB__)
-        } else {
-            androidx.compose.ui.graphics.Color(__NEXA_FORM_LIGHT_SEPARATOR_ARGB__)
-        },
+    NexaSystemDividerPrimitive(
+        startInset = androidx.compose.ui.unit.Dp(__NEXA_FORM_DIVIDER_START_INSET__.toFloat()),
+        endInset = androidx.compose.ui.unit.Dp(__NEXA_FORM_DIVIDER_END_INSET__.toFloat()),
     )
 }
 
@@ -1048,10 +1311,14 @@ internal fun NexaPickerPrimitive(
     label: String?,
     tint: androidx.compose.ui.graphics.Color?,
     identity: String? = null,
+    fillMaxWidth: Boolean = true,
     onSelectionChanged: (String) -> Unit,
 ) {
     val expanded = androidx.compose.runtime.remember(identity) { androidx.compose.runtime.mutableStateOf(false) }
-    androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+    androidx.compose.foundation.layout.Row(
+        modifier = (if (fillMaxWidth) androidx.compose.ui.Modifier.fillMaxWidth() else androidx.compose.ui.Modifier.wrapContentWidth()).clickable { expanded.value = true },
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
         if (label != null && icon != null) {
             androidx.compose.material3.Icon(
                 imageVector = icon,
@@ -1073,7 +1340,7 @@ internal fun NexaPickerPrimitive(
         }
         androidx.compose.foundation.layout.Box {
             androidx.compose.foundation.layout.Row(
-                modifier = androidx.compose.ui.Modifier.clickable { expanded.value = true }.padding(vertical = androidx.compose.ui.unit.Dp(8f)),
+                modifier = androidx.compose.ui.Modifier.padding(vertical = androidx.compose.ui.unit.Dp(8f)),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             ) {
                 if (icon != null && label == null) {
@@ -1081,7 +1348,11 @@ internal fun NexaPickerPrimitive(
                         image = icon,
                         description = selected,
                         size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()),
-                        tint = tint ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                        tint = tint ?: if (androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black) {
+                            androidx.compose.ui.graphics.Color(__NEXA_DARK_ACCENT_ARGB__)
+                        } else {
+                            androidx.compose.ui.graphics.Color(__NEXA_DEFAULT_ACCENT_ARGB__)
+                        },
                     )
                 } else {
                     NexaTextPrimitive(
@@ -1173,11 +1444,11 @@ internal fun NexaDatePickerPrimitive(
         val timeDialog = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
         androidx.compose.foundation.layout.Column {
-            androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                NexaTextPrimitive(text = "Include time", modifier = androidx.compose.ui.Modifier.weight(1f))
-                androidx.compose.material3.Switch(
-                    checked = includesTime,
-                    onCheckedChange = { enabled ->
+            androidx.compose.foundation.layout.Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth().toggleable(
+                    value = includesTime,
+                    role = androidx.compose.ui.semantics.Role.Switch,
+                    onValueChange = { enabled ->
                         onIncludesTimeChanged(enabled)
                         if (!enabled) {
                             val calendar = java.util.Calendar.getInstance().apply {
@@ -1190,6 +1461,13 @@ internal fun NexaDatePickerPrimitive(
                             onTimestampChanged(calendar.timeInMillis)
                         }
                     },
+                ),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                NexaTextPrimitive(text = "Include time", modifier = androidx.compose.ui.Modifier.weight(1f))
+                androidx.compose.material3.Switch(
+                    checked = includesTime,
+                    onCheckedChange = null,
                     modifier = androidx.compose.ui.Modifier.semantics { contentDescription = "Include time" },
                 )
             }
@@ -1324,56 +1602,105 @@ internal fun NexaPageIndicatorPrimitive(
 internal fun NexaLargeTitlePrimitive(
     identity: String,
     title: String,
+    centerCollapsedTitle: Boolean,
     containerColor: androidx.compose.ui.graphics.Color,
     modifier: androidx.compose.ui.Modifier,
+    headerExpandedHeight: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(__NEXA_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT__.toFloat()),
+    headerTitleTopPadding: Float = __NEXA_LARGE_TITLE_APP_BAR_EXPANDED_TITLE_TOP_PADDING__.toFloat(),
+    headerTopInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
     navigationIcon: @androidx.compose.runtime.Composable () -> Unit = {},
     actions: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
     content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     androidx.compose.runtime.key(identity) {
+        val expandedHeight = headerExpandedHeight
+        val expandedTitleTopPadding = headerTitleTopPadding
         val scrollState = androidx.compose.material3.rememberTopAppBarState()
         val scrollBehavior = androidx.compose.material3.TopAppBarDefaults.exitUntilCollapsedScrollBehavior(scrollState)
-        val titleWidth = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         androidx.compose.foundation.layout.Column(
             modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         ) {
-            androidx.compose.material3.LargeTopAppBar(
-                collapsedHeight = androidx.compose.ui.unit.Dp(__NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT__.toFloat()),
-                expandedHeight = androidx.compose.ui.unit.Dp(__NEXA_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT__.toFloat()),
-                title = {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.padding(top = headerTopInset),
+            ) {
+                androidx.compose.material3.LargeTopAppBar(
+                    collapsedHeight = androidx.compose.ui.unit.Dp(__NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT__.toFloat()),
+                    expandedHeight = expandedHeight,
+                    title = {},
+                    navigationIcon = navigationIcon,
+                    actions = {},
+                    colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                        containerColor = containerColor,
+                        scrolledContainerColor = containerColor,
+                    ),
+                    windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+                    scrollBehavior = scrollBehavior,
+                )
+                androidx.compose.foundation.layout.Row(
+                    modifier = androidx.compose.ui.Modifier
+                        .matchParentSize()
+                        .padding(
+                            start = androidx.compose.ui.unit.Dp(__NEXA_LARGE_TITLE_HORIZONTAL_INSET__.toFloat()),
+                            top = androidx.compose.ui.unit.Dp(
+                                expandedTitleTopPadding +
+                                    (__NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_TITLE_TOP_PADDING__.toFloat() -
+                                        expandedTitleTopPadding) * scrollState.collapsedFraction,
+                            ),
+                            end = androidx.compose.ui.unit.Dp(__NEXA_LARGE_TITLE_HORIZONTAL_INSET__.toFloat()),
+                        ),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
                     androidx.compose.foundation.layout.BoxWithConstraints(
-                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        modifier = androidx.compose.ui.Modifier.weight(1f).fillMaxHeight(),
+                        contentAlignment = androidx.compose.ui.Alignment.CenterStart,
                     ) {
-                        val availableTitleWidth = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }
+                        val titleWidthPx = androidx.compose.runtime.remember(title) {
+                            androidx.compose.runtime.mutableIntStateOf(0)
+                        }
+                        val density = androidx.compose.ui.platform.LocalDensity.current
+                        val collapseFraction = scrollState.collapsedFraction
+                        val compactTitleStyle = NexaNavigationTitleTextStyle()
+                        val expandedTitleStyle = androidx.compose.material3.MaterialTheme.typography.headlineLarge.copy(
+                            fontSize = __NEXA_APP_TAB_LARGE_TITLE_FONT_SIZE__.sp,
+                        )
+                        val titleFontSize = __NEXA_APP_TAB_LARGE_TITLE_FONT_SIZE__.toFloat() +
+                            (__NEXA_APP_TAB_COLLAPSED_TITLE_FONT_SIZE__.toFloat() -
+                                __NEXA_APP_TAB_LARGE_TITLE_FONT_SIZE__.toFloat()) * collapseFraction
+                        val titleStyle = compactTitleStyle.copy(
+                            fontSize = titleFontSize.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight(
+                                700 - (100f * collapseFraction).toInt(),
+                            ),
+                            lineHeight = (
+                                expandedTitleStyle.lineHeight.value +
+                                    (compactTitleStyle.lineHeight.value - expandedTitleStyle.lineHeight.value) * collapseFraction
+                                ).sp,
+                            letterSpacing = (
+                                expandedTitleStyle.letterSpacing.value +
+                                    (compactTitleStyle.letterSpacing.value - expandedTitleStyle.letterSpacing.value) * collapseFraction
+                                ).sp,
+                        )
                         androidx.compose.material3.Text(
                             title,
                             color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
-                            modifier = androidx.compose.ui.Modifier.graphicsLayer {
-                                val collapseFraction = scrollState.collapsedFraction
-                                val titleScale = 1f - 0.5f * collapseFraction
-                                translationX = ((availableTitleWidth - titleWidth.intValue * titleScale).coerceAtLeast(0f) / 2f) * collapseFraction
-                                scaleX = titleScale
-                                scaleY = titleScale
-                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
-                            },
+                            modifier = androidx.compose.ui.Modifier
+                                .onSizeChanged { titleWidthPx.intValue = it.width }
+                                .graphicsLayer {
+                                    if (centerCollapsedTitle) {
+                                        if (titleWidthPx.intValue > 0) {
+                                            val availableWidthPx = with(density) { maxWidth.toPx() }
+                                            translationX = ((availableWidthPx - titleWidthPx.intValue).coerceAtLeast(0f) / 2f) * collapseFraction
+                                        }
+                                    }
+                                },
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            style = androidx.compose.material3.MaterialTheme.typography.headlineLarge.copy(
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                fontSize = __NEXA_FORM_LARGE_TITLE_FONT_SIZE__.sp,
-                            ),
-                            onTextLayout = { titleWidth.intValue = it.size.width },
+                            style = titleStyle,
                         )
                     }
-                },
-                navigationIcon = navigationIcon,
-                actions = actions,
-                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                    containerColor = containerColor,
-                    scrolledContainerColor = containerColor,
-                ),
-                scrollBehavior = scrollBehavior,
-            )
+                    actions()
+                }
+            }
             content()
         }
     }
@@ -1467,6 +1794,86 @@ internal fun NexaFastListRowPrimitive(
         modifier = modifier,
         horizontalAlignment = horizontalAlignment,
         content = content,
+    )
+}
+
+"#;
+
+const NEXA_NATIVE_LIST_PRIMITIVES: &str = r#"@androidx.compose.runtime.Composable
+private fun nexaNativeListGroupedBackground(): androidx.compose.ui.graphics.Color =
+    if (androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black) {
+        androidx.compose.ui.graphics.Color.Black
+    } else {
+        androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant
+    }
+
+@androidx.compose.runtime.Composable
+internal fun NexaNativeListContainerModifier(): androidx.compose.ui.Modifier =
+    androidx.compose.ui.Modifier
+        .fillMaxSize()
+        .background(nexaNativeListGroupedBackground())
+        .padding(
+            horizontal = androidx.compose.ui.unit.Dp(__NEXA_NATIVE_LIST_CONTENT_HORIZONTAL_INSET__.toFloat()),
+            vertical = androidx.compose.ui.unit.Dp(__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__.toFloat()),
+        )
+
+@androidx.compose.runtime.Composable
+internal fun NexaNativeListSectionHeaderPrimitive(
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    androidx.compose.foundation.layout.Column(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxWidth()
+            .background(nexaNativeListGroupedBackground())
+            .padding(
+                horizontal = androidx.compose.ui.unit.Dp(__NEXA_NATIVE_LIST_SECTION_HEADER_HORIZONTAL_INSET__.toFloat()),
+                vertical = androidx.compose.ui.unit.Dp(__NEXA_NATIVE_LIST_SECTION_HEADER_VERTICAL_INSET__.toFloat()),
+            ),
+        content = content,
+    )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaNativeListSectionSpacingPrimitive() {
+    androidx.compose.foundation.layout.Spacer(
+        modifier = androidx.compose.ui.Modifier.height(
+            androidx.compose.ui.unit.Dp(__NEXA_NATIVE_LIST_SECTION_SPACING__.toFloat()),
+        ),
+    )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaNativeListRowPrimitive(
+    position: Int,
+    count: Int,
+    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val corner = androidx.compose.ui.unit.Dp(24f)
+    val shape = when {
+        count <= 1 -> androidx.compose.foundation.shape.RoundedCornerShape(corner)
+        position == 0 -> androidx.compose.foundation.shape.RoundedCornerShape(topStart = corner, topEnd = corner)
+        position == count - 1 -> androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = corner, bottomEnd = corner)
+        else -> androidx.compose.foundation.shape.RoundedCornerShape(androidx.compose.ui.unit.Dp(0f))
+    }
+    val isDark = androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black
+    androidx.compose.foundation.layout.Column(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                if (isDark) androidx.compose.ui.graphics.Color(__NEXA_FORM_DARK_SECTION_ARGB__)
+                else androidx.compose.ui.graphics.Color(__NEXA_FORM_LIGHT_SECTION_ARGB__),
+            )
+            .padding(vertical = androidx.compose.ui.unit.Dp(__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__.toFloat())),
+        content = content,
+    )
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaNativeListDividerPrimitive() {
+    NexaSystemDividerPrimitive(
+        startInset = androidx.compose.ui.unit.Dp(__NEXA_NATIVE_LIST_DIVIDER_START_INSET__.toFloat()),
+        endInset = androidx.compose.ui.unit.Dp(16f),
     )
 }
 
@@ -1576,6 +1983,10 @@ fn shared_component_primitives() -> String {
             nexa_codegen::design_system::FORM_SECTION_HORIZONTAL_INSET.to_string(),
         ),
         (
+            "__NEXA_FORM_CONTENT_TOP_INSET__",
+            nexa_codegen::design_system::ANDROID_FORM_CONTENT_TOP_INSET.to_string(),
+        ),
+        (
             "__NEXA_FORM_SECTION_TOP_PADDING__",
             nexa_codegen::design_system::FORM_SECTION_TOP_PADDING.to_string(),
         ),
@@ -1614,17 +2025,17 @@ fn shared_component_primitives() -> String {
             ),
         ),
         (
-            "__NEXA_FORM_DARK_SEPARATOR_ARGB__",
+            "__NEXA_SYSTEM_SEPARATOR_DARK_ARGB__",
             format!(
                 "0x{:08X}",
-                nexa_codegen::design_system::FORM_DARK_SEPARATOR_ARGB
+                nexa_codegen::design_system::SYSTEM_SEPARATOR_DARK_ARGB
             ),
         ),
         (
-            "__NEXA_FORM_LIGHT_SEPARATOR_ARGB__",
+            "__NEXA_SYSTEM_SEPARATOR_LIGHT_ARGB__",
             format!(
                 "0x{:08X}",
-                nexa_codegen::design_system::FORM_LIGHT_SEPARATOR_ARGB
+                nexa_codegen::design_system::SYSTEM_SEPARATOR_LIGHT_ARGB
             ),
         ),
         (
@@ -1660,8 +2071,30 @@ fn shared_component_primitives() -> String {
             nexa_codegen::design_system::ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT.to_string(),
         ),
         (
-            "__NEXA_FORM_LARGE_TITLE_FONT_SIZE__",
-            nexa_codegen::design_system::FORM_LARGE_TITLE_FONT_SIZE.to_string(),
+            "__NEXA_LARGE_TITLE_APP_BAR_EXPANDED_TITLE_TOP_PADDING__",
+            nexa_codegen::design_system::ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_TITLE_TOP_PADDING
+                .to_string(),
+        ),
+        (
+            "__NEXA_LARGE_TITLE_APP_BAR_COLLAPSED_TITLE_TOP_PADDING__",
+            nexa_codegen::design_system::ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_TITLE_TOP_PADDING
+                .to_string(),
+        ),
+        (
+            "__NEXA_LARGE_TITLE_HORIZONTAL_INSET__",
+            nexa_codegen::design_system::ANDROID_LARGE_TITLE_HORIZONTAL_INSET.to_string(),
+        ),
+        (
+            "__NEXA_ANDROID_NAVIGATION_TITLE_FONT_SIZE__",
+            nexa_codegen::design_system::ANDROID_NAVIGATION_TITLE_FONT_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_APP_TAB_LARGE_TITLE_FONT_SIZE__",
+            nexa_codegen::design_system::APP_TAB_LARGE_TITLE_FONT_SIZE.to_string(),
+        ),
+        (
+            "__NEXA_APP_TAB_COLLAPSED_TITLE_FONT_SIZE__",
+            nexa_codegen::design_system::ANDROID_APP_TAB_COLLAPSED_TITLE_FONT_SIZE.to_string(),
         ),
         (
             "__NEXA_DARK_ACCENT_ARGB__",
@@ -1752,6 +2185,70 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         out.push_str(&shared_component_primitives());
         if features.uses_fast_list {
             out.push_str(NEXA_FAST_LIST_ROW_PRIMITIVE);
+            let native_list_primitives = NEXA_NATIVE_LIST_PRIMITIVES
+                .replace(
+                    "__NEXA_FORM_DARK_SECTION_ARGB__",
+                    &format!(
+                        "0x{:08X}",
+                        nexa_codegen::design_system::FORM_DARK_SECTION_ARGB
+                    ),
+                )
+                .replace(
+                    "__NEXA_FORM_LIGHT_SECTION_ARGB__",
+                    &format!(
+                        "0x{:08X}",
+                        nexa_codegen::design_system::FORM_LIGHT_SECTION_ARGB
+                    ),
+                )
+                .replace(
+                    "__NEXA_SYSTEM_SEPARATOR_DARK_ARGB__",
+                    &format!(
+                        "0x{:08X}",
+                        nexa_codegen::design_system::SYSTEM_SEPARATOR_DARK_ARGB
+                    ),
+                )
+                .replace(
+                    "__NEXA_SYSTEM_SEPARATOR_LIGHT_ARGB__",
+                    &format!(
+                        "0x{:08X}",
+                        nexa_codegen::design_system::SYSTEM_SEPARATOR_LIGHT_ARGB
+                    ),
+                )
+                .replace(
+                    "__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__",
+                    &nexa_codegen::design_system::ANDROID_NATIVE_LIST_ROW_VERTICAL_INSET
+                        .to_string(),
+                )
+                .replace(
+                    "__NEXA_NATIVE_LIST_DIVIDER_START_INSET__",
+                    &nexa_codegen::design_system::ANDROID_NATIVE_LIST_DIVIDER_START_INSET
+                        .to_string(),
+                )
+                .replace(
+                    "__NEXA_NATIVE_LIST_CONTENT_HORIZONTAL_INSET__",
+                    &nexa_codegen::design_system::ANDROID_NATIVE_LIST_CONTENT_HORIZONTAL_INSET
+                        .to_string(),
+                )
+                .replace(
+                    "__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__",
+                    &nexa_codegen::design_system::ANDROID_NATIVE_LIST_CONTENT_VERTICAL_INSET
+                        .to_string(),
+                )
+                .replace(
+                    "__NEXA_NATIVE_LIST_SECTION_HEADER_HORIZONTAL_INSET__",
+                    &nexa_codegen::design_system::ANDROID_NATIVE_LIST_SECTION_HEADER_HORIZONTAL_INSET
+                        .to_string(),
+                )
+                .replace(
+                    "__NEXA_NATIVE_LIST_SECTION_HEADER_VERTICAL_INSET__",
+                    &nexa_codegen::design_system::ANDROID_NATIVE_LIST_SECTION_HEADER_VERTICAL_INSET
+                        .to_string(),
+                )
+                .replace(
+                    "__NEXA_NATIVE_LIST_SECTION_SPACING__",
+                    &nexa_codegen::design_system::ANDROID_NATIVE_LIST_SECTION_SPACING.to_string(),
+                );
+            out.push_str(&native_list_primitives);
         }
         if features.facts.ui.lists.swipe_actions {
             out.push_str(NEXA_FAST_LIST_SWIPE_PRIMITIVE);
@@ -2135,6 +2632,12 @@ mod tests {
         assert!(primitives.contains("Dp(48.toFloat())"));
         assert!(primitives.contains("Dp(50.toFloat())"));
         assert!(primitives.contains("Dp(24.toFloat())"));
+        assert!(primitives.contains(
+            "bottom = androidx.compose.ui.unit.Dp(\n                    if (footer == null) {\n                        20.toFloat()\n                    } else {\n                        8.toFloat()\n                    },\n                ),"
+        ));
+        assert!(
+            primitives.contains("contentAlignment = androidx.compose.ui.Alignment.CenterStart")
+        );
         assert!(
             primitives.contains(
                 "PaddingValues(horizontal = androidx.compose.ui.unit.Dp(12.toFloat()), vertical = androidx.compose.ui.unit.Dp(4.toFloat()))"
@@ -2159,8 +2662,34 @@ mod tests {
         assert!(primitives.contains("androidx.compose.foundation.Canvas("));
         assert!(primitives.contains("androidx.compose.ui.graphics.Path().apply"));
         assert!(!primitives.contains("Icons.Filled.UnfoldMore"));
-        assert!(primitives.contains("Modifier.clickable { expanded.value = true }"));
+        assert!(primitives.contains("if (fillMaxWidth) androidx.compose.ui.Modifier.fillMaxWidth() else androidx.compose.ui.Modifier.wrapContentWidth()"));
+        assert!(primitives.contains(".clickable { expanded.value = true }"));
         assert!(primitives.contains("fontSize = 17.sp"));
+    }
+
+    #[test]
+    fn shared_search_input_uses_a_plain_icon_and_field_row() {
+        let primitives = shared_component_primitives();
+        assert!(primitives.contains("internal fun NexaTextInputPrimitive("));
+        assert!(primitives.contains("androidx.compose.foundation.text.BasicTextField("));
+        assert!(primitives.contains(
+            "androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(8f))"
+        ));
+        assert!(
+            primitives
+                .contains("androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(20f))")
+        );
+        assert!(primitives.contains("if (value.isEmpty() && placeholder.isNotEmpty())"));
+        assert!(!primitives.contains("leadingIcon = if (searchable"));
+    }
+
+    #[test]
+    fn shared_switch_primitive_makes_the_entire_row_toggleable() {
+        let primitives = shared_component_primitives();
+        assert!(primitives.contains("value = checked,"));
+        assert!(primitives.contains("role = androidx.compose.ui.semantics.Role.Switch,"));
+        assert!(primitives.contains("onValueChange = onCheckedChange,"));
+        assert!(primitives.contains("onCheckedChange = null,"));
     }
 
     #[test]
@@ -2172,6 +2701,8 @@ mod tests {
                 .contains("rememberDatePickerState(initialSelectedDateMillis = initialDateMillis)")
         );
         assert!(primitives.contains("onTimestampChanged(calendar.timeInMillis)"));
+        assert!(primitives.contains("value = includesTime,"));
+        assert!(primitives.contains("onCheckedChange = null,"));
         assert!(primitives.contains("LaunchedEffect(timestamp)"));
         assert!(primitives.contains("key(identity)"));
     }
@@ -2197,13 +2728,28 @@ mod tests {
             primitives.contains("TopAppBarDefaults.exitUntilCollapsedScrollBehavior(scrollState)")
         );
         assert!(primitives.contains("collapsedHeight = androidx.compose.ui.unit.Dp(64.toFloat())"));
-        assert!(primitives.contains("expandedHeight = androidx.compose.ui.unit.Dp(112.toFloat())"));
-        assert!(primitives.contains("fontSize = 34.sp"));
         assert!(
-            primitives.contains(
-                "transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)"
-            )
+            primitives.contains("val expandedHeight = androidx.compose.ui.unit.Dp(80.toFloat())")
         );
+        assert!(primitives.contains("val expandedTitleTopPadding = 28.toFloat()"));
+        assert!(primitives.contains("title = {},"));
+        assert!(primitives.contains("expandedTitleTopPadding +"));
+        assert!(primitives.contains("12.toFloat() -"));
+        assert!(primitives.contains("expandedTitleTopPadding) * scrollState.collapsedFraction"));
+        assert!(primitives.contains("scrollState.collapsedFraction"));
+        assert!(primitives.contains("val compactTitleStyle = NexaNavigationTitleTextStyle()"));
+        assert!(primitives.contains("val titleFontSize = 28.toFloat() +"));
+        assert!(primitives.contains("fontSize = titleFontSize.sp"));
+        assert!(primitives.contains("scrolledContainerColor = containerColor"));
+        assert!(primitives.contains(
+            "windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)"
+        ));
+        assert!(primitives.contains("scrollBehavior = scrollBehavior"));
+        assert!(primitives.contains("fontSize = 28.sp"));
+        assert!(primitives.contains("700 - (100f * collapseFraction).toInt()"));
+        assert!(primitives.contains("androidx.compose.ui.Modifier.weight(1f)"));
+        assert!(primitives.contains("actions()"));
+        assert!(primitives.contains("actions = {},"));
     }
 
     #[test]
@@ -2212,7 +2758,9 @@ mod tests {
 
         assert!(primitives.contains("internal fun NexaBottomSheetPrimitive("));
         assert!(primitives.contains("ModalBottomSheet("));
-        assert!(primitives.contains("CenterAlignedTopAppBar("));
+        assert!(primitives.contains("dragHandle = {"));
+        assert!(primitives.contains("height(androidx.compose.ui.unit.Dp(12f))"));
+        assert!(primitives.contains("NexaNavigationTitleTextStyle()"));
         assert!(primitives.contains("internal fun NexaAlertDialogPrimitive("));
         assert!(primitives.contains("internal fun NexaConfirmationDialogPrimitive("));
         assert!(
@@ -2367,7 +2915,7 @@ mod tests {
         assert!(kotlin.contains("NexaContentUnavailablePrimitive(title = \"Inbox is empty\""));
         assert!(kotlin.contains("description = \"Tasks you add will appear here.\""));
         assert!(kotlin.contains(
-            "modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(48f))"
+            "modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(58f))"
         ));
         assert!(kotlin.contains("Icons.Filled.Inbox"));
     }
@@ -2613,7 +3161,9 @@ mod tests {
         assert!(!root.contains("Scaffold("));
         assert!(destination.contains("NexaNavigationScreenPrimitive("));
         assert!(destination.contains("title = \"Task Details\""));
-        assert!(destination.contains("onBack = { navController.popBackStack() }"));
+        assert!(destination.contains(
+            "onBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() }"
+        ));
         assert!(destination.contains("NexaAppearancePrimitive(mode = nexa_appearanceMode) {"));
         assert!(kotlin.contains("internal fun NexaNavigationScreenPrimitive("));
         assert!(kotlin.contains("contentDescription = \"Back\""));

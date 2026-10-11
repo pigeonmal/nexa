@@ -59,8 +59,52 @@ class TodoPersistence {
             ])
             return true
         } catch {
+            case SQLite.Failure.invalidDatabaseName(message) {
+                Log.error(message: "TODO_SQLITE_INVALID_DATABASE_NAME: \(message)")
+                return false
+            }
+            case SQLite.Failure.appGroupUnavailable {
+                Log.error(message: "TODO_SQLITE_APP_GROUP_UNAVAILABLE")
+                return false
+            }
+            case SQLite.Failure.openFailed(message) {
+                Log.error(message: "TODO_SQLITE_OPEN_FAILED: \(message)")
+                return false
+            }
+            case SQLite.Failure.invalidValue(message) {
+                Log.error(message: "TODO_SQLITE_INVALID_VALUE: \(message)")
+                return false
+            }
+            case SQLite.Failure.prepareFailed(message) {
+                Log.error(message: "TODO_SQLITE_PREPARE_FAILED: \(message)")
+                return false
+            }
+            case SQLite.Failure.bindFailed(message) {
+                Log.error(message: "TODO_SQLITE_BIND_FAILED: \(message)")
+                return false
+            }
+            case SQLite.Failure.executeFailed(message) {
+                Log.error(message: "TODO_SQLITE_EXECUTE_FAILED: \(message)")
+                return false
+            }
+            case SQLite.Failure.queryFailed(message) {
+                Log.error(message: "TODO_SQLITE_QUERY_FAILED: \(message)")
+                return false
+            }
+            case SQLite.Failure.transactionFailed(message) {
+                Log.error(message: "TODO_SQLITE_TRANSACTION_FAILED: \(message)")
+                return false
+            }
+            case SQLite.Failure.migrationFailed(message) {
+                Log.error(message: "TODO_SQLITE_MIGRATION_FAILED: \(message)")
+                return false
+            }
+            case SQLite.Failure.closed {
+                Log.error(message: "TODO_SQLITE_DATABASE_CLOSED")
+                return false
+            }
             else {
-                Log.error(message: "TODO_SQLITE_MIGRATION_FAILED")
+                Log.error(message: "TODO_SQLITE_UNKNOWN_FAILURE")
                 return false
             }
         }

@@ -2,7 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Expr, Module, Node, ToolbarPlacement, WhenCase};
 
-use crate::generator::{components::render_children, engine::features::Features};
+use crate::generator::{components::render_children, controls, engine::features::Features};
 
 use crate::generator::engine::imports::ImportSet;
 
@@ -46,17 +46,27 @@ pub(crate) fn render_bottom_sheet(
     if sheet_title.is_some() {
         let leading = sheet_toolbar_nodes(children, ToolbarPlacement::Leading);
         let trailing = sheet_toolbar_nodes(children, ToolbarPlacement::Trailing);
+        out.line_at(
+            depth + 1,
+            format_args!("hasNavigationIcon = {},", !leading.is_empty()),
+        );
+        out.line_at(
+            depth + 1,
+            format_args!("hasActions = {},", !trailing.is_empty()),
+        );
         let content = remove_sheet_toolbars(children);
         out.line_at(depth + 1, format_args!("navigationIcon = {{"));
-        render_children(&leading, module, features, depth + 2, out);
+        render_sheet_toolbar_children(&leading, module, features, depth + 2, out);
         out.line_at(depth + 1, format_args!("}},"));
         out.line_at(depth + 1, format_args!("actions = {{"));
-        render_children(&trailing, module, features, depth + 2, out);
+        render_sheet_toolbar_children(&trailing, module, features, depth + 2, out);
         out.line_at(depth + 1, format_args!("}},"));
         out.line_at(depth + 1, format_args!("content = {{"));
         render_children(&content, module, features, depth + 2, out);
         out.line_at(depth + 1, format_args!("}},"));
     } else {
+        out.line_at(depth + 1, format_args!("hasNavigationIcon = false,"));
+        out.line_at(depth + 1, format_args!("hasActions = false,"));
         out.line_at(depth + 1, format_args!("navigationIcon = {{ }},"));
         out.line_at(depth + 1, format_args!("actions = {{ }},"));
         out.line_at(depth + 1, format_args!("content = {{"));
@@ -64,6 +74,41 @@ pub(crate) fn render_bottom_sheet(
         out.line_at(depth + 1, format_args!("}},"));
     }
     out.line_at(depth, format_args!(")"));
+}
+
+fn render_sheet_toolbar_children(
+    nodes: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    for (index, node) in nodes.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        if let Node::Picker {
+            items,
+            state,
+            icon,
+            label,
+            tint,
+        } = node
+        {
+            controls::render_picker(
+                items,
+                state,
+                icon.as_ref(),
+                label.as_ref(),
+                tint.as_ref(),
+                true,
+                depth,
+                out,
+            );
+        } else {
+            render_children(std::slice::from_ref(node), module, features, depth, out);
+        }
+    }
 }
 
 fn remove_sheet_toolbars(nodes: &[Node]) -> Vec<Node> {

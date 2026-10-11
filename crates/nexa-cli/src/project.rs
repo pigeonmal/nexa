@@ -898,8 +898,8 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::FORM_ROW_HORIZONTAL_INSET.to_string(),
             ),
             (
-                "__NEXA_FORM_ROW_MIN_HEIGHT__",
-                design::FORM_ROW_MIN_HEIGHT.to_string(),
+                "__NEXA_ANDROID_FORM_ROW_MIN_HEIGHT__",
+                design::ANDROID_FORM_ROW_MIN_HEIGHT.to_string(),
             ),
             (
                 "__NEXA_FORM_LARGE_TITLE_TOP_PADDING__",
@@ -1722,14 +1722,14 @@ fn android_plan(
     {
         (
             "Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent)",
-            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top))",
+            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))",
             "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
         )
     } else {
         (
             "Surface(modifier = Modifier.fillMaxSize())",
-            "Modifier.fillMaxSize().safeDrawingPadding()",
-            "import androidx.compose.foundation.layout.safeDrawingPadding\n",
+            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))",
+            "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
         )
     };
     let activity_content = if install_play_services_cronet {
@@ -2410,7 +2410,7 @@ mod tests {
         assert!(!swift.contains("nexaDevPageIndicator"));
 
         assert!(kotlin.contains("private const val nexaDevDefaultBodyFontSize = 17"));
-        assert!(kotlin.contains("private const val nexaDevFormRowMinHeight = 56"));
+        assert!(kotlin.contains("private const val nexaDevFormRowMinHeight = 52"));
         assert!(kotlin.contains("NexaFormRowPrimitive("));
         assert!(kotlin.contains("minHeight = nexaDevFormRowMinHeight.toFloat()"));
         assert!(!kotlin.contains("nexaDevFormButtonRowMinHeight"));

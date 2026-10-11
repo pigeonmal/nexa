@@ -3,7 +3,7 @@ use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Node, ToolbarPlacement, View
 
 use crate::generator::{
     colors,
-    components::render_node,
+    components::{render_node, render_node_in_form_row},
     features::Features,
     utils::{indent, number, spaces},
 };
@@ -359,11 +359,11 @@ fn render_form_row(node: &Node, scope: &RenderScope<'_>, depth: usize, out: &mut
         depth,
         format_args!(
             "NexaFormRowPrimitive(minHeight = {}f, horizontalInset = {}f) {{",
-            nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT,
+            nexa_codegen::design_system::ANDROID_FORM_ROW_MIN_HEIGHT,
             nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
         ),
     );
-    render_node(node, scope.module, scope.features, depth + 1, out);
+    render_node_in_form_row(node, scope.module, scope.features, depth + 1, out);
     out.line_at(depth, format_args!("}}"));
 }
 
@@ -746,7 +746,9 @@ mod tests {
         assert!(output.contains("NexaFormSectionPrimitive("));
         assert!(output.contains("title = null,"));
         assert!(output.contains("footer = \"ToDoList v1.0.0 (1)\","));
-        assert!(output.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 16f) {"));
+        assert!(output.contains("NexaFormRowPrimitive(minHeight = 52f, horizontalInset = 16f) {"));
+        assert!(output.contains("fullWidth = true,"));
+        assert!(output.contains("leadingContent = true,"));
         assert_eq!(
             output
                 .as_str()
@@ -757,7 +759,7 @@ mod tests {
         assert_eq!(
             output
                 .as_str()
-                .matches("NexaFormRowPrimitive(minHeight = 56f")
+                .matches("NexaFormRowPrimitive(minHeight = 52f")
                 .count(),
             children.len()
         );

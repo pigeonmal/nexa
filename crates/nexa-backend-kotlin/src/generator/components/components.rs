@@ -115,6 +115,7 @@ pub(crate) fn render_node(
                 tint.as_ref(),
                 actions,
                 false,
+                false,
                 depth,
                 out,
             );
@@ -146,6 +147,7 @@ pub(crate) fn render_node(
             icon.as_ref(),
             label.as_ref(),
             tint.as_ref(),
+            true,
             depth,
             out,
         ),
@@ -411,6 +413,44 @@ pub(crate) fn render_node_in_row(
         render_text_input_node(node, true, depth, out);
     } else {
         render_node(node, module, features, depth, out);
+    }
+}
+
+pub(crate) fn render_node_in_form_row(
+    node: &Node,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    match node {
+        Node::Button {
+            label,
+            icon,
+            loading,
+            disabled,
+            style,
+            size,
+            shape,
+            tint,
+            actions,
+            ..
+        } => controls::render_button(
+            label,
+            icon.as_ref(),
+            loading.as_ref(),
+            disabled.as_ref(),
+            *style,
+            *size,
+            *shape,
+            tint.as_ref(),
+            actions,
+            true,
+            true,
+            depth,
+            out,
+        ),
+        _ => render_node(node, module, features, depth, out),
     }
 }
 
