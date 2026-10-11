@@ -241,7 +241,8 @@ const NEXA_COLLECTION_HELPERS: &str = r#"private func nexaGroupByStable<Element,
 
 "#;
 
-const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = r#"struct NexaTextPrimitive: View {
+const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = r#"// nexa-codegen: NexaTextPrimitive
+struct NexaTextPrimitive: View {
     let text: Text
     let alignment: TextAlignment?
     let color: Color?
@@ -271,6 +272,7 @@ const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = r#"struct NexaTextPrimitive: View
     }
 }
 
+// nexa-codegen: NexaSwitchPrimitive
 struct NexaSwitchPrimitive: View {
     let label: Text
     @Binding var isOn: Bool
@@ -288,6 +290,7 @@ struct NexaSwitchPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaTextInputPrimitive
 struct NexaTextInputPrimitive: View {
     @Binding var text: String
     let placeholder: Text
@@ -321,6 +324,7 @@ struct NexaTextInputPrimitive: View {
     }
 }
 
+// nexa-codegen: nexaPickerTint
 private extension View {
     @ViewBuilder
     func nexaPickerTint(_ tint: Color?) -> some View {
@@ -332,6 +336,7 @@ private extension View {
     }
 }
 
+// nexa-codegen: NexaPickerPrimitive
 struct NexaPickerPrimitive<LabelContent: View>: View {
     @Binding var selection: String
     let items: [String]
@@ -385,6 +390,7 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
     }
 }
 
+// nexa-codegen: NexaDatePickerPrimitive
 struct NexaDatePickerPrimitive: View {
     @Binding var timestamp: Int64
     @Binding var includesTime: Bool
@@ -411,6 +417,7 @@ struct NexaDatePickerPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaSharedButtonStyleKind
 enum NexaSharedButtonStyleKind {
     case borderedProminent
     case bordered
@@ -418,18 +425,21 @@ enum NexaSharedButtonStyleKind {
     case plain
 }
 
+// nexa-codegen: NexaSharedButtonSizeKind
 enum NexaSharedButtonSizeKind {
     case small
     case regular
     case large
 }
 
+// nexa-codegen: NexaSharedButtonShapeKind
 enum NexaSharedButtonShapeKind {
     case circle
     case capsule
     case rounded(CGFloat)
 }
 
+// nexa-codegen: NexaSharedButtonOutline
 private struct NexaSharedButtonOutline: Shape {
     let kind: NexaSharedButtonShapeKind
 
@@ -442,6 +452,7 @@ private struct NexaSharedButtonOutline: Shape {
     }
 }
 
+// nexa-codegen: NexaSharedBorderedButtonStyle
 private struct NexaSharedBorderedButtonStyle: ButtonStyle {
     let tint: Color
     let shape: NexaSharedButtonOutline
@@ -468,6 +479,7 @@ private struct NexaSharedBorderedButtonStyle: ButtonStyle {
     }
 }
 
+// nexa-codegen: NexaSharedGlassModifier
 private struct NexaSharedGlassModifier: ViewModifier {
     let enabled: Bool
     let tint: Color?
@@ -496,6 +508,7 @@ private struct NexaSharedGlassModifier: ViewModifier {
     }
 }
 
+// nexa-codegen: nexaSharedButtonShape
 private extension View {
     @ViewBuilder
     func nexaSharedButtonShape(_ shape: NexaSharedButtonShapeKind) -> some View {
@@ -515,6 +528,7 @@ private extension View {
     }
 }
 
+// nexa-codegen: NexaButtonPrimitive
 struct NexaButtonPrimitive<Label: View>: View {
     let style: NexaSharedButtonStyleKind
     let size: NexaSharedButtonSizeKind?
@@ -609,6 +623,7 @@ struct NexaButtonPrimitive<Label: View>: View {
     }
 }
 
+// nexa-codegen: NexaSliderPrimitive
 struct NexaSliderPrimitive: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
@@ -623,6 +638,7 @@ struct NexaSliderPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaProgressBarPrimitive
 struct NexaProgressBarPrimitive: View {
     let progress: Double
 
@@ -631,6 +647,7 @@ struct NexaProgressBarPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaProgressRingPrimitive
 struct NexaProgressRingPrimitive: View {
     let progress: Double
 
@@ -640,6 +657,7 @@ struct NexaProgressRingPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaDividerPrimitive
 struct NexaDividerPrimitive: View {
     let color: Color
     let thickness: CGFloat
@@ -651,6 +669,7 @@ struct NexaDividerPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaSegmentedControlPrimitive
 struct NexaSegmentedControlPrimitive: View {
     let items: [String]
     @Binding var selection: String
@@ -666,6 +685,7 @@ struct NexaSegmentedControlPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaSystemIconPrimitive
 struct NexaSystemIconPrimitive: View {
     let symbol: String
     let description: String
@@ -684,6 +704,7 @@ struct NexaSystemIconPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaLinearGradientPrimitive
 struct NexaLinearGradientPrimitive: View {
     let colors: [Color]
     let startPoint: UnitPoint
@@ -698,6 +719,7 @@ struct NexaLinearGradientPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaContentUnavailablePrimitive
 struct NexaContentUnavailablePrimitive: View {
     let title: Text
     let symbol: String
@@ -725,6 +747,7 @@ struct NexaContentUnavailablePrimitive: View {
     }
 }
 
+// nexa-codegen: NexaColumnPrimitive
 struct NexaColumnPrimitive<Content: View>: View {
     let alignment: HorizontalAlignment
     let spacing: CGFloat
@@ -745,6 +768,7 @@ struct NexaColumnPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaRowPrimitive
 struct NexaRowPrimitive<Content: View>: View {
     let alignment: VerticalAlignment
     let spacing: CGFloat
@@ -765,6 +789,7 @@ struct NexaRowPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaStackPrimitive
 struct NexaStackPrimitive<Content: View>: View {
     let alignment: Alignment
     private let content: Content
@@ -779,6 +804,7 @@ struct NexaStackPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaNativeListPrimitive
 struct NexaNativeListPrimitive<Content: View>: View {
     private let content: Content
 
@@ -792,6 +818,7 @@ struct NexaNativeListPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaNativeListRowPrimitive
 struct NexaNativeListRowPrimitive<Content: View>: View {
     private let content: Content
 
@@ -812,6 +839,7 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaNativeListStyleModifier
 struct NexaNativeListStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -821,6 +849,7 @@ struct NexaNativeListStyleModifier: ViewModifier {
     }
 }
 
+// nexa-codegen: NexaFormPrimitive
 struct NexaFormPrimitive<Content: View>: View {
     private let content: Content
 
@@ -833,6 +862,7 @@ struct NexaFormPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaFormSectionPrimitive
 struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View {
     private let content: Content
     private let header: Header
@@ -859,6 +889,7 @@ struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View
     }
 }
 
+// nexa-codegen: NexaFormRowPrimitive
 struct NexaFormRowPrimitive<Content: View>: View {
     let minHeight: CGFloat
     let horizontalInset: CGFloat
@@ -881,6 +912,7 @@ struct NexaFormRowPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaAccessibilityPrimitive
 struct NexaAccessibilityPrimitive<Content: View>: View {
     let label: Text
     let hint: Text?
@@ -938,6 +970,7 @@ struct NexaAccessibilityPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaLinkPrimitive
 struct NexaLinkPrimitive<Content: View>: View {
     let destination: URL?
     private let content: Content
@@ -957,6 +990,7 @@ struct NexaLinkPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaKeyboardAwarePrimitive
 struct NexaKeyboardAwarePrimitive<Content: View>: View {
     let dismissMode: ScrollDismissesKeyboardMode
     private let content: Content
@@ -972,6 +1006,7 @@ struct NexaKeyboardAwarePrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaRefreshPrimitive
 struct NexaRefreshPrimitive<Content: View>: View {
     private let onRefresh: @Sendable () async -> Void
     private let content: Content
@@ -987,6 +1022,7 @@ struct NexaRefreshPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaBottomSheetPrimitive
 struct NexaBottomSheetPrimitive<Content: View>: View {
     @Binding var isPresented: Bool
     let partial: Bool
@@ -1046,6 +1082,7 @@ struct NexaBottomSheetPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaAlertDialogPrimitive
 struct NexaAlertDialogPrimitive<Actions: View>: View {
     @Binding var isPresented: Bool
     let title: Text
@@ -1080,6 +1117,7 @@ struct NexaAlertDialogPrimitive<Actions: View>: View {
     }
 }
 
+// nexa-codegen: NexaConfirmationDialogPrimitive
 struct NexaConfirmationDialogPrimitive<Actions: View>: View {
     @Binding var isPresented: Bool
     let title: Text
@@ -1103,6 +1141,7 @@ struct NexaConfirmationDialogPrimitive<Actions: View>: View {
     }
 }
 
+// nexa-codegen: NexaPageIndicatorPrimitive
 struct NexaPageIndicatorPrimitive: View {
     let index: Int
     let selectedIndex: Int
@@ -1123,6 +1162,7 @@ struct NexaPageIndicatorPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaPageIndicatorRow
 struct NexaPageIndicatorRow: View {
     let pageCount: Int
     let selectedIndex: Int
@@ -1140,6 +1180,7 @@ struct NexaPageIndicatorRow: View {
     }
 }
 
+// nexa-codegen: NexaNavigationSplitViewPrimitive
 struct NexaNavigationSplitViewPrimitive<Sidebar: View, Detail: View>: View {
     @Binding var detailVisible: Bool
     private let sidebar: Sidebar
@@ -1180,6 +1221,7 @@ struct NexaNavigationSplitViewPrimitive<Sidebar: View, Detail: View>: View {
     }
 }
 
+// nexa-codegen: NexaNavigationScreenPrimitive
 struct NexaNavigationScreenPrimitive<Content: View>: View {
     let title: String
     let content: Content
@@ -1205,6 +1247,7 @@ struct NexaNavigationScreenPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaNavigationTitleDisplayModePrimitive
 struct NexaNavigationTitleDisplayModePrimitive: ViewModifier {
     let large: Bool
 
@@ -1218,6 +1261,7 @@ struct NexaNavigationTitleDisplayModePrimitive: ViewModifier {
     }
 }
 
+// nexa-codegen: NexaAppTabNavigationTitlePrimitive
 struct NexaAppTabNavigationTitlePrimitive: ViewModifier {
     let title: String
     let large: Bool
@@ -1244,6 +1288,7 @@ struct NexaAppTabNavigationTitlePrimitive: ViewModifier {
     }
 }
 
+// nexa-codegen: NexaNavigationLinkPrimitive
 struct NexaNavigationLinkPrimitive<Value: Hashable, Label: View>: View {
     let value: Value
     let enabled: Bool
@@ -1616,7 +1661,6 @@ fn generate_with_analysis_mode(
     let value_codecs = nexa_codegen::value::collect(module);
     let json_types = nexa_codegen::value::collect_json_types(module);
     units.write("types", |out| {
-        out.push_str(&shared_component_primitives());
         if dev_runtime || features.facts.ui.bottom_bar.present {
             out.push_str(NEXA_APP_BOTTOM_BAR_PRIMITIVE);
         }
@@ -1899,7 +1943,20 @@ fn generate_with_analysis_mode(
     units.write("functions", |out| {
         functions::render(module, out);
     });
-    units.finish()
+    let mut generated = units.finish();
+    let references = generated
+        .units
+        .iter()
+        .map(|unit| unit.contents.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let primitives = if dev_runtime {
+        nexa_codegen::source_sections::all(&shared_component_primitives())
+    } else {
+        nexa_codegen::source_sections::reachable(&shared_component_primitives(), &references)
+    };
+    generated.prepend_to_unit("NexaGenerated_types.swift", &primitives);
+    generated
 }
 
 pub(super) fn app_focus_bindings(
@@ -2347,9 +2404,16 @@ mod tests {
         let swift = generate(&module);
         assert!(swift.contains(".preferredColorScheme(\"dark\" == \"dark\" ? .dark"));
         assert!(swift.contains("Text(\"Hello\")"));
-        // The shared button primitive is preloaded for future hot reloads;
-        // the appearance-wrapped app body must not apply glass styling.
-        assert!(swift.contains("struct NexaButtonPrimitive<Label: View>"));
+        // AOT output includes only primitives reachable from the app body.
+        assert!(!swift.contains("struct NexaButtonPrimitive<Label: View>"));
+        let dev_sources = super::generate_for_dev_units(&module);
+        let swift_dev = dev_sources
+            .units
+            .iter()
+            .map(|unit| unit.contents.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(swift_dev.contains("struct NexaButtonPrimitive<Label: View>"));
         assert!(!swift.contains("nexaColor(hex:"));
         assert!(!swift.contains("nexaLargeTitleDisplayMode()"));
     }

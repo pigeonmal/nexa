@@ -316,8 +316,8 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("ForEach(nexa_list_rows_"));
     assert!(generated_source.contains("ForEach(nexa_section_rows_"));
     assert!(generated_source.contains("NexaIdentifiedListRow(id: AnyHashable("));
-    assert!(generated_source.contains("ToolbarItem(placement: .navigationBarLeading)"));
-    assert!(generated_source.contains("ToolbarItem(placement: .navigationBarTrailing)"));
+    assert!(generated_source.contains("ToolbarItem(placement: .topBarLeading)"));
+    assert!(generated_source.contains("ToolbarItem(placement: .topBarTrailing)"));
     assert!(generated_source.contains("Picker("));
     assert!(generated_source.contains("nexa_source.sorted {"));
     assert!(generated_source.contains("MediaPickerControl"));

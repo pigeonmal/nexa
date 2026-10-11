@@ -898,6 +898,10 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::FORM_ROW_HORIZONTAL_INSET.to_string(),
             ),
             (
+                "__NEXA_FORM_ROW_MIN_HEIGHT__",
+                design::FORM_ROW_MIN_HEIGHT.to_string(),
+            ),
+            (
                 "__NEXA_ANDROID_FORM_ROW_MIN_HEIGHT__",
                 design::ANDROID_FORM_ROW_MIN_HEIGHT.to_string(),
             ),

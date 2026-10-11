@@ -17,7 +17,7 @@ use crate::generator::{
 use crate::generator::engine::imports::ImportSet;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
-    // The shared large-title primitive is emitted in every app for DevRuntime,
+    // The DevRuntime host keeps this shared primitive ready for hot reload,
     // so its imports must not depend on the initial module using a large title.
     for value in [
         "androidx.compose.foundation.layout.BoxWithConstraints",

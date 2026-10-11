@@ -57,14 +57,14 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 | `build-v246` | Emits explicit 28-point styling for inline large app-tab title text. |
 | `build-v245` | Passes app-tab navigation titles as styled SwiftUI text on iOS 26. |
 | `build-v239` | Uses modern top-bar placements for SwiftUI toolbar items. |
-| `build-v231` | Detects Android native lists inside conditional tab content for grouped headers. |
-| `build-v232` | Uses one shared Android large-title header size across screens. |
-| `build-v233` | Applies one Android hairline color and thickness to automatic separators. |
-| `build-v234` | Reduces the shared Android expanded large-title top padding. |
-| `build-v235` | Reduces the shared Android expanded large-title height. |
-| `build-v236` | Uses symmetrical horizontal insets for Android large-title toolbars. |
-| `build-v237` | Gives iOS large titles their native full-width row alongside toolbar actions. |
 | `build-v238` | Restores iOS inline large titles for alignment with native toolbar actions. |
+| `build-v237` | Gives iOS large titles their native full-width row alongside toolbar actions. |
+| `build-v236` | Uses symmetrical horizontal insets for Android large-title toolbars. |
+| `build-v235` | Reduces the shared Android expanded large-title height. |
+| `build-v234` | Reduces the shared Android expanded large-title top padding. |
+| `build-v233` | Applies one Android hairline color and thickness to automatic separators. |
+| `build-v232` | Uses one shared Android large-title header size across screens. |
+| `build-v231` | Detects Android native lists inside conditional tab content for grouped headers. |
 | `build-v230` | Aligns Android native-list tab headers, surfaces, row spacing, and divider insets with iOS. |
 | `build-v229` | Reduces the gap between Android Form large titles and their first section. |
 | `build-v228` | Moves Android Form large titles closer to the status bar. |

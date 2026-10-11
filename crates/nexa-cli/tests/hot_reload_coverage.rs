@@ -926,7 +926,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
 }
 
 #[test]
-fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
+fn aot_prunes_unreachable_shared_components_while_dev_hosts_preload_them() {
     let module = empty_module(Vec::new());
     let swift_release = SwiftBackend.generate(&module);
     let swift_dev = SwiftBackend.generate_for_dev(&module);
@@ -938,10 +938,8 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
     let kotlin_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime renderer");
 
-    // This is the native primitive catalog used by AOT output and dynamic
-    // DevRuntime dispatch. Definitions must be present in empty-app hosts so
-    // hot reload can introduce any catalogued component without rebuilding
-    // the native development host.
+    // DevRuntime preloads the full primitive catalog for hot-reloaded modules.
+    // AOT release output emits only helpers reachable from the app's callsites.
     let catalog = [
         (
             "struct NexaColumnPrimitive<Content: View>",
@@ -1090,16 +1088,8 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
 
     for (swift_declaration, kotlin_declaration, call) in catalog {
         assert!(
-            swift_release.contains(swift_declaration),
-            "iOS release host omitted {swift_declaration}"
-        );
-        assert!(
             swift_dev.contains(swift_declaration),
             "iOS DevRuntime host omitted {swift_declaration}"
-        );
-        assert!(
-            kotlin_release.contains(kotlin_declaration),
-            "Android release host omitted {kotlin_declaration}"
         );
         assert!(
             kotlin_dev.contains(kotlin_declaration),
@@ -1115,7 +1105,11 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
         );
     }
 
-    assert!(kotlin_release.contains("internal fun NexaFormDividerPrimitive()"));
+    assert!(swift_release.contains("struct NexaColumnPrimitive<Content: View>"));
+    assert!(!swift_release.contains("struct NexaDatePickerPrimitive: View"));
+    assert!(kotlin_release.contains("internal fun NexaColumnPrimitive("));
+    assert!(!kotlin_release.contains("internal fun NexaDatePickerPrimitive("));
+    assert!(!kotlin_release.contains("internal fun NexaFormDividerPrimitive()"));
     assert!(kotlin_dev.contains("internal fun NexaFormDividerPrimitive()"));
     assert!(kotlin_runtime.contains("NexaFormDividerPrimitive()"));
     assert!(!swift_release.contains("struct NexaAppBottomBarPrimitive: ViewModifier"));
@@ -1152,8 +1146,8 @@ fn release_and_dev_hosts_preload_the_same_shared_component_catalog() {
         ),
     ] {
         assert!(
-            kotlin_release.contains(declaration),
-            "Android AOT host omitted {declaration}"
+            !kotlin_release.contains(declaration),
+            "Android AOT host emitted unreachable {declaration}"
         );
         assert!(
             kotlin_dev.contains(declaration),

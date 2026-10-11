@@ -369,7 +369,7 @@ mod tests {
 
         let generated = output.finish();
         assert!(generated.contains("NexaColumnPrimitive(alignment: .center, spacing: 0) {"));
-        assert!(generated.contains("ToolbarItem(placement: .navigationBarTrailing)"));
+        assert!(generated.contains("ToolbarItem(placement: .topBarTrailing)"));
         assert!(!generated.contains("EmptyView()"));
     }
 

@@ -43,8 +43,9 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
-    // The typed component primitives are emitted in every app so hot-reloaded
-    // trees can use them even when the initial source has no forms.
+    // The DevRuntime host includes every shared primitive so hot-reloaded
+    // trees can use them even when the initial app does not. AOT source
+    // sections are reachability-pruned, but share this import block.
     imports.add(true, "androidx.compose.foundation.background");
     imports.add(true, "androidx.compose.foundation.clickable");
     imports.add(true, "androidx.compose.foundation.verticalScroll");
@@ -53,6 +54,21 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.foundation.layout.Box");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxHeight");
     imports.add(true, "androidx.compose.foundation.layout.widthIn");
+    // Shared component primitives are emitted in every AOT source unit and
+    // the DevRuntime host. Their fully qualified WindowInsets companion
+    // extensions and clipping modifier still require these extension imports
+    // even when the app's initial module does not use those components.
+    imports.add(true, "androidx.compose.foundation.layout.ime");
+    imports.add(true, "androidx.compose.foundation.layout.navigationBars");
+    imports.add(true, "androidx.compose.foundation.layout.statusBars");
+    imports.add(true, "androidx.compose.foundation.layout.wrapContentWidth");
+    imports.add(
+        true,
+        "androidx.compose.foundation.relocation.bringIntoViewRequester",
+    );
+    imports.add(true, "androidx.compose.foundation.selection.toggleable");
+    imports.add(true, "androidx.compose.ui.focus.onFocusChanged");
+    imports.add(true, "androidx.compose.ui.draw.clip");
     imports.add(true, "androidx.compose.ui.Alignment");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxSize");
@@ -154,6 +170,17 @@ mod tests {
         assert!(imports.contains("import androidx.compose.material3.LocalRippleConfiguration\n"));
         assert!(imports.contains("import androidx.compose.runtime.Composable\n"));
         assert!(imports.contains("import androidx.compose.runtime.CompositionLocalProvider\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.ime\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.navigationBars\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.statusBars\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.wrapContentWidth\n"));
+        assert!(
+            imports
+                .contains("import androidx.compose.foundation.relocation.bringIntoViewRequester\n")
+        );
+        assert!(imports.contains("import androidx.compose.foundation.selection.toggleable\n"));
+        assert!(imports.contains("import androidx.compose.ui.focus.onFocusChanged\n"));
+        assert!(imports.contains("import androidx.compose.ui.draw.clip\n"));
     }
 
     #[test]

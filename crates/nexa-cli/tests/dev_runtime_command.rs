@@ -1498,9 +1498,8 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms() {
     assert!(swift_primitives.contains("struct NexaBottomSheetPrimitive<Content: View>"));
     assert!(swift_primitives.contains("host.sheet(isPresented: $isPresented)"));
     assert!(swift_primitives.contains("host.fullScreenCover(isPresented: $isPresented)"));
-    assert!(
-        swift_primitives.contains(".presentationDetents(largeOnly ? [.large] : [.medium, .large])")
-    );
+    assert!(swift_primitives.contains(".presentationDetents("));
+    assert!(swift_primitives.contains("largeOnly ? [.large] : [.medium, .large]"));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"BottomSheet\" ->"));

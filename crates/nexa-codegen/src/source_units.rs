@@ -58,6 +58,39 @@ pub struct GeneratedSources {
 }
 
 impl GeneratedSources {
+    /// Prepends generated declarations to a named source unit, creating it
+    /// when the unit is otherwise empty.
+    ///
+    /// The same access lowering used by [`SourceUnits::finish`] is applied,
+    /// so inserted declarations remain visible across the unit's files.
+    pub fn prepend_to_unit(&mut self, unit_name: &str, source: &str) {
+        if source.trim().is_empty() {
+            return;
+        }
+        if let Some(unit) = self.units.iter_mut().find(|unit| unit.name == unit_name) {
+            let mut contents = lower_access(source);
+            if !unit.contents.is_empty() {
+                contents.push('\n');
+                contents.push_str(&unit.contents);
+            }
+            unit.contents = contents;
+            return;
+        }
+
+        let position = self
+            .units
+            .iter()
+            .position(|unit| unit.name == "NexaGenerated.swift" || unit.name == "NexaGenerated.kt")
+            .unwrap_or(self.units.len());
+        self.units.insert(
+            position,
+            SourceUnit {
+                name: unit_name.to_owned(),
+                contents: lower_access(source),
+            },
+        );
+    }
+
     /// The backend's import block merged with `extra`, sorted and deduplicated.
     ///
     /// Sorting is what makes the import block deterministic; the caller owns
@@ -339,6 +372,22 @@ mod tests {
                 "NexaGenerated_types.swift",
                 "NexaGenerated_functions.swift"
             ]
+        );
+    }
+
+    #[test]
+    fn can_prepend_to_existing_or_new_unit_with_access_lowering() {
+        let mut sources = generated("", "", &[("app", "private fun Screen() {}\n")], "kt");
+
+        sources.prepend_to_unit("NexaGenerated_types.kt", "private fun Helper() {}\n");
+        sources.prepend_to_unit("NexaGenerated.kt", "private fun Shared() {}\n");
+
+        assert_eq!(sources.units[0].name, "NexaGenerated_types.kt");
+        assert!(sources.units[0].contents.starts_with("fun Helper() {}\n"));
+        assert!(
+            sources.units[1]
+                .contents
+                .starts_with("fun Shared() {}\n\nfun Screen() {}\n")
         );
     }
 
