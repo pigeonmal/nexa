@@ -359,6 +359,7 @@ pub(crate) fn render_pressable(
         return;
     };
     let root_depth = depth;
+    let has_long_press = !long_press_actions.is_empty();
     let has_drag = drag_parameters.len() == 4;
     let has_pinch = pinch_parameter.is_some();
     let has_drag_velocity = has_drag
@@ -404,12 +405,12 @@ pub(crate) fn render_pressable(
     }
     let depth = root_depth + usize::from(has_drag || has_pinch);
     indent(out, depth);
-    out.push_str(if double_tap_actions.is_empty() {
+    out.push_str(if double_tap_actions.is_empty() && !has_long_press {
         "Button(action: {"
     } else {
         "Button(action: {}) {"
     });
-    if !double_tap_actions.is_empty() {
+    if !double_tap_actions.is_empty() || has_long_press {
         out.push('\n');
         render_children(children, module, features, depth + 1, out);
         out.push('\n');
@@ -426,25 +427,58 @@ pub(crate) fn render_pressable(
             out.push_str(&expression(disabled));
             out.push(')');
         }
-        out.push_str(".gesture(\n");
-        indent(out, depth + 1);
-        out.push_str("TapGesture(count: 2)\n");
-        indent(out, depth + 2);
+        out.push_str(if has_long_press {
+            ".highPriorityGesture(\n"
+        } else {
+            ".gesture(\n"
+        });
+        if has_long_press {
+            indent(out, depth + 1);
+            out.push_str("LongPressGesture(minimumDuration: ");
+            out.push_str(&long_press_duration_seconds(long_press_duration_ms));
+            out.push_str(")\n");
+            indent(out, depth + 2);
+            out.push_str(".onEnded { _ in\n");
+            render_pressable_gesture_actions(disabled, *haptic, long_press_actions, depth + 3, out);
+            indent(out, depth + 2);
+            out.push_str("}\n");
+            indent(out, depth + 2);
+            out.push_str(".exclusively(before:\n");
+        }
+        if !double_tap_actions.is_empty() {
+            indent(out, depth + 1 + usize::from(has_long_press));
+            out.push_str("TapGesture(count: 2)\n");
+            indent(out, depth + 2 + usize::from(has_long_press));
+            out.push_str(".onEnded {\n");
+            render_pressable_gesture_actions(
+                disabled,
+                *haptic,
+                double_tap_actions,
+                depth + 3 + usize::from(has_long_press),
+                out,
+            );
+            indent(out, depth + 2 + usize::from(has_long_press));
+            out.push_str("}\n");
+            indent(out, depth + 2 + usize::from(has_long_press));
+            out.push_str(".exclusively(before:\n");
+        }
+        let single_tap_depth =
+            depth + 1 + usize::from(has_long_press || !double_tap_actions.is_empty());
+        indent(out, single_tap_depth);
+        out.push_str("TapGesture(count: 1)\n");
+        indent(out, single_tap_depth + 1);
         out.push_str(".onEnded {\n");
-        if let Some(haptic) = haptic {
-            render_haptic(*haptic, depth + 3, out);
-        }
-        render_actions(double_tap_actions, depth + 3, out);
-        indent(out, depth + 2);
+        render_pressable_gesture_actions(disabled, *haptic, actions, single_tap_depth + 2, out);
+        indent(out, single_tap_depth + 1);
         out.push_str("}\n");
-        indent(out, depth + 2);
-        out.push_str(".exclusively(before: TapGesture(count: 1).onEnded {\n");
-        if let Some(haptic) = haptic {
-            render_haptic(*haptic, depth + 3, out);
+        if !double_tap_actions.is_empty() {
+            indent(out, depth + 2 + usize::from(has_long_press));
+            out.push_str(")\n");
         }
-        render_actions(actions, depth + 3, out);
-        indent(out, depth + 2);
-        out.push_str("})\n");
+        if has_long_press {
+            indent(out, depth + 2);
+            out.push_str(")\n");
+        }
         indent(out, depth);
         out.push(')');
         out.push_str(".accessibilityAction(.default) {");
@@ -459,18 +493,6 @@ pub(crate) fn render_pressable(
         }
         out.push('}');
         out.push_str(".accessibilityAddTraits(.isButton)");
-        if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
-            out.push_str(".onLongPressGesture(minimumDuration: ");
-            out.push_str(&long_press_duration_seconds(long_press_duration_ms));
-            out.push_str(") {");
-            out.push('\n');
-            if let Some(haptic) = haptic {
-                render_haptic(*haptic, depth + 1, out);
-            }
-            render_actions(long_press_actions, depth + 1, out);
-            indent(out, depth);
-            out.push('}');
-        }
         render_context_menu(context_menu, module, features, depth, out);
         if has_drag || has_pinch {
             out.push('\n');
@@ -511,18 +533,6 @@ pub(crate) fn render_pressable(
     if *fill_max_size {
         out.push_str(".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())");
     }
-    if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
-        out.push_str(".onLongPressGesture(minimumDuration: ");
-        out.push_str(&long_press_duration_seconds(long_press_duration_ms));
-        out.push_str(") {");
-        out.push('\n');
-        if let Some(haptic) = haptic {
-            render_haptic(*haptic, depth + 1, out);
-        }
-        render_actions(long_press_actions, depth + 1, out);
-        indent(out, depth);
-        out.push('}');
-    }
     render_context_menu(context_menu, module, features, depth, out);
     if has_drag || has_pinch {
         out.push('\n');
@@ -550,6 +560,31 @@ fn render_context_menu(
 
 fn long_press_duration_seconds(duration_ms: &Expr) -> String {
     format!("(Double(max(1, {})) / 1000.0)", expression(duration_ms))
+}
+
+fn render_pressable_gesture_actions(
+    disabled: &Expr,
+    haptic: Option<HapticStyle>,
+    actions: &[Action],
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    if matches!(disabled, Expr::Bool(true)) {
+        return;
+    }
+
+    let needs_disabled_guard = !matches!(disabled, Expr::Bool(false));
+    if needs_disabled_guard {
+        out.line_at(depth, format_args!("if !({}) {{", expression(disabled)));
+    }
+    let action_depth = depth + usize::from(needs_disabled_guard);
+    if let Some(haptic) = haptic {
+        render_haptic(haptic, action_depth, out);
+    }
+    render_actions(actions, action_depth, out);
+    if needs_disabled_guard {
+        out.line_at(depth, format_args!("}}"));
+    }
 }
 
 fn render_haptic(style: HapticStyle, depth: usize, out: &mut SourceWriter) {

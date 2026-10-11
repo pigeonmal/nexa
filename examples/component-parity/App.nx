@@ -308,6 +308,8 @@ app ComponentParity {
                     pressableTaps = pressableTaps + 1
                 }.onDoubleTap {
                     doubleTaps = doubleTaps + 1
+                }.onLongPress(durationMs: 500) {
+                    longPresses = longPresses + 1
                 }
                 Pressable() {
                     Text("Context actions: $contextActions")

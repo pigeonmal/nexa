@@ -3024,10 +3024,72 @@ mod tests {
         assert!(swift.contains(
             ".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())"
         ));
-        assert!(swift.contains(".exclusively(before: TapGesture(count: 1)"));
+        assert!(swift.contains(".exclusively(before:"));
+        assert!(swift.contains("TapGesture(count: 1)"));
         assert!(swift.contains("nexa_taps = 2"));
         assert!(!swift.contains("onLongPressGesture"));
         assert!(!swift.contains("NexaDragGestureView"));
+
+        let mut long_press_module = module;
+        let Node::Pressable {
+            actions,
+            double_tap_actions,
+            long_press_actions,
+            ..
+        } = &mut long_press_module.body[0]
+        else {
+            panic!("expected Pressable");
+        };
+        *actions = vec![Action::Assign {
+            name: "taps".to_owned(),
+            value: Expr::Number {
+                raw: "1".to_owned(),
+                ty: NumericType::Int32,
+            },
+        }];
+        double_tap_actions.clear();
+        *long_press_actions = vec![Action::Assign {
+            name: "longPresses".to_owned(),
+            value: Expr::Number {
+                raw: "1".to_owned(),
+                ty: NumericType::Int32,
+            },
+        }];
+
+        let swift = generate(&long_press_module);
+
+        assert!(swift.contains("Button(action: {}) {"));
+        assert!(swift.contains("LongPressGesture(minimumDuration:"));
+        assert!(swift.contains(".exclusively(before:"));
+        assert!(swift.contains("TapGesture(count: 1)"));
+        assert!(swift.contains("nexa_longPresses = 1"));
+        assert!(swift.contains("nexa_taps = 1"));
+        assert!(!swift.contains(".onLongPressGesture("));
+        assert!(
+            swift.find("LongPressGesture(").unwrap() < swift.find("TapGesture(count: 1)").unwrap()
+        );
+
+        let mut combined_module = long_press_module.clone();
+        let Node::Pressable {
+            double_tap_actions, ..
+        } = &mut combined_module.body[0]
+        else {
+            panic!("expected Pressable");
+        };
+        *double_tap_actions = vec![Action::Assign {
+            name: "doubleTaps".to_owned(),
+            value: Expr::Number {
+                raw: "2".to_owned(),
+                ty: NumericType::Int32,
+            },
+        }];
+
+        let swift = generate(&combined_module);
+        let long_press_index = swift.find("LongPressGesture(").unwrap();
+        let double_tap_index = swift.find("TapGesture(count: 2)").unwrap();
+        let single_tap_index = swift.find("TapGesture(count: 1)").unwrap();
+        assert!(long_press_index < double_tap_index && double_tap_index < single_tap_index);
+        assert!(swift.contains("nexa_doubleTaps = 2"));
     }
 
     #[test]
