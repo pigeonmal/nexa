@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn preserves_function_and_event_arrows() {
-        let source = "fn value()->Int32{return 4}\napp Drag { state n:Int32=0 body { Pressable() { Text(\"x\") }.onDrag { x,y,vx,vy->n=n+1 }.onPinch { scaleFactor->n=n+1 } } }\n";
+        let source = "fn value()->Int32{return 4}\napp Drag { state n:Int32=0 body { Pressable() { Text(\"x\") }.onTap { n=n+1 }.onDrag { x,y,vx,vy->n=n+1 }.onPinch { scaleFactor->n=n+1 } } }\n";
         let formatted = format_source(source).expect("arrows tokenize");
 
         assert!(formatted.contains("fn value() -> Int32 {"));

@@ -387,7 +387,7 @@ Children: node block
 
 Modifiers:
 
-- `.onTap` (actions, optional)
+- `.onTap` (actions, required)
 - `.onLongPress` (actions, optional)
 - `.contextMenu` (nodes, optional)
 - `.onDoubleTap` (actions, optional)

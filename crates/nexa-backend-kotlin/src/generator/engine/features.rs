@@ -90,7 +90,9 @@ pub(crate) struct Features {
     pub(crate) uses_context_menu: bool,
     pub(crate) uses_double_tap: bool,
     pub(crate) uses_drag: bool,
-    pub(crate) uses_drag_velocity: bool,
+    pub(crate) uses_drag_without_pinch: bool,
+    pub(crate) uses_drag_velocity_without_pinch: bool,
+    pub(crate) uses_drag_velocity_with_pinch: bool,
     pub(crate) uses_pinch: bool,
     pub(crate) uses_column: bool,
     pub(crate) uses_form: bool,
@@ -265,7 +267,9 @@ impl Features {
         self.uses_context_menu = pressable.context_menu;
         self.uses_double_tap = pressable.double_tap;
         self.uses_drag = pressable.drag;
-        self.uses_drag_velocity = pressable.drag_velocity;
+        self.uses_drag_without_pinch = pressable.drag_without_pinch;
+        self.uses_drag_velocity_without_pinch = pressable.drag_velocity_without_pinch;
+        self.uses_drag_velocity_with_pinch = pressable.drag_velocity_with_pinch;
         self.uses_pinch = pressable.pinch;
         self.uses_box |= pressable.present;
         self.uses_modifier |= pressable.present;

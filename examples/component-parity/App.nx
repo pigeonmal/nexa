@@ -8,6 +8,10 @@ component ParityCard(title: String) {
 }
 
 app ComponentParity {
+    state appActivations: Int32 = 0
+    state appDeactivations: Int32 = 0
+    state appBackgroundEntries: Int32 = 0
+
     screen Catalog {
         Form {
             Section(title: "Layout") {
@@ -26,6 +30,9 @@ app ComponentParity {
                 NavigationLink(destination: DividerCases) {
                     Text("Divider thickness and color")
                 }
+                NavigationLink(destination: DirectionCases) {
+                    Text("Layout direction baseline")
+                }
             }
             Section(title: "Text and controls") {
                 NavigationLink(destination: TextCases) {
@@ -33,6 +40,9 @@ app ComponentParity {
                 }
                 NavigationLink(destination: ButtonCases) {
                     Text("Button styles and states")
+                }
+                NavigationLink(destination: PressableCases) {
+                    Text("Pressable gestures")
                 }
                 NavigationLink(destination: TextInputCases) {
                     Text("Text input variants")
@@ -258,6 +268,71 @@ app ComponentParity {
                 Button("Loading", loading: true)
                 Button("Large capsule", size: Large, shape: Capsule) {
                     taps = taps + 1
+                }
+            }
+        }
+    }
+
+    screen PressableCases {
+        state pressableTaps: Int32 = 0
+        state disabledTaps: Int32 = 0
+        state longPresses: Int32 = 0
+        state doubleTaps: Int32 = 0
+        state contextActions: Int32 = 0
+        state dragUpdated: Bool = false
+        state pinchUpdated: Bool = false
+        Column(spacing: 12, padding: 16) {
+            Text("Pressable", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Tap, press, and custom actions") {
+                Text("Tap events: $pressableTaps")
+                Pressable(haptic: Light) {
+                    Text("Tap count: $pressableTaps")
+                }.onTap {
+                    pressableTaps = pressableTaps + 1
+                }
+                Pressable(disabled: true) {
+                    Text("Disabled taps: $disabledTaps")
+                }.onTap {
+                    disabledTaps = disabledTaps + 1
+                }
+                Pressable() {
+                    Text("Long press count: $longPresses")
+                }.onTap {
+                    pressableTaps = pressableTaps + 1
+                }.onLongPress(durationMs: 500) {
+                    longPresses = longPresses + 1
+                }
+                Pressable() {
+                    Text("Double tap count: $doubleTaps")
+                }.onTap {
+                    pressableTaps = pressableTaps + 1
+                }.onDoubleTap {
+                    doubleTaps = doubleTaps + 1
+                }
+                Pressable() {
+                    Text("Context actions: $contextActions")
+                }.onTap {
+                    pressableTaps = pressableTaps + 1
+                }.contextMenu {
+                    Button("Increment context action") {
+                        contextActions = contextActions + 1
+                    }
+                }
+            }
+            ParityCard(title: "Drag and pinch values") {
+                Pressable() {
+                    Text("Drag updated: $dragUpdated")
+                }.onTap {
+                    pressableTaps = pressableTaps + 1
+                }.onDrag { translationX, translationY, velocityX, velocityY ->
+                    dragUpdated = translationX != 0.0
+                }
+                Pressable() {
+                    Text("Pinch updated: $pinchUpdated")
+                }.onTap {
+                    pressableTaps = pressableTaps + 1
+                }.onPinch { scaleFactor ->
+                    pinchUpdated = scaleFactor != 1.0
                 }
             }
         }
@@ -683,11 +758,38 @@ app ComponentParity {
             Text("Screen lifecycle", fontSize: 28, fontWeight: Bold)
             Text("Appearances: $appearances")
             Text("Departures: $departures")
+            Text("App active events: $appActivations")
+            Text("App inactive events: $appDeactivations")
+            Text("App background events: $appBackgroundEntries")
             Text("Navigate away and back to compare lifecycle delivery.")
         }
     }
 
+    screen DirectionCases {
+        Column(spacing: 12, padding: 16) {
+            Text("Direction", fontSize: 28, fontWeight: Bold)
+            ParityCard(title: "Explicit left-to-right app environment") {
+                Text("The app pins LTR to make paired layout screenshots deterministic.")
+                Row(spacing: 12, padding: 12, background: "#F2F2F7", cornerRadius: 12) {
+                    Text("Leading")
+                    Spacer()
+                    Text("Trailing")
+                }
+            }
+        }
+    }
+
     body {
+        OnActive {
+            appActivations = appActivations + 1
+        }
+        OnInactive {
+            appDeactivations = appDeactivations + 1
+        }
+        OnBackground {
+            appBackgroundEntries = appBackgroundEntries + 1
+        }
+        Direction(value: LTR)
         NavigationStack(root: Catalog)
     }
 }

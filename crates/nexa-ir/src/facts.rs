@@ -287,7 +287,12 @@ pub struct PressableFacts {
     pub context_menu: bool,
     pub double_tap: bool,
     pub drag: bool,
-    pub drag_velocity: bool,
+    /// A drag without a pinch handler uses `detectDragGestures` in Compose.
+    pub drag_without_pinch: bool,
+    /// A drag that reads velocity and does not share the recognizer with pinch.
+    pub drag_velocity_without_pinch: bool,
+    /// A drag that reads velocity and shares `detectTransformGestures` with pinch.
+    pub drag_velocity_with_pinch: bool,
     pub pinch: bool,
     /// A pressable without long-press actions (native clickable path).
     pub clickable: bool,
@@ -944,14 +949,19 @@ fn observe_node(
             ui.pressable.context_menu |= !context_menu.is_empty();
             ui.pressable.long_press |= long_press;
             ui.pressable.double_tap |= double_tap;
-            ui.pressable.drag |= drag_parameters.len() == 4;
-            if drag_parameters.len() == 4 {
-                ui.pressable.drag_velocity |= crate::walk::actions_reference_state(
+            let has_drag = drag_parameters.len() == 4;
+            let has_pinch = pinch_parameter.is_some();
+            ui.pressable.drag |= has_drag;
+            ui.pressable.drag_without_pinch |= has_drag && !has_pinch;
+            if has_drag {
+                let reads_velocity = crate::walk::actions_reference_state(
                     drag_actions,
                     &[drag_parameters[2].as_str(), drag_parameters[3].as_str()],
                 );
+                ui.pressable.drag_velocity_without_pinch |= reads_velocity && !has_pinch;
+                ui.pressable.drag_velocity_with_pinch |= reads_velocity && has_pinch;
             }
-            ui.pressable.pinch |= pinch_parameter.is_some();
+            ui.pressable.pinch |= has_pinch;
             ui.pressable.clickable |= !long_press && !double_tap && context_menu.is_empty();
             record_child_layout(children, ui);
         }

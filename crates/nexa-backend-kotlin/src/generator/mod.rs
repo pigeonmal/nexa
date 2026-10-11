@@ -622,6 +622,7 @@ internal fun NexaBottomSheetPrimitive(
                                     androidx.compose.runtime.CompositionLocalProvider(
                                         LocalNexaPickerPressFeedback provides false,
                                         androidx.compose.foundation.LocalIndication provides NexaNoIndication,
+                                        androidx.compose.material3.LocalRippleConfiguration provides null,
                                     ) {
                                         navigationIcon()
                                     }
@@ -654,6 +655,7 @@ internal fun NexaBottomSheetPrimitive(
                                     androidx.compose.runtime.CompositionLocalProvider(
                                         LocalNexaPickerPressFeedback provides false,
                                         androidx.compose.foundation.LocalIndication provides NexaNoIndication,
+                                        androidx.compose.material3.LocalRippleConfiguration provides null,
                                     ) {
                                         androidx.compose.foundation.layout.Row(
                                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
@@ -2948,6 +2950,12 @@ mod tests {
             primitives
                 .contains("androidx.compose.foundation.LocalIndication provides NexaNoIndication")
         );
+        assert_eq!(
+            primitives
+                .matches("androidx.compose.material3.LocalRippleConfiguration provides null")
+                .count(),
+            2,
+        );
         assert!(primitives.contains("private object NexaNoIndication"));
         assert!(primitives.contains("internal val LocalNexaPickerPressFeedback"));
         assert!(primitives.contains("internal fun NexaAlertDialogPrimitive("));
@@ -3794,6 +3802,27 @@ mod tests {
         assert!(kotlin.contains("import android.os.SystemClock"));
         assert!(kotlin.contains("nexa_distance = nexa_velocityX"));
         assert!(kotlin.contains("nexa_zoom = nexa_scaleFactor"));
+
+        let mut standalone_drag = module.body[0].clone();
+        let Node::Pressable {
+            pinch_parameter,
+            pinch_actions,
+            ..
+        } = &mut standalone_drag
+        else {
+            panic!("expected Pressable");
+        };
+        *pinch_parameter = None;
+        pinch_actions.clear();
+        module.body.push(standalone_drag);
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("import androidx.compose.foundation.gestures.detectDragGestures"));
+        assert!(
+            kotlin.contains("import androidx.compose.foundation.gestures.detectTransformGestures")
+        );
+        assert!(kotlin.contains("import androidx.compose.ui.input.pointer.util.VelocityTracker"));
+        assert!(kotlin.contains("import android.os.SystemClock"));
     }
 
     #[test]

@@ -23,6 +23,7 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v292` | Emits per-Pressable Android gesture imports and removes Material 3 ripple overlays from bottom-sheet toolbar controls. |
 | `build-v291` | Uses deployment-compatible system font constructors for cross-platform text font design. |
 | `build-v290` | Adds cross-platform text font design in AOT, widgets, and DevRuntime rendering. |
 | `build-v289` | Hides inactive Android bottom-sheet toolbar slots when conditional content removes their buttons. |

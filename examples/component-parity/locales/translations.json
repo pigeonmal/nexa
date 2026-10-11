@@ -24,8 +24,38 @@
       "source": "Adaptive split view",
       "translations": {}
     },
+    "App active events: {appActivations}": {
+      "source": "App active events: {appActivations}",
+      "arguments": [
+        "appActivations"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "App background events: {appBackgroundEntries}": {
+      "source": "App background events: {appBackgroundEntries}",
+      "arguments": [
+        "appBackgroundEntries"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "App bottom bar": {
       "source": "App bottom bar",
+      "translations": {}
+    },
+    "App inactive events: {appDeactivations}": {
+      "source": "App inactive events: {appDeactivations}",
+      "arguments": [
+        "appDeactivations"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
       "translations": {}
     },
     "Appearance": {
@@ -130,6 +160,16 @@
       "source": "ContentUnavailable",
       "translations": {}
     },
+    "Context actions: {contextActions}": {
+      "source": "Context actions: {contextActions}",
+      "arguments": [
+        "contextActions"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "Custom background and radius": {
       "source": "Custom background and radius",
       "translations": {}
@@ -180,8 +220,22 @@
       "source": "Dialog",
       "translations": {}
     },
+    "Direction": {
+      "source": "Direction",
+      "translations": {}
+    },
     "Disabled": {
       "source": "Disabled",
+      "translations": {}
+    },
+    "Disabled taps: {disabledTaps}": {
+      "source": "Disabled taps: {disabledTaps}",
+      "arguments": [
+        "disabledTaps"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
       "translations": {}
     },
     "Dismiss": {
@@ -194,6 +248,26 @@
     },
     "Divider thickness and color": {
       "source": "Divider thickness and color",
+      "translations": {}
+    },
+    "Double tap count: {doubleTaps}": {
+      "source": "Double tap count: {doubleTaps}",
+      "arguments": [
+        "doubleTaps"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Drag updated: {dragUpdated}": {
+      "source": "Drag updated: {dragUpdated}",
+      "arguments": [
+        "dragUpdated"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
       "translations": {}
     },
     "Eight": {
@@ -298,6 +372,10 @@
       "source": "Inbox tab content",
       "translations": {}
     },
+    "Increment context action": {
+      "source": "Increment context action",
+      "translations": {}
+    },
     "Italic text": {
       "source": "Italic text",
       "translations": {}
@@ -322,6 +400,10 @@
       "source": "Layout",
       "translations": {}
     },
+    "Layout direction baseline": {
+      "source": "Layout direction baseline",
+      "translations": {}
+    },
     "Leading": {
       "source": "Leading",
       "translations": {}
@@ -344,6 +426,16 @@
     },
     "Loading": {
       "source": "Loading",
+      "translations": {}
+    },
+    "Long press count: {longPresses}": {
+      "source": "Long press count: {longPresses}",
+      "arguments": [
+        "longPresses"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
       "translations": {}
     },
     "Mark complete": {
@@ -502,12 +594,30 @@
       "source": "Picker options",
       "translations": {}
     },
+    "Pinch updated: {pinchUpdated}": {
+      "source": "Pinch updated: {pinchUpdated}",
+      "arguments": [
+        "pinchUpdated"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
+      "translations": {}
+    },
     "Plain": {
       "source": "Plain",
       "translations": {}
     },
     "Presentation and environment": {
       "source": "Presentation and environment",
+      "translations": {}
+    },
+    "Pressable": {
+      "source": "Pressable",
+      "translations": {}
+    },
+    "Pressable gestures": {
+      "source": "Pressable gestures",
       "translations": {}
     },
     "Previous": {
@@ -726,6 +836,26 @@
       "source": "Switch states",
       "translations": {}
     },
+    "Tap count: {pressableTaps}": {
+      "source": "Tap count: {pressableTaps}",
+      "arguments": [
+        "pressableTaps"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Tap events: {pressableTaps}": {
+      "source": "Tap events: {pressableTaps}",
+      "arguments": [
+        "pressableTaps"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "Tap the trailing action and compare title placement.": {
       "source": "Tap the trailing action and compare title placement.",
       "translations": {}
@@ -756,6 +886,10 @@
     },
     "TextInput": {
       "source": "TextInput",
+      "translations": {}
+    },
+    "The app pins LTR to make paired layout screenshots deterministic.": {
+      "source": "The app pins LTR to make paired layout screenshots deterministic.",
       "translations": {}
     },
     "This action can be undone.": {

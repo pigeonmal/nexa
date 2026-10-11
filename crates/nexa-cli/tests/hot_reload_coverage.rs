@@ -300,6 +300,34 @@ fn render_parity_fixture_exercises_every_catalog_component_and_modifier() {
 }
 
 #[test]
+fn component_parity_app_exercises_every_catalog_component() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let source = fs::read_to_string(root.join("../../examples/component-parity/App.nx"))
+        .expect("read component parity app");
+    let app = nexa_syntax::parse(&source).expect("parse component parity app");
+    let mut found = BTreeSet::new();
+    let mut arguments = BTreeMap::new();
+    collect_parity_components(&app.body, &mut found, &mut arguments);
+    for screen in &app.screens {
+        collect_parity_components(&screen.body, &mut found, &mut arguments);
+    }
+    for component in &app.components {
+        collect_parity_components(&component.body, &mut found, &mut arguments);
+    }
+    for widget in &app.widgets {
+        collect_parity_components(&widget.body, &mut found, &mut arguments);
+    }
+
+    for component in catalog::COMPONENTS {
+        assert!(
+            found.contains(component.name),
+            "component parity app is missing catalog component {}",
+            component.name
+        );
+    }
+}
+
+#[test]
 fn android_aot_and_dev_runtime_share_refresh_control_layout() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let refresh_generator = fs::read_to_string(

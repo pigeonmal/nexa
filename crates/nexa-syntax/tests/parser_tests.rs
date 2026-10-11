@@ -819,6 +819,23 @@ fn parses_component_style_arguments_and_callback_modifiers() {
 }
 
 #[test]
+fn pressable_requires_tap_modifier_in_catalog_grammar() {
+    let error = nexa_syntax::parse(
+        r#"app Demo {
+            body { Pressable() { Text("Tap") } }
+        }"#,
+    )
+    .expect_err("Pressable without its required tap handler should fail parsing");
+
+    assert!(
+        error
+            .message
+            .contains("Pressable requires an `.onTap { ... }` action block"),
+        "{error}"
+    );
+}
+
+#[test]
 fn rejects_visual_styles_as_dot_modifiers() {
     for (component, modifier) in [
         ("Text(\"Hi\")", ".fontSize(18)"),

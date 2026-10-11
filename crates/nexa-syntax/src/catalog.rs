@@ -1368,7 +1368,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
                 name: "onTap",
                 arguments: &[],
                 body: ModifierBody::Actions,
-                required: false,
+                required: true,
             },
             ModifierSchema {
                 name: "onLongPress",

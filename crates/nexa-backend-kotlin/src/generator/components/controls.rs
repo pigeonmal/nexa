@@ -63,7 +63,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.Text",
     );
     imports.add(
-        features.uses_drag && !features.uses_pinch,
+        features.uses_drag_without_pinch,
         "androidx.compose.foundation.gestures.detectDragGestures",
     );
     imports.add(
@@ -75,15 +75,15 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.ui.input.pointer.pointerInput",
     );
     imports.add(
-        features.uses_drag_velocity && !features.uses_pinch,
+        features.uses_drag_velocity_without_pinch,
         "androidx.compose.ui.input.pointer.util.VelocityTracker",
     );
     imports.add(
-        features.uses_drag_velocity && !features.uses_pinch,
+        features.uses_drag_velocity_without_pinch,
         "androidx.compose.ui.input.pointer.util.addPointerInputChange",
     );
     imports.add(
-        features.uses_drag_velocity && features.uses_pinch,
+        features.uses_drag_velocity_with_pinch,
         "android.os.SystemClock",
     );
     imports.add(
