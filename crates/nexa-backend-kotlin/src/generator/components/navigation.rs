@@ -292,6 +292,13 @@ pub(crate) fn render_navigation_stack(
         if let Some(mode) = &app_appearance_mode {
             appearance::render_theme_start(mode, theme_depth, out);
         }
+        let status_bar_config = screen.status_bar.or(module.status_bar);
+        let wrap_status_bar_background =
+            crate::generator::components::status_bar::render_background_start(
+                status_bar_config,
+                themed_content_depth,
+                out,
+            );
         if screen.id == root {
             render_screen_body(screen, module, features, themed_content_depth, out);
         } else {
@@ -318,6 +325,12 @@ pub(crate) fn render_navigation_stack(
             out.push('\n');
             out.line_at(themed_content_depth, format_args!("}}"));
         }
+        if wrap_status_bar_background {
+            crate::generator::components::status_bar::render_background_end(
+                themed_content_depth,
+                out,
+            );
+        }
         if app_appearance_mode.is_some() {
             appearance::render_theme_end(theme_depth, out);
         }
@@ -343,7 +356,7 @@ pub(crate) fn render_navigation_stack(
             out.push('\n');
         }
         crate::generator::components::status_bar::render(
-            screen.status_bar.or(module.status_bar),
+            status_bar_config,
             features.uses_status_bar,
             depth + 2,
             out,

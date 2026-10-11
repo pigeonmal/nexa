@@ -147,6 +147,10 @@ The compiler schema is the source of truth. The [syntax audit](syntax-audit.md) 
 
 `Text` accepts optional `fontStyle` (`TextFontStyle`) for scalable native typography; omit it to use the platform default. Supported values are `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`, `Footnote`, `Caption`, and `Caption2`. Swift output uses the matching SwiftUI text style, so Dynamic Type scales it with the user's accessibility setting. Android app output selects the nearest Material 3 typography role, which follows the system font scale. Android widgets use matching scalable `sp` sizes. An explicit `fontSize` overrides the role's default size.
 
+Use `fontDesign` (`Default`, `Serif`, `Rounded`, or `Monospaced`) to select a system font family while keeping the same design choice on both platforms. The default family is used when the parameter is omitted.
+
+Use `italic`, `underline`, and `strikethrough` for inline emphasis. They are independent Boolean parameters and can be combined; the same combinations work in app text and widgets on iOS and Android.
+
 ```nx
 app TaskTypographyPreview {
     body {

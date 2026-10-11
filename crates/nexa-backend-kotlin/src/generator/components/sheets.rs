@@ -48,11 +48,19 @@ pub(crate) fn render_bottom_sheet(
         let trailing = sheet_toolbar_nodes(children, ToolbarPlacement::Trailing);
         out.line_at(
             depth + 1,
-            format_args!("hasNavigationIcon = {},", !leading.is_empty()),
+            format_args!(
+                "hasNavigationIcon = {},",
+                sheet_toolbar_visibility(children, ToolbarPlacement::Leading)
+                    .unwrap_or_else(|| "false".to_owned())
+            ),
         );
         out.line_at(
             depth + 1,
-            format_args!("hasActions = {},", !trailing.is_empty()),
+            format_args!(
+                "hasActions = {},",
+                sheet_toolbar_visibility(children, ToolbarPlacement::Trailing)
+                    .unwrap_or_else(|| "false".to_owned())
+            ),
         );
         let content = remove_sheet_toolbars(children);
         out.line_at(depth + 1, format_args!("navigationIcon = {{"));
@@ -263,6 +271,105 @@ fn sheet_toolbar_nodes(nodes: &[Node], placement: ToolbarPlacement) -> Vec<Node>
     result
 }
 
+/// Generates the runtime visibility predicate for an extracted toolbar slot.
+/// The slot can be structurally present in the IR while its active `If` / `When`
+/// branch has no toolbar, so a static boolean would leave an empty native slot
+/// mounted when a sheet changes modes.
+fn sheet_toolbar_visibility(nodes: &[Node], placement: ToolbarPlacement) -> Option<String> {
+    let mut visibility = None;
+    for node in nodes {
+        let node_visibility = match node {
+            Node::Toolbar {
+                placement: candidate,
+                ..
+            } if *candidate == placement => Some("true".to_owned()),
+            Node::KeyboardAware { children, .. } | Node::Layout { children, .. } => {
+                sheet_toolbar_visibility(children, placement)
+            }
+            Node::If {
+                condition,
+                then_body,
+                else_body,
+                ..
+            } => {
+                let then_visibility = sheet_toolbar_visibility(then_body, placement);
+                let else_visibility = else_body
+                    .as_ref()
+                    .and_then(|body| sheet_toolbar_visibility(body, placement));
+                match (then_visibility, else_visibility) {
+                    (None, None) => None,
+                    (Some(then_value), Some(else_value)) if then_value == else_value => {
+                        Some(then_value)
+                    }
+                    (then_value, else_value) => Some(format!(
+                        "(if ({}) {} else {})",
+                        crate::generator::expressions::expression(condition),
+                        then_value.unwrap_or_else(|| "false".to_owned()),
+                        else_value.unwrap_or_else(|| "false".to_owned()),
+                    )),
+                }
+            }
+            Node::When {
+                value,
+                cases,
+                else_body,
+                ..
+            } => {
+                let case_visibility = cases
+                    .iter()
+                    .map(|case| {
+                        (
+                            case.value.clone(),
+                            sheet_toolbar_visibility(&case.body, placement),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let else_visibility = sheet_toolbar_visibility(else_body, placement);
+                if case_visibility.iter().all(|(_, visible)| visible.is_none())
+                    && else_visibility.is_none()
+                {
+                    None
+                } else if case_visibility
+                    .iter()
+                    .all(|(_, visible)| visible.as_deref() == Some("true"))
+                    && else_visibility.as_deref() == Some("true")
+                {
+                    Some("true".to_owned())
+                } else {
+                    let mut arms = case_visibility
+                        .into_iter()
+                        .map(|(case_value, visible)| {
+                            format!(
+                                "{} -> {}",
+                                crate::generator::expressions::expression(&case_value),
+                                visible.unwrap_or_else(|| "false".to_owned())
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    arms.push(format!(
+                        "else -> {}",
+                        else_visibility.unwrap_or_else(|| "false".to_owned())
+                    ));
+                    Some(format!(
+                        "(when ({}) {{ {} }})",
+                        crate::generator::expressions::expression(value),
+                        arms.join("; ")
+                    ))
+                }
+            }
+            _ => None,
+        };
+        visibility = match (visibility, node_visibility) {
+            (None, next) | (next, None) => next,
+            (Some(left), Some(right)) if left == "true" || right == "true" => {
+                Some("true".to_owned())
+            }
+            (Some(left), Some(right)) => Some(format!("({left} || {right})")),
+        };
+    }
+    visibility
+}
+
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
@@ -348,23 +455,23 @@ mod tests {
         assert!(output.contains("navigationIcon = {"));
         assert!(output.contains("actions = {"));
         assert!(output.contains("content = {"));
-        assert!(output.contains("NexaTextPrimitive(text = \"Back\", fontSize ="));
-        assert!(output.contains("NexaTextPrimitive(text = \"Done\", fontSize ="));
+        assert!(output.contains("NexaTextPrimitive(text = \"Back\")"));
+        assert!(output.contains("NexaTextPrimitive(text = \"Done\")"));
         assert_eq!(
             output
                 .as_str()
-                .matches("NexaTextPrimitive(text = \"Back\",")
+                .matches("NexaTextPrimitive(text = \"Back\")")
                 .count(),
             1
         );
         assert_eq!(
             output
                 .as_str()
-                .matches("NexaTextPrimitive(text = \"Done\",")
+                .matches("NexaTextPrimitive(text = \"Done\")")
                 .count(),
             1
         );
-        assert!(output.contains("NexaTextPrimitive(text = \"Body\", fontSize ="));
+        assert!(output.contains("NexaTextPrimitive(text = \"Body\")"));
     }
 
     #[test]
@@ -413,6 +520,8 @@ mod tests {
             &mut output,
         );
 
+        assert!(output.contains("hasNavigationIcon = true,"));
+        assert!(output.contains("hasActions = true,"));
         assert!(output.contains("navigationIcon = {"));
         assert!(output.contains("actions = {"));
         assert!(output.contains("if (nexa_addingReminder) {"));
@@ -420,12 +529,65 @@ mod tests {
             assert_eq!(
                 output
                     .as_str()
-                    .matches(&format!("NexaTextPrimitive(text = \"{label}\", "))
+                    .matches(&format!("NexaTextPrimitive(text = \"{label}\")"))
                     .count(),
                 1
             );
         }
-        assert!(output.contains("NexaTextPrimitive(text = \"Reminder form\", "));
-        assert!(output.contains("NexaTextPrimitive(text = \"Reminder list\", "));
+        assert!(output.contains("NexaTextPrimitive(text = \"Reminder form\")"));
+        assert!(output.contains("NexaTextPrimitive(text = \"Reminder list\")"));
+    }
+
+    #[test]
+    fn conditional_sheet_toolbars_hide_slots_when_the_active_branch_has_no_toolbar() {
+        let text = |value: &str| Node::Text {
+            value: Expr::String(value.to_owned()),
+            style: TextStyle::default(),
+        };
+        let toolbar = |placement, value: &str| Node::Toolbar {
+            placement,
+            children: vec![text(value)],
+        };
+        let module = empty_module();
+        let features = Features::default();
+        let children = [Node::If {
+            condition: Expr::State("showingDatePicker".to_owned(), Type::Bool),
+            then_body: vec![text("Date picker content")],
+            else_body: Some(vec![Node::Layout {
+                kind: LayoutKind::Column,
+                spacing: 0.0,
+                style: ViewStyle::default(),
+                children: vec![
+                    toolbar(ToolbarPlacement::Leading, "Priority"),
+                    toolbar(ToolbarPlacement::Trailing, "Save"),
+                    text("Task editor content"),
+                ],
+            }]),
+            transition: None,
+        }];
+        let mut output = SourceWriter::new();
+
+        render_bottom_sheet(
+            "showingTaskEditor",
+            true,
+            false,
+            Some(&Expr::Conditional {
+                condition: Box::new(Expr::State("showingDatePicker".to_owned(), Type::Bool)),
+                then_value: Box::new(Expr::String("Pick Date".to_owned())),
+                else_value: Box::new(Expr::String("New Task".to_owned())),
+                value_type: Type::String,
+            }),
+            &children,
+            &module,
+            &features,
+            0,
+            &mut output,
+        );
+
+        assert!(
+            output.contains("hasNavigationIcon = (if (nexa_showingDatePicker) false else true),")
+        );
+        assert!(output.contains("hasActions = (if (nexa_showingDatePicker) false else true),"));
+        assert!(output.contains("if (nexa_showingDatePicker) {"));
     }
 }

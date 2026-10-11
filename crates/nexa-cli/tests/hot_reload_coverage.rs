@@ -2198,6 +2198,7 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
         "Typography style parameters",
         "alignment: Center,",
         "fontStyle: Subheadline,",
+        "fontDesign: Serif,",
         "lineHeight: 20,",
         "Button(\n                    \"Configured button\"",
         "searchable: true",
@@ -2338,6 +2339,9 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
         "nexaDevGlass(tint:",
         "NexaNavigationTitleDisplayModePrimitive(",
         "NexaTabLabelPrimitive(title: Text(title), systemImage: name)",
+        "if style[\"italic\"] as? Bool == true",
+        "if style[\"underline\"] as? Bool == true",
+        "Font.system(textStyle, design: fontDesign)",
     ] {
         assert!(swift.contains(marker), "iOS DevRuntime is missing {marker}");
     }
@@ -2359,6 +2363,9 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
         "1 -> NexaDevNode(nexaDevNodeObject(nodes.opt(0))",
         "NexaTextInputPrimitive(",
         "strikethrough = style.optBoolean(\"strikethrough\")",
+        "italic = style.optBoolean(\"italic\")",
+        "underline = style.optBoolean(\"underline\")",
+        "fontFamily = fontFamily",
         "nexaDevSpecificMaterialIcon",
     ] {
         assert!(

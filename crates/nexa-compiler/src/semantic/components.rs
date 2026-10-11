@@ -9,8 +9,8 @@ use nexa_ir::{
     HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis,
     ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType, ReturnKeyType, ScreenId,
     SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
-    TaskExecutor as IrTaskExecutor, TextFontStyle, TextInputFont, TextStyle, ToolbarPlacement,
-    Type, ViewTransition as IrViewTransition, WhenCase,
+    TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle, TextInputFont, TextStyle,
+    ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -656,12 +656,15 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let alignment = lower_text_alignment(args.remove("alignment"))?;
             let font_size = args.remove("fontSize");
             let font_style = lower_text_font_style(args.remove("fontStyle"))?;
+            let font_design = lower_text_font_design(args.remove("fontDesign"))?;
             let font_weight = args.remove("fontWeight");
             let padding = args.remove("padding");
             let line_limit = args.remove("lineLimit");
             let line_height = args.remove("lineHeight");
             let letter_spacing = args.remove("letterSpacing");
             let strikethrough = args.remove("strikethrough");
+            let italic = args.remove("italic");
+            let underline = args.remove("underline");
             let selectable = args.remove("selectable");
             let opacity = args.remove("opacity");
             let value =
@@ -684,6 +687,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
             let letter_spacing = optional_dimension(letter_spacing, "letterSpacing", None, themes)?;
             let strikethrough = optional_bool(strikethrough, false, "strikethrough")?;
+            let italic = optional_bool(italic, false, "italic")?;
+            let underline = optional_bool(underline, false, "underline")?;
             let selectable = optional_bool(selectable, false, "selectable")?;
             let opacity = lower_opacity(opacity)?;
             let effects = lower_view_effects(
@@ -703,6 +708,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     color,
                     font_size,
                     font_style,
+                    font_design,
                     font_weight,
                     padding,
                     opacity,
@@ -711,6 +717,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     line_height,
                     letter_spacing,
                     strikethrough,
+                    italic,
+                    underline,
                     selectable,
                 },
             })
@@ -3367,6 +3375,33 @@ fn lower_text_font_style(value: Option<ast::Expr>) -> Result<Option<TextFontStyl
         }
     };
     Ok(Some(style))
+}
+
+fn lower_text_font_design(
+    value: Option<ast::Expr>,
+) -> Result<Option<TextFontDesign>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "Text fontDesign must be Default, Serif, Rounded, or Monospaced",
+        ));
+    };
+    let design = match name.as_str() {
+        "Default" => TextFontDesign::Default,
+        "Serif" => TextFontDesign::Serif,
+        "Rounded" => TextFontDesign::Rounded,
+        "Monospaced" => TextFontDesign::Monospaced,
+        _ => {
+            return Err(CompileError::new(
+                span,
+                "Text fontDesign must be Default, Serif, Rounded, or Monospaced",
+            ));
+        }
+    };
+    Ok(Some(design))
 }
 
 fn lower_line_limit(value: Option<ast::Expr>) -> Result<Option<i32>, CompileError> {

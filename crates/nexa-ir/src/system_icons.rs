@@ -245,7 +245,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "sort",
         "arrow.up.arrow.down",
-        "Filled",
+        "AutoMirrored.Filled",
         "Sort",
         &["arrow.up.arrow.down"],
     ),

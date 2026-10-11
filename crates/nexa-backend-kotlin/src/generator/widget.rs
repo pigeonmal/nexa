@@ -237,7 +237,6 @@ fn validate_widget(widget: &Widget) -> Result<(), crate::WidgetGenerationError> 
                         || style.effects.has_modifiers()
                         || style.line_height.is_some()
                         || style.letter_spacing.is_some()
-                        || style.strikethrough
                         || style.selectable
                     {
                         return Err(fail(
@@ -857,6 +856,29 @@ fn render_node(
                 let value = match weight { nexa_ir::FontWeight::Normal => "Normal", nexa_ir::FontWeight::Medium => "Medium", nexa_ir::FontWeight::Semibold => "SemiBold", nexa_ir::FontWeight::Bold => "Bold" };
                 parameters.push(format!("fontWeight = androidx.glance.text.FontWeight.{value}"));
             }
+            if let Some(font_design) = style.font_design {
+                let family = match font_design {
+                    nexa_ir::TextFontDesign::Default => None,
+                    nexa_ir::TextFontDesign::Serif => Some("androidx.glance.text.FontFamily.Serif"),
+                    nexa_ir::TextFontDesign::Rounded => Some("androidx.glance.text.FontFamily(\"sans-serif-rounded\")"),
+                    nexa_ir::TextFontDesign::Monospaced => Some("androidx.glance.text.FontFamily.Monospace"),
+                };
+                if let Some(family) = family {
+                    parameters.push(format!("fontFamily = {family}"));
+                }
+            }
+            if style.italic {
+                parameters.push("fontStyle = androidx.glance.text.FontStyle.Italic".to_owned());
+            }
+            let decoration = match (style.underline, style.strikethrough) {
+                (true, true) => Some("androidx.glance.text.TextDecoration.Underline + androidx.glance.text.TextDecoration.LineThrough"),
+                (true, false) => Some("androidx.glance.text.TextDecoration.Underline"),
+                (false, true) => Some("androidx.glance.text.TextDecoration.LineThrough"),
+                (false, false) => None,
+            };
+            if let Some(decoration) = decoration {
+                parameters.push(format!("textDecoration = {decoration}"));
+            }
             if let Some(color) = style.color { parameters.push(format!("color = {}", glance_color(color))); }
             if let Some(alignment) = style.alignment {
                 let value = match alignment { nexa_ir::TextAlignment::Leading => "Start", nexa_ir::TextAlignment::Center => "Center", nexa_ir::TextAlignment::Trailing => "End" };
@@ -1159,6 +1181,10 @@ mod tests {
                     value: Expr::String("Tasks".into()),
                     style: TextStyle {
                         font_style: Some(nexa_ir::TextFontStyle::Subheadline),
+                        font_design: Some(nexa_ir::TextFontDesign::Monospaced),
+                        strikethrough: true,
+                        italic: true,
+                        underline: true,
                         ..TextStyle::default()
                     },
                 },
@@ -1194,9 +1220,12 @@ mod tests {
         assert!(source.contains("GlanceAppWidgetReceiver"));
         assert!(source.contains("provideGlance"));
         assert!(source.contains(
-            "Text(text = \"Tasks\", style = androidx.glance.text.TextStyle(fontSize = 15.sp))"
+            "Text(text = \"Tasks\", style = androidx.glance.text.TextStyle(fontSize = 15.sp, fontFamily = androidx.glance.text.FontFamily.Monospace, fontStyle = androidx.glance.text.FontStyle.Italic"
         ));
         assert!(source.contains("fontSize = 15.sp"));
+        assert!(source.contains("fontFamily = androidx.glance.text.FontFamily.Monospace"));
+        assert!(source.contains("fontStyle = androidx.glance.text.FontStyle.Italic"));
+        assert!(source.contains("textDecoration = androidx.glance.text.TextDecoration.Underline + androidx.glance.text.TextDecoration.LineThrough"));
         assert!(generated.sources.units.iter().any(|unit| {
             unit.name == "NexaWidgetFamily.kt"
                 && unit.contents.contains("internal fun nexaWidgetFamily")

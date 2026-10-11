@@ -681,6 +681,15 @@ private fun NexaDevRenderTextNode(
                     semanticMetrics?.first ?: nexaDevDefaultBodyFontSize.sp
                 }
                 val fontWeight = weight ?: semanticMetrics?.second ?: FontWeight.Normal
+                val fontFamily = when (style.optString("font_design")) {
+                    "Default" -> androidx.compose.ui.text.font.FontFamily.Default
+                    "Serif" -> androidx.compose.ui.text.font.FontFamily.Serif
+                    "Rounded" -> androidx.compose.ui.text.font.FontFamily(
+                        android.graphics.Typeface.create("sans-serif-rounded", android.graphics.Typeface.NORMAL),
+                    )
+                    "Monospaced" -> androidx.compose.ui.text.font.FontFamily.Monospace
+                    else -> null
+                }
                 val lineHeight = if (style.has("line_height") && !style.isNull("line_height")) {
                     style.getDouble("line_height").sp
                 } else {
@@ -718,11 +727,14 @@ private fun NexaDevRenderTextNode(
                     color = color ?: Color.Unspecified,
                     fontSize = fontSize,
                     fontWeight = fontWeight,
+                    fontFamily = fontFamily,
                     textAlign = textAlign,
                     maxLines = maxLines,
                     lineHeight = lineHeight,
                     letterSpacing = letterSpacing,
                     strikethrough = style.optBoolean("strikethrough"),
+                    italic = style.optBoolean("italic"),
+                    underline = style.optBoolean("underline"),
                     selectable = style.optBoolean("selectable"),
                 )
             }

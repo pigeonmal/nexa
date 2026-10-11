@@ -84,6 +84,22 @@ mod widget_capability_tests {
     }
 
     #[test]
+    fn widget_subset_accepts_cross_platform_text_emphasis() {
+        let emphasized_text = Node::Text {
+            value: Expr::String("Emphasis".to_owned()),
+            style: TextStyle {
+                strikethrough: true,
+                italic: true,
+                underline: true,
+                font_design: Some(nexa_ir::TextFontDesign::Rounded),
+                ..TextStyle::default()
+            },
+        };
+
+        assert!(validate_widget_body(&[emphasized_text], Span::default()).is_ok());
+    }
+
+    #[test]
     fn widget_subset_accepts_accessibility_labels() {
         let labelled = Node::Accessibility {
             label: Expr::String("Task title".to_owned()),
@@ -160,12 +176,11 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                         || style.effects.has_modifiers()
                         || style.line_height.is_some()
                         || style.letter_spacing.is_some()
-                        || style.strikethrough
                         || style.selectable
                     {
                         return Err(CompileError::new(
                             span,
-                            "widget Text supports font size, weight, color, alignment, and line limit only",
+                            "widget Text supports font size, semantic font style, font design, weight, color, alignment, emphasis, and line limit",
                         ));
                     }
                 }

@@ -513,68 +513,89 @@ fn render_text(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let alignment = style
-        .alignment
-        .map(|alignment| match alignment {
-            nexa_ir::TextAlignment::Leading => ".leading",
-            nexa_ir::TextAlignment::Center => ".center",
-            nexa_ir::TextAlignment::Trailing => ".trailing",
-        })
-        .unwrap_or("nil");
-    let font = if let Some(size) = style.font_size {
-        format!(".system(size: {})", number(size))
-    } else {
-        style
-            .font_style
-            .map(swift_text_font_style)
-            .unwrap_or("nil")
-            .to_owned()
+    let font_design = style.font_design.map(swift_text_font_design);
+    let font = match (style.font_size, style.font_style, font_design) {
+        (Some(size), _, Some(design)) => {
+            format!(".system(size: {}, design: {design})", number(size))
+        }
+        (Some(size), _, None) => format!(".system(size: {})", number(size)),
+        (None, Some(font_style), Some(design)) => {
+            format!(
+                ".system({}, design: {design})",
+                swift_text_font_style(font_style)
+            )
+        }
+        (None, Some(font_style), None) => swift_text_font_style(font_style).to_owned(),
+        (None, None, Some(design)) => format!(".system(.body, design: {design})"),
+        (None, None, None) => String::new(),
     };
-    let color = style
-        .color
-        .map(colors::expression)
-        .unwrap_or_else(|| "nil".to_owned());
-    let weight = style.font_weight.map(swift_font_weight).unwrap_or("nil");
-    let line_limit = style
-        .line_limit
-        .map(|value| value.to_string())
-        .unwrap_or("nil".to_owned());
     let base_font_size = style.font_size.unwrap_or_else(|| {
         style
             .font_style
             .map(|font_style| nexa_codegen::design_system::text_metrics(font_style).size as f32)
             .unwrap_or(nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE as f32)
     });
-    let line_height_factor = style
-        .line_height
-        .map(|line_height| number(line_height / base_font_size))
-        .unwrap_or("nil".to_owned());
-    let line_height_font_size = number(base_font_size);
-    let tracking = style.letter_spacing.map(number).unwrap_or("nil".to_owned());
     let text = crate::generator::expressions::localized_text_view(value, None);
-
     out.line_at(depth, format_args!("NexaTextPrimitive("));
-    out.line_at(depth + 1, format_args!("text: {text},"));
-    out.line_at(depth + 1, format_args!("alignment: {alignment},"));
-    out.line_at(depth + 1, format_args!("color: {color},"));
-    out.line_at(depth + 1, format_args!("font: {font},"));
-    out.line_at(depth + 1, format_args!("weight: {weight},"));
-    out.line_at(depth + 1, format_args!("lineLimit: {line_limit},"));
-    out.line_at(
-        depth + 1,
-        format_args!("lineHeightFactor: {line_height_factor},"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("lineHeightFontSize: {line_height_font_size},"),
-    );
-    out.line_at(depth + 1, format_args!("tracking: {tracking},"));
-    out.line_at(
-        depth + 1,
-        format_args!("strikethrough: {},", style.strikethrough),
-    );
-    out.line_at(depth + 1, format_args!("selectable: {}", style.selectable));
+    append_text_argument(out, depth + 1, format_args!("text: {text}"));
+    let mut style_modifiers = Vec::new();
+    if let Some(alignment) = style.alignment {
+        let alignment = match alignment {
+            nexa_ir::TextAlignment::Leading => ".leading",
+            nexa_ir::TextAlignment::Center => ".center",
+            nexa_ir::TextAlignment::Trailing => ".trailing",
+        };
+        style_modifiers.push(format!(".withAlignment({alignment})"));
+    }
+    if let Some(color) = style.color {
+        style_modifiers.push(format!(".withColor({})", colors::expression(color)));
+    }
+    let has_explicit_font = style.font_size.is_some()
+        || style.font_style.is_some()
+        || font_design.is_some_and(|design| design != ".default");
+    if has_explicit_font {
+        style_modifiers.push(format!(".withFont({font})"));
+    }
+    if let Some(weight) = style.font_weight {
+        style_modifiers.push(format!(".withWeight({})", swift_font_weight(weight)));
+    }
+    if let Some(line_limit) = style.line_limit {
+        style_modifiers.push(format!(".withLineLimit({line_limit})"));
+    }
+    if let Some(line_height) = style.line_height {
+        let factor = number(line_height / base_font_size);
+        style_modifiers.push(format!(
+            ".withLineHeight(factor: {factor}, fontSize: {})",
+            number(base_font_size)
+        ));
+    }
+    if let Some(tracking) = style.letter_spacing.filter(|tracking| *tracking != 0.0) {
+        style_modifiers.push(format!(".withTracking({})", number(tracking)));
+    }
+    if style.strikethrough {
+        style_modifiers.push(".withStrikethrough()".to_owned());
+    }
+    if style.italic {
+        style_modifiers.push(".withItalic()".to_owned());
+    }
+    if style.underline {
+        style_modifiers.push(".withUnderline()".to_owned());
+    }
+    if style.selectable {
+        style_modifiers.push(".withSelectable()".to_owned());
+    }
+    if !style_modifiers.is_empty() {
+        append_text_argument(
+            out,
+            depth + 1,
+            format_args!("style: NexaTextStyle(){}", style_modifiers.join("")),
+        );
+    }
     out.line_at(depth, format_args!(")"));
+}
+
+fn append_text_argument(out: &mut SourceWriter, depth: usize, argument: std::fmt::Arguments<'_>) {
+    out.line_at(depth, format_args!("{argument},"));
 }
 
 fn swift_transition(transition: ViewTransition) -> &'static str {
@@ -609,6 +630,15 @@ fn swift_text_font_style(style: nexa_ir::TextFontStyle) -> &'static str {
         nexa_ir::TextFontStyle::Footnote => ".footnote",
         nexa_ir::TextFontStyle::Caption => ".caption",
         nexa_ir::TextFontStyle::Caption2 => ".caption2",
+    }
+}
+
+fn swift_text_font_design(design: nexa_ir::TextFontDesign) -> &'static str {
+    match design {
+        nexa_ir::TextFontDesign::Default => ".default",
+        nexa_ir::TextFontDesign::Serif => ".serif",
+        nexa_ir::TextFontDesign::Rounded => ".rounded",
+        nexa_ir::TextFontDesign::Monospaced => ".monospaced",
     }
 }
 
@@ -658,8 +688,7 @@ mod text_tests {
             &mut output,
         );
 
-        assert!(output.contains("lineHeightFactor: 1.375,"));
-        assert!(output.contains("lineHeightFontSize: 16,"));
+        assert!(output.contains(".withLineHeight(factor: 1.375, fontSize: 16)"));
         assert!(!output.contains("lineSpacing:"));
     }
 
@@ -678,7 +707,95 @@ mod text_tests {
             &mut output,
         );
 
-        assert!(output.contains("lineHeightFactor: 1.2941177,"));
-        assert!(output.contains("lineHeightFontSize: 17,"));
+        assert!(output.contains(".withLineHeight(factor: 1.2941177, fontSize: 17)"));
+    }
+
+    #[test]
+    fn text_emphasis_is_passed_to_the_shared_native_primitive() {
+        let mut output = SourceWriter::new();
+        render_text(
+            &Expr::String("Emphasis".to_owned()),
+            &TextStyle {
+                strikethrough: true,
+                italic: true,
+                underline: true,
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(generated.contains(".withStrikethrough()"));
+        assert!(generated.contains(".withItalic()"));
+        assert!(generated.contains(".withUnderline()"));
+    }
+
+    #[test]
+    fn default_text_style_uses_shared_native_primitive_defaults() {
+        let mut output = SourceWriter::new();
+        render_text(
+            &Expr::String("Default".to_owned()),
+            &TextStyle::default(),
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(
+            generated.contains("NexaTextPrimitive(\n    text: Text(\"Default\"),\n)"),
+            "{generated:?}"
+        );
+        assert!(!generated.contains("alignment:"));
+        assert!(!generated.contains("font:"));
+        assert!(!generated.contains("style:"));
+    }
+
+    #[test]
+    fn explicit_text_parameters_override_shared_native_primitive_defaults() {
+        let mut output = SourceWriter::new();
+        render_text(
+            &Expr::String("Title".to_owned()),
+            &TextStyle {
+                font_size: Some(23.0),
+                font_weight: Some(nexa_ir::FontWeight::Bold),
+                line_limit: Some(2),
+                line_height: Some(30.0),
+                letter_spacing: Some(0.5),
+                strikethrough: true,
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(generated.contains(".withFont(.system(size: 23))"));
+        assert!(generated.contains(".withWeight(.bold)"));
+        assert!(generated.contains(".withLineLimit(2)"));
+        assert!(generated.contains(".withLineHeight(factor: 1.3043479, fontSize: 23)"));
+        assert!(generated.contains(".withTracking(0.5)"));
+        assert!(generated.contains(".withStrikethrough()"));
+        assert!(!generated.contains(".withItalic()"));
+    }
+
+    #[test]
+    fn text_font_design_is_passed_to_the_shared_native_primitive() {
+        let mut output = SourceWriter::new();
+        render_text(
+            &Expr::String("Monospaced".to_owned()),
+            &TextStyle {
+                font_design: Some(nexa_ir::TextFontDesign::Monospaced),
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(
+            output
+                .finish()
+                .contains(".withFont(.system(.body, design: .monospaced))")
+        );
     }
 }

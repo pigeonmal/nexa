@@ -377,6 +377,7 @@ app RenderParity {
                     alignment: Center,
                     fontSize: 16,
                     fontStyle: Subheadline,
+                    fontDesign: Serif,
                     fontWeight: Semibold,
                     padding: 4,
                     opacity: 0.95,
@@ -390,6 +391,8 @@ app RenderParity {
                     lineHeight: 20,
                     letterSpacing: 0.2,
                     strikethrough: true,
+                    italic: true,
+                    underline: true,
                     selectable: true
                 )
             }

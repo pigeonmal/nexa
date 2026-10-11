@@ -228,6 +228,12 @@ app ComponentParity {
                 Text("Medium 18", fontSize: 18, fontWeight: Medium)
                 Text("Semibold 22", fontSize: 22, fontWeight: Semibold)
                 Text("Bold 26", fontSize: 26, fontWeight: Bold)
+                Text("Italic text", italic: true, fontDesign: Serif)
+                Text("Underlined text", underline: true, fontDesign: Rounded)
+                Text("Combined emphasis", italic: true, underline: true, strikethrough: true, fontDesign: Monospaced)
+                Text("Serif design", fontDesign: Serif)
+                Text("Rounded design", fontDesign: Rounded)
+                Text("Monospaced design", fontDesign: Monospaced)
                 Text("Two-line text checks line height and wrapping across both platforms.", fontSize: 16, lineHeight: 22)
             }
         }

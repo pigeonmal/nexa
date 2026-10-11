@@ -23,6 +23,12 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v291` | Uses deployment-compatible system font constructors for cross-platform text font design. |
+| `build-v290` | Adds cross-platform text font design in AOT, widgets, and DevRuntime rendering. |
+| `build-v289` | Hides inactive Android bottom-sheet toolbar slots when conditional content removes their buttons. |
+| `build-v288` | Adds shared italic and underline text styles across AOT, DevRuntime, and widget output. |
+| `build-v287` | Draws Android status-bar backgrounds in the edge-to-edge Compose tree and removes the deprecated window color setter. |
+| `build-v286` | Aligns Swift text line-height with Compose and refreshes generated navigation, icon, and pager output. |
 | `build-v285` | Uses a compact iOS keyboard detent so focused sheet content scrolls without expanding to full height. |
 | `build-v284` | Animates keyboard-driven bottom-sheet detents and restores the prior detent after editing. |
 | `build-v283` | Opens Android sheets at the large detent like iOS and fills the expanded sheet viewport. |

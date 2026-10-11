@@ -1274,6 +1274,10 @@ mod tests {
                 value: Expr::String("Tasks".into()),
                 style: TextStyle {
                     font_style: Some(nexa_ir::TextFontStyle::Subheadline),
+                    font_design: Some(nexa_ir::TextFontDesign::Monospaced),
+                    strikethrough: true,
+                    italic: true,
+                    underline: true,
                     ..TextStyle::default()
                 },
             }],
@@ -1289,7 +1293,10 @@ mod tests {
         assert!(source.contains(".systemSmall, .systemMedium"));
         assert!(source.contains("addingTimeInterval(1800)"));
         assert!(source.contains("let family: NexaWidgetFamily = switch context.family"));
-        assert!(source.contains("font: .subheadline"));
+        assert!(source.contains(".withFont(.system(.subheadline, design: .monospaced))"));
+        assert!(source.contains(".withStrikethrough()"));
+        assert!(source.contains(".withItalic()"));
+        assert!(source.contains(".withUnderline()"));
         assert!(!source.contains("rowLimit"));
         let bundle = generated
             .units

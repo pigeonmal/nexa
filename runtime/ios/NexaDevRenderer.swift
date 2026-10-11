@@ -1060,7 +1060,7 @@ struct NexaDevNodeList: View {
             case "Trailing": .trailing
             default: nil
             }
-            let font: Font? = switch style["font_style"] as? String {
+            let textStyle: Font.TextStyle? = switch style["font_style"] as? String {
             case "LargeTitle": .largeTitle
             case "Title": .title
             case "Title2": .title2
@@ -1074,11 +1074,26 @@ struct NexaDevNodeList: View {
             case "Caption2": .caption2
             default: nil
             }
+            let fontDesign: Font.Design? = switch style["font_design"] as? String {
+            case "Default": .default
+            case "Serif": .serif
+            case "Rounded": .rounded
+            case "Monospaced": .monospaced
+            default: nil
+            }
             let lineHeightFontSize = nexaDevTextBaseFontSize(style)
             let lineHeightFactor = (style["line_height"] as? Double).map {
                 CGFloat($0) / lineHeightFontSize
             }
-            let resolvedFont = (style["font_size"] as? Double).map { Font.system(size: $0) } ?? font
+            let resolvedFont: Font? = if let fontSize = style["font_size"] as? Double {
+                Font.system(size: fontSize, design: fontDesign)
+            } else if let textStyle {
+                Font.system(textStyle, design: fontDesign)
+            } else if let fontDesign {
+                Font.system(.body, design: fontDesign)
+            } else {
+                nil
+            }
             let weight: Font.Weight? = switch style["font_weight"] as? String {
             case "Normal": .regular
             case "Medium": .medium
@@ -1086,19 +1101,38 @@ struct NexaDevNodeList: View {
             case "Bold": .bold
             default: nil
             }
-            var styled = AnyView(NexaTextPrimitive(
-                text: Text(text),
-                alignment: alignment,
-                color: devColor(style["color"], isDark: colorScheme == .dark),
-                font: resolvedFont,
-                weight: weight,
-                lineLimit: style["line_limit"] as? Int,
-                lineHeightFactor: lineHeightFactor,
-                lineHeightFontSize: lineHeightFontSize,
-                tracking: style["letter_spacing"] as? CGFloat,
-                strikethrough: style["strikethrough"] as? Bool == true,
-                selectable: style["selectable"] as? Bool == true
-            ))
+            var nativeStyle = NexaTextStyle()
+            if let alignment { nativeStyle = nativeStyle.withAlignment(alignment) }
+            if let color = devColor(style["color"], isDark: colorScheme == .dark) {
+                nativeStyle = nativeStyle.withColor(color)
+            }
+            if let resolvedFont { nativeStyle = nativeStyle.withFont(resolvedFont) }
+            if let weight { nativeStyle = nativeStyle.withWeight(weight) }
+            if let lineLimit = style["line_limit"] as? Int {
+                nativeStyle = nativeStyle.withLineLimit(lineLimit)
+            }
+            if let lineHeightFactor {
+                nativeStyle = nativeStyle.withLineHeight(
+                    factor: lineHeightFactor,
+                    fontSize: lineHeightFontSize
+                )
+            }
+            if let tracking = style["letter_spacing"] as? CGFloat, tracking != 0 {
+                nativeStyle = nativeStyle.withTracking(tracking)
+            }
+            if style["strikethrough"] as? Bool == true {
+                nativeStyle = nativeStyle.withStrikethrough()
+            }
+            if style["italic"] as? Bool == true {
+                nativeStyle = nativeStyle.withItalic()
+            }
+            if style["underline"] as? Bool == true {
+                nativeStyle = nativeStyle.withUnderline()
+            }
+            if style["selectable"] as? Bool == true {
+                nativeStyle = nativeStyle.withSelectable()
+            }
+            var styled = AnyView(NexaTextPrimitive(text: Text(text), style: nativeStyle))
             if let padding = style["padding"] as? Double { styled = AnyView(styled.padding(padding)) }
             if let opacity = style["opacity"] as? Double { styled = AnyView(styled.opacity(opacity)) }
             let effects = style["effects"] as? [String: Any] ?? [:]

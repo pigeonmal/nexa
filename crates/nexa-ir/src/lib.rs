@@ -1645,6 +1645,8 @@ pub struct TextStyle {
     pub font_size: Option<f32>,
     #[serde(default)]
     pub font_style: Option<TextFontStyle>,
+    #[serde(default)]
+    pub font_design: Option<TextFontDesign>,
     pub font_weight: Option<FontWeight>,
     pub padding: Option<f32>,
     pub opacity: Option<f32>,
@@ -1654,6 +1656,10 @@ pub struct TextStyle {
     pub letter_spacing: Option<f32>,
     #[serde(default)]
     pub strikethrough: bool,
+    #[serde(default)]
+    pub italic: bool,
+    #[serde(default)]
+    pub underline: bool,
     pub selectable: bool,
 }
 
@@ -1678,6 +1684,14 @@ pub enum TextFontStyle {
     Footnote,
     Caption,
     Caption2,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextFontDesign {
+    Default,
+    Serif,
+    Rounded,
+    Monospaced,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

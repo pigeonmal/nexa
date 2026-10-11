@@ -242,30 +242,130 @@ const NEXA_COLLECTION_HELPERS: &str = r#"private func nexaGroupByStable<Element,
 "#;
 
 const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = r#"// nexa-codegen: NexaTextPrimitive
+struct NexaTextStyle {
+    var alignment: TextAlignment?
+    var color: Color?
+    var font: Font?
+    var weight: Font.Weight?
+    var lineLimit: Int?
+    var lineHeightFactor: CGFloat?
+    var lineHeightFontSize: CGFloat
+    var tracking: CGFloat?
+    var strikethrough: Bool
+    var italic: Bool
+    var underline: Bool
+    var selectable: Bool
+
+    init() {
+        self.alignment = nil
+        self.color = nil
+        self.font = nil
+        self.weight = nil
+        self.lineLimit = nil
+        self.lineHeightFactor = nil
+        self.lineHeightFontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__
+        self.tracking = nil
+        self.strikethrough = false
+        self.italic = false
+        self.underline = false
+        self.selectable = false
+    }
+
+    func withAlignment(_ value: TextAlignment) -> Self {
+        var style = self
+        style.alignment = value
+        return style
+    }
+
+    func withColor(_ value: Color) -> Self {
+        var style = self
+        style.color = value
+        return style
+    }
+
+    func withFont(_ value: Font) -> Self {
+        var style = self
+        style.font = value
+        return style
+    }
+
+    func withWeight(_ value: Font.Weight) -> Self {
+        var style = self
+        style.weight = value
+        return style
+    }
+
+    func withLineLimit(_ value: Int) -> Self {
+        var style = self
+        style.lineLimit = value
+        return style
+    }
+
+    func withLineHeight(factor: CGFloat, fontSize: CGFloat) -> Self {
+        var style = self
+        style.lineHeightFactor = factor
+        style.lineHeightFontSize = fontSize
+        return style
+    }
+
+    func withTracking(_ value: CGFloat) -> Self {
+        var style = self
+        style.tracking = value
+        return style
+    }
+
+    func withStrikethrough() -> Self {
+        var style = self
+        style.strikethrough = true
+        return style
+    }
+
+    func withItalic() -> Self {
+        var style = self
+        style.italic = true
+        return style
+    }
+
+    func withUnderline() -> Self {
+        var style = self
+        style.underline = true
+        return style
+    }
+
+    func withSelectable() -> Self {
+        var style = self
+        style.selectable = true
+        return style
+    }
+}
+
 struct NexaTextPrimitive: View {
     let text: Text
-    let alignment: TextAlignment?
-    let color: Color?
-    let font: Font?
-    let weight: Font.Weight?
-    let lineLimit: Int?
-    let lineHeightFactor: CGFloat?
-    let lineHeightFontSize: CGFloat
-    let tracking: CGFloat?
-    let strikethrough: Bool
-    let selectable: Bool
+    let style: NexaTextStyle
+
+    init(text: Text) {
+        self.text = text
+        self.style = NexaTextStyle()
+    }
+
+    init(text: Text, style: NexaTextStyle) {
+        self.text = text
+        self.style = style
+    }
 
     @ViewBuilder var body: some View {
         let styledText = text
-            .font(font)
-            .fontWeight(weight)
-            .foregroundStyle(color ?? Color.primary)
-            .multilineTextAlignment(alignment ?? .leading)
-            .lineLimit(lineLimit)
-            .tracking(tracking ?? 0)
-            .strikethrough(strikethrough)
+            .font(style.font)
+            .fontWeight(style.weight)
+            .foregroundStyle(style.color ?? Color.primary)
+            .multilineTextAlignment(style.alignment ?? .leading)
+            .lineLimit(style.lineLimit)
+            .tracking(style.tracking ?? 0)
+            .strikethrough(style.strikethrough)
+            .italic(style.italic)
+            .underline(style.underline)
             .__NEXA_TEXT_LINE_HEIGHT_MODIFIER__
-        if selectable {
+        if style.selectable {
             styledText.textSelection(.enabled)
         } else {
             styledText
@@ -1452,8 +1552,8 @@ fn shared_component_primitives(line_height: bool) -> String {
     );
     let line_height_modifier = if line_height {
         r#"modifier(NexaTextLineHeightModifier(
-                factor: lineHeightFactor,
-                baseFontSize: lineHeightFontSize
+                factor: style.lineHeightFactor,
+                baseFontSize: style.lineHeightFontSize
             ))"#
     } else {
         "lineSpacing(0)"
@@ -2499,7 +2599,7 @@ mod tests {
             on_background: None,
         };
 
-        assert!(generate(&module).contains("font: .subheadline"));
+        assert!(generate(&module).contains(".withFont(.subheadline)"));
     }
 
     #[test]

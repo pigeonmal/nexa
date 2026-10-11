@@ -310,13 +310,16 @@ internal fun NexaTextPrimitive(
     text: String,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
     color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified,
-    fontSize: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
-    fontWeight: androidx.compose.ui.text.font.FontWeight? = null,
+    fontSize: androidx.compose.ui.unit.TextUnit = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
+    fontWeight: androidx.compose.ui.text.font.FontWeight? = androidx.compose.ui.text.font.FontWeight.Normal,
+    fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
     textAlign: androidx.compose.ui.text.style.TextAlign? = null,
     maxLines: Int = Int.MAX_VALUE,
-    lineHeight: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
-    letterSpacing: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
+    lineHeight: androidx.compose.ui.unit.TextUnit = fontSize * __NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__f,
+    letterSpacing: androidx.compose.ui.unit.TextUnit = 0.sp,
     strikethrough: Boolean = false,
+    italic: Boolean = false,
+    underline: Boolean = false,
     softWrap: Boolean = true,
     selectable: Boolean = false,
 ) {
@@ -327,11 +330,18 @@ internal fun NexaTextPrimitive(
             color = color,
             fontSize = fontSize,
             fontWeight = fontWeight,
+            fontFamily = fontFamily,
             textAlign = textAlign,
             maxLines = maxLines,
             lineHeight = lineHeight,
             letterSpacing = letterSpacing,
-            textDecoration = if (strikethrough) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+            fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
+            textDecoration = when {
+                underline && strikethrough -> androidx.compose.ui.text.style.TextDecoration.Underline + androidx.compose.ui.text.style.TextDecoration.LineThrough
+                underline -> androidx.compose.ui.text.style.TextDecoration.Underline
+                strikethrough -> androidx.compose.ui.text.style.TextDecoration.LineThrough
+                else -> null
+            },
             softWrap = softWrap,
         )
     }
@@ -475,6 +485,30 @@ internal fun NexaButtonPrimitive(
     }
 }
 
+// nexa-codegen: NexaStatusBarBackgroundPrimitive
+@androidx.compose.runtime.Composable
+internal fun NexaStatusBarBackgroundPrimitive(
+    background: androidx.compose.ui.graphics.Color,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val statusBarHeight = androidx.compose.foundation.layout.WindowInsets.statusBars
+        .getTop(density)
+        .let { with(density) { it.toDp() } }
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+    ) {
+        content()
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier
+                .align(androidx.compose.ui.Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(statusBarHeight)
+                .background(background),
+        )
+    }
+}
+
 // nexa-codegen: NexaBottomSheetPrimitive
 @androidx.compose.runtime.Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -587,6 +621,7 @@ internal fun NexaBottomSheetPrimitive(
                                 ) {
                                     androidx.compose.runtime.CompositionLocalProvider(
                                         LocalNexaPickerPressFeedback provides false,
+                                        androidx.compose.foundation.LocalIndication provides NexaNoIndication,
                                     ) {
                                         navigationIcon()
                                     }
@@ -618,6 +653,7 @@ internal fun NexaBottomSheetPrimitive(
                                 ) {
                                     androidx.compose.runtime.CompositionLocalProvider(
                                         LocalNexaPickerPressFeedback provides false,
+                                        androidx.compose.foundation.LocalIndication provides NexaNoIndication,
                                     ) {
                                         androidx.compose.foundation.layout.Row(
                                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
@@ -1349,6 +1385,23 @@ internal fun NexaFormDividerPrimitive() {
 
 // nexa-codegen: LocalNexaPickerPressFeedback
 internal val LocalNexaPickerPressFeedback = androidx.compose.runtime.compositionLocalOf { true }
+
+// nexa-codegen: NexaNoIndication
+private object NexaNoIndication : androidx.compose.foundation.IndicationNodeFactory {
+    override fun create(
+        interactionSource: androidx.compose.foundation.interaction.InteractionSource,
+    ): androidx.compose.ui.node.DelegatableNode = object :
+        androidx.compose.ui.Modifier.Node(),
+        androidx.compose.ui.node.DrawModifierNode {
+        override fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.draw() {
+            drawContent()
+        }
+    }
+
+    override fun equals(other: Any?): Boolean = this === other
+
+    override fun hashCode(): Int = 0
+}
 
 // nexa-codegen: NexaPickerPrimitive
 @androidx.compose.runtime.Composable
@@ -2504,6 +2557,15 @@ fn generate_with_analysis(
                 out.push_str("        NexaSharedTransitionContent {\n");
             }
             let body_base_depth = if features.uses_shared_elements { 3 } else { 2 };
+            let wrap_app_status_bar_background = if module.screens.is_empty() {
+                components::status_bar::render_background_start(
+                    module.status_bar,
+                    body_base_depth,
+                    out,
+                )
+            } else {
+                false
+            };
             let body_depth = components::direction::start(module.direction, body_base_depth, out);
             components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, out);
             components::lifecycle::render_on_disappear(
@@ -2531,6 +2593,9 @@ fn generate_with_analysis(
                 );
             }
             components::direction::end(module.direction, body_base_depth, out);
+            if wrap_app_status_bar_background {
+                components::status_bar::render_background_end(body_base_depth, out);
+            }
             if features.uses_shared_elements {
                 out.push_str("\n        }");
             }
@@ -2755,6 +2820,16 @@ mod tests {
     }
 
     #[test]
+    fn shared_text_primitive_owns_default_font_metrics() {
+        let primitives = shared_component_primitives();
+        assert!(primitives.contains("fontSize: androidx.compose.ui.unit.TextUnit = 17.sp"));
+        assert!(
+            primitives.contains("lineHeight: androidx.compose.ui.unit.TextUnit = fontSize * 1.2f")
+        );
+        assert!(primitives.contains("letterSpacing: androidx.compose.ui.unit.TextUnit = 0.sp"));
+    }
+
+    #[test]
     fn shared_search_input_uses_a_plain_icon_and_field_row() {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaTextInputPrimitive("));
@@ -2869,6 +2944,11 @@ mod tests {
         assert!(primitives.contains("height(androidx.compose.ui.unit.Dp(12f))"));
         assert!(primitives.contains("NexaNavigationTitleTextStyle()"));
         assert!(primitives.contains("LocalNexaPickerPressFeedback provides false"));
+        assert!(
+            primitives
+                .contains("androidx.compose.foundation.LocalIndication provides NexaNoIndication")
+        );
+        assert!(primitives.contains("private object NexaNoIndication"));
         assert!(primitives.contains("internal val LocalNexaPickerPressFeedback"));
         assert!(primitives.contains("internal fun NexaAlertDialogPrimitive("));
         assert!(primitives.contains("internal fun NexaConfirmationDialogPrimitive("));
@@ -2983,9 +3063,7 @@ mod tests {
         assert!(kotlin.contains("window.decorView.setBackgroundColor(statusColor.toArgb())"));
         assert!(kotlin.contains(".isAppearanceLightNavigationBars = "));
         assert!(kotlin.contains("window.isNavigationBarContrastEnforced = false"));
-        assert!(kotlin.contains(
-            "NexaTextPrimitive(text = \"Hello\", fontSize = 17.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp * 1.2f, letterSpacing = 0.sp, strikethrough = false, selectable = false)"
-        ));
+        assert!(kotlin.contains("NexaTextPrimitive(text = \"Hello\")"));
         assert!(!kotlin.contains("nexaColorFromHex("));
     }
 
@@ -3968,7 +4046,9 @@ mod tests {
             on_background: None,
         };
 
-        assert!(generate(&module).contains("fontSize = 15.sp, fontWeight = FontWeight.Normal"));
+        let generated = generate(&module);
+        assert!(generated.contains("fontSize = 15.sp"));
+        assert!(!generated.contains("fontWeight = FontWeight.Normal"));
     }
 
     #[test]

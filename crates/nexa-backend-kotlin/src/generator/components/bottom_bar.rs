@@ -795,20 +795,20 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth,
         format_args!(
-            "val {page_state} = rememberPagerState(initialPage = {selected}.toInt(), pageCount = {{ {} }})",
+            "val {page_state} = rememberPagerState(initialPage = {selected}, pageCount = {{ {} }})",
             pages.len()
         ),
     );
     out.line_at(
         depth,
         format_args!(
-            "LaunchedEffect({selected}) {{ if ({page_state}.currentPage != {selected}.toInt()) {page_state}.animateScrollToPage({selected}.toInt()) }}"
+            "LaunchedEffect({selected}) {{ if ({page_state}.currentPage != {selected}) {page_state}.animateScrollToPage({selected}) }}"
         ),
     );
     out.line_at(
         depth,
         format_args!(
-            "LaunchedEffect({page_state}.currentPage) {{ {selected} = {page_state}.currentPage.toInt() }}"
+            "LaunchedEffect({page_state}.currentPage) {{ {selected} = {page_state}.currentPage }}"
         ),
     );
     out.line_at(
@@ -1029,7 +1029,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "NexaPickerPrimitive(items = nexa_sortOptions, selected = nexa_sortSelection, icon = Icons.Filled.Sort, label = null, tint = null, fillMaxWidth = false)"
+            "NexaPickerPrimitive(items = nexa_sortOptions, selected = nexa_sortSelection, icon = Icons.AutoMirrored.Filled.Sort, label = null, tint = null, fillMaxWidth = false)"
         ));
     }
 
@@ -1146,5 +1146,7 @@ mod tests {
         assert!(output.contains(
             "NexaPageIndicatorRow(pageCount = 1, currentPage = nexa_currentPagePager.currentPage) { page ->"
         ));
+        assert!(output.contains("rememberPagerState(initialPage = nexa_currentPage,"));
+        assert!(!output.contains(".toInt()"));
     }
 }

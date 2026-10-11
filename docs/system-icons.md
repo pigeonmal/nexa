@@ -123,7 +123,7 @@ Use `platform ios { ... }` and `platform android { ... }` when an app needs to r
 | `sun_filled` | `sun.max.fill` | `Filled.WbSunny` | `sun.max.fill` |
 | `sunrise` | `sunrise` | `Filled.WbTwilight` | `sunrise` |
 | `settings` | `gearshape.fill` | `Filled.Settings` | `gearshape.fill`, `gearshape` |
-| `sort` | `arrow.up.arrow.down` | `Filled.Sort` | `arrow.up.arrow.down` |
+| `sort` | `arrow.up.arrow.down` | `AutoMirrored.Filled.Sort` | `arrow.up.arrow.down` |
 | `notifications` | `bell.fill` | `Filled.Notifications` | `bell`, `bell.fill` |
 | `notifications_active` | `bell.badge.fill` | `Filled.NotificationsActive` | `bell.badge`, `bell.badge.fill` |
 | `checklist` | `checklist` | `Filled.AssignmentTurnedIn` | `checklist` |

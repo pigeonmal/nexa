@@ -2429,9 +2429,9 @@ mod tests {
             "Android generated DevRuntime primitives retained an unresolved design-system token"
         );
         assert!(swift.contains("NexaTextPrimitive("));
-        assert!(swift.contains("font: resolvedFont"));
+        assert!(swift.contains("nativeStyle = nativeStyle.withFont(resolvedFont)"));
         assert!(swift.contains("case \"Body\": return CGFloat(17)"));
-        assert!(swift.contains("lineHeightFactor: lineHeightFactor"));
+        assert!(swift.contains("nativeStyle = nativeStyle.withLineHeight("));
         assert!(swift.contains("private let nexaDevFormRowMinHeight: CGFloat = 56"));
         assert!(swift.contains("minHeight: nexaDevFormRowMinHeight"));
         assert!(swift.contains("NexaFormRowPrimitive("));

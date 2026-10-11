@@ -1627,7 +1627,7 @@ fn text_style_arguments_lower_to_native_text_style_fields() {
         r#"
         app TextStyles {
             body {
-                Text("Hi", fontSize: 18, fontWeight: Bold, padding: 12)
+                Text("Hi", fontSize: 18, fontWeight: Bold, padding: 12, italic: true, underline: true, fontDesign: Rounded)
             }
         }
         "#,
@@ -1640,6 +1640,9 @@ fn text_style_arguments_lower_to_native_text_style_fields() {
             if source_text(value) == Some("Hi")
                 && style.font_size == Some(18.0)
                 && style.font_weight == Some(nexa_ir::FontWeight::Bold)
+                && style.italic
+                && style.underline
+                && style.font_design == Some(nexa_ir::TextFontDesign::Rounded)
                 && style.padding == Some(12.0)
     ));
 }
@@ -1652,6 +1655,7 @@ fn semantic_text_font_roles_lower_and_validate() {
             body {
                 Text("Task description", fontStyle: Subheadline)
                 Text("Due tomorrow", fontStyle: Caption)
+                Text("Code", fontDesign: Monospaced)
             }
         }
         "#,
@@ -1668,6 +1672,11 @@ fn semantic_text_font_roles_lower_and_validate() {
         Node::Text { style, .. }
             if style.font_style == Some(nexa_ir::TextFontStyle::Caption)
     ));
+    assert!(matches!(
+        &module.body[2],
+        Node::Text { style, .. }
+            if style.font_design == Some(nexa_ir::TextFontDesign::Monospaced)
+    ));
 
     let invalid = compile(
         r#"
@@ -1678,6 +1687,16 @@ fn semantic_text_font_roles_lower_and_validate() {
     )
     .expect_err("unsupported semantic text roles should be rejected");
     assert!(invalid.to_string().contains("fontStyle must be"));
+
+    let invalid_design = compile(
+        r#"
+        app InvalidTextDesign {
+            body { Text("Task", fontDesign: Display) }
+        }
+        "#,
+    )
+    .expect_err("unsupported system font designs should be rejected");
+    assert!(invalid_design.to_string().contains("fontDesign must be"));
 }
 
 #[test]

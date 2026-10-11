@@ -86,6 +86,10 @@
       "source": "Column spacing and padding",
       "translations": {}
     },
+    "Combined emphasis": {
+      "source": "Combined emphasis",
+      "translations": {}
+    },
     "Compare status-bar foreground, background, and safe-area handling.": {
       "source": "Compare status-bar foreground, background, and safe-area handling.",
       "translations": {}
@@ -294,6 +298,10 @@
       "source": "Inbox tab content",
       "translations": {}
     },
+    "Italic text": {
+      "source": "Italic text",
+      "translations": {}
+    },
     "Keep scrolling content stable while refreshing.": {
       "source": "Keep scrolling content stable while refreshing.",
       "translations": {}
@@ -378,6 +386,10 @@
       "argument_types": [
         "Float64"
       ],
+      "translations": {}
+    },
+    "Monospaced design": {
+      "source": "Monospaced design",
       "translations": {}
     },
     "Navigate away and back to compare lifecycle delivery.": {
@@ -548,6 +560,10 @@
       "source": "Return to component index",
       "translations": {}
     },
+    "Rounded design": {
+      "source": "Rounded design",
+      "translations": {}
+    },
     "Row": {
       "source": "Row",
       "translations": {}
@@ -640,6 +656,10 @@
     },
     "Semibold 22": {
       "source": "Semibold 22",
+      "translations": {}
+    },
+    "Serif design": {
+      "source": "Serif design",
       "translations": {}
     },
     "Sheet content": {
@@ -800,6 +820,10 @@
     },
     "Two-line text checks line height and wrapping across both platforms.": {
       "source": "Two-line text checks line height and wrapping across both platforms.",
+      "translations": {}
+    },
+    "Underlined text": {
+      "source": "Underlined text",
       "translations": {}
     },
     "With padding": {

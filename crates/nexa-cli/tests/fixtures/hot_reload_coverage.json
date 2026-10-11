@@ -2,49 +2,165 @@
   "schema_version": 1,
   "source": "../nexa-ir/src/lib.rs",
   "ir_variants": {
-    "Permission": [
+    "AccessibilityRole": [
       {
-        "name": "Camera",
+        "name": "None",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Microphone",
+        "name": "Button",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Photos",
+        "name": "Link",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Location",
+        "name": "Header",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Notifications",
+        "name": "Image",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "Action": [
+      {
+        "name": "Expression",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Contacts",
+        "name": "Let",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Calendar",
+        "name": "Return",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Bluetooth",
+        "name": "Assign",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Motion",
+        "name": "NativePropertyAssign",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NativeEventSubscribe",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NetworkStatusSubscribe",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TaskLaunch",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TaskCancel",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "WithAnimation",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CollectionMutation",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "If",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "For",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ForMap",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "While",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TryCatch",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Break",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Continue",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "Alignment": [
+      {
+        "name": "Start",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Center",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "End",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "AnimationSpec": [
+      {
+        "name": "Spring",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "EaseIn",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "EaseOut",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "EaseInOut",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Linear",
         "ios": "covered",
         "android": "covered"
       }
@@ -71,83 +187,289 @@
         "android": "covered"
       }
     ],
-    "NumericType": [
+    "AutofillType": [
       {
-        "name": "Int8",
+        "name": "Username",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Int16",
+        "name": "Password",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Int32",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Int64",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "UInt8",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "UInt16",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "UInt32",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "UInt64",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Float32",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Float64",
+        "name": "OneTimeCode",
         "ios": "covered",
         "android": "covered"
       }
     ],
-    "HapticStyle": [
+    "BinaryOp": [
       {
-        "name": "Light",
+        "name": "And",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Medium",
+        "name": "Or",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Heavy",
+        "name": "Contains",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Equal",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NotEqual",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Less",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LessEqual",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Greater",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "GreaterEqual",
         "ios": "covered",
         "android": "covered"
       }
     ],
-    "KeyboardDismissMode": [
+    "ButtonShape": [
       {
-        "name": "Interactive",
+        "name": "Capsule",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Never",
+        "name": "Circle",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Rounded",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ButtonSize": [
+      {
+        "name": "Small",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Regular",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Large",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ButtonStyle": [
+      {
+        "name": "BorderedProminent",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Bordered",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Borderless",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Plain",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "Capitalization": [
+      {
+        "name": "None",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Sentences",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Words",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Characters",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "CollectionMutation": [
+      {
+        "name": "ArrayAppend",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ArrayMove",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ArrayMoveSubset",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ArrayRemoveAt",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SetInsert",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SetRemove",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "MapSet",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "MapRemove",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "MapClear",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Replace",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "CollectionTransform": [
+      {
+        "name": "Map",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FlatMap",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Filter",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Reduce",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SortedBy",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "GroupedBy",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "CollectionUtilityKind": [
+      {
+        "name": "Random",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "First",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Last",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Shuffled",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Reverse",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Slice",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Take",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ColorExpression": [
+      {
+        "name": "Static",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Dynamic",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ColorValue": [
+      {
+        "name": "Static",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Adaptive",
         "ios": "covered",
         "android": "covered"
       }
@@ -160,125 +482,6 @@
       },
       {
         "name": "Rtl",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "StatusBarStyle": [
-      {
-        "name": "Default",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Light",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Dark",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "Type": [
-      {
-        "name": "Void",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "String",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Bool",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Numeric",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Optional",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Result",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Array",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Set",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Map",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Pair",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Triple",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Enum",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Plugin",
-        "ios": "partial",
-        "android": "partial"
-      },
-      {
-        "name": "NetworkResponse",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Struct",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Class",
-        "ios": "partial",
-        "android": "partial"
-      },
-      {
-        "name": "Bytes",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "TaskHandle",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "TypeParam",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Signal",
         "ios": "covered",
         "android": "covered"
       }
@@ -570,71 +773,109 @@
         "android": "covered"
       }
     ],
-    "CollectionTransform": [
+    "FontWeight": [
       {
-        "name": "Map",
+        "name": "Normal",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "FlatMap",
+        "name": "Medium",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Filter",
+        "name": "Semibold",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Reduce",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "SortedBy",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "GroupedBy",
+        "name": "Bold",
         "ios": "covered",
         "android": "covered"
       }
     ],
-    "CollectionUtilityKind": [
+    "GlassShape": [
       {
-        "name": "Random",
+        "name": "Capsule",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "First",
+        "name": "Circle",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Last",
+        "name": "Rounded",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "GradientDirection": [
+      {
+        "name": "TopToBottom",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Shuffled",
+        "name": "BottomToTop",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Reverse",
+        "name": "LeadingToTrailing",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Slice",
+        "name": "TrailingToLeading",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "HapticStyle": [
+      {
+        "name": "Light",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Take",
+        "name": "Medium",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Heavy",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ImageScale": [
+      {
+        "name": "Fit",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Fill",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ImageSource": [
+      {
+        "name": "Asset",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "RemoteUrl",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LocalFile",
         "ios": "covered",
         "android": "covered"
       }
@@ -651,49 +892,171 @@
         "android": "covered"
       }
     ],
-    "BinaryOp": [
+    "KeyboardDismissMode": [
       {
-        "name": "And",
+        "name": "Interactive",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Or",
+        "name": "Never",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "KeyboardType": [
+      {
+        "name": "Text",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Contains",
+        "name": "Number",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Equal",
+        "name": "Email",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "NotEqual",
+        "name": "Phone",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Less",
+        "name": "Url",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "LayoutKind": [
+      {
+        "name": "Column",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "LessEqual",
+        "name": "Row",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Greater",
+        "name": "Stack",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ListAxis": [
+      {
+        "name": "Vertical",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "GreaterEqual",
+        "name": "Horizontal",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Grid",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ListPlan": [
+      {
+        "name": "Count",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Items",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Sections",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "LogMethod": [
+      {
+        "name": "Info",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Warning",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Error",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "MemberKind": [
+      {
+        "name": "TupleIndex",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "StructField",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ClassField",
+        "ios": "partial",
+        "android": "partial"
+      },
+      {
+        "name": "ClassStaticField",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "PluginField",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NetworkStatusCode",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NetworkHeaders",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NetworkBody",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CollectionCount",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CollectionIsEmpty",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "StringTrimmed",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SignalValue",
         "ios": "covered",
         "android": "covered"
       }
@@ -940,136 +1303,113 @@
         "android": "covered"
       }
     ],
-    "AccessibilityRole": [
+    "NumericType": [
       {
-        "name": "None",
+        "name": "Int8",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Button",
+        "name": "Int16",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Link",
+        "name": "Int32",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Header",
+        "name": "Int64",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Image",
+        "name": "UInt8",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "UInt16",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "UInt32",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "UInt64",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Float32",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Float64",
         "ios": "covered",
         "android": "covered"
       }
     ],
-    "ListPlan": [
+    "Permission": [
       {
-        "name": "Count",
+        "name": "Camera",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Items",
+        "name": "Microphone",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Sections",
+        "name": "Photos",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Location",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Notifications",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Contacts",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Calendar",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Bluetooth",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Motion",
         "ios": "covered",
         "android": "covered"
       }
     ],
-    "ListAxis": [
+    "PermissionOpKind": [
       {
-        "name": "Vertical",
+        "name": "Status",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Horizontal",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Grid",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "LayoutKind": [
-      {
-        "name": "Column",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Row",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Stack",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "KeyboardType": [
-      {
-        "name": "Text",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Number",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Email",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Phone",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Url",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "AutofillType": [
-      {
-        "name": "Username",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Password",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "OneTimeCode",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "TextInputFont": [
-      {
-        "name": "Body",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Title3",
+        "name": "Request",
         "ios": "covered",
         "android": "covered"
       }
@@ -1096,124 +1436,31 @@
         "android": "covered"
       }
     ],
-    "Capitalization": [
+    "StatusBarStyle": [
       {
-        "name": "None",
+        "name": "Default",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Sentences",
+        "name": "Light",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Words",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Characters",
+        "name": "Dark",
         "ios": "covered",
         "android": "covered"
       }
     ],
-    "ImageScale": [
+    "TaskExecutor": [
       {
-        "name": "Fit",
+        "name": "Main",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Fill",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "ImageSource": [
-      {
-        "name": "Asset",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "RemoteUrl",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "LocalFile",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "AnimationSpec": [
-      {
-        "name": "Spring",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "EaseIn",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "EaseOut",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "EaseInOut",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Linear",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "ViewTransition": [
-      {
-        "name": "Fade",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "SlideFromBottom",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "SlideFromLeft",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "SlideFromRight",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Scale",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "Alignment": [
-      {
-        "name": "Start",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Center",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "End",
+        "name": "Background",
         "ios": "covered",
         "android": "covered"
       }
@@ -1231,6 +1478,28 @@
       },
       {
         "name": "Trailing",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "TextFontDesign": [
+      {
+        "name": "Default",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Serif",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Rounded",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Monospaced",
         "ios": "covered",
         "android": "covered"
       }
@@ -1292,380 +1561,14 @@
         "android": "covered"
       }
     ],
-    "ColorValue": [
+    "TextInputFont": [
       {
-        "name": "Static",
+        "name": "Body",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Adaptive",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "ColorExpression": [
-      {
-        "name": "Static",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Dynamic",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "FontWeight": [
-      {
-        "name": "Normal",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Medium",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Semibold",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Bold",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "ButtonShape": [
-      {
-        "name": "Capsule",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Circle",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Rounded",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "ButtonSize": [
-      {
-        "name": "Small",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Regular",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Large",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "ButtonStyle": [
-      {
-        "name": "BorderedProminent",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Bordered",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Borderless",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Plain",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "GlassShape": [
-      {
-        "name": "Capsule",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Circle",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Rounded",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "Action": [
-      {
-        "name": "Expression",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Let",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Return",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Assign",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "NativePropertyAssign",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "NativeEventSubscribe",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "NetworkStatusSubscribe",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "TaskLaunch",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "TaskCancel",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "WithAnimation",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "CollectionMutation",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "If",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "For",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "ForMap",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "While",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "TryCatch",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Break",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Continue",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "TaskExecutor": [
-      {
-        "name": "Main",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Background",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "CollectionMutation": [
-      {
-        "name": "ArrayAppend",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "ArrayMove",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "ArrayMoveSubset",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "ArrayRemoveAt",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "SetInsert",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "SetRemove",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "MapSet",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "MapRemove",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "MapClear",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Replace",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "MemberKind": [
-      {
-        "name": "TupleIndex",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "StructField",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "ClassField",
-        "ios": "partial",
-        "android": "partial"
-      },
-      {
-        "name": "ClassStaticField",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "PluginField",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "NetworkStatusCode",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "NetworkHeaders",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "NetworkBody",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "CollectionCount",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "CollectionIsEmpty",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "StringTrimmed",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "SignalValue",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "ToolbarPlacement": [
-      {
-        "name": "Leading",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Trailing",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "TuplePosition": [
-      {
-        "name": "First",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Second",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Third",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "PermissionOpKind": [
-      {
-        "name": "Status",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Request",
+        "name": "Title3",
         "ios": "covered",
         "android": "covered"
       }
@@ -1732,41 +1635,160 @@
         "android": "covered"
       }
     ],
-    "LogMethod": [
+    "ToolbarPlacement": [
       {
-        "name": "Info",
+        "name": "Leading",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "Warning",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Error",
+        "name": "Trailing",
         "ios": "covered",
         "android": "covered"
       }
     ],
-    "GradientDirection": [
+    "TuplePosition": [
       {
-        "name": "TopToBottom",
+        "name": "First",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "BottomToTop",
+        "name": "Second",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "LeadingToTrailing",
+        "name": "Third",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "Type": [
+      {
+        "name": "Void",
         "ios": "covered",
         "android": "covered"
       },
       {
-        "name": "TrailingToLeading",
+        "name": "String",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Bool",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Numeric",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Optional",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Result",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Array",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Set",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Map",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Pair",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Triple",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Enum",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Plugin",
+        "ios": "partial",
+        "android": "partial"
+      },
+      {
+        "name": "NetworkResponse",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Struct",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Class",
+        "ios": "partial",
+        "android": "partial"
+      },
+      {
+        "name": "Bytes",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TaskHandle",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TypeParam",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Signal",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ViewTransition": [
+      {
+        "name": "Fade",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SlideFromBottom",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SlideFromLeft",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SlideFromRight",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Scale",
         "ios": "covered",
         "android": "covered"
       }
