@@ -9,6 +9,8 @@ component ParityCard(title: String) {
 
 app RenderParity {
     state count: Int32 = 0
+    state pressableTapCount: Int32 = 0
+    state pressableLongPressCount: Int32 = 0
     state enabled: Bool = false
     state title: String = ""
     state toolbarActionCount: Int32 = 0
@@ -104,9 +106,9 @@ app RenderParity {
                             Pressable(accessibilityLabel: "Pressable action", accessibilityRole: Button) {
                                 Text("Pressable region")
                             }.onTap {
-                                count = count + 1
+                                pressableTapCount = pressableTapCount + 1
                             }.onLongPress(durationMs: 500) {
-                                count = count + 1
+                                pressableLongPressCount = pressableLongPressCount + 1
                             }.contextMenu {
                                 Button("Context action") { count = count + 1 }
                             }.onDoubleTap {
@@ -474,6 +476,7 @@ app RenderParity {
                 Icon(materialsymbol: "star", size: 24, tint: "#E11D48", description: "Native Android symbol")
             }
             Section(title: "Pressable parameters", comment: "Disabled state, haptics, and full-size layout") {
+                Text("Pressable result: tap=$pressableTapCount, long=$pressableLongPressCount")
                 Stack(width: 220, height: 48, background: "#252525", cornerRadius: 8) {
                     Pressable(disabled: false, haptic: Light, fillMaxSize: true, accessibilityLabel: "Full-size pressable", accessibilityRole: Button) {
                         Text("Full-size pressable")
@@ -485,6 +488,13 @@ app RenderParity {
                     Text("Disabled pressable")
                 }.onTap {
                     count = count + 1
+                }
+                Pressable(accessibilityLabel: "Long press parity target", accessibilityRole: Button) {
+                    Text("Long press parity target")
+                }.onTap {
+                    pressableTapCount = pressableTapCount + 1
+                }.onLongPress(durationMs: 500) {
+                    pressableLongPressCount = pressableLongPressCount + 1
                 }
             }
         }

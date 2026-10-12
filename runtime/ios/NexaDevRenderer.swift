@@ -1314,54 +1314,61 @@ struct NexaDevNodeList: View {
             let fillMaxSize = fields["fill_max_size"] as? Bool == true
             let haptic = fields["haptic"] as? String
             let content = NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
+            let hasDoubleTap = !doubleTapActions.isEmpty
+            let hasLongPress = !longPressActions.isEmpty
+            let performTap: () -> Void = {
+                guard !disabled else { return }
+                playNexaHaptic(haptic)
+                store.perform(actions, scope: scope, locals: locals)
+            }
+            let performDoubleTap: () -> Void = {
+                guard !disabled else { return }
+                playNexaHaptic(haptic)
+                store.perform(doubleTapActions, scope: scope, locals: locals)
+            }
+            let performLongPress: () -> Void = {
+                guard !disabled else { return }
+                playNexaHaptic(haptic)
+                store.perform(longPressActions, scope: scope, locals: locals)
+            }
             let button = Button {
-                if doubleTapActions.isEmpty {
-                    playNexaHaptic(haptic)
-                    store.perform(actions, scope: scope, locals: locals)
+                if !hasDoubleTap && !hasLongPress {
+                    performTap()
                 }
             } label: {
                 content
             }
             .buttonStyle(.plain)
             .disabled(disabled)
-            let pressable: AnyView
-            if !doubleTapActions.isEmpty {
-                let tapped = button
-                    .highPriorityGesture(
-                        TapGesture(count: 2)
-                            .onEnded {
-                                guard !disabled else { return }
-                                playNexaHaptic(haptic)
-                                store.perform(doubleTapActions, scope: scope, locals: locals)
-                            }
-                            .exclusively(before: TapGesture(count: 1).onEnded {
-                                guard !disabled else { return }
-                                playNexaHaptic(haptic)
-                                store.perform(actions, scope: scope, locals: locals)
-                            })
+            let gesturePressable: AnyView
+            if hasLongPress && hasDoubleTap {
+                let gesture = LongPressGesture(minimumDuration: longPressMinimumDuration)
+                    .onEnded { _ in performLongPress() }
+                    .exclusively(before:
+                        TapGesture(count: 2).onEnded { performDoubleTap() }
+                            .exclusively(before: TapGesture(count: 1).onEnded { performTap() })
                     )
-                    .accessibilityAction(.default) {
-                        playNexaHaptic(haptic)
-                        store.perform(actions, scope: scope, locals: locals)
-                    }
-                    .accessibilityAddTraits(.isButton)
-                if longPressActions.isEmpty {
-                    pressable = AnyView(tapped)
-                } else {
-                    pressable = AnyView(tapped.simultaneousGesture(LongPressGesture(minimumDuration: longPressMinimumDuration).onEnded { _ in
-                        guard !disabled else { return }
-                        playNexaHaptic(haptic)
-                        store.perform(longPressActions, scope: scope, locals: locals)
-                    }))
-                }
-            } else if longPressActions.isEmpty {
-                pressable = AnyView(button)
+                gesturePressable = AnyView(button.highPriorityGesture(gesture))
+            } else if hasLongPress {
+                let gesture = LongPressGesture(minimumDuration: longPressMinimumDuration)
+                    .onEnded { _ in performLongPress() }
+                    .exclusively(before: TapGesture(count: 1).onEnded { performTap() })
+                gesturePressable = AnyView(button.highPriorityGesture(gesture))
+            } else if hasDoubleTap {
+                let gesture = TapGesture(count: 2)
+                    .onEnded { performDoubleTap() }
+                    .exclusively(before: TapGesture(count: 1).onEnded { performTap() })
+                gesturePressable = AnyView(button.highPriorityGesture(gesture))
             } else {
-                pressable = AnyView(button.simultaneousGesture(LongPressGesture(minimumDuration: longPressMinimumDuration).onEnded { _ in
-                    guard !disabled else { return }
-                    playNexaHaptic(haptic)
-                    store.perform(longPressActions, scope: scope, locals: locals)
-                }))
+                gesturePressable = AnyView(button)
+            }
+            let pressable: AnyView
+            if hasLongPress || hasDoubleTap {
+                pressable = AnyView(gesturePressable
+                    .accessibilityAction(.default) { performTap() }
+                    .accessibilityAddTraits(.isButton))
+            } else {
+                pressable = gesturePressable
             }
             let expandedPressable: AnyView = fillMaxSize
                 ? AnyView(pressable.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle()))

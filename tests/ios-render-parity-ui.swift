@@ -262,7 +262,7 @@ final class NexaRenderParityTests: XCTestCase {
         alignScrollAnchor(app, label: "Image and icon parameters", targetY: 406)
         try capture("style-images", app: app)
         try scrollToLabel("Pressable parameters", app: app)
-        alignScrollAnchor(app, label: "Pressable parameters", targetY: 800)
+        alignScrollAnchor(app, label: "Pressable parameters", targetY: 600)
         try capture("style-pressable", app: app)
         try scrollToLabel("Back to catalog", upwards: false, app: app)
         try tap("Back to catalog", app: app)
@@ -281,5 +281,22 @@ final class NexaRenderParityTests: XCTestCase {
         XCTAssertTrue(app.buttons["Confirm action"].waitForExistence(timeout: 5))
         try capture("confirmation", app: app)
         try tap("Confirm action", app: app)
+    }
+
+    func testPressableLongPressDoesNotFallThroughToTap() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Parity heading"].waitForExistence(timeout: 60))
+        try scrollToLabel("Open style parameters", app: app)
+        try tap("Open style parameters", app: app)
+        XCTAssertTrue(app.staticTexts["Column style parameters"].waitForExistence(timeout: 10))
+        try scrollToLabel("Long press parity target", app: app)
+
+        let pressable = element("Long press parity target", app: app)
+        XCTAssertTrue(pressable.waitForExistence(timeout: 5))
+        pressable.press(forDuration: 0.8)
+        XCTAssertTrue(app.staticTexts["Pressable result: tap=0, long=1"].waitForExistence(timeout: 5))
+        try capture("pressable-long", app: app)
     }
 }

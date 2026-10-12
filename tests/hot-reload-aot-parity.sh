@@ -14,7 +14,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 artifacts="$project/parity-captures"
 dev_log="$project/dev.log"
 dev_pid=
-parity_phases=(initial toolbar button switch text-entry controls-scroll-3 controls-scroll-5 navigation style-layout style-typography style-button style-button-interaction style-input style-images style-pressable large-sheet lists lists-refresh lists-scroll-1 lists-scroll-3 list-parameters list-parameters-next workspace pages pages-next bottom-sheet dialog confirmation)
+parity_phases=(initial toolbar button switch text-entry controls-scroll-3 controls-scroll-5 navigation style-layout style-typography style-button style-button-interaction style-input style-images style-pressable pressable-long large-sheet lists lists-refresh lists-scroll-1 lists-scroll-3 list-parameters list-parameters-next workspace pages pages-next bottom-sheet dialog confirmation)
 
 if [[ "$platform" != ios && "$platform" != android ]]; then
     echo "platform must be ios or android" >&2
@@ -111,7 +111,7 @@ android_wait_for_text() {
     return 1
 }
 
-android_tap_label() {
+android_label_center() {
     local label=$1
     local xml="$project/build/android-current.xml"
     adb shell uiautomator dump /sdcard/nexa-render-parity.xml >/dev/null 2>&1
@@ -133,8 +133,21 @@ values = [int(value) for value in node.attrib["bounds"].replace("][", ",").strip
 print((values[0] + values[2]) // 2, (values[1] + values[3]) // 2)
 PY
     )
+    printf '%s\n' "$coordinates"
+}
+
+android_tap_label() {
+    local coordinates
+    coordinates=$(android_label_center "$1")
     read -r x y <<<"$coordinates"
     adb shell input tap "$x" "$y"
+}
+
+android_long_press_label() {
+    local coordinates
+    coordinates=$(android_label_center "$1")
+    read -r x y <<<"$coordinates"
+    adb shell input swipe "$x" "$y" "$x" "$y" 800
 }
 
 android_swipe() {
@@ -148,6 +161,14 @@ android_swipe() {
     else
         adb shell input swipe "$x" "$((height / 4))" "$x" "$((height * 3 / 4))" 220 >/dev/null
     fi
+}
+
+android_nudge_up() {
+    local size
+    size=$(adb shell wm size | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | tail -n 1)
+    read -r width height <<<"$size"
+    local x=$((width / 2))
+    adb shell input swipe "$x" "$((height * 3 / 4))" "$x" "$((height / 2))" 220 >/dev/null
 }
 
 android_scroll_to_label() {
@@ -190,6 +211,7 @@ run_android_interactions() {
     android_tap_label "Enabled"
     android_wait_for_text "Enabled: true"
     capture_android_phase "$variant" switch
+    android_scroll_to_label "Open text input screen" down
     android_tap_label "Open text input screen"
     android_tap_label "Task title"
     adb shell input text NexaParity
@@ -254,6 +276,7 @@ run_android_interactions() {
     capture_android_phase "$variant" style-button
     android_tap_label "Enable configured button"
     android_tap_label "Configured button"
+    android_nudge_up
     android_wait_for_text "Configured state: loading=true, disabled=false"
     capture_android_phase "$variant" style-button-interaction
     android_tap_label "Open large sheet"
@@ -266,6 +289,10 @@ run_android_interactions() {
     capture_android_phase "$variant" style-images
     android_scroll_to_label "Pressable parameters"
     capture_android_phase "$variant" style-pressable
+    android_scroll_to_label "Long press parity target"
+    android_long_press_label "Long press parity target"
+    android_wait_for_text "Pressable result: tap=0, long=1"
+    capture_android_phase "$variant" pressable-long
     android_scroll_to_label "Back to catalog" down
     android_tap_label "Back to catalog"
 

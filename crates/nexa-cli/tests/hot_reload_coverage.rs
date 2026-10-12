@@ -2148,6 +2148,8 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
         .expect("read rendering parity comparator");
     let ios_ui_test = fs::read_to_string(root.join("../../tests/ios-render-parity-ui.swift"))
         .expect("read iOS rendering parity UI test");
+    let ios_dev_renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
     let fixture = fs::read_to_string(root.join("../../tests/fixtures/render_parity.nx"))
         .expect("read rendering parity fixture");
 
@@ -2173,6 +2175,7 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
         "toolbar",
         "button",
         "switch",
+        "pressable-long",
         "text-entry",
         "controls-scroll-3",
         "controls-scroll-5",
@@ -2207,6 +2210,15 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
             "iOS interaction test omitted {marker} phase"
         );
     }
+    assert!(script.contains("android_long_press_label \"Long press parity target\""));
+    assert!(ios_ui_test.contains("pressable.press(forDuration: 0.8)"));
+    assert!(ios_dev_renderer.contains("button.highPriorityGesture(gesture)"));
+    assert!(ios_dev_renderer.contains(".exclusively(before:"));
+    assert!(!ios_dev_renderer.contains("simultaneousGesture(LongPressGesture("));
+    assert!(
+        fixture.contains("Pressable result: tap=$pressableTapCount, long=$pressableLongPressCount")
+    );
+    assert!(fixture.contains("pressableLongPressCount = pressableLongPressCount + 1"));
     for marker in [
         "roles, labels, actions, and frames",
         "screenshot matches",
