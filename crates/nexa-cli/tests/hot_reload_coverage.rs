@@ -325,6 +325,36 @@ fn component_parity_app_exercises_every_catalog_component() {
             component.name
         );
     }
+
+    let mut missing_arguments = Vec::new();
+    for schema in catalog::COMPONENT_SCHEMAS {
+        let covered = arguments.get(schema.name);
+        for argument in schema.arguments {
+            if !covered.is_some_and(|covered| covered.contains(argument.name)) {
+                missing_arguments.push(format!("{}({})", schema.name, argument.name));
+            }
+        }
+    }
+    assert!(
+        missing_arguments.is_empty(),
+        "component parity app is missing catalog parameters: {}",
+        missing_arguments.join(", ")
+    );
+
+    let missing_accessibility = catalog::ACCESSIBILITY_ARGUMENTS
+        .iter()
+        .filter(|argument| {
+            !arguments
+                .values()
+                .any(|covered| covered.contains(**argument))
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    assert!(
+        missing_accessibility.is_empty(),
+        "component parity app is missing shared accessibility parameters: {}",
+        missing_accessibility.join(", ")
+    );
 }
 
 #[test]
@@ -2657,6 +2687,20 @@ fn development_button_shape_defaults_match_on_both_platforms() {
     assert!(kotlin_primitives.contains(
         "val resolvedStyle = style ?: if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else \"BorderedProminent\""
     ));
+}
+
+#[test]
+fn android_dev_bottom_sheet_only_shows_toolbar_slots_from_the_active_branch() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+
+    assert!(renderer.contains("hasNavigationIcon = nexaDevHasActiveSheetToolbar("));
+    assert!(renderer.contains("hasActions = nexaDevHasActiveSheetToolbar("));
+    assert!(renderer.contains("private fun nexaDevHasActiveSheetToolbar("));
+    assert!(
+        renderer.contains("fields.optJSONArray(if (condition) \"then_body\" else \"else_body\")")
+    );
 }
 
 #[test]

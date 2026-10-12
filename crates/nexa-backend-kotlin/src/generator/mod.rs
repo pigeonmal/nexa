@@ -305,6 +305,8 @@ internal fun NexaFastListDividerPrimitive() {
 }
 
 // nexa-codegen: NexaTextPrimitive
+private val LocalNexaTextAlignment = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.ui.text.style.TextAlign?> { null }
+
 @androidx.compose.runtime.Composable
 internal fun NexaTextPrimitive(
     text: String,
@@ -331,7 +333,7 @@ internal fun NexaTextPrimitive(
             fontSize = fontSize,
             fontWeight = fontWeight,
             fontFamily = fontFamily,
-            textAlign = textAlign,
+            textAlign = textAlign ?: LocalNexaTextAlignment.current,
             maxLines = maxLines,
             lineHeight = lineHeight,
             letterSpacing = letterSpacing,
@@ -1205,7 +1207,15 @@ internal fun NexaColumnPrimitive(
     val arrangement = if (spacing > 0f) {
         androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(spacing))
     } else androidx.compose.foundation.layout.Arrangement.Top
-    androidx.compose.foundation.layout.Column(modifier, verticalArrangement = arrangement, horizontalAlignment = horizontalAlignment, content = content)
+    val textAlignment = when (horizontalAlignment) {
+        androidx.compose.ui.Alignment.Start -> androidx.compose.ui.text.style.TextAlign.Start
+        androidx.compose.ui.Alignment.CenterHorizontally -> androidx.compose.ui.text.style.TextAlign.Center
+        androidx.compose.ui.Alignment.End -> androidx.compose.ui.text.style.TextAlign.End
+        else -> null
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalNexaTextAlignment provides textAlignment) {
+        androidx.compose.foundation.layout.Column(modifier, verticalArrangement = arrangement, horizontalAlignment = horizontalAlignment, content = content)
+    }
 }
 
 // nexa-codegen: NexaRowPrimitive
@@ -1219,7 +1229,9 @@ internal fun NexaRowPrimitive(
     val arrangement = if (spacing > 0f) {
         androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(spacing))
     } else androidx.compose.foundation.layout.Arrangement.Start
-    androidx.compose.foundation.layout.Row(modifier, horizontalArrangement = arrangement, verticalAlignment = verticalAlignment, content = content)
+    androidx.compose.runtime.CompositionLocalProvider(LocalNexaTextAlignment provides null) {
+        androidx.compose.foundation.layout.Row(modifier, horizontalArrangement = arrangement, verticalAlignment = verticalAlignment, content = content)
+    }
 }
 
 // nexa-codegen: NexaStackPrimitive
@@ -1229,7 +1241,15 @@ internal fun NexaStackPrimitive(
     contentAlignment: androidx.compose.ui.Alignment = androidx.compose.ui.Alignment.Center,
     content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
-    androidx.compose.foundation.layout.Box(modifier, contentAlignment = contentAlignment, content = content)
+    val textAlignment = when (contentAlignment) {
+        androidx.compose.ui.Alignment.TopStart -> androidx.compose.ui.text.style.TextAlign.Start
+        androidx.compose.ui.Alignment.Center -> androidx.compose.ui.text.style.TextAlign.Center
+        androidx.compose.ui.Alignment.BottomEnd -> androidx.compose.ui.text.style.TextAlign.End
+        else -> null
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalNexaTextAlignment provides textAlignment) {
+        androidx.compose.foundation.layout.Box(modifier, contentAlignment = contentAlignment, content = content)
+    }
 }
 
 // nexa-codegen: NexaFormRowPrimitive
@@ -2977,6 +2997,24 @@ mod tests {
                 .contains("horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally")
         );
         assert!(primitives.contains("internal fun NexaDialogActionDividerPrimitive()"));
+    }
+
+    #[test]
+    fn wrapped_text_inherits_column_and_stack_cross_axis_alignment() {
+        let primitives = shared_component_primitives();
+
+        assert!(primitives.contains("private val LocalNexaTextAlignment ="));
+        assert!(primitives.contains("textAlign = textAlign ?: LocalNexaTextAlignment.current"));
+        assert!(primitives.contains(
+            "androidx.compose.ui.Alignment.CenterHorizontally -> androidx.compose.ui.text.style.TextAlign.Center"
+        ));
+        assert!(primitives.contains(
+            "androidx.compose.ui.Alignment.TopStart -> androidx.compose.ui.text.style.TextAlign.Start"
+        ));
+        assert!(primitives.contains(
+            "androidx.compose.ui.Alignment.BottomEnd -> androidx.compose.ui.text.style.TextAlign.End"
+        ));
+        assert!(primitives.contains("LocalNexaTextAlignment provides null"));
     }
 
     #[test]

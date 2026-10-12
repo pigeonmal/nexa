@@ -24,6 +24,11 @@
       "source": "Adaptive split view",
       "translations": {}
     },
+    "Aligned text with visual effects": {
+      "source": "Aligned text with visual effects",
+      "comment": "Text appearance parity sample",
+      "translations": {}
+    },
     "App active events: {appActivations}": {
       "source": "App active events: {appActivations}",
       "arguments": [
@@ -112,6 +117,10 @@
       "source": "Column",
       "translations": {}
     },
+    "Column sizing and visual parameters": {
+      "source": "Column sizing and visual parameters",
+      "translations": {}
+    },
     "Column spacing and padding": {
       "source": "Column spacing and padding",
       "translations": {}
@@ -134,6 +143,10 @@
     },
     "Component parity rows": {
       "source": "Component parity rows",
+      "translations": {}
+    },
+    "Conditional navigation link": {
+      "source": "Conditional navigation link",
       "translations": {}
     },
     "Confirmation dialog": {
@@ -204,6 +217,7 @@
     },
     "Delete task?": {
       "source": "Delete task?",
+      "comment": "Dialog with cancel and delete actions",
       "translations": {}
     },
     "Departures: {departures}": {
@@ -278,8 +292,9 @@
       "source": "Eight",
       "translations": {}
     },
-    "Email": {
-      "source": "Email",
+    "Email search": {
+      "source": "Email search",
+      "comment": "Searchable autofill input",
       "translations": {}
     },
     "Enabled taps: {taps}": {
@@ -326,6 +341,7 @@
     },
     "First group": {
       "source": "First group",
+      "comment": "Grouped rows with explanatory footer",
       "translations": {}
     },
     "First page": {
@@ -338,6 +354,7 @@
     },
     "First section footer": {
       "source": "First section footer",
+      "comment": "Grouped rows with explanatory footer",
       "translations": {}
     },
     "Fixed row height: 56 dp": {
@@ -356,8 +373,31 @@
       "source": "Four dp",
       "translations": {}
     },
+    "Full-size pressable": {
+      "source": "Full-size pressable",
+      "translations": {}
+    },
     "Gap": {
       "source": "Gap",
+      "translations": {}
+    },
+    "Glass icon": {
+      "source": "Glass icon",
+      "comment": "Icon and glass style parity",
+      "translations": {}
+    },
+    "Horizontal row {index}": {
+      "source": "Horizontal row {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Horizontal rows": {
+      "source": "Horizontal rows",
       "translations": {}
     },
     "Icon": {
@@ -392,6 +432,10 @@
       "source": "Inner spacing: 18 dp",
       "translations": {}
     },
+    "Introduces the controls below": {
+      "source": "Introduces the controls below",
+      "translations": {}
+    },
     "Italic text": {
       "source": "Italic text",
       "translations": {}
@@ -410,6 +454,14 @@
     },
     "Large capsule": {
       "source": "Large capsule",
+      "translations": {}
+    },
+    "Large-only parity sheet": {
+      "source": "Large-only parity sheet",
+      "translations": {}
+    },
+    "Large-only sheet content": {
+      "source": "Large-only sheet content",
       "translations": {}
     },
     "Layout": {
@@ -504,6 +556,20 @@
       "source": "Must keep its explicit value",
       "translations": {}
     },
+    "Native row {index}": {
+      "source": "Native row {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Native rows": {
+      "source": "Native rows",
+      "translations": {}
+    },
     "Navigate away and back to compare lifecycle delivery.": {
       "source": "Navigate away and back to compare lifecycle delivery.",
       "translations": {}
@@ -526,6 +592,7 @@
     },
     "No saved tasks": {
       "source": "No saved tasks",
+      "comment": "Empty state with supporting detail",
       "translations": {}
     },
     "No search results": {
@@ -564,8 +631,13 @@
       "source": "Open example website",
       "translations": {}
     },
+    "Open large-only sheet": {
+      "source": "Open large-only sheet",
+      "translations": {}
+    },
     "Open links in app": {
       "source": "Open links in app",
+      "comment": "Switch with supporting detail",
       "translations": {}
     },
     "Open partial sheet": {
@@ -584,8 +656,22 @@
       "source": "Page pager",
       "translations": {}
     },
+    "Page {index}": {
+      "source": "Page {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "PagePager": {
       "source": "PagePager",
+      "translations": {}
+    },
+    "Paged vertical rows": {
+      "source": "Paged vertical rows",
       "translations": {}
     },
     "Parity pages": {
@@ -612,6 +698,11 @@
     },
     "Partial progress": {
       "source": "Partial progress",
+      "translations": {}
+    },
+    "Password": {
+      "source": "Password",
+      "comment": "Secure password input",
       "translations": {}
     },
     "Picker": {
@@ -696,6 +787,21 @@
     },
     "Return to component index": {
       "source": "Return to component index",
+      "comment": "Explicit back label parity sample",
+      "translations": {}
+    },
+    "Reverse row {index}": {
+      "source": "Reverse row {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Reversed rows": {
+      "source": "Reversed rows",
       "translations": {}
     },
     "Rounded design": {
@@ -704,6 +810,10 @@
     },
     "Row": {
       "source": "Row",
+      "translations": {}
+    },
+    "Row sizing and visual parameters": {
+      "source": "Row sizing and visual parameters",
       "translations": {}
     },
     "Row spacing and alignment": {
@@ -716,6 +826,7 @@
     },
     "Saved tasks will appear here.": {
       "source": "Saved tasks will appear here.",
+      "comment": "Empty state with supporting detail",
       "translations": {}
     },
     "Screen lifecycle": {
@@ -826,6 +937,7 @@
     },
     "Sort tasks": {
       "source": "Sort tasks",
+      "comment": "Choose the task sort order",
       "translations": {}
     },
     "Spacer": {
@@ -846,6 +958,10 @@
     },
     "Stack overlay and alignment": {
       "source": "Stack overlay and alignment",
+      "translations": {}
+    },
+    "Stack sizing and visual parameters": {
+      "source": "Stack sizing and visual parameters",
       "translations": {}
     },
     "Status bar": {
@@ -890,6 +1006,7 @@
     },
     "Task actions": {
       "source": "Task actions",
+      "comment": "Context actions for a task",
       "translations": {}
     },
     "Task name": {
@@ -922,6 +1039,7 @@
     },
     "This action can be undone.": {
       "source": "This action can be undone.",
+      "comment": "Dialog with cancel and delete actions",
       "translations": {}
     },
     "Time range": {

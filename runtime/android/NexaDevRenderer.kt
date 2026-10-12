@@ -1183,8 +1183,20 @@ private fun NexaDevRenderNavigationNode(
                 partial = partial,
                 largeOnly = fields.optBoolean("large_only", false),
                 title = title,
-                hasNavigationIcon = leading.length() > 0,
-                hasActions = trailing.length() > 0,
+                hasNavigationIcon = nexaDevHasActiveSheetToolbar(
+                    children,
+                    "Leading",
+                    store,
+                    locals,
+                    scope,
+                ),
+                hasActions = nexaDevHasActiveSheetToolbar(
+                    children,
+                    "Trailing",
+                    store,
+                    locals,
+                    scope,
+                ),
                 onDismissRequest = { store.setState(state, false, scope) },
                 navigationIcon = { RenderChildren(leading, module, store, locals, scope) },
                 actions = { RenderChildren(trailing, module, store, locals, scope) },
@@ -1348,6 +1360,55 @@ private fun nexaDevTabToolbars(nodes: JSONArray): List<Pair<String, JSONArray>> 
         }
     }
     return toolbars
+}
+
+@Composable
+private fun nexaDevHasActiveSheetToolbar(
+    nodes: JSONArray,
+    placement: String,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+): Boolean {
+    for (index in 0 until nodes.length()) {
+        val node = nodes.optJSONObject(index) ?: continue
+        val kind = node.keys().asSequence().firstOrNull() ?: continue
+        val fields = node.optJSONObject(kind) ?: continue
+        when (kind) {
+            "Toolbar" -> {
+                if (fields.optString("placement") == placement &&
+                    (fields.optJSONArray("children")?.length() ?: 0) > 0
+                ) return true
+            }
+            "Layout", "KeyboardAware" -> {
+                if (nexaDevHasActiveSheetToolbar(
+                        fields.optJSONArray("children") ?: JSONArray(),
+                        placement,
+                        store,
+                        locals,
+                        scope,
+                    )
+                ) return true
+            }
+            "If" -> {
+                val condition = store.evaluatePresented(fields.opt("condition"), locals, scope) as? Boolean ?: false
+                val branch = fields.optJSONArray(if (condition) "then_body" else "else_body") ?: JSONArray()
+                if (nexaDevHasActiveSheetToolbar(branch, placement, store, locals, scope)) return true
+            }
+            "When" -> {
+                val value = store.stringify(store.evaluatePresented(fields.opt("value"), locals, scope))
+                val cases = fields.optJSONArray("cases") ?: JSONArray()
+                val matching = (0 until cases.length())
+                    .mapNotNull(cases::optJSONObject)
+                    .firstOrNull { case ->
+                        store.stringify(store.evaluatePresented(case.opt("value"), locals, scope)) == value
+                    }
+                val branch = matching?.optJSONArray("body") ?: fields.optJSONArray("else_body") ?: JSONArray()
+                if (nexaDevHasActiveSheetToolbar(branch, placement, store, locals, scope)) return true
+            }
+        }
+    }
+    return false
 }
 
 private fun nexaDevWithoutTabToolbars(nodes: JSONArray): JSONArray {
