@@ -620,7 +620,8 @@ internal fun NexaBottomSheetPrimitive(
                             if (hasNavigationIcon) {
                                 androidx.compose.foundation.layout.Box(
                                     modifier = androidx.compose.ui.Modifier
-                                        .size(androidx.compose.ui.unit.Dp(48f)),
+                                        .height(androidx.compose.ui.unit.Dp(48f))
+                                        .widthIn(min = androidx.compose.ui.unit.Dp(48f)),
                                     contentAlignment = androidx.compose.ui.Alignment.Center,
                                 ) {
                                     androidx.compose.runtime.CompositionLocalProvider(
@@ -654,7 +655,8 @@ internal fun NexaBottomSheetPrimitive(
                             if (hasActions) {
                                 androidx.compose.foundation.layout.Box(
                                     modifier = androidx.compose.ui.Modifier
-                                        .size(androidx.compose.ui.unit.Dp(48f)),
+                                        .height(androidx.compose.ui.unit.Dp(48f))
+                                        .widthIn(min = androidx.compose.ui.unit.Dp(48f)),
                                     contentAlignment = androidx.compose.ui.Alignment.Center,
                                 ) {
                                     androidx.compose.runtime.CompositionLocalProvider(
@@ -2973,6 +2975,11 @@ mod tests {
         assert!(primitives.contains("height(androidx.compose.ui.unit.Dp(12f))"));
         assert!(primitives.contains("NexaNavigationTitleTextStyle()"));
         assert!(primitives.contains("LocalNexaBottomSheetToolbarButtons provides true"));
+        let toolbar_button_slot = concat!(
+            ".height(androidx.compose.ui.unit.Dp(48f))\n",
+            "                                        .widthIn(min = androidx.compose.ui.unit.Dp(48f))",
+        );
+        assert_eq!(primitives.matches(toolbar_button_slot).count(), 2);
         assert!(primitives.contains("style: String?,"));
         assert!(primitives.contains(
             "val resolvedStyle = style ?: if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else \"BorderedProminent\""
