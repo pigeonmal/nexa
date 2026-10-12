@@ -1,6 +1,7 @@
 use nexa_diagnostics::Span;
 use serde::{Deserialize, Serialize};
 
+pub mod bottom_sheet;
 pub mod capabilities;
 pub mod facts;
 pub mod localization;
