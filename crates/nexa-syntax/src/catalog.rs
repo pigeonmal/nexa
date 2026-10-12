@@ -178,8 +178,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "Image",
         summary: "Displays a native image from an asset, URL, or local file",
-        snippet: "Image(asset: \"${1:icon}\", description: \"${2:}\", maxHeight: ${3:200})",
-        probe: "app P { body { Image(asset: \"logo\", description: \"Logo\", maxHeight: 200) } }",
+        snippet: "Image(url: \"${1:https://example.com/image.png}\", description: \"${2:Image description}\", showLoadingIndicator: ${3:true})",
+        probe: "app P { body { Image(url: \"https://example.test/logo.png\", description: \"Logo\", showLoadingIndicator: true) } }",
     },
     ComponentEntry {
         name: "Icon",
@@ -1295,6 +1295,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             req("description"),
             opt("scale"),
             opt("placeholder"),
+            opt("showLoadingIndicator"),
             opt("maxHeight"),
         ],
         exclusive: &[ExclusiveGroup {

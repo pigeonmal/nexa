@@ -31,6 +31,7 @@ pub(crate) fn render_image(
     description: &str,
     scale: ImageScale,
     placeholder: Option<&str>,
+    show_loading_indicator: bool,
     max_height: Option<f32>,
     shared_element: Option<&nexa_ir::Expr>,
     depth: usize,
@@ -61,12 +62,12 @@ pub(crate) fn render_image(
             kotlin_string(asset),
         )),
         ImageSource::RemoteUrl(url) => out.push_str(&format!(
-            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = false,\n{indent}    placeholder = {},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
+            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = false,\n{indent}    placeholder = {},\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
             expression(url),
             placeholder.map(kotlin_string).unwrap_or_else(|| "null".to_owned()),
         )),
         ImageSource::LocalFile(file) => out.push_str(&format!(
-            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = true,\n{indent}    placeholder = null,\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
+            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = true,\n{indent}    placeholder = null,\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
             expression(file),
         )),
     }
@@ -105,6 +106,7 @@ internal fun NexaRemoteImagePrimitive(
     url: String,
     allowsFile: Boolean,
     placeholder: String?,
+    showLoadingIndicator: Boolean,
     contentDescription: String?,
     contentScale: androidx.compose.ui.layout.ContentScale,
     maxHeight: androidx.compose.ui.unit.Dp?,
@@ -120,15 +122,45 @@ internal fun NexaRemoteImagePrimitive(
         maxHeight?.let { androidx.compose.ui.Modifier.heightIn(max = it) }
             ?: androidx.compose.ui.Modifier
     )
-    coil3.compose.AsyncImage(
-        model = safeModel,
-        imageLoader = nexaImageLoader(),
-        contentDescription = contentDescription,
-        contentScale = contentScale,
-        placeholder = placeholderPainter,
-        error = placeholderPainter,
+    val imageLoading = if (showLoadingIndicator && placeholderPainter == null) {
+        remember(safeModel) { androidx.compose.runtime.mutableStateOf(safeModel != null) }
+    } else {
+        null
+    }
+    val onImageLoading: ((coil3.compose.AsyncImagePainter.State.Loading) -> Unit)? =
+        imageLoading?.let { loadingState -> { _: coil3.compose.AsyncImagePainter.State.Loading ->
+            loadingState.value = true
+        } }
+    val onImageSuccess: ((coil3.compose.AsyncImagePainter.State.Success) -> Unit)? =
+        imageLoading?.let { loadingState -> { _: coil3.compose.AsyncImagePainter.State.Success ->
+            loadingState.value = false
+        } }
+    val onImageError: ((coil3.compose.AsyncImagePainter.State.Error) -> Unit)? =
+        imageLoading?.let { loadingState -> { _: coil3.compose.AsyncImagePainter.State.Error ->
+            loadingState.value = false
+        } }
+    androidx.compose.foundation.layout.Box(
         modifier = imageModifier,
-    )
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        coil3.compose.AsyncImage(
+            model = safeModel,
+            imageLoader = nexaImageLoader(),
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            placeholder = placeholderPainter,
+            error = placeholderPainter,
+            onLoading = onImageLoading,
+            onSuccess = onImageSuccess,
+            onError = onImageError,
+        )
+        if (imageLoading?.value == true) {
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+            )
+        }
+    }
 }
 
 "#,
@@ -139,6 +171,7 @@ internal fun NexaRemoteImagePrimitive(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
+    use nexa_ir::{ImageScale, ImageSource};
 
     use super::render_primitives;
 
@@ -155,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_image_primitive_owns_scheme_validation_coil_and_placeholder() {
+    fn remote_image_primitive_owns_scheme_validation_coil_and_state_fallbacks() {
         let mut output = SourceWriter::new();
         render_primitives(false, true, &mut output);
 
@@ -164,6 +197,34 @@ mod tests {
         assert!(output.contains("imageLoader = nexaImageLoader()"));
         assert!(output.contains("placeholder = placeholderPainter"));
         assert!(output.contains("error = placeholderPainter"));
+        assert!(output.contains("onLoading = onImageLoading"));
+        assert!(output.contains("onSuccess = onImageSuccess"));
+        assert!(output.contains("onError = onImageError"));
+        assert!(output.contains("CircularProgressIndicator("));
+        assert!(output.contains("if (showLoadingIndicator && placeholderPainter == null)"));
+        assert!(output.contains("else {\n        null\n    }"));
         assert!(!output.contains("NexaAssetImagePrimitive("));
+    }
+
+    #[test]
+    fn remote_images_forward_the_explicit_loading_indicator_option() {
+        let source = ImageSource::RemoteUrl(nexa_ir::Expr::String(
+            "https://example.test/image.png".to_owned(),
+        ));
+        let mut output = SourceWriter::new();
+
+        super::render_image(
+            &source,
+            "",
+            ImageScale::Fit,
+            None,
+            true,
+            Some(80.0),
+            None,
+            0,
+            &mut output,
+        );
+
+        assert!(output.finish().contains("showLoadingIndicator = true"));
     }
 }

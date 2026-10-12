@@ -226,6 +226,7 @@ pub(crate) fn render_node(
             description,
             scale,
             placeholder,
+            show_loading_indicator,
             max_height,
             shared_element,
         } => images::render_image(
@@ -233,6 +234,7 @@ pub(crate) fn render_node(
             description,
             *scale,
             placeholder.as_deref(),
+            *show_loading_indicator,
             *max_height,
             shared_element.as_ref(),
             depth,

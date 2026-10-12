@@ -828,6 +828,8 @@ pub enum Node {
         description: String,
         scale: ImageScale,
         placeholder: Option<String>,
+        #[serde(default)]
+        show_loading_indicator: bool,
         max_height: Option<f32>,
         shared_element: Option<Expr>,
     },

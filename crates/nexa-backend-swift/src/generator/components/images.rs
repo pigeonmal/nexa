@@ -12,6 +12,7 @@ pub(crate) fn render_image(
     description: &str,
     scale: ImageScale,
     placeholder: Option<&str>,
+    show_loading_indicator: bool,
     max_height: Option<f32>,
     shared_element: Option<&nexa_ir::Expr>,
     depth: usize,
@@ -32,12 +33,13 @@ pub(crate) fn render_image(
         }
         ImageSource::RemoteUrl(url) => {
             out.push_str(&format!(
-                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: {}, allowsFile: false, description: {}, maxHeight: {})",
+                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: {}, showLoadingIndicator: {}, allowsFile: false, description: {}, maxHeight: {})",
                 expression(url),
                 image_scale(scale),
                 placeholder
                     .map(swift_string)
                     .unwrap_or_else(|| "nil".to_owned()),
+                show_loading_indicator,
                 swift_string(description),
                 max_height
                     .map(crate::generator::engine::utils::number)
@@ -46,9 +48,10 @@ pub(crate) fn render_image(
         }
         ImageSource::LocalFile(file) => {
             out.push_str(&format!(
-                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: nil, allowsFile: true, description: {}, maxHeight: {})",
+                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: nil, showLoadingIndicator: {}, allowsFile: true, description: {}, maxHeight: {})",
                 expression(file),
                 image_scale(scale),
+                show_loading_indicator,
                 swift_string(description),
                 max_height
                     .map(crate::generator::engine::utils::number)
@@ -71,23 +74,15 @@ fn image_scale(scale: ImageScale) -> &'static str {
 pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: &mut SourceWriter) {
     out.push_str("enum NexaImageScale { case fit; case fill }\n\n");
     out.push_str(
-        r#"struct NexaImageFallbackPrimitive: View {
-    let placeholder: String?
-    let description: String
+        r#"struct NexaImagePlaceholderPrimitive: View {
+    let name: String
     let scale: NexaImageScale
-    let maxHeight: CGFloat?
 
-    @ViewBuilder var body: some View {
-        Group {
-            if let placeholder {
-                Image(placeholder).resizable().aspectRatio(contentMode: scale == .fit ? .fit : .fill)
-            } else {
-                Image(systemName: "photo")
-            }
-        }
-            .frame(maxHeight: maxHeight)
-            .accessibilityLabel(description)
-            .accessibilityHidden(description.isEmpty)
+    var body: some View {
+        Image(name)
+            .resizable()
+            .aspectRatio(contentMode: scale == .fit ? .fit : .fill)
+            .accessibilityHidden(true)
     }
 }
 
@@ -120,12 +115,13 @@ pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: 
     let url: String
     let scale: NexaImageScale
     let placeholder: String?
+    let showLoadingIndicator: Bool
     let allowsFile: Bool
     let description: String
     let maxHeight: CGFloat?
 
     var body: some View {
-        NexaRemoteImage(url: url, scale: scale, placeholder: placeholder, allowsFile: allowsFile)
+        NexaRemoteImage(url: url, scale: scale, placeholder: placeholder, showLoadingIndicator: showLoadingIndicator, allowsFile: allowsFile)
             .frame(maxHeight: maxHeight)
             .accessibilityLabel(description)
             .accessibilityHidden(description.isEmpty)
@@ -134,5 +130,44 @@ pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: 
 
 "#,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::{Expr, ImageScale, ImageSource};
+
+    use super::{render_image, render_primitives};
+
+    #[test]
+    fn placeholder_primitive_is_shared_by_remote_loading_and_failure_states() {
+        let mut output = SourceWriter::new();
+        render_primitives(false, true, &mut output);
+        let output = output.finish();
+
+        assert!(output.contains("struct NexaImagePlaceholderPrimitive: View"));
+        assert!(output.contains("struct NexaRemoteImagePrimitive: View"));
+    }
+
+    #[test]
+    fn remote_images_forward_the_explicit_loading_indicator_option() {
+        let source =
+            ImageSource::RemoteUrl(Expr::String("https://example.test/image.png".to_owned()));
+        let mut output = SourceWriter::new();
+
+        render_image(
+            &source,
+            "",
+            ImageScale::Fit,
+            None,
+            true,
+            Some(80.0),
+            None,
+            0,
+            &mut output,
+        );
+
+        assert!(output.finish().contains("showLoadingIndicator: true"));
     }
 }

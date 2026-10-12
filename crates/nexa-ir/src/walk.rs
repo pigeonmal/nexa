@@ -1914,6 +1914,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             description,
             scale,
             placeholder,
+            show_loading_indicator,
             max_height,
             shared_element,
         } => Some(Node::Image {
@@ -1929,6 +1930,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             description,
             scale,
             placeholder,
+            show_loading_indicator,
             max_height,
             shared_element: shared_element.map(|id| folder.fold_expr(id)),
         }),

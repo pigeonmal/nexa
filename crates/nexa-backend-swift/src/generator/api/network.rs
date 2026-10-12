@@ -567,6 +567,7 @@ struct NexaRemoteImage: View {
     let url: String
     let scale: NexaImageScale
     let placeholder: String?
+    let showLoadingIndicator: Bool
     let allowsFile: Bool
     @State private var image: Image?
     @State private var failed = false
@@ -577,12 +578,18 @@ struct NexaRemoteImage: View {
                 image.resizable().aspectRatio(contentMode: scale == .fit ? .fit : .fill)
             } else if failed {
                 if let placeholder {
-                    Image(placeholder).resizable().aspectRatio(contentMode: scale == .fit ? .fit : .fill)
+                    NexaImagePlaceholderPrimitive(name: placeholder, scale: scale)
                 } else {
-                    Image(systemName: "photo")
+                    EmptyView()
                 }
-            } else {
+            } else if let placeholder {
+                NexaImagePlaceholderPrimitive(name: placeholder, scale: scale)
+            } else if showLoadingIndicator {
                 ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 20, height: 20)
+            } else {
+                EmptyView()
             }
         }
         .task(id: url) {

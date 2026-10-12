@@ -143,6 +143,35 @@ app SupportCenter {
 
 The compiler schema is the source of truth. The [syntax audit](syntax-audit.md) enumerates every current component and its accepted argument names, required values, child blocks, and event modifiers. Read it alongside the [language guide](language-guide.md); do not infer `.nx` syntax from SwiftUI or Compose APIs.
 
+### Image
+
+`Image` displays one asset, HTTPS URL, or local file. URL and file images render
+blank while loading and after a failed request by default on both platforms.
+Pass `showLoadingIndicator: true` to opt into a small native loading indicator.
+An explicit URL `placeholder` is shown while loading and after failure; it takes
+precedence over the loading indicator.
+
+| Parameter | Type | Required/default | Behavior |
+|---|---|---|---|
+| `asset` | `String` | Exactly one of `asset`, `url`, or `file` | Android drawable and iOS asset catalog name. |
+| `url` | `String` or `Signal<String>` | Exactly one of `asset`, `url`, or `file` | Absolute HTTPS image URL. |
+| `file` | `String` or `Signal<String>` | Exactly one of `asset`, `url`, or `file` | Local `file://` URL. |
+| `description` | `String` | Required | Accessible image description. |
+| `scale` | `Fit` or `Fill` | `Fit` | Preserve the full image or crop it to fill. |
+| `placeholder` | `String` | Omitted | URL-only drawable/asset name shown during loading and on failure. |
+| `showLoadingIndicator` | `Bool` | `false` | URL/file-only; shows a small native indicator while loading when no placeholder is supplied. |
+| `maxHeight` | `Float64` | Omitted | Optional maximum rendered height; must be greater than 0 and at most 4096. |
+| `.sharedElement(id:)` | `String` | Omitted | Joins the image to a matching shared-element transition. |
+
+```nx
+Image(
+    url: "https://cdn.example.com/products/summer-jacket.png",
+    description: "Navy summer jacket",
+    placeholder: "product_image",
+    maxHeight: 260
+)
+```
+
 ### Text
 
 `Text` accepts optional `fontStyle` (`TextFontStyle`) for scalable native typography; omit it to use the platform default. Supported values are `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`, `Footnote`, `Caption`, and `Caption2`. Swift output uses the matching SwiftUI text style, so Dynamic Type scales it with the user's accessibility setting. Android app output selects the nearest Material 3 typography role, which follows the system font scale. Android widgets use matching scalable `sp` sizes. An explicit `fontSize` overrides the role's default size.

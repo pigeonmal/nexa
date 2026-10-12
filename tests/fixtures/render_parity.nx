@@ -124,6 +124,8 @@ app RenderParity {
                             Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, maxHeight: 64)
                                 .sharedElement(id: "parity-image")
                             Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 64)
+                            Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
+                            Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 64)
                             Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
                             Icon(system: "star", size: 24, tint: "#E11D48", description: "Favorite")
                             Icon(sfsymbol: "star.fill", size: 24, tint: "#E11D48", description: "Native iOS symbol")
@@ -470,6 +472,8 @@ app RenderParity {
             Section(title: "Image and icon parameters", comment: "Asset, URL, file, and system symbol sources") {
                 Image(asset: "parity_sample", description: "Asset image", scale: Fit, maxHeight: 64)
                 Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 64)
+                Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
+                Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 64)
                 Image(file: "/tmp/nexa-render-parity-missing-image.png", description: "Local image fallback", scale: Fit, maxHeight: 64)
                 Icon(system: "star", size: 24, tint: "#E11D48", description: "Shared system icon")
                 Icon(sfsymbol: "star.fill", size: 24, tint: "#E11D48", description: "Native iOS symbol")

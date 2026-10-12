@@ -676,6 +676,8 @@ app ComponentParity {
                 Image(asset: "parity_sample", description: "Parity sample", scale: Fit, maxHeight: 120)
                 Image(asset: "parity_sample", description: "Parity sample cropped", scale: Fill, maxHeight: 80)
                 Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 80)
+                Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 80)
+                Image(url: "https://127.0.0.1:1/image.png", description: "Opt-in remote loading indicator", showLoadingIndicator: true, maxHeight: 80)
                 Image(file: "/tmp/nexa-parity-missing-image.png", description: "Local file fallback", scale: Fit, maxHeight: 80)
             }
         }

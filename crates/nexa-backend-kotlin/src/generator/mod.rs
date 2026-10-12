@@ -3292,6 +3292,7 @@ mod tests {
             description: "Hero".to_owned(),
             scale: ImageScale::Fit,
             placeholder: None,
+            show_loading_indicator: false,
             max_height: None,
             shared_element: Some(Expr::String("hero-image".to_owned())),
         };

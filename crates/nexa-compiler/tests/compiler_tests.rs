@@ -2399,6 +2399,61 @@ fn image_max_height_lowers_to_a_bounded_native_dimension() {
 }
 
 #[test]
+fn image_loading_indicator_is_opt_in_and_remote_or_file_only() {
+    let default_module = compile(
+        r#"
+        app DefaultImageLoading {
+            body {
+                Image(url: "https://example.test/image.png", description: "Remote image")
+            }
+        }
+        "#,
+    )
+    .expect("remote images should default to no loading indicator");
+    assert!(matches!(
+        default_module.body.as_slice(),
+        [Node::Image {
+            show_loading_indicator: false,
+            ..
+        }]
+    ));
+
+    let enabled_module = compile(
+        r#"
+        app ExplicitImageLoading {
+            body {
+                Image(file: "file:///tmp/image.png", description: "Local image", showLoadingIndicator: true)
+            }
+        }
+        "#,
+    )
+    .expect("local files can opt into the loading indicator");
+    assert!(matches!(
+        enabled_module.body.as_slice(),
+        [Node::Image {
+            show_loading_indicator: true,
+            ..
+        }]
+    ));
+
+    let asset_error = compile(
+        r#"
+        app InvalidAssetLoading {
+            body {
+                Image(asset: "logo", description: "Logo", showLoadingIndicator: true)
+            }
+        }
+        "#,
+    )
+    .expect_err("local assets do not load asynchronously");
+    assert!(
+        asset_error
+            .to_string()
+            .contains("only be used with a URL or file")
+    );
+}
+
+#[test]
 fn slider_lowers_a_mutable_float64_binding_and_static_range() {
     let module = compile(
         r#"

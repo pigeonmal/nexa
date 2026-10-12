@@ -1354,6 +1354,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let description = take_required_arg(&mut args, &inv.name, "description", span)?;
             let scale = args.remove("scale");
             let placeholder = args.remove("placeholder");
+            let show_loading_indicator = optional_bool(
+                args.remove("showLoadingIndicator"),
+                false,
+                "Image showLoadingIndicator",
+            )?;
             let max_height = args
                 .remove("maxHeight")
                 .map(|value| {
@@ -1410,6 +1415,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     &cx.exprs(false),
                 )?),
             };
+            if show_loading_indicator && matches!(&source, ImageSource::Asset(_)) {
+                return Err(CompileError::new(
+                    span,
+                    "Image `showLoadingIndicator` can only be used with a URL or file",
+                ));
+            }
             let description = require_string_literal(&description, "Image description")?;
             let scale = match scale {
                 Some(ast::Expr::Name(name, _)) if name == "Fit" => ImageScale::Fit,
@@ -1446,6 +1457,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 description,
                 scale,
                 placeholder,
+                show_loading_indicator,
                 max_height,
                 shared_element,
             })

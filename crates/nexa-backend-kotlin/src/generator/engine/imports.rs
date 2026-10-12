@@ -348,6 +348,7 @@ mod tests {
         assert!(!imports.contains("import coil3.compose.AsyncImage\n"));
         assert!(imports.contains("import coil3.network.NetworkFetcher\n"));
         assert!(imports.contains("import org.chromium.net.CronetEngine\n"));
+        assert!(!imports.contains("androidx.compose.material.icons"));
         assert!(!imports.contains("import org.chromium.net.UploadDataProvider\n"));
         assert!(!imports.contains("import org.chromium.net.UploadDataSink\n"));
     }

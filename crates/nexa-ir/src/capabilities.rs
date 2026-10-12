@@ -144,6 +144,7 @@ mod tests {
             description: "Example image".to_owned(),
             scale: ImageScale::Fit,
             placeholder: None,
+            show_loading_indicator: false,
             max_height: None,
             shared_element: None,
         }]);
