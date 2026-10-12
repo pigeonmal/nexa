@@ -925,6 +925,7 @@ private fun NexaDevRenderControlNode(
                 label = label,
                 tint = tint,
                 identity = "$scope::$state",
+                fillMaxWidth = fields.optBoolean("__nexa_fill_max_width", true),
                 onSelectionChanged = { store.setState(state, it, scope) },
             )
         }
@@ -1175,28 +1176,24 @@ private fun NexaDevRenderNavigationNode(
                 null
             }
             val hasTitle = title != null
-            val leading = if (hasTitle) nexaDevSheetToolbarNodes(children, "Leading") else JSONArray()
-            val trailing = if (hasTitle) nexaDevSheetToolbarNodes(children, "Trailing") else JSONArray()
+            val leading = if (hasTitle) {
+                nexaDevActiveSheetToolbarNodes(children, "Leading", store, locals, scope)
+            } else {
+                JSONArray()
+            }
+            val trailing = if (hasTitle) {
+                nexaDevActiveSheetToolbarNodes(children, "Trailing", store, locals, scope)
+            } else {
+                JSONArray()
+            }
             val content = if (hasTitle) nexaDevWithoutSheetToolbars(children) else children
             NexaBottomSheetPrimitive(
                 isPresented = isPresented,
                 partial = partial,
                 largeOnly = fields.optBoolean("large_only", false),
                 title = title,
-                hasNavigationIcon = nexaDevHasActiveSheetToolbar(
-                    children,
-                    "Leading",
-                    store,
-                    locals,
-                    scope,
-                ),
-                hasActions = nexaDevHasActiveSheetToolbar(
-                    children,
-                    "Trailing",
-                    store,
-                    locals,
-                    scope,
-                ),
+                hasNavigationIcon = leading.length() > 0,
+                hasActions = trailing.length() > 0,
                 onDismissRequest = { store.setState(state, false, scope) },
                 navigationIcon = { RenderChildren(leading, module, store, locals, scope) },
                 actions = { RenderChildren(trailing, module, store, locals, scope) },
@@ -1363,37 +1360,47 @@ private fun nexaDevTabToolbars(nodes: JSONArray): List<Pair<String, JSONArray>> 
 }
 
 @Composable
-private fun nexaDevHasActiveSheetToolbar(
+private fun nexaDevActiveSheetToolbarNodes(
     nodes: JSONArray,
     placement: String,
     store: NexaDevStateStore,
     locals: Map<String, Any>,
     scope: String,
-): Boolean {
+): JSONArray {
+    val result = JSONArray()
     for (index in 0 until nodes.length()) {
         val node = nodes.optJSONObject(index) ?: continue
         val kind = node.keys().asSequence().firstOrNull() ?: continue
         val fields = node.optJSONObject(kind) ?: continue
         when (kind) {
             "Toolbar" -> {
-                if (fields.optString("placement") == placement &&
-                    (fields.optJSONArray("children")?.length() ?: 0) > 0
-                ) return true
+                if (fields.optString("placement") == placement) {
+                    val children = fields.optJSONArray("children") ?: JSONArray()
+                    val activeChildren = nexaDevActiveBranchNodes(children, store, locals, scope)
+                    for (childIndex in 0 until activeChildren.length()) {
+                        result.put(activeChildren.opt(childIndex))
+                    }
+                }
             }
             "Layout", "KeyboardAware" -> {
-                if (nexaDevHasActiveSheetToolbar(
+                val nested = nexaDevActiveSheetToolbarNodes(
                         fields.optJSONArray("children") ?: JSONArray(),
                         placement,
                         store,
                         locals,
                         scope,
                     )
-                ) return true
+                for (nestedIndex in 0 until nested.length()) {
+                    result.put(nested.opt(nestedIndex))
+                }
             }
             "If" -> {
                 val condition = store.evaluatePresented(fields.opt("condition"), locals, scope) as? Boolean ?: false
                 val branch = fields.optJSONArray(if (condition) "then_body" else "else_body") ?: JSONArray()
-                if (nexaDevHasActiveSheetToolbar(branch, placement, store, locals, scope)) return true
+                val nested = nexaDevActiveSheetToolbarNodes(branch, placement, store, locals, scope)
+                for (nestedIndex in 0 until nested.length()) {
+                    result.put(nested.opt(nestedIndex))
+                }
             }
             "When" -> {
                 val value = store.stringify(store.evaluatePresented(fields.opt("value"), locals, scope))
@@ -1404,11 +1411,58 @@ private fun nexaDevHasActiveSheetToolbar(
                         store.stringify(store.evaluatePresented(case.opt("value"), locals, scope)) == value
                     }
                 val branch = matching?.optJSONArray("body") ?: fields.optJSONArray("else_body") ?: JSONArray()
-                if (nexaDevHasActiveSheetToolbar(branch, placement, store, locals, scope)) return true
+                val nested = nexaDevActiveSheetToolbarNodes(branch, placement, store, locals, scope)
+                for (nestedIndex in 0 until nested.length()) {
+                    result.put(nested.opt(nestedIndex))
+                }
             }
         }
     }
-    return false
+    return result
+}
+
+@Composable
+private fun nexaDevActiveBranchNodes(
+    nodes: JSONArray,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+): JSONArray {
+    val result = JSONArray()
+    for (index in 0 until nodes.length()) {
+        val node = nodes.optJSONObject(index) ?: continue
+        val kind = node.keys().asSequence().firstOrNull() ?: continue
+        val fields = node.optJSONObject(kind) ?: continue
+        when (kind) {
+            "If" -> {
+                val condition = store.evaluatePresented(fields.opt("condition"), locals, scope) as? Boolean ?: false
+                val branch = fields.optJSONArray(if (condition) "then_body" else "else_body") ?: JSONArray()
+                val active = nexaDevActiveBranchNodes(branch, store, locals, scope)
+                for (activeIndex in 0 until active.length()) result.put(active.opt(activeIndex))
+            }
+            "When" -> {
+                val value = store.stringify(store.evaluatePresented(fields.opt("value"), locals, scope))
+                val cases = fields.optJSONArray("cases") ?: JSONArray()
+                val matching = (0 until cases.length())
+                    .mapNotNull(cases::optJSONObject)
+                    .firstOrNull { case ->
+                        store.stringify(store.evaluatePresented(case.opt("value"), locals, scope)) == value
+                    }
+                val branch = matching?.optJSONArray("body") ?: fields.optJSONArray("else_body") ?: JSONArray()
+                val active = nexaDevActiveBranchNodes(branch, store, locals, scope)
+                for (activeIndex in 0 until active.length()) result.put(active.opt(activeIndex))
+            }
+            "Layout", "KeyboardAware" -> {
+                val children = fields.optJSONArray("children") ?: JSONArray()
+                val activeChildren = nexaDevActiveBranchNodes(children, store, locals, scope)
+                if (activeChildren.length() > 0) {
+                    result.put(JSONObject().put(kind, JSONObject(fields.toString()).put("children", activeChildren)))
+                }
+            }
+            else -> result.put(node)
+        }
+    }
+    return result
 }
 
 private fun nexaDevWithoutTabToolbars(nodes: JSONArray): JSONArray {
@@ -1427,71 +1481,6 @@ private fun nexaDevWithoutTabToolbars(nodes: JSONArray): JSONArray {
             result.put(JSONObject().put(kind, filteredFields))
         } else {
             result.put(node)
-        }
-    }
-    return result
-}
-
-private fun nexaDevSheetToolbarNodes(nodes: JSONArray, placement: String): JSONArray {
-    val result = JSONArray()
-    for (index in 0 until nodes.length()) {
-        val node = nodes.optJSONObject(index) ?: continue
-        val kind = node.keys().asSequence().firstOrNull() ?: continue
-        val fields = node.optJSONObject(kind) ?: continue
-        when (kind) {
-            "Toolbar" -> {
-                if (fields.optString("placement") == placement) {
-                    val children = fields.optJSONArray("children") ?: JSONArray()
-                    for (childIndex in 0 until children.length()) result.put(children.opt(childIndex))
-                }
-            }
-            "Layout", "KeyboardAware" -> {
-                val nested = nexaDevSheetToolbarNodes(
-                    fields.optJSONArray("children") ?: JSONArray(),
-                    placement,
-                )
-                for (nestedIndex in 0 until nested.length()) result.put(nested.opt(nestedIndex))
-            }
-            "If" -> {
-                val thenBody = nexaDevSheetToolbarNodes(
-                    fields.optJSONArray("then_body") ?: JSONArray(),
-                    placement,
-                )
-                val elseBody = nexaDevSheetToolbarNodes(
-                    fields.optJSONArray("else_body") ?: JSONArray(),
-                    placement,
-                )
-                if (thenBody.length() > 0 || elseBody.length() > 0) {
-                    val filtered = JSONObject(fields.toString())
-                        .put("then_body", thenBody)
-                        .put("else_body", elseBody)
-                    result.put(JSONObject().put("If", filtered))
-                }
-            }
-            "When" -> {
-                val cases = fields.optJSONArray("cases") ?: JSONArray()
-                val filteredCases = JSONArray()
-                var hasToolbar = false
-                for (caseIndex in 0 until cases.length()) {
-                    val case = cases.optJSONObject(caseIndex) ?: continue
-                    val body = nexaDevSheetToolbarNodes(
-                        case.optJSONArray("body") ?: JSONArray(),
-                        placement,
-                    )
-                    hasToolbar = hasToolbar || body.length() > 0
-                    filteredCases.put(JSONObject(case.toString()).put("body", body))
-                }
-                val elseBody = nexaDevSheetToolbarNodes(
-                    fields.optJSONArray("else_body") ?: JSONArray(),
-                    placement,
-                )
-                if (hasToolbar || elseBody.length() > 0) {
-                    val filtered = JSONObject(fields.toString())
-                        .put("cases", filteredCases)
-                        .put("else_body", elseBody)
-                    result.put(JSONObject().put("When", filtered))
-                }
-            }
         }
     }
     return result
@@ -2414,12 +2403,13 @@ private fun RenderTabToolbarItems(
         for (index in 0 until children.length()) {
             val node = children.optJSONObject(index) ?: continue
             val kind = node.keys().asSequence().firstOrNull() ?: continue
+            val fields = node.optJSONObject(kind) ?: continue
             if (kind != "NavigationLink") {
-                RenderChildren(JSONArray().put(node), module, store, locals, scope)
+                val toolbarNode = nexaDevCompactToolbarPickers(node)
+                RenderChildren(JSONArray().put(toolbarNode), module, store, locals, scope)
                 continue
             }
 
-            val fields = node.optJSONObject(kind) ?: continue
             val screens = module.optJSONArray("screens") ?: JSONArray()
             val destination = screens.optJSONObject(fields.optInt("destination", -1))
             val linkChildren = fields.optJSONArray("children") ?: JSONArray()
@@ -2444,6 +2434,29 @@ private fun RenderTabToolbarItems(
             }
         }
     }
+}
+
+private fun nexaDevCompactToolbarPickers(node: JSONObject): JSONObject {
+    val result = JSONObject()
+    val keys = node.keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        val value = node.opt(key)
+        val compactValue = when {
+            key == "Picker" && value is JSONObject ->
+                JSONObject(value.toString()).put("__nexa_fill_max_width", false)
+            value is JSONObject -> nexaDevCompactToolbarPickers(value)
+            value is JSONArray -> JSONArray().apply {
+                for (index in 0 until value.length()) {
+                    val item = value.opt(index)
+                    put(if (item is JSONObject) nexaDevCompactToolbarPickers(item) else item)
+                }
+            }
+            else -> value
+        }
+        result.put(key, compactValue)
+    }
+    return result
 }
 
 @Composable
