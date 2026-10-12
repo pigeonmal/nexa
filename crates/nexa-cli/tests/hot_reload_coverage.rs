@@ -2646,11 +2646,16 @@ fn development_button_shape_defaults_match_on_both_platforms() {
     assert!(swift.contains("shape: shape,"));
     assert!(swift.contains("else { shape = .capsule }"));
     assert!(kotlin.contains("shape = buttonShape,"));
+    assert!(kotlin.contains("val style = fields.optString(\"style\").takeIf { it.isNotEmpty() }"));
     let kotlin_primitives =
         fs::read_to_string(root.join("../../crates/nexa-backend-kotlin/src/generator/mod.rs"))
             .expect("read shared Kotlin button primitive");
     assert!(kotlin_primitives.contains(
         "val resolvedShape = shape ?: androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)"
+    ));
+    assert!(kotlin_primitives.contains("style: String?,"));
+    assert!(kotlin_primitives.contains(
+        "val resolvedStyle = style ?: if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else \"BorderedProminent\""
     ));
 }
 

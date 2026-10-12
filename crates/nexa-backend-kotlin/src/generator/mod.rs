@@ -381,7 +381,7 @@ internal fun NexaRefreshControlPrimitive(
 internal fun NexaButtonPrimitive(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector?,
-    style: String,
+    style: String?,
     size: String?,
     shape: androidx.compose.ui.graphics.Shape?,
     tint: androidx.compose.ui.graphics.Color?,
@@ -392,8 +392,8 @@ internal fun NexaButtonPrimitive(
     leadingContent: Boolean,
     onClick: () -> Unit,
 ) {
-    // Android bottom-sheet toolbar actions use an unfilled icon treatment.
-    val resolvedStyle = if (LocalNexaBottomSheetToolbarButtons.current) "Plain" else style
+    // Omitted styles use toolbar defaults; an app-requested style always wins.
+    val resolvedStyle = style ?: if (LocalNexaBottomSheetToolbarButtons.current) "Plain" else "BorderedProminent"
     val minHeight = if (size == "Large") androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_MIN_HEIGHT__.toFloat()) else androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_TAP_TARGET__.toFloat())
     val modifier = when {
         fullWidth -> androidx.compose.ui.Modifier.fillMaxWidth().defaultMinSize(minWidth = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_WIDTH__.toFloat()), minHeight = minHeight)
@@ -2953,8 +2953,9 @@ mod tests {
         assert!(primitives.contains("height(androidx.compose.ui.unit.Dp(12f))"));
         assert!(primitives.contains("NexaNavigationTitleTextStyle()"));
         assert!(primitives.contains("LocalNexaBottomSheetToolbarButtons provides true"));
+        assert!(primitives.contains("style: String?,"));
         assert!(primitives.contains(
-            "val resolvedStyle = if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else style"
+            "val resolvedStyle = style ?: if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else \"BorderedProminent\""
         ));
         assert!(primitives.contains("LocalNexaPickerPressFeedback provides false"));
         assert!(

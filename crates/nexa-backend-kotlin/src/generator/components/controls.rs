@@ -339,10 +339,16 @@ pub(crate) fn render_button(
     out: &mut SourceWriter,
 ) {
     let style = match style {
-        Some(nexa_ir::ButtonStyle::Bordered) => "Bordered",
-        Some(nexa_ir::ButtonStyle::Borderless) => "Borderless",
-        Some(nexa_ir::ButtonStyle::Plain) => "Plain",
-        Some(nexa_ir::ButtonStyle::BorderedProminent) | None => "BorderedProminent",
+        Some(style) => {
+            let style = match style {
+                nexa_ir::ButtonStyle::Bordered => "Bordered",
+                nexa_ir::ButtonStyle::Borderless => "Borderless",
+                nexa_ir::ButtonStyle::Plain => "Plain",
+                nexa_ir::ButtonStyle::BorderedProminent => "BorderedProminent",
+            };
+            format!("\"{style}\"")
+        }
+        None => "null".to_owned(),
     };
     let size = match size {
         Some(nexa_ir::ButtonSize::Small) => "\"Small\"",
@@ -383,7 +389,7 @@ pub(crate) fn render_button(
     out.line_at(depth, format_args!("NexaButtonPrimitive("));
     out.line_at(depth + 1, format_args!("label = {},", expression(label)));
     out.line_at(depth + 1, format_args!("icon = {icon},"));
-    out.line_at(depth + 1, format_args!("style = \"{style}\","));
+    out.line_at(depth + 1, format_args!("style = {style},"));
     out.line_at(depth + 1, format_args!("size = {size},"));
     out.line_at(depth + 1, format_args!("shape = {shape},"));
     out.line_at(depth + 1, format_args!("tint = {tint},"));
@@ -1479,7 +1485,7 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("style = \"BorderedProminent\""));
+        assert!(output.contains("style = null"));
         assert!(output.contains("size = null"));
         assert!(output.contains("shape = null"));
     }

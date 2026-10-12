@@ -676,6 +676,14 @@ app ComponentParity {
                 sheetPresented = true
             }
             BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet") {
+                Toolbar(placement: Trailing) {
+                    Button("Dismiss") {
+                        sheetPresented = false
+                    }
+                    Button("Prominent", style: BorderedProminent, tint: "#E11D48") {
+                        sheetPresented = false
+                    }
+                }
                 Column(spacing: 12, padding: 24) {
                     Text("Sheet content")
                     Button("Dismiss") {

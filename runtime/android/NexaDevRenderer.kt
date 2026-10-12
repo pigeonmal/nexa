@@ -796,7 +796,7 @@ private fun NexaDevRenderControlNode(
         "Button" -> {
             val loading = store.evaluatePresented(fields.opt("loading"), locals, scope) as? Boolean ?: false
             val disabled = store.evaluatePresented(fields.opt("disabled"), locals, scope) as? Boolean ?: false
-            val style = fields.optString("style").ifEmpty { "BorderedProminent" }
+            val style = fields.optString("style").takeIf { it.isNotEmpty() }
             val tintValue = fields.optJSONObject("tint") ?: JSONObject()
             val dynamicTint = tintValue.opt("Dynamic")
             val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
