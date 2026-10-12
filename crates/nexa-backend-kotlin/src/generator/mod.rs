@@ -392,6 +392,8 @@ internal fun NexaButtonPrimitive(
     leadingContent: Boolean,
     onClick: () -> Unit,
 ) {
+    // Android bottom-sheet toolbar actions use an unfilled icon treatment.
+    val resolvedStyle = if (LocalNexaBottomSheetToolbarButtons.current) "Plain" else style
     val minHeight = if (size == "Large") androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_MIN_HEIGHT__.toFloat()) else androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_TAP_TARGET__.toFloat())
     val modifier = when {
         fullWidth -> androidx.compose.ui.Modifier.fillMaxWidth().defaultMinSize(minWidth = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_WIDTH__.toFloat()), minHeight = minHeight)
@@ -400,7 +402,7 @@ internal fun NexaButtonPrimitive(
     }
     val resolvedShape = shape ?: androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
     val contentPadding = when {
-        iconOnlyCircle || style == "Plain" || style == "Borderless" -> androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
+        iconOnlyCircle || resolvedStyle == "Plain" || resolvedStyle == "Borderless" -> androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
         size == "Small" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_VERTICAL_PADDING__.toFloat()))
         size == "Large" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_VERTICAL_PADDING__.toFloat()))
         else -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(8f), vertical = androidx.compose.ui.unit.Dp(8f))
@@ -417,7 +419,7 @@ internal fun NexaButtonPrimitive(
             }
             NexaTextPrimitive(
                 text = label,
-                color = if (style == "Plain" || style == "Borderless") androidx.compose.material3.MaterialTheme.colorScheme.onSurface else androidx.compose.ui.graphics.Color.Unspecified,
+                color = if (resolvedStyle == "Plain" || resolvedStyle == "Borderless") androidx.compose.material3.MaterialTheme.colorScheme.onSurface else androidx.compose.ui.graphics.Color.Unspecified,
                 fontSize = __NEXA_DEFAULT_BODY_FONT_SIZE__.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
                 maxLines = 1,
@@ -441,7 +443,7 @@ internal fun NexaButtonPrimitive(
         }
     } else buttonContents
     val enabled = !loading && !disabled
-    when (style) {
+    when (resolvedStyle) {
         "Plain", "Borderless" -> androidx.compose.material3.TextButton(
             modifier = modifier,
             onClick = onClick,
@@ -620,6 +622,7 @@ internal fun NexaBottomSheetPrimitive(
                                     contentAlignment = androidx.compose.ui.Alignment.Center,
                                 ) {
                                     androidx.compose.runtime.CompositionLocalProvider(
+                                        LocalNexaBottomSheetToolbarButtons provides true,
                                         LocalNexaPickerPressFeedback provides false,
                                         androidx.compose.foundation.LocalIndication provides NexaNoIndication,
                                         androidx.compose.material3.LocalRippleConfiguration provides null,
@@ -653,6 +656,7 @@ internal fun NexaBottomSheetPrimitive(
                                     contentAlignment = androidx.compose.ui.Alignment.Center,
                                 ) {
                                     androidx.compose.runtime.CompositionLocalProvider(
+                                        LocalNexaBottomSheetToolbarButtons provides true,
                                         LocalNexaPickerPressFeedback provides false,
                                         androidx.compose.foundation.LocalIndication provides NexaNoIndication,
                                         androidx.compose.material3.LocalRippleConfiguration provides null,
@@ -1387,6 +1391,9 @@ internal fun NexaFormDividerPrimitive() {
 
 // nexa-codegen: LocalNexaPickerPressFeedback
 internal val LocalNexaPickerPressFeedback = androidx.compose.runtime.compositionLocalOf { true }
+
+// nexa-codegen: LocalNexaBottomSheetToolbarButtons
+internal val LocalNexaBottomSheetToolbarButtons = androidx.compose.runtime.compositionLocalOf { false }
 
 // nexa-codegen: NexaNoIndication
 private object NexaNoIndication : androidx.compose.foundation.IndicationNodeFactory {
@@ -2945,6 +2952,10 @@ mod tests {
         assert!(primitives.contains("dragHandle = {"));
         assert!(primitives.contains("height(androidx.compose.ui.unit.Dp(12f))"));
         assert!(primitives.contains("NexaNavigationTitleTextStyle()"));
+        assert!(primitives.contains("LocalNexaBottomSheetToolbarButtons provides true"));
+        assert!(primitives.contains(
+            "val resolvedStyle = if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else style"
+        ));
         assert!(primitives.contains("LocalNexaPickerPressFeedback provides false"));
         assert!(
             primitives

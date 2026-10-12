@@ -157,6 +157,14 @@ app ComponentParity {
                     Text("Twenty with explicit padding")
                     Text("Custom background and radius")
                 }
+                Column(spacing: 4, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                    Text("Outer spacing: 4 dp")
+                    Column(spacing: 18) {
+                        Text("Inner spacing: 18 dp")
+                        Text("Must keep its explicit value")
+                    }
+                    Text("Outer spacing resumes")
+                }
             }
         }
     }
@@ -245,6 +253,11 @@ app ComponentParity {
                 Text("Rounded design", fontDesign: Rounded)
                 Text("Monospaced design", fontDesign: Monospaced)
                 Text("Two-line text checks line height and wrapping across both platforms.", fontSize: 16, lineHeight: 22)
+                Column(spacing: 0, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                    Text("Default text padding")
+                    Text("Explicit zero padding", padding: 0)
+                    Text("Explicit 12 dp padding", padding: 12)
+                }
             }
         }
     }

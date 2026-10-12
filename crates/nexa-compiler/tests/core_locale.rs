@@ -84,9 +84,9 @@ fn text_literals_are_translation_keys_and_keep_translator_comments() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(swift_source.contains("Text(\"Save\", comment: \"Button to persist user profile\")"));
-    assert!(swift_source.contains(
-        "Text(\"Hello, \\(nexa_name)!\", comment: \"Greeting shown at the top of the screen\")"
-    ));
+    assert!(swift_source.contains("Text(String(format: NSLocalizedString("));
+    assert!(swift_source.contains("comment: \"Greeting shown at the top of the screen\""));
+    assert!(swift_source.contains("arguments: [String(describing: nexa_name) as CVarArg]))"));
     assert!(
         swift_source.contains("Text(\"Your name\", comment: \"Prompt for the person's name\")")
     );

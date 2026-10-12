@@ -190,24 +190,25 @@ fn status_case(permission: Permission) -> &'static str {
         }
         Permission::Contacts => {
             r#"        case .Contacts:
-            switch CNContactStore.authorizationStatus(for: .contacts) {
-            case .authorized: return .granted
-            case .denied: return .denied
-            case .restricted: return .restricted
-            case .notDetermined: return .notDetermined
-            @unknown default: return .denied
-            }
+            let status = CNContactStore.authorizationStatus(for: .contacts)
+            if status == .authorized { return .granted }
+            if #available(iOS 18.0, *), status == .limited { return .granted }
+            if status == .denied { return .denied }
+            if status == .restricted { return .restricted }
+            if status == .notDetermined { return .notDetermined }
+            return .denied
 "#
         }
         Permission::Calendar => {
             r#"        case .Calendar:
-            switch EKEventStore.authorizationStatus(for: .event) {
-            case .authorized: return .granted
-            case .denied: return .denied
-            case .restricted: return .restricted
-            case .notDetermined: return .notDetermined
-            @unknown default: return .denied
-            }
+            let status = EKEventStore.authorizationStatus(for: .event)
+            if #available(iOS 17.0, *), status == .fullAccess { return .granted }
+            if #available(iOS 17.0, *), status == .writeOnly { return .granted }
+            if status == .authorized { return .granted }
+            if status == .denied { return .denied }
+            if status == .restricted { return .restricted }
+            if status == .notDetermined { return .notDetermined }
+            return .denied
 "#
         }
         Permission::Bluetooth => {

@@ -3,10 +3,14 @@ import UIKit
 import Network
 
 private func nexaCurrentLanguageCode() -> String {
-    if #available(iOS 16.0, *) {
-        return Locale.current.language.languageCode?.identifier ?? "und"
+    guard let language = Locale.current.identifier
+        .split(whereSeparator: { $0 == "-" || $0 == "_" })
+        .first,
+        language.count > 1
+    else {
+        return "und"
     }
-    return Locale.current.languageCode ?? "und"
+    return language.lowercased()
 }
 
 final class NexaDevNetworkPathStatus: @unchecked Sendable {

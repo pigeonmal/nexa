@@ -1140,10 +1140,10 @@ fn binary_operator(operator: BinaryOp) -> &'static str {
 
 pub(crate) fn text_expression(expr: &Expr) -> String {
     match expr {
-        Expr::LocalizedText { value, .. } => match value.as_ref() {
-            Expr::String(_) | Expr::Interpolation(_) => expression(value),
-            _ => expression(expr),
-        },
+        Expr::LocalizedText { value, .. } if matches!(value.as_ref(), Expr::String(_)) => {
+            expression(value)
+        }
+        Expr::LocalizedText { .. } => expression(expr),
         Expr::State(_, Type::String)
         | Expr::Member {
             field_type: Type::String,
@@ -1173,6 +1173,18 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
 }
 
 pub(crate) fn localized_text_view(expr: &Expr, comment: Option<&str>) -> String {
+    if let Expr::LocalizedText {
+        key,
+        value,
+        comment: source_comment,
+    } = expr
+        && matches!(value.as_ref(), Expr::Interpolation(_))
+    {
+        let localized =
+            localized_text_expression(key, value, comment.or(source_comment.as_deref()), &[]);
+        return format!("Text({localized})");
+    }
+
     let value = text_expression(expr);
     let source_comment = match expr {
         Expr::LocalizedText {
@@ -1192,10 +1204,10 @@ pub(crate) fn localized_text_view(expr: &Expr, comment: Option<&str>) -> String 
 
 #[cfg(test)]
 mod tests {
-    use super::{PluginCodec, expression, plugin_row_mapper, text_expression};
+    use super::{PluginCodec, expression, localized_text_view, plugin_row_mapper, text_expression};
     use nexa_ir::{
-        ArithmeticOp, CollectionTransform, CollectionUtilityKind, Expr, MemberKind, NumericType,
-        TimeMethod, Type,
+        ArithmeticOp, CollectionTransform, CollectionUtilityKind, Expr, InterpolatedPart,
+        MemberKind, NumericType, TimeMethod, Type,
     };
 
     #[test]
@@ -1229,6 +1241,26 @@ mod tests {
             text_expression(&conditional),
             "(true ? \"ready\" : \"waiting\")"
         );
+    }
+
+    #[test]
+    fn localized_boolean_interpolation_uses_a_formatted_string_value() {
+        let expression = Expr::LocalizedText {
+            key: "Drag updated: {updated}".to_owned(),
+            value: Box::new(Expr::Interpolation(vec![
+                InterpolatedPart::Literal("Drag updated: ".to_owned()),
+                InterpolatedPart::Value(Box::new(Expr::State(
+                    "dragUpdated".to_owned(),
+                    Type::Bool,
+                ))),
+            ])),
+            comment: None,
+        };
+
+        let generated = localized_text_view(&expression, None);
+        assert!(generated.contains("String(format: NSLocalizedString("));
+        assert!(generated.contains("String(describing: nexa_dragUpdated) as CVarArg"));
+        assert!(!generated.contains("\\(nexa_dragUpdated)"));
     }
 
     #[test]

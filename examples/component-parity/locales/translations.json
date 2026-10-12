@@ -194,6 +194,10 @@
       "source": "DatePicker",
       "translations": {}
     },
+    "Default text padding": {
+      "source": "Default text padding",
+      "translations": {}
+    },
     "Delete": {
       "source": "Delete",
       "translations": {}
@@ -300,6 +304,14 @@
       "source": "Enter a task",
       "translations": {}
     },
+    "Explicit 12 dp padding": {
+      "source": "Explicit 12 dp padding",
+      "translations": {}
+    },
+    "Explicit zero padding": {
+      "source": "Explicit zero padding",
+      "translations": {}
+    },
     "External link": {
       "source": "External link",
       "translations": {}
@@ -374,6 +386,10 @@
     },
     "Increment context action": {
       "source": "Increment context action",
+      "translations": {}
+    },
+    "Inner spacing: 18 dp": {
+      "source": "Inner spacing: 18 dp",
       "translations": {}
     },
     "Italic text": {
@@ -484,6 +500,10 @@
       "source": "Monospaced design",
       "translations": {}
     },
+    "Must keep its explicit value": {
+      "source": "Must keep its explicit value",
+      "translations": {}
+    },
     "Navigate away and back to compare lifecycle delivery.": {
       "source": "Navigate away and back to compare lifecycle delivery.",
       "translations": {}
@@ -550,6 +570,14 @@
     },
     "Open partial sheet": {
       "source": "Open partial sheet",
+      "translations": {}
+    },
+    "Outer spacing resumes": {
+      "source": "Outer spacing resumes",
+      "translations": {}
+    },
+    "Outer spacing: 4 dp": {
+      "source": "Outer spacing: 4 dp",
       "translations": {}
     },
     "Page pager": {
