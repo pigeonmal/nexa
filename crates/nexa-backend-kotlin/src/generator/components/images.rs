@@ -111,9 +111,9 @@ internal fun NexaRemoteImagePrimitive(
     modifier: androidx.compose.ui.Modifier,
 ) {
     val safeModel = if (allowsFile) {
-        url.takeIf { it.startsWith("file://") }
+        url.takeIf { it.startsWith("file://", ignoreCase = true) }
     } else {
-        url.takeIf { it.startsWith("https://") }
+        url.takeIf { it.startsWith("https://", ignoreCase = true) }
     }
     val placeholderPainter = if (placeholder == null) null else nexaDrawablePainter(placeholder)
     val imageModifier = modifier.then(
@@ -159,8 +159,8 @@ mod tests {
         let mut output = SourceWriter::new();
         render_primitives(false, true, &mut output);
 
-        assert!(output.contains("url.takeIf { it.startsWith(\"https://\") }"));
-        assert!(output.contains("url.takeIf { it.startsWith(\"file://\") }"));
+        assert!(output.contains("url.takeIf { it.startsWith(\"https://\", ignoreCase = true) }"));
+        assert!(output.contains("url.takeIf { it.startsWith(\"file://\", ignoreCase = true) }"));
         assert!(output.contains("imageLoader = nexaImageLoader()"));
         assert!(output.contains("placeholder = placeholderPainter"));
         assert!(output.contains("error = placeholderPainter"));
