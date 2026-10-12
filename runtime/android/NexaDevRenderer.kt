@@ -215,16 +215,11 @@ private fun nexaDevFormRowButton(node: JSONObject): JSONObject =
         optJSONObject("Button")?.put("__nexa_leading_content", true)
     }
 
-private fun JSONObject.nexaDevTransition(): String = when (val value = opt("transition")) {
-    null, JSONObject.NULL -> ""
-    else -> value.toString()
-}
+private fun JSONObject.nexaDevTransition(): String =
+    opt("transition")?.takeUnless { it === JSONObject.NULL }?.toString().orEmpty()
 
-private fun JSONObject.nexaDevOptionalString(name: String): String? = when (val value = opt(name)) {
-    null, JSONObject.NULL -> null
-    is String -> value
-    else -> value.toString()
-}
+private fun JSONObject.nexaDevOptionalString(name: String): String? =
+    opt(name)?.takeUnless { it === JSONObject.NULL }?.toString()
 
 @Composable
 internal fun NexaDevStateStore.evaluatePresented(
@@ -759,7 +754,7 @@ private fun NexaDevRenderTextNode(
             val tintValue = fields.optJSONObject("tint") ?: JSONObject()
             val dynamicTint = tintValue.opt("Dynamic")
             val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
-                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope) ?: ""))
+                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope)))
             } else {
                 nexaDevColor(tintValue, isSystemInDarkTheme())
             }
@@ -805,7 +800,7 @@ private fun NexaDevRenderControlNode(
             val tintValue = fields.optJSONObject("tint") ?: JSONObject()
             val dynamicTint = tintValue.opt("Dynamic")
             val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
-                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope) ?: ""))
+                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope)))
             } else {
                 nexaDevColor(tintValue, isSystemInDarkTheme())
             }
@@ -913,7 +908,7 @@ private fun NexaDevRenderControlNode(
             val tintValue = fields.optJSONObject("tint") ?: JSONObject()
             val dynamicTint = tintValue.opt("Dynamic")
             val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
-                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope) ?: ""))
+                nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope)))
             } else {
                 nexaDevColor(tintValue, isSystemInDarkTheme())
             }
@@ -966,7 +961,7 @@ private fun NexaDevRenderListNode(
             val placeholder = fields.nexaDevOptionalString("placeholder")?.takeIf(String::isNotEmpty)
             val sharedElementExpression = fields.opt("shared_element")
             val renderedModifier = if (sharedElementExpression != null && sharedElementExpression != JSONObject.NULL) {
-                modifier.then(nexaSharedElementModifier(store.evaluatePresented(sharedElementExpression, locals, scope) ?: ""))
+                modifier.then(nexaSharedElementModifier(store.evaluatePresented(sharedElementExpression, locals, scope)))
             } else {
                 modifier
             }
@@ -1772,7 +1767,7 @@ private fun NexaDevRenderTextInputNode(
             keyboardOptions = KeyboardOptions(
                 keyboardType = keyboardType,
                 capitalization = capitalization,
-                autoCorrect = fields.optBoolean("autocorrect", true),
+                autoCorrectEnabled = fields.optBoolean("autocorrect", true),
                 imeAction = imeAction,
             ),
             keyboardActions = if (submitActions.length() == 0) KeyboardActions() else when (imeAction) {
@@ -2125,7 +2120,7 @@ private fun NexaDevRenderFastListNode(
                                     }
                                     if (pageSnap) {
                                         renderItem(itemIndex, axis, Modifier.fillParentMaxSize())
-                                    } else if (native && axis == "Vertical" && sourceSections == null) {
+                                    } else if (native && axis == "Vertical") {
                                         NexaNativeListRowPrimitive(position = itemPosition, count = count) {
                                             renderItem(itemIndex, axis, rowParentModifier)
                                             if (itemPosition + 1 < count) {
@@ -2170,7 +2165,7 @@ private fun NexaDevRenderAppBottomBarNode(
         val tintValue = fields.optJSONObject("tint") ?: JSONObject()
         val dynamicTint = tintValue.opt("Dynamic")
         val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
-            nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope) ?: ""))
+            nexaDevHexColor(store.stringify(store.evaluatePresented(dynamicTint, locals, scope)))
         } else {
             nexaDevColor(tintValue, isSystemInDarkTheme())
         }

@@ -175,10 +175,9 @@ internal fun NexaDevPerformanceOverlay(fps: Int, frameTimeMs: Double, modifier: 
 }
 
 @Composable
-internal fun NexaDevStatusBar(config: JSONObject?, isDarkTheme: Boolean) {
+internal fun NexaDevStatusBar(config: JSONObject?) {
     val view = LocalView.current
     val window = (view.context as? Activity)?.window
-    val initialStatusBarColor = remember(window) { window?.statusBarColor }
     val initialLightStatusBar = remember(window, view) {
         window?.let { WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars }
     }
@@ -194,19 +193,6 @@ internal fun NexaDevStatusBar(config: JSONObject?, isDarkTheme: Boolean) {
             "Light" -> controller.isAppearanceLightStatusBars = false
             "Dark" -> controller.isAppearanceLightStatusBars = true
             else -> controller.isAppearanceLightStatusBars = initialLightStatusBar ?: false
-        }
-        val color = config?.optJSONObject("background")
-        val background = color?.optJSONObject("Static")
-            ?: color?.optJSONObject("Adaptive")?.optJSONObject(if (isDarkTheme) "dark" else "light")
-        window.statusBarColor = if (background != null) {
-            android.graphics.Color.argb(
-                background.optInt("alpha", 255),
-                background.optInt("red", 0),
-                background.optInt("green", 0),
-                background.optInt("blue", 0),
-            )
-        } else {
-            initialStatusBarColor ?: android.graphics.Color.TRANSPARENT
         }
     }
 }

@@ -2416,6 +2416,8 @@ mod tests {
             "dev.nexa",
             &module,
         );
+        let kotlin_runtime = include_str!("../../../runtime/android/NexaDevRuntime.kt");
+        let kotlin_overlay = include_str!("../../../runtime/android/NexaDevOverlay.kt");
         let (kotlin_generated, _) = KotlinBackend.generate_for_dev_with_project_features(&module);
 
         for (platform, source) in [("iOS", swift.as_str()), ("Android", kotlin.as_str())] {
@@ -2479,6 +2481,14 @@ mod tests {
         assert!(!kotlin.contains("tab.optString(\"badge\")"));
         assert!(kotlin.contains("NexaPageIndicatorRow("));
         assert!(!kotlin.contains("nexaDevPageIndicator"));
+        assert!(kotlin.contains("autoCorrectEnabled = fields.optBoolean(\"autocorrect\", true)"));
+        assert!(!kotlin.contains("autoCorrect = fields.optBoolean"));
+        assert!(kotlin_generated.contains("internal fun NexaStatusBarBackgroundPrimitive("));
+        assert!(
+            kotlin_runtime
+                .contains("NexaStatusBarBackgroundPrimitive(statusBarBackground, renderApp)")
+        );
+        assert!(!kotlin_overlay.contains("statusBarColor"));
     }
 
     #[test]

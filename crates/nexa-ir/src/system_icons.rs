@@ -169,7 +169,13 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
         "CheckCircle",
         &["checkmark.circle.fill"],
     ),
-    icon("send", "paperplane", "Filled", "Send", &["paperplane"]),
+    icon(
+        "send",
+        "paperplane",
+        "AutoMirrored.Filled",
+        "Send",
+        &["paperplane"],
+    ),
     icon(
         "submit",
         "arrow.up.circle.fill",
@@ -180,7 +186,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "volume_up",
         "speaker.wave.2.fill",
-        "Filled",
+        "AutoMirrored.Filled",
         "VolumeUp",
         &["speaker.wave.2.fill"],
     ),
@@ -467,7 +473,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "list",
         "list.bullet",
-        "Filled",
+        "AutoMirrored.Filled",
         "ViewList",
         &["list.bullet"],
     ),
@@ -481,14 +487,14 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "undo",
         "arrow.uturn.backward",
-        "Filled",
+        "AutoMirrored.Filled",
         "Undo",
         &["arrow.uturn.backward"],
     ),
     icon(
         "redo",
         "arrow.uturn.forward",
-        "Filled",
+        "AutoMirrored.Filled",
         "Redo",
         &["arrow.uturn.forward"],
     ),
@@ -523,7 +529,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "open",
         "arrow.up.right.square",
-        "Filled",
+        "AutoMirrored.Filled",
         "OpenInNew",
         &["arrow.up.right.square"],
     ),
@@ -553,7 +559,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "help",
         "questionmark.circle",
-        "Outlined",
+        "AutoMirrored.Outlined",
         "HelpOutline",
         &["questionmark.circle"],
     ),
@@ -710,7 +716,13 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
         "Place",
         &["mappin.and.ellipse"],
     ),
-    icon("menu_book", "book", "Filled", "MenuBook", &["book"]),
+    icon(
+        "menu_book",
+        "book",
+        "AutoMirrored.Filled",
+        "MenuBook",
+        &["book"],
+    ),
     icon(
         "bookmarks",
         "books.vertical",
@@ -726,7 +738,13 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
         "FolderOpen",
         &["folder.open"],
     ),
-    icon("file", "doc", "Filled", "InsertDriveFile", &["doc"]),
+    icon(
+        "file",
+        "doc",
+        "AutoMirrored.Filled",
+        "InsertDriveFile",
+        &["doc"],
+    ),
     icon(
         "pdf",
         "doc.richtext",
@@ -764,14 +782,14 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "volume_down",
         "speaker.wave.1.fill",
-        "Filled",
+        "AutoMirrored.Filled",
         "VolumeDown",
         &["speaker.wave.1.fill"],
     ),
     icon(
         "mute",
         "speaker.slash",
-        "Filled",
+        "AutoMirrored.Filled",
         "VolumeMute",
         &["speaker.slash"],
     ),
@@ -829,14 +847,14 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "logout",
         "rectangle.portrait.and.arrow.right",
-        "Filled",
+        "AutoMirrored.Filled",
         "Logout",
         &["rectangle.portrait.and.arrow.right"],
     ),
     icon(
         "login",
         "rectangle.portrait.and.arrow.left",
-        "Filled",
+        "AutoMirrored.Filled",
         "Login",
         &["rectangle.portrait.and.arrow.left"],
     ),
@@ -899,7 +917,7 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "open_in_new",
         "arrow.up.right.square",
-        "Filled",
+        "AutoMirrored.Filled",
         "OpenInNew",
         &[],
     ),
@@ -907,14 +925,14 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "directions_bike",
         "bicycle",
-        "Filled",
+        "AutoMirrored.Filled",
         "DirectionsBike",
         &[],
     ),
     icon(
         "directions_walk",
         "figure.walk",
-        "Filled",
+        "AutoMirrored.Filled",
         "DirectionsWalk",
         &[],
     ),
@@ -995,14 +1013,14 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon(
         "trending_up",
         "chart.line.uptrend.xyaxis",
-        "Filled",
+        "AutoMirrored.Filled",
         "TrendingUp",
         &[],
     ),
     icon(
         "trending_down",
         "chart.line.downtrend.xyaxis",
-        "Filled",
+        "AutoMirrored.Filled",
         "TrendingDown",
         &[],
     ),
@@ -1012,7 +1030,13 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
     icon("science", "atom", "Filled", "Science", &[]),
     icon("calculate", "function", "Filled", "Calculate", &[]),
     icon("translate", "translate", "Filled", "Translate", &[]),
-    icon("accessibility", "figure.roll", "Filled", "Accessible", &[]),
+    icon(
+        "accessibility",
+        "figure.roll",
+        "AutoMirrored.Filled",
+        "Accessible",
+        &[],
+    ),
     icon(
         "baby",
         "figure.and.child.holdinghands",
@@ -1032,8 +1056,14 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
         &[],
     ),
     icon("percent", "percent", "Filled", "Percent", &[]),
-    icon("note", "note.text", "Filled", "Note", &[]),
-    icon("sticky_note", "note", "Filled", "StickyNote2", &[]),
+    icon("note", "note.text", "AutoMirrored.Filled", "Note", &[]),
+    icon(
+        "sticky_note",
+        "note",
+        "AutoMirrored.Filled",
+        "StickyNote2",
+        &[],
+    ),
     icon(
         "bookmark_add",
         "bookmark.circle",
@@ -1058,7 +1088,13 @@ pub const SHARED_ICONS: &[SharedIconDefinition] = &[
         &[],
     ),
     icon("call_end", "phone.down", "Filled", "CallEnd", &[]),
-    icon("message", "bubble.left", "Filled", "Message", &[]),
+    icon(
+        "message",
+        "bubble.left",
+        "AutoMirrored.Filled",
+        "Message",
+        &[],
+    ),
     icon(
         "notifications_off",
         "bell.slash",
@@ -1091,6 +1127,21 @@ const fn icon(
         material_name,
         aliases,
     }
+}
+
+/// Preserve a shared icon's RTL behavior when app code uses its explicit
+/// Material name instead of its portable catalog name.
+fn auto_mirrored_material_namespace<'a>(namespace: &'a str, symbol: &str) -> &'a str {
+    SHARED_ICONS
+        .iter()
+        .find(|icon| {
+            icon.material_name == symbol
+                && matches!(
+                    (namespace, icon.material_namespace),
+                    ("Filled", "AutoMirrored.Filled") | ("Outlined", "AutoMirrored.Outlined")
+                )
+        })
+        .map_or(namespace, |icon| icon.material_namespace)
 }
 
 /// Compose spelling of a shared icon, such as `AutoMirrored.Filled.ArrowBack`.
@@ -1311,7 +1362,10 @@ fn material_symbol_parts(name: &str) -> Option<(&str, String)> {
             })
         })
         .collect::<String>();
-    Some((namespace, class_name))
+    Some((
+        auto_mirrored_material_namespace(namespace, &class_name),
+        class_name,
+    ))
 }
 
 #[cfg(test)]
@@ -1414,6 +1468,57 @@ mod tests {
         assert_eq!(
             mirrored.material_import(),
             "androidx.compose.material.icons.automirrored.filled.ArrowBack"
+        );
+
+        for (name, reference, import) in [
+            (
+                "Send",
+                "Icons.AutoMirrored.Filled.Send",
+                "androidx.compose.material.icons.automirrored.filled.Send",
+            ),
+            (
+                "outlined:help_outline",
+                "Icons.AutoMirrored.Outlined.HelpOutline",
+                "androidx.compose.material.icons.automirrored.outlined.HelpOutline",
+            ),
+            (
+                "filled:volume_up",
+                "Icons.AutoMirrored.Filled.VolumeUp",
+                "androidx.compose.material.icons.automirrored.filled.VolumeUp",
+            ),
+            (
+                "ViewList",
+                "Icons.AutoMirrored.Filled.ViewList",
+                "androidx.compose.material.icons.automirrored.filled.ViewList",
+            ),
+            (
+                "Sort",
+                "Icons.AutoMirrored.Filled.Sort",
+                "androidx.compose.material.icons.automirrored.filled.Sort",
+            ),
+            (
+                "VolumeOff",
+                "Icons.AutoMirrored.Filled.VolumeOff",
+                "androidx.compose.material.icons.automirrored.filled.VolumeOff",
+            ),
+            (
+                "ArrowBack",
+                "Icons.AutoMirrored.Filled.ArrowBack",
+                "androidx.compose.material.icons.automirrored.filled.ArrowBack",
+            ),
+        ] {
+            let icon = SystemIcon::material_symbol(name).expect("valid Material icon name");
+            assert_eq!(
+                icon.material_reference(),
+                reference,
+                "wrong reference for {name}"
+            );
+            assert_eq!(icon.material_import(), import, "wrong import for {name}");
+        }
+
+        assert_eq!(
+            shared_icon("list").unwrap().material_namespace,
+            "AutoMirrored.Filled"
         );
     }
 

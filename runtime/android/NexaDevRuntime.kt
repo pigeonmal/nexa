@@ -120,24 +120,35 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
                 Text("Connecting to Nexa…")
             } else {
                 val statusBar = module.optJSONObject("status_bar")
-                NexaDevStatusBar(statusBar, isSystemInDarkTheme())
+                NexaDevStatusBar(statusBar)
                 val style = module.optJSONObject("direction")?.optString("style")
                 val direction = when (style) {
                     "Rtl" -> LayoutDirection.Rtl
                     "Ltr" -> LayoutDirection.Ltr
                     else -> LocalLayoutDirection.current
                 }
-                CompositionLocalProvider(LocalRippleConfiguration provides null) {
-                    NexaSharedTransitionContent {
-                        CompositionLocalProvider(LocalLayoutDirection provides direction) {
-                            NexaDevNodeList(
-                                module.optJSONArray("body") ?: JSONArray(),
-                                module,
-                                store,
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                val renderApp: @Composable () -> Unit = {
+                    CompositionLocalProvider(LocalRippleConfiguration provides null) {
+                        NexaSharedTransitionContent {
+                            CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                                NexaDevNodeList(
+                                    module.optJSONArray("body") ?: JSONArray(),
+                                    module,
+                                    store,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
                     }
+                }
+                val statusBarBackground = nexaDevColor(
+                    statusBar?.optJSONObject("background"),
+                    isSystemInDarkTheme(),
+                )
+                if (statusBarBackground != null) {
+                    NexaStatusBarBackgroundPrimitive(statusBarBackground, renderApp)
+                } else {
+                    renderApp()
                 }
             }
             if (store.diagnostics.isNotEmpty()) {

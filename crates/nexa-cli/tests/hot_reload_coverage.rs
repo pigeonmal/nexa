@@ -481,13 +481,11 @@ fn android_dev_runtime_treats_a_null_transition_as_no_animation() {
         .expect("read Android DevRuntime renderer");
 
     assert!(renderer.contains("private fun JSONObject.nexaDevTransition(): String"));
-    assert!(renderer.contains("null, JSONObject.NULL -> \"\""));
+    assert!(renderer.contains(
+        "opt(\"transition\")?.takeUnless { it === JSONObject.NULL }?.toString().orEmpty()"
+    ));
     assert!(renderer.contains("conditional.nexaDevTransition().isEmpty()"));
     assert!(renderer.contains("val transition = fields.nexaDevTransition()"));
-    assert!(
-        !renderer.contains("optString(\"transition\")"),
-        "nullable transition fields must never use optString, which turns JSON null into \"null\""
-    );
 }
 
 #[test]
@@ -499,7 +497,7 @@ fn android_dev_runtime_treats_null_optional_strings_as_absent() {
     assert!(
         renderer.contains("private fun JSONObject.nexaDevOptionalString(name: String): String?")
     );
-    assert!(renderer.contains("null, JSONObject.NULL -> null"));
+    assert!(renderer.contains("opt(name)?.takeUnless { it === JSONObject.NULL }?.toString()"));
     for field in [
         "NexaDevKeys.PINCH_PARAMETER",
         "\"navigation_title\"",

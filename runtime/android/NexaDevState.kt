@@ -550,7 +550,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             "PluginEnumOptionalConstructor" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val value = evaluate(fields.opt("value"), locals, scope)
-                val isNull = value == null || value === JSONObject.NULL
+                val isNull = value === JSONObject.NULL
                 mapOf(
                     "__nexaEnum" to "${fields.optString("namespace")}.${fields.optString("enum_name")}",
                     "case_name" to fields.optString(if (isNull) "null_case_name" else "case_name"),
@@ -824,7 +824,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             "Coalesce" -> {
                 val parts = payload as? JSONArray ?: JSONArray()
                 val first = evaluate(parts.opt(0), locals, scope)
-                if (first == JSONObject.NULL || first == null) evaluate(parts.opt(1), locals, scope) else first
+                if (first === JSONObject.NULL) evaluate(parts.opt(1), locals, scope) else first
             }
             "ResultOk" -> mapOf("Ok" to evaluate((payload as? JSONObject)?.opt("value"), locals, scope))
             "ResultErr" -> mapOf("Err" to evaluate((payload as? JSONObject)?.opt("error"), locals, scope))
@@ -886,7 +886,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             "PluginEnumOptionalConstructor" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val value = evaluateAsync(fields.opt("value"), locals, scope)
-                val isNull = value == null || value === JSONObject.NULL
+                val isNull = value === JSONObject.NULL
                 mapOf(
                     "__nexaEnum" to "${fields.optString("namespace")}.${fields.optString("enum_name")}",
                     "case_name" to fields.optString(if (isNull) "null_case_name" else "case_name"),
