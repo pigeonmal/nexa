@@ -586,6 +586,8 @@ struct NexaRemoteImage: View {
             }
         }
         .task(id: url) {
+            image = nil
+            failed = false
             do {
                 guard let parsedURL = URL(string: url) else {
                     throw NexaRemoteImageError.invalidURL
@@ -600,9 +602,29 @@ struct NexaRemoteImage: View {
                        fileSize > 64 * 1024 * 1024 {
                         throw NexaRemoteImageError.invalidResponse
                     }
-                    data = try await Task.detached(priority: .utility) {
-                        try Data(contentsOf: parsedURL)
-                    }.value
+                    let localReadTask = Task.detached(priority: .utility) {
+                        let fileHandle = try FileHandle(forReadingFrom: parsedURL)
+                        defer { try? fileHandle.close() }
+
+                        var data = Data()
+                        while true {
+                            try Task.checkCancellation()
+                            guard let chunk = try fileHandle.read(upToCount: 256 * 1024),
+                                  !chunk.isEmpty else {
+                                break
+                            }
+                            guard chunk.count <= 64 * 1024 * 1024 - data.count else {
+                                throw NexaRemoteImageError.invalidResponse
+                            }
+                            data.append(chunk)
+                        }
+                        return data
+                    }
+                    data = try await withTaskCancellationHandler {
+                        try await localReadTask.value
+                    } onCancel: {
+                        localReadTask.cancel()
+                    }
                 } else {
                     let (remoteData, response) = try await NexaURLSessionSupport.sharedSession.data(from: parsedURL)
                     guard let httpResponse = response as? HTTPURLResponse,
@@ -611,12 +633,17 @@ struct NexaRemoteImage: View {
                     }
                     data = remoteData
                 }
+                try Task.checkCancellation()
                 guard data.count <= 64 * 1024 * 1024,
                       let decoded = nexaDownsampleImage(data) else {
                     throw NexaRemoteImageError.invalidResponse
                 }
+                try Task.checkCancellation()
                 image = Image(uiImage: decoded)
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled else { return }
                 failed = true
             }
         }
@@ -670,5 +697,20 @@ mod tests {
         assert!(output.contains("async throws -> NexaNetworkResponse"));
         assert!(output.contains("fromFile: uploadURL"));
         assert!(output.contains("defer { try? FileManager.default.removeItem(at: uploadURL) }"));
+    }
+
+    #[test]
+    fn remote_image_loading_cancels_local_reads_and_ignores_stale_results() {
+        let mut output = SourceWriter::new();
+        render(&mut output, false, true, false, false, false, false);
+
+        assert!(output.contains(".task(id: url) {"));
+        assert!(output.contains("let localReadTask = Task.detached(priority: .utility)"));
+        assert!(output.contains("fileHandle.read(upToCount: 256 * 1024)"));
+        assert!(output.contains("withTaskCancellationHandler {"));
+        assert!(output.contains("localReadTask.cancel()"));
+        assert!(output.contains("try Task.checkCancellation()"));
+        assert!(output.contains("} catch is CancellationError {"));
+        assert!(output.contains("guard !Task.isCancelled else { return }"));
     }
 }
