@@ -394,8 +394,8 @@ internal fun NexaButtonPrimitive(
     leadingContent: Boolean,
     onClick: () -> Unit,
 ) {
-    // Omitted styles use toolbar defaults; an app-requested style always wins.
-    val resolvedStyle = style ?: if (LocalNexaBottomSheetToolbarButtons.current) "Plain" else "BorderedProminent"
+    // Bottom-sheet toolbar controls stay backgroundless, like native sheet controls.
+    val resolvedStyle = if (LocalNexaBottomSheetToolbarButtons.current) "Plain" else style ?: "BorderedProminent"
     val minHeight = if (size == "Large") androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_MIN_HEIGHT__.toFloat()) else androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_TAP_TARGET__.toFloat())
     val modifier = when {
         fullWidth -> androidx.compose.ui.Modifier.fillMaxWidth().defaultMinSize(minWidth = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_WIDTH__.toFloat()), minHeight = minHeight)
@@ -2982,7 +2982,7 @@ mod tests {
         assert_eq!(primitives.matches(toolbar_button_slot).count(), 2);
         assert!(primitives.contains("style: String?,"));
         assert!(primitives.contains(
-            "val resolvedStyle = style ?: if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else \"BorderedProminent\""
+            "val resolvedStyle = if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else style ?: \"BorderedProminent\""
         ));
         assert!(primitives.contains("LocalNexaPickerPressFeedback provides false"));
         assert!(
