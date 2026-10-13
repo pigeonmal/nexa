@@ -1830,7 +1830,10 @@ impl Parser {
         Ok(nodes)
     }
 
-    fn tab_declarations(&mut self, pager: bool) -> Result<Vec<TabDecl>, CompileError> {
+    fn tab_declarations(
+        &mut self,
+        pager: bool,
+    ) -> Result<(Vec<TabDecl>, Option<Vec<Node>>), CompileError> {
         self.expect(
             Kind::LBrace,
             if pager {
@@ -1840,12 +1843,30 @@ impl Parser {
             },
         )?;
         let mut tabs = Vec::new();
+        let mut custom_bar = None;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (name, span) = self.ident()?;
+            if name == "TabBar" && !pager {
+                if custom_bar.is_some() {
+                    return Err(CompileError::new(
+                        span,
+                        "AppBottomBar accepts only one `TabBar` block",
+                    ));
+                }
+                custom_bar = Some(self.block_nodes()?);
+                self.optional_semicolon();
+                continue;
+            }
             if name != "Tab" {
                 return Err(CompileError::new(
                     span,
-                    "pager and bottom bar child blocks accept only `Tab(...)` entries",
+                    "pager and bottom bar child blocks accept `Tab(...)` entries and an optional trailing `TabBar { ... }`",
+                ));
+            }
+            if custom_bar.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "`TabBar` must follow all AppBottomBar `Tab` entries",
                 ));
             }
             let allowed_args: &[&str] = if pager {
@@ -1951,7 +1972,7 @@ impl Parser {
                 "AppBottomBar requires at least one `Tab`"
             });
         }
-        Ok(tabs)
+        Ok((tabs, custom_bar))
     }
 
     fn split_panes(&mut self) -> Result<(Vec<Node>, Vec<Node>), CompileError> {
@@ -2221,7 +2242,14 @@ impl Parser {
                 }
             }
             ChildModel::RequiredActions => ChildBody::Actions(self.block_stmts()?),
-            ChildModel::Tabs => ChildBody::Tabs(self.tab_declarations(schema.name == "PagePager")?),
+            ChildModel::Tabs if schema.name == "AppBottomBar" => {
+                let (tabs, custom_bar) = self.tab_declarations(false)?;
+                ChildBody::AppBottomBar { tabs, custom_bar }
+            }
+            ChildModel::Tabs => {
+                let (tabs, _) = self.tab_declarations(schema.name == "PagePager")?;
+                ChildBody::Tabs(tabs)
+            }
             ChildModel::SplitPanes => {
                 let (sidebar, detail) = self.split_panes()?;
                 ChildBody::SplitPanes { sidebar, detail }

@@ -119,7 +119,11 @@ pub(crate) fn render_accessibility_with_children(
 
 fn role_name(role: AccessibilityRole) -> Option<&'static str> {
     match role {
-        AccessibilityRole::None | AccessibilityRole::Link | AccessibilityRole::Header => None,
+        AccessibilityRole::None | AccessibilityRole::Header => None,
+        // Compose's native Role enum has no Link value. Link semantics are
+        // supplied by actionable text/link primitives instead of inventing a
+        // button role for a generic container.
+        AccessibilityRole::Link => None,
         AccessibilityRole::Button => Some("Button"),
         AccessibilityRole::Image => Some("Image"),
     }

@@ -178,8 +178,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "Image",
         summary: "Displays a native image from an asset, URL, or local file",
-        snippet: "Image(url: \"${1:https://example.com/image.png}\", description: \"${2:Image description}\", showLoadingIndicator: ${3:true})",
-        probe: "app P { body { Image(url: \"https://example.test/logo.png\", description: \"Logo\", showLoadingIndicator: true) } }",
+        snippet: "Image(url: \"${1:https://example.com/image.png}\", description: \"${2:Image description}\", scale: Fill, fillMaxSize: true)",
+        probe: "app P { body { Image(url: \"https://example.test/logo.png\", description: \"Logo\", showLoadingIndicator: true, fillMaxSize: true) } }",
     },
     ComponentEntry {
         name: "Icon",
@@ -262,8 +262,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "AppBottomBar",
         summary: "Bottom tab bar bound to a selected-tab binding",
-        snippet: "AppBottomBar(selected: ${1:tab}) {\n    Tab(index: 0, label: \"${2:Home}\", comment: \"Primary navigation destination\") {\n        $0\n    }\n}",
-        probe: "app P { state tab: Int32 = 0\n body { AppBottomBar(selected: tab) { Tab(index: 0, label: \"Home\") { Text(\"x\") } } } }",
+        snippet: "AppBottomBar(selected: ${1:selectedTab}) {\n    Tab(index: 0, label: \"${2:Home}\", icon: \"home\") {\n        $0\n    }\n    TabBar {\n        Row(alignment: Center) {\n            Pressable(accessibilityLabel: \"Home tab\", accessibilityRole: Button) {\n                Column(spacing: 4, alignment: Center) {\n                    Icon(system: \"home\", description: \"Home\", size: 20)\n                    Text(\"Home\")\n                }\n            }.onTap { selectedTab = 0 }\n        }\n    }\n}",
+        probe: "app P { state tab: Int32 = 0\n body { AppBottomBar(selected: tab) { Tab(index: 0, label: \"Home\", icon: \"home\") { Text(\"x\") } TabBar { Text(\"custom\") } } } }",
     },
     ComponentEntry {
         name: "PagePager",
@@ -279,9 +279,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "FastList",
-        summary: "High-performance virtualized list view",
+        summary: "High-performance virtualized list view with fixed or width-adaptive grids",
         snippet: "FastList(${1:items}) { ${2:item}, ${3:index} in\n    $0\n}",
-        probe: "app P { body { FastList(count: 3, native: true) { index in Text(\"x\") } } }",
+        probe: "app P { state enabled: Bool = true\n body { FastList(count: 3, axis: AutoGrid(168), scrollEnabled: enabled) { index in Text(\"x\") } } }",
     },
     ComponentEntry {
         name: "StatusBar",
@@ -930,6 +930,7 @@ const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
     opt("blur"),
     opt("clip"),
     opt("zIndex"),
+    opt("glass"),
     opt("animation"),
 ];
 
@@ -955,6 +956,7 @@ const STACK_ARGUMENTS: &[ArgSchema] = &[
     opt("blur"),
     opt("clip"),
     opt("zIndex"),
+    opt("glass"),
     opt("animation"),
 ];
 
@@ -1297,6 +1299,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("placeholder"),
             opt("showLoadingIndicator"),
             opt("maxHeight"),
+            opt("fillMaxSize"),
         ],
         exclusive: &[ExclusiveGroup {
             options: &["asset", "url", "file"],
@@ -1609,7 +1612,9 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         arguments: &[
             opt("axis"),
             opt("rowHeight"),
+            opt("spacing"),
             opt("scrollPosition"),
+            opt("scrollEnabled"),
             opt("reverseLayout"),
             opt("pageSnap"),
             opt("native"),
@@ -1880,7 +1885,7 @@ pub fn required_modifier_message(schema: &ComponentSchema, modifier: &str) -> St
 
 /// Child-syntax names that are not component invocations but still deserve
 /// component highlighting (`AppBottomBar` tab entries).
-pub const GRAMMAR_EXTRA_COMPONENTS: &[&str] = &["Tab"];
+pub const GRAMMAR_EXTRA_COMPONENTS: &[&str] = &["Tab", "TabBar"];
 
 /// Sorted control-keyword alternation for the grammar `keyword.control` rule.
 pub fn grammar_control_keywords() -> Vec<&'static str> {
@@ -2029,6 +2034,10 @@ fn audit_signature(schema: &ComponentSchema) -> String {
             };
             format!("`{} {flags}{{ ... }}` actions{parens_note}", schema.name)
         }
+        ChildModel::Tabs if schema.name == "AppBottomBar" => format!(
+            "`{}(selected:) {{ Tab(..) ... TabBar {{ ... }}? }}`",
+            schema.name
+        ),
         ChildModel::Tabs => format!("`{}(selected:) {{ Tab(..) ... }}`", schema.name),
         ChildModel::SplitPanes => format!(
             "`{}(detailVisible:) {{ Sidebar {{ ... }} Detail {{ ... }} }}`",
@@ -2169,6 +2178,9 @@ pub fn render_syntax_audit() -> String {
                     ChildModel::Nodes => "node block",
                     ChildModel::OptionalActions => "optional action block",
                     ChildModel::RequiredActions => "action block",
+                    ChildModel::Tabs if schema.name == "AppBottomBar" => {
+                        "`Tab` destinations and an optional custom `TabBar` block"
+                    }
                     ChildModel::Tabs => "`Tab` declarations",
                     ChildModel::SplitPanes => "sidebar and detail blocks",
                     ChildModel::ListRows => "row bindings plus row body",

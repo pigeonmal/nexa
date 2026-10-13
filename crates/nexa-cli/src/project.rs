@@ -1935,6 +1935,13 @@ fn android_plan(
         plan = plan.with_removal(format!("{source_directory}/NexaDevPluginBridge.kt"));
         plan = plan.with_removal("android/app/src/debug/AndroidManifest.xml");
     }
+    if !dev_runtime && !project_features.uses_network {
+        // Older DevRuntime hosts emitted the Cronet adapter in this legacy
+        // filename. AOT source-unit cleanup only removes NexaGenerated_*
+        // files, so explicitly remove the adapter when the AOT app no longer
+        // needs network transport.
+        plan = plan.with_removal(format!("{source_directory}/NexaCronetConfig.kt"));
+    }
     plan.validate()?;
     Ok(plan)
 }

@@ -14,6 +14,8 @@ struct SectionedPieces<'a> {
     element_type: &'a nexa_ir::Type,
     native: bool,
     item_extent: Option<f32>,
+    spacing: f32,
+    scroll_enabled: Option<&'a Expr>,
     section: &'a str,
     index: &'a str,
     item: &'a str,
@@ -30,6 +32,8 @@ struct OpenListConfig<'a> {
     row_count: String,
     row_key: Option<String>,
     item_extent: Option<f32>,
+    spacing: f32,
+    scroll_enabled: Option<&'a Expr>,
     on_end_reached: Option<&'a [Action]>,
     on_scroll: Option<&'a [Action]>,
     scroll_position: Option<&'a str>,
@@ -37,6 +41,17 @@ struct OpenListConfig<'a> {
     page_snap: bool,
     sticky_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
+}
+
+struct ListConstructorConfig<'a> {
+    axis: ListAxis,
+    row_count: &'a str,
+    row_key: Option<&'a str>,
+    item_extent: Option<f32>,
+    spacing: f32,
+    scroll_enabled: &'a str,
+    reverse_layout: bool,
+    page_snap: bool,
 }
 
 pub(crate) fn render_virtualized_list(
@@ -60,6 +75,8 @@ pub(crate) fn render_virtualized_list(
                     element_type,
                     native: common.native,
                     item_extent: common.item_extent,
+                    spacing: common.spacing,
+                    scroll_enabled: common.scroll_enabled.as_ref(),
                     section,
                     index: &common.index,
                     item,
@@ -89,6 +106,8 @@ pub(crate) fn render_virtualized_list(
                     row_count: format!("max(0, Int({}))", expression(count)),
                     row_key,
                     item_extent: common.item_extent,
+                    spacing: common.spacing,
+                    scroll_enabled: common.scroll_enabled.as_ref(),
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
                     scroll_position: common.scroll_position.as_deref(),
@@ -145,6 +164,8 @@ pub(crate) fn render_virtualized_list(
                     row_count: format!("{collection}.count"),
                     row_key,
                     item_extent: common.item_extent,
+                    spacing: common.spacing,
+                    scroll_enabled: common.scroll_enabled.as_ref(),
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
                     scroll_position: common.scroll_position.as_deref(),
@@ -264,6 +285,8 @@ fn render_sectioned_list(
         element_type,
         native,
         item_extent,
+        spacing,
+        scroll_enabled,
         section,
         index,
         item,
@@ -273,6 +296,9 @@ fn render_sectioned_list(
         section_header,
         refresh,
     } = pieces;
+    let scroll_enabled = scroll_enabled
+        .map(expression)
+        .unwrap_or_else(|| "true".to_owned());
     let collection_expression = expression(collection);
     let collection = format!("nexa_list_sections_{}", out.next_id());
     out.line_at(
@@ -418,7 +444,14 @@ fn render_sectioned_list(
         indent(out, depth + 1);
         out.push_str("}\n");
         indent(out, depth);
-        out.push_str("}.modifier(NexaNativeListStyleModifier())");
+        out.push_str(&format!("}}.scrollDisabled(!({scroll_enabled}))"));
+        if spacing > 0.0 {
+            out.push_str(".listRowSpacing(");
+            out.push_str(&format_float(spacing));
+            out.push_str(").modifier(NexaNativeListStyleModifier())");
+        } else {
+            out.push_str(".modifier(NexaNativeListStyleModifier())");
+        }
         return;
     }
     indent(out, depth);
@@ -438,6 +471,13 @@ fn render_sectioned_list(
             format_args!("rowHeight: {},", format_float(item_extent)),
         );
     }
+    if spacing > 0.0 {
+        out.line_at(
+            depth + 1,
+            format_args!("spacing: {},", format_float(spacing)),
+        );
+    }
+    out.line_at(depth + 1, format_args!("scrollEnabled: {scroll_enabled},"));
     if let Some(key) = key {
         indent(out, depth + 1);
         out.push_str("rowKey: { sectionPosition, itemPosition in AnyHashable(");
@@ -522,21 +562,29 @@ fn render_sectioned_list(
     out.push(')');
 }
 
-fn list_constructor(
-    axis: ListAxis,
-    row_count: String,
-    row_key: Option<&str>,
-    item_extent: Option<f32>,
-    _has_sticky_header: bool,
-    reverse_layout: bool,
-    page_snap: bool,
-) -> String {
+fn list_constructor(config: ListConstructorConfig<'_>) -> String {
+    let ListConstructorConfig {
+        axis,
+        row_count,
+        row_key,
+        item_extent,
+        spacing,
+        scroll_enabled,
+        reverse_layout,
+        page_snap,
+    } = config;
     let key = row_key.map_or_else(String::new, |key| {
         format!(", rowKey: {{ listPosition in {key} }}")
     });
     let extent = item_extent
         .map(format_float)
         .unwrap_or_else(|| "nil".to_owned());
+    let spacing_argument = if spacing > 0.0 {
+        format!(", spacing: {}", format_float(spacing))
+    } else {
+        String::new()
+    };
+    let scroll_enabled_argument = format!(", scrollEnabled: {scroll_enabled}");
     match axis {
         ListAxis::Vertical => {
             let reverse = if reverse_layout {
@@ -546,17 +594,22 @@ fn list_constructor(
             };
             let page_snap = if page_snap { ", pageSnap: true" } else { "" };
             format!(
-                "NexaFastListPrimitive(rowCount: {row_count}, rowHeight: {extent}{key}{reverse}{page_snap})"
+                "NexaFastListPrimitive(rowCount: {row_count}, rowHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key}{reverse}{page_snap})"
             )
         }
         ListAxis::Horizontal => {
             format!(
-                "NexaFastHorizontalListPrimitive(rowCount: {row_count}, itemExtent: {extent}{key})"
+                "NexaFastHorizontalListPrimitive(rowCount: {row_count}, itemExtent: {extent}{spacing_argument}{scroll_enabled_argument}{key})"
             )
         }
         ListAxis::Grid { columns } => {
             format!(
-                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{key})"
+                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key})"
+            )
+        }
+        ListAxis::AutoGrid { min_cell_width } => {
+            format!(
+                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: 1, minCellWidth: {min_cell_width}, itemHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key})"
             )
         }
     }
@@ -574,6 +627,8 @@ fn open_list(
         row_count,
         row_key,
         item_extent,
+        spacing,
+        scroll_enabled,
         on_end_reached,
         on_scroll,
         scroll_position,
@@ -582,6 +637,9 @@ fn open_list(
         sticky_header,
         refresh,
     } = config;
+    let scroll_enabled = scroll_enabled
+        .map(expression)
+        .unwrap_or_else(|| "true".to_owned());
     if native {
         let identified_rows = row_key.map(|identity| {
             let rows = format!("nexa_list_rows_{}", out.next_id());
@@ -596,7 +654,18 @@ fn open_list(
             out.line_at(depth, format_args!("}}"));
             rows
         });
-        out.line_at(depth, format_args!("NexaNativeListPrimitive {{"));
+        let spacing_argument = if spacing > 0.0 {
+            format!(
+                "(spacing: {}, scrollEnabled: {scroll_enabled})",
+                format_float(spacing)
+            )
+        } else {
+            format!("(scrollEnabled: {scroll_enabled})")
+        };
+        out.line_at(
+            depth,
+            format_args!("NexaNativeListPrimitive{spacing_argument} {{"),
+        );
         if let Some(rows) = identified_rows {
             out.line_at(depth + 1, format_args!("ForEach({rows}) {{ nexaListRow in"));
             out.line_at(
@@ -616,18 +685,20 @@ fn open_list(
         || scroll_position.is_some()
         || reverse_layout
         || page_snap
+        || spacing > 0.0
         || sticky_header.is_some()
         || refresh.is_some()
     {
-        let mut constructor = list_constructor(
+        let mut constructor = list_constructor(ListConstructorConfig {
             axis,
-            row_count,
-            row_key.as_deref(),
+            row_count: &row_count,
+            row_key: row_key.as_deref(),
             item_extent,
-            sticky_header.is_some(),
+            spacing,
+            scroll_enabled: &scroll_enabled,
             reverse_layout,
             page_snap,
-        );
+        });
         constructor.pop();
         out.push_str(&constructor);
         if let Some(scroll_position) = scroll_position {
@@ -675,15 +746,16 @@ fn open_list(
         }
         out.push(')');
     } else {
-        out.push_str(&list_constructor(
+        out.push_str(&list_constructor(ListConstructorConfig {
             axis,
-            row_count,
-            row_key.as_deref(),
+            row_count: &row_count,
+            row_key: row_key.as_deref(),
             item_extent,
-            sticky_header.is_some(),
+            spacing,
+            scroll_enabled: &scroll_enabled,
             reverse_layout,
             page_snap,
-        ));
+        }));
     }
     out.push_str(" { listPosition in\n");
 }

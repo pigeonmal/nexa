@@ -151,9 +151,13 @@ fn validate_widget(module: &Module, widget: &Widget) -> Result<(), crate::Widget
                         nodes(widget, body)?;
                     }
                 }
-                Node::FastList {
-                    plan: ListPlan::Count { common, .. } | ListPlan::Items { common, .. },
-                } => {
+                Node::FastList { plan } => {
+                    let common = match plan.as_ref() {
+                        ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common,
+                        ListPlan::Sections { .. } => {
+                            return Err(fail(widget, "sectioned FastList"));
+                        }
+                    };
                     if common.axis != nexa_ir::ListAxis::Vertical
                         || common.native
                         || common.reverse_layout
@@ -175,7 +179,6 @@ fn validate_widget(module: &Module, widget: &Widget) -> Result<(), crate::Widget
                     }
                     nodes(widget, &common.children)?;
                 }
-                Node::FastList { .. } => return Err(fail(widget, "sectioned FastList")),
                 _ => return Err(fail(widget, "node outside the widget-safe subset")),
             }
         }
@@ -1031,59 +1034,59 @@ fn render_widget_node(
                 out,
             );
         }
-        Node::FastList {
-            plan: ListPlan::Count { count, common },
-        } => {
-            let index = nexa_codegen::names::state_name(&common.index);
-            out.line_at(
-                depth,
-                format_args!(
-                    "ForEach(0..<max(0, {}), id: \\.self) {{ {} in",
-                    expressions::expression(count),
-                    common.index
-                ),
-            );
-            out.line_at(
-                depth + 1,
-                format_args!("let {index}: Int32 = Int32(clamping: {})", common.index),
-            );
-            render_widget_nodes(&common.children, module, features, depth + 1, out);
-            if !out.ends_with("\n") {
-                out.push('\n');
+        Node::FastList { plan } => match plan.as_ref() {
+            ListPlan::Count { count, common } => {
+                let index = nexa_codegen::names::state_name(&common.index);
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "ForEach(0..<max(0, {}), id: \\.self) {{ {} in",
+                        expressions::expression(count),
+                        common.index
+                    ),
+                );
+                out.line_at(
+                    depth + 1,
+                    format_args!("let {index}: Int32 = Int32(clamping: {})", common.index),
+                );
+                render_widget_nodes(&common.children, module, features, depth + 1, out);
+                if !out.ends_with("\n") {
+                    out.push('\n');
+                }
+                out.line_at(depth, format_args!("}}"));
             }
-            out.line_at(depth, format_args!("}}"));
-        }
-        Node::FastList {
-            plan:
-                ListPlan::Items {
-                    collection,
-                    item,
-                    common,
-                    ..
-                },
-        } => {
-            let values = format!("__nexaWidgetItems{}", common.index);
-            let index = nexa_codegen::names::state_name(&common.index);
-            let item = nexa_codegen::names::state_name(item);
-            out.line_at(
-                depth,
-                format_args!("let {values} = {}", expressions::expression(collection)),
-            );
-            out.line_at(
-                depth,
-                format_args!("ForEach(Array({values}.enumerated()), id: \\.offset) {{ element in"),
-            );
-            out.line_at(
-                depth + 1,
-                format_args!("let {index}: Int32 = Int32(clamping: element.offset)"),
-            );
-            out.line_at(depth + 1, format_args!("let {item} = element.element"));
-            render_widget_nodes(&common.children, module, features, depth + 1, out);
-            if !out.ends_with("\n") {
-                out.push('\n');
+            ListPlan::Items {
+                collection,
+                item,
+                common,
+                ..
+            } => {
+                let values = format!("__nexaWidgetItems{}", common.index);
+                let index = nexa_codegen::names::state_name(&common.index);
+                let item = nexa_codegen::names::state_name(item);
+                out.line_at(
+                    depth,
+                    format_args!("let {values} = {}", expressions::expression(collection)),
+                );
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "ForEach(Array({values}.enumerated()), id: \\.offset) {{ element in"
+                    ),
+                );
+                out.line_at(
+                    depth + 1,
+                    format_args!("let {index}: Int32 = Int32(clamping: element.offset)"),
+                );
+                out.line_at(depth + 1, format_args!("let {item} = element.element"));
+                render_widget_nodes(&common.children, module, features, depth + 1, out);
+                if !out.ends_with("\n") {
+                    out.push('\n');
+                }
+                out.line_at(depth, format_args!("}}"));
             }
-            out.line_at(depth, format_args!("}}"));
-        }
+            ListPlan::Sections { .. } => {}
+        },
         _ => node_renderer::render_node(node, module, features, depth, out),
     }
 }
@@ -1152,12 +1155,6 @@ fn render_widget_layout(
     if let Some(value) = style.padding {
         out.line_at(depth, format_args!(".padding({value})"));
     }
-    if let Some(width) = style.width {
-        out.line_at(depth, format_args!(".frame(width: {width})"));
-    }
-    if let Some(height) = style.height {
-        out.line_at(depth, format_args!(".frame(height: {height})"));
-    }
     if style.min_width.is_some()
         || style.max_width.is_some()
         || style.min_height.is_some()
@@ -1173,6 +1170,12 @@ fn render_widget_layout(
                 swift_optional_number(style.max_height)
             ),
         );
+    }
+    if let Some(width) = style.width {
+        out.line_at(depth, format_args!(".frame(width: {width})"));
+    }
+    if let Some(height) = style.height {
+        out.line_at(depth, format_args!(".frame(height: {height})"));
     }
     if let Some(background) = style.background {
         out.line_at(

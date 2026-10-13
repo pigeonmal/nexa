@@ -59,10 +59,10 @@ fn fast_list_reverse_layout_is_typed_for_flat_vertical_lists() {
     )
     .expect("a flat vertical FastList may use reverseLayout");
 
-    let Some(Node::FastList {
-        plan: ListPlan::Count { common, .. },
-    }) = module.body.first()
-    else {
+    let Some(Node::FastList { plan }) = module.body.first() else {
+        panic!("expected the count-backed FastList plan");
+    };
+    let ListPlan::Count { common, .. } = plan.as_ref() else {
         panic!("expected the count-backed FastList plan");
     };
     assert!(common.reverse_layout);
@@ -101,10 +101,10 @@ fn fast_list_page_snap_is_typed_and_requires_viewport_sized_vertical_rows() {
     )
     .expect("a flat vertical FastList may use pageSnap");
 
-    let Some(Node::FastList {
-        plan: ListPlan::Count { common, .. },
-    }) = module.body.first()
-    else {
+    let Some(Node::FastList { plan }) = module.body.first() else {
+        panic!("expected the count-backed FastList plan");
+    };
+    let ListPlan::Count { common, .. } = plan.as_ref() else {
         panic!("expected the count-backed FastList plan");
     };
     assert!(common.page_snap);
@@ -146,6 +146,128 @@ fn fast_list_page_snap_is_typed_and_requires_viewport_sized_vertical_rows() {
     )
     .expect_err("pageSnap determines row height from the viewport");
     assert!(fixed_height.to_string().contains("omit `rowHeight`"));
+
+    let spaced_pages = compile(
+        r#"
+        app InvalidPagedSpacing {
+            body {
+                FastList(count: 3, pageSnap: true, spacing: 8) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("pageSnap rows fill the viewport and cannot be separated");
+    assert!(
+        spaced_pages
+            .to_string()
+            .contains("`pageSnap` fills the viewport")
+    );
+}
+
+#[test]
+fn fast_list_auto_grid_uses_a_positive_minimum_cell_width() {
+    let module = compile(
+        r#"
+        app ResponsiveVideoGrid {
+            body {
+                FastList(count: 6, axis: AutoGrid(168), rowHeight: 220, spacing: 12) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("AutoGrid should accept a positive minimum cell width");
+
+    let Some(Node::FastList { plan }) = module.body.first() else {
+        panic!("expected the count-backed FastList plan");
+    };
+    let ListPlan::Count { common, .. } = plan.as_ref() else {
+        panic!("expected the count-backed FastList plan");
+    };
+    assert_eq!(
+        common.axis,
+        nexa_ir::ListAxis::AutoGrid {
+            min_cell_width: 168
+        }
+    );
+    assert_eq!(common.spacing, 12.0);
+    assert!(nexa_ir::facts::ModuleFacts::analyze(&module).ui.lists.grid);
+
+    let invalid = compile(
+        r#"
+        app InvalidResponsiveGrid {
+            body {
+                FastList(count: 6, axis: AutoGrid(0)) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("AutoGrid must reject a zero minimum cell width");
+    assert!(invalid.to_string().contains("must be greater than zero"));
+
+    let negative_spacing = compile(
+        r#"
+        app InvalidGridSpacing {
+            body {
+                FastList(count: 6, axis: AutoGrid(168), spacing: -2) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("FastList spacing cannot be negative");
+    assert!(
+        negative_spacing
+            .to_string()
+            .contains("must be finite and non-negative")
+    );
+}
+
+#[test]
+fn fast_list_scroll_enabled_is_a_reactive_boolean_option() {
+    let module = compile(
+        r#"
+        app ScrollableFeed {
+            state canScroll: Bool = true
+            body {
+                FastList(count: 20, axis: AutoGrid(168), scrollEnabled: canScroll) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("scrollEnabled should accept a reactive Bool");
+
+    let Some(Node::FastList { plan }) = module.body.first() else {
+        panic!("expected the count-backed FastList plan");
+    };
+    let ListPlan::Count { common, .. } = plan.as_ref() else {
+        panic!("expected the count-backed FastList plan");
+    };
+    assert!(matches!(
+        common.scroll_enabled.as_ref(),
+        Some(Expr::State(name, Type::Bool)) if name == "canScroll"
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidScrollableFeed {
+            state canScroll: Int32 = 1
+            body {
+                FastList(count: 20, scrollEnabled: canScroll) { index in Text(index) }
+            }
+        }
+        "#,
+    )
+    .expect_err("scrollEnabled must reject non-Bool expressions");
+    assert!(invalid.to_string().contains("Bool"));
 }
 
 #[test]
@@ -174,10 +296,10 @@ fn fast_list_member_keys_lower_in_the_row_binding_scope() {
     )
     .expect("FastList member keys resolve from the row binding type");
 
-    let Some(Node::FastList {
-        plan: ListPlan::Items { common, .. },
-    }) = module.body.first()
-    else {
+    let Some(Node::FastList { plan }) = module.body.first() else {
+        panic!("expected the collection-backed FastList plan");
+    };
+    let ListPlan::Items { common, .. } = plan.as_ref() else {
         panic!("expected the collection-backed FastList plan");
     };
     assert!(matches!(common.key.as_ref(), Some(Expr::Member { .. })));
@@ -209,10 +331,10 @@ fn flat_map_flattens_typed_arrays_in_collection_closures() {
     )
     .expect("flatMap should flatten each typed array result");
 
-    let Some(Node::FastList {
-        plan: ListPlan::Items { element_type, .. },
-    }) = module.body.first()
-    else {
+    let Some(Node::FastList { plan }) = module.body.first() else {
+        panic!("expected the flattened results list");
+    };
+    let ListPlan::Items { element_type, .. } = plan.as_ref() else {
         panic!("expected the flattened results list");
     };
     assert!(matches!(element_type, Type::Struct { name, .. } if name == "Record"));
@@ -251,10 +373,10 @@ fn native_fast_list_mode_is_typed_and_rejects_custom_scroll_behavior() {
     )
     .expect("flat vertical lists may opt into native platform styling");
 
-    let Some(Node::FastList {
-        plan: ListPlan::Items { common, .. },
-    }) = module.body.first()
-    else {
+    let Some(Node::FastList { plan }) = module.body.first() else {
+        panic!("expected the collection-backed FastList plan");
+    };
+    let ListPlan::Items { common, .. } = plan.as_ref() else {
         panic!("expected the collection-backed FastList plan");
     };
     assert!(common.native);
@@ -284,10 +406,10 @@ fn native_fast_list_mode_is_typed_and_rejects_custom_scroll_behavior() {
         "#,
     )
     .expect("sectioned vertical lists may opt into native platform styling");
-    let Some(Node::FastList {
-        plan: ListPlan::Sections { common, .. },
-    }) = sectioned.body.first()
-    else {
+    let Some(Node::FastList { plan }) = sectioned.body.first() else {
+        panic!("expected a sectioned FastList plan");
+    };
+    let ListPlan::Sections { common, .. } = plan.as_ref() else {
         panic!("expected a sectioned FastList plan");
     };
     assert!(common.native);
@@ -1050,6 +1172,54 @@ fn app_bottom_bar_and_controls_accept_runtime_hex_color_state() {
             }
         ] if button_name == "accent" && icon_name == "accent"
     ));
+}
+
+#[test]
+fn app_bottom_bar_custom_chrome_is_lowered_separately_from_destinations() {
+    let module = compile(
+        r#"
+        app CustomTabs {
+            state selectedTab: Int32 = 0
+            body {
+                AppBottomBar(selected: selectedTab) {
+                    Tab(index: 0, label: "Home", icon: "home") {
+                        Text("Home destination")
+                    }
+                    Tab(index: 1, label: "Profile", icon: "person") {
+                        Text("Profile destination")
+                    }
+                    TabBar {
+                        Row {
+                            Pressable() { Text("Custom home") }.onTap { selectedTab = 0 }
+                        }
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("custom tab chrome should keep native AppBottomBar destinations");
+
+    let Some(Node::AppBottomBar {
+        tabs,
+        custom_bar: Some(custom_bar),
+        ..
+    }) = module.body.first()
+    else {
+        panic!("expected custom bar and native destinations in the typed AppBottomBar");
+    };
+    assert_eq!(tabs.len(), 2);
+    let [Node::Text { value, .. }] = tabs[0].children.as_slice() else {
+        panic!("expected the Home destination text to be retained");
+    };
+    assert_eq!(source_text(value), Some("Home destination"));
+    let mut custom_pressable_retained = false;
+    walk_ir(
+        custom_bar,
+        &mut |node| custom_pressable_retained |= matches!(node, Node::Pressable { .. }),
+        &mut |_| {},
+    );
+    assert!(custom_pressable_retained);
 }
 
 #[test]
@@ -2395,6 +2565,29 @@ fn image_max_height_lowers_to_a_bounded_native_dimension() {
             max_height: Some(height),
             ..
         }] if (*height - 200.0).abs() < f32::EPSILON
+    ));
+}
+
+#[test]
+fn image_fill_max_size_lowers_to_shared_image_sizing() {
+    let module = compile(
+        r#"
+        app FullPagePoster {
+            body {
+                Image(asset: "video_poster", description: "Video poster", scale: Fill, fillMaxSize: true)
+            }
+        }
+        "#,
+    )
+    .expect("full-page image sizing should compile");
+
+    assert!(matches!(
+        module.body.as_slice(),
+        [Node::Image {
+            fill_max_size: true,
+            scale: nexa_ir::ImageScale::Fill,
+            ..
+        }]
     ));
 }
 

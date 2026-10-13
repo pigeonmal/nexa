@@ -92,6 +92,40 @@ app ShopTabs {
 
 On iOS this maps to SwiftUI `TabView`. Android uses Material 3 adaptive navigation, switching between a bottom bar and wider navigation layouts where supported. The exact tab options are listed in the [syntax audit](syntax-audit.md#tabs).
 
+The native bar is the default. To draw a custom bar, add one trailing `TabBar` block. It is an ordinary Nexa layout: you create every icon, label, pressable, and active-state style yourself. `Tab` metadata does not create or populate items in this custom layout. Keep the selected-tab state at app scope so it survives route changes and can be shared by screens:
+
+```nx
+app BrandedTabs {
+    state selectedTab: Int32 = 0
+
+    body {
+        AppBottomBar(selected: selectedTab) {
+            Tab(index: 0, label: "Home", icon: "home") { HomeScreen() }
+            Tab(index: 1, label: "Profile", icon: "person") { ProfileScreen() }
+
+            TabBar {
+                Row(spacing: 24, alignment: Center, padding: 12, background: "#09090B") {
+                    Pressable(accessibilityLabel: "Home tab", accessibilityRole: Button) {
+                        Column(spacing: 4, alignment: Center) {
+                            Icon(system: "home", description: "Home", size: 20, tint: "#FFFFFF")
+                            Text("Home", color: "#FFFFFF")
+                        }
+                    }.onTap { selectedTab = 0 }
+                    Pressable(accessibilityLabel: "Profile tab", accessibilityRole: Button) {
+                        Column(spacing: 4, alignment: Center) {
+                            Icon(system: "person", description: "Profile", size: 20, tint: "#A1A1AA")
+                            Text("Profile", color: "#A1A1AA")
+                        }
+                    }.onTap { selectedTab = 1 }
+                }
+            }
+        }
+    }
+}
+```
+
+Nexa hides the native tab-bar chrome only when this block is present. `AppBottomBar` still switches between the declared tab destinations and retains their tab state; the custom block owns only the bar’s presentation and its controls. With the app-level selection binding, pushing another declared screen keeps the selected index; the pushed screen appears above the tab shell, and returning reveals the same selected tab.
+
 ## Adaptive master-detail
 
 `NavigationSplitView` requires one `Sidebar` and one `Detail` child block, and a boolean `detailVisible` binding.

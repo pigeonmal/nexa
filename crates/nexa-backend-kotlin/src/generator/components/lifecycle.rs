@@ -9,23 +9,26 @@ use crate::generator::{
 
 pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     imports.add(
-        context.features.uses_tasks,
+        context.features.uses_task_launch,
         "androidx.compose.runtime.rememberCoroutineScope",
     );
     imports.add(
-        context.features.uses_tasks,
+        context.features.uses_task_launch,
         "kotlinx.coroutines.CoroutineExceptionHandler",
     );
     imports.add(
-        context.features.uses_tasks,
+        context.features.uses_task_launch,
         "kotlinx.coroutines.CoroutineStart",
     );
     imports.add(
-        context.features.uses_tasks,
+        context.features.uses_task_launch,
         "kotlinx.coroutines.Dispatchers",
     );
     imports.add(context.features.uses_tasks, "kotlinx.coroutines.Job");
-    imports.add(context.features.uses_tasks, "kotlinx.coroutines.launch");
+    imports.add(
+        context.features.uses_task_launch,
+        "kotlinx.coroutines.launch",
+    );
     imports.add(
         context.has_on_appear,
         "androidx.compose.runtime.LaunchedEffect",

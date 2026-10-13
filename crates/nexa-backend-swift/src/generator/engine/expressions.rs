@@ -531,11 +531,10 @@ fn localized_text_expression(
         .into_iter()
         .map(|argument| {
             let rendered = expression_with_locals(argument, locals);
-            match argument {
-                Expr::State(_, Type::Numeric(_))
-                | Expr::AnimatedState(_, Type::Numeric(_))
-                | Expr::Number { .. } => format!("{rendered} as CVarArg"),
-                _ => format!("String(describing: {rendered}) as CVarArg"),
+            if nexa_ir::localization::is_numeric_argument(argument) {
+                format!("{rendered} as CVarArg")
+            } else {
+                format!("String(describing: {rendered}) as CVarArg")
             }
         })
         .collect::<Vec<_>>();
@@ -1261,6 +1260,34 @@ mod tests {
         assert!(generated.contains("String(format: NSLocalizedString("));
         assert!(generated.contains("String(describing: nexa_dragUpdated) as CVarArg"));
         assert!(!generated.contains("\\(nexa_dragUpdated)"));
+    }
+
+    #[test]
+    fn localized_numeric_struct_fields_use_numeric_c_var_arg() {
+        let video_type = Type::Struct {
+            name: "ShortVideo".to_owned(),
+            fields: vec![("commentCount".to_owned(), Type::Numeric(NumericType::Int32))],
+        };
+        let comment_count = Expr::Member {
+            base: Box::new(Expr::State("video".to_owned(), video_type.clone())),
+            name: "commentCount".to_owned(),
+            optional: false,
+            base_type: video_type,
+            field_type: Type::Numeric(NumericType::Int32),
+            kind: MemberKind::StructField("commentCount".to_owned()),
+        };
+        let localized = Expr::LocalizedText {
+            key: "Comments · {commentCount}".to_owned(),
+            value: Box::new(Expr::Interpolation(vec![
+                InterpolatedPart::Literal("Comments · ".to_owned()),
+                InterpolatedPart::Value(Box::new(comment_count)),
+            ])),
+            comment: None,
+        };
+
+        let generated = localized_text_view(&localized, None);
+        assert!(generated.contains("nexa_video.nexa_field_commentCount as CVarArg"));
+        assert!(!generated.contains("String(describing: nexa_video.nexa_field_commentCount)"));
     }
 
     #[test]

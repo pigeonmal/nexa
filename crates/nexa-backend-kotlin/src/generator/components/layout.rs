@@ -156,11 +156,31 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.heightIn",
     );
     imports.add(features.uses_modifier, "androidx.compose.ui.Modifier");
-    imports.add(features.uses_opacity, "androidx.compose.ui.draw.alpha");
-    imports.add(features.uses_corner_radius, "androidx.compose.ui.draw.clip");
     imports.add(
-        features.uses_corner_radius || features.uses_drop_shadow,
+        features.uses_opacity,
+        "androidx.compose.ui.graphics.CompositingStrategy",
+    );
+    imports.add(features.uses_opacity, "androidx.compose.ui.draw.alpha");
+    imports.add(
+        features.uses_opacity || features.uses_graphics_layer,
+        "androidx.compose.ui.graphics.graphicsLayer",
+    );
+    imports.add(
+        features.uses_corner_radius || features.uses_glass,
+        "androidx.compose.ui.draw.clip",
+    );
+    imports.add(
+        features.uses_corner_radius || features.uses_drop_shadow || features.uses_glass,
         "androidx.compose.foundation.shape.RoundedCornerShape",
+    );
+    imports.add(
+        features.uses_glass,
+        "androidx.compose.foundation.shape.CircleShape",
+    );
+    imports.add(features.uses_glass, "androidx.compose.ui.graphics.Shape");
+    imports.add(
+        features.uses_glass,
+        "androidx.compose.material3.MaterialTheme",
     );
     imports.add(
         features.uses_graphics_layer,
@@ -390,7 +410,11 @@ pub(crate) fn render_form(
 fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
     let effects = &style.effects;
     if let Some(opacity) = style.opacity {
-        out.push_str(&format!("\n{}.alpha({}f)", spaces(depth), number(opacity)));
+        out.push_str(&format!(
+            "\n{}.graphicsLayer(alpha = {}f, compositingStrategy = CompositingStrategy.Offscreen)",
+            spaces(depth),
+            number(opacity)
+        ));
     }
     if effects.scale.is_some() || effects.rotation.is_some() {
         let scale = effects
@@ -445,6 +469,22 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             number(radius)
         ));
     }
+    if let Some(animation) = style.animation {
+        let spec = match animation {
+            AnimationSpec::Spring { response, damping } => {
+                let stiffness = (100.0 / f64::from(response).powi(2)) as f32;
+                format!("spring(dampingRatio = {damping}f, stiffness = {stiffness}f)")
+            }
+            AnimationSpec::EaseIn => "tween(easing = FastOutLinearInEasing)".to_owned(),
+            AnimationSpec::EaseOut => "tween(easing = LinearOutSlowInEasing)".to_owned(),
+            AnimationSpec::EaseInOut => "tween(easing = FastOutSlowInEasing)".to_owned(),
+            AnimationSpec::Linear => "tween(easing = LinearEasing)".to_owned(),
+        };
+        out.push_str(&format!(
+            "\n{}.animateContentSize(animationSpec = {spec})",
+            spaces(depth)
+        ));
+    }
     if let Some(padding) = style.padding {
         out.push_str(&format!(
             "\n{}.padding({}.dp)",
@@ -493,20 +533,25 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
     if let Some(z_index) = effects.z_index {
         out.push_str(&format!("\n{}.zIndex({}f)", spaces(depth), z_index));
     }
-    if let Some(animation) = style.animation {
-        let spec = match animation {
-            AnimationSpec::Spring { response, damping } => {
-                let stiffness = (100.0 / f64::from(response).powi(2)) as f32;
-                format!("spring(dampingRatio = {damping}f, stiffness = {stiffness}f)")
+    if let Some(glass) = &effects.glass {
+        // Android maps the cross-platform glass effect to a solid Material 3
+        // surface because Compose has no native backdrop-material equivalent.
+        let shape = match glass.shape {
+            nexa_ir::GlassShape::Circle => "CircleShape".to_owned(),
+            nexa_ir::GlassShape::Capsule => "RoundedCornerShape(percent = 50)".to_owned(),
+            nexa_ir::GlassShape::Rounded(radius) => {
+                format!("RoundedCornerShape({}.dp)", number(radius))
             }
-            AnimationSpec::EaseIn => "tween(easing = FastOutLinearInEasing)".to_owned(),
-            AnimationSpec::EaseOut => "tween(easing = LinearOutSlowInEasing)".to_owned(),
-            AnimationSpec::EaseInOut => "tween(easing = FastOutSlowInEasing)".to_owned(),
-            AnimationSpec::Linear => "tween(easing = LinearEasing)".to_owned(),
         };
+        let tint = glass
+            .tint
+            .map(colors::expression)
+            .map(|tint| format!("{tint}.copy(alpha = 1f)"))
+            .or_else(|| style.background.map(colors::expression))
+            .unwrap_or_else(|| "MaterialTheme.colorScheme.surface".to_owned());
         out.push_str(&format!(
-            "\n{}.animateContentSize(animationSpec = {spec})",
-            spaces(depth)
+            "\n{}.let {{ val surfaceShape: Shape = {shape}; val surfaceColor = {tint}; it.clip(surfaceShape).background(surfaceColor, surfaceShape) }}",
+            spaces(depth),
         ));
     }
 }
@@ -515,13 +560,162 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
 mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{
-        Expr, KeyboardType, LayoutKind, Module, Node, SystemIcon, TextStyle, ToolbarPlacement,
-        ViewStyle,
+        Color, ColorValue, Expr, GlassShape, KeyboardType, LayoutKind, Module, Node, SystemIcon,
+        TextStyle, ToolbarPlacement, ViewGlass, ViewStyle,
     };
 
     use crate::generator::features::Features;
 
-    use super::{RenderScope, render_form_section, render_layout};
+    use super::{RenderScope, render_form_section, render_layout, render_modifiers};
+
+    #[test]
+    fn content_size_animation_wraps_padding_and_size_constraints() {
+        let style = ViewStyle {
+            animation: Some(nexa_ir::AnimationSpec::EaseInOut),
+            padding: Some(8.0),
+            width: Some(200.0),
+            min_height: Some(48.0),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        let animation = generated
+            .find(".animateContentSize(")
+            .expect("emit the content-size animation");
+        for sizing_modifier in [".padding(8.dp)", ".width(200.dp)", ".heightIn(min = 48.dp)"] {
+            let sizing = generated
+                .find(sizing_modifier)
+                .unwrap_or_else(|| panic!("emit {sizing_modifier}"));
+            assert!(animation < sizing, "animation must wrap {sizing_modifier}");
+        }
+    }
+
+    #[test]
+    fn glass_maps_to_a_borderless_material_surface_on_android() {
+        let style = ViewStyle {
+            effects: nexa_ir::ViewEffects {
+                glass: Some(ViewGlass {
+                    tint: None,
+                    shape: GlassShape::Circle,
+                }),
+                ..nexa_ir::ViewEffects::default()
+            },
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        assert!(generated.contains("val surfaceShape: Shape = CircleShape"));
+        assert!(generated.contains("MaterialTheme.colorScheme.surface"));
+        assert!(generated.contains("it.clip(surfaceShape).background(surfaceColor, surfaceShape)"));
+        assert!(!generated.contains(".shadow("));
+        assert!(!generated.contains(".border("));
+        assert!(!generated.contains("copy(alpha = 0.05f)"));
+        assert!(!generated.contains("Color.White.copy"));
+    }
+
+    #[test]
+    fn untinted_glass_preserves_an_explicit_android_background() {
+        let style = ViewStyle {
+            background: Some(ColorValue::Static(Color {
+                red: 242,
+                green: 242,
+                blue: 247,
+                alpha: 255,
+            })),
+            effects: nexa_ir::ViewEffects {
+                glass: Some(ViewGlass {
+                    tint: None,
+                    shape: GlassShape::Rounded(8.0),
+                }),
+                ..nexa_ir::ViewEffects::default()
+            },
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        assert!(generated.contains("val surfaceColor = Color(0xFFF2F2F7)"));
+        assert!(generated.contains("it.clip(surfaceShape).background(surfaceColor, surfaceShape)"));
+    }
+
+    #[test]
+    fn width_bounded_columns_preserve_intrinsic_child_width() {
+        let module = Module {
+            app_name: "ColumnTextBounds".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let children = [Node::Text {
+            value: Expr::String("Wrapped text stays centered".to_owned()),
+            style: TextStyle::default(),
+        }];
+        let style = ViewStyle {
+            min_width: Some(210.0),
+            max_width: Some(260.0),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_layout(
+            LayoutKind::Column,
+            0.0,
+            &style,
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(generated.contains("horizontalAlignment = Alignment.CenterHorizontally"));
+        assert!(!generated.contains("fillTextWidth"));
+    }
+
+    #[test]
+    fn opacity_uses_an_offscreen_group_for_consistent_compositing() {
+        let style = ViewStyle {
+            opacity: Some(0.45),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        assert!(output.finish().contains(
+            ".graphicsLayer(alpha = 0.45f, compositingStrategy = CompositingStrategy.Offscreen)"
+        ));
+    }
 
     #[test]
     fn row_text_input_takes_remaining_width_instead_of_clipping_trailing_controls() {

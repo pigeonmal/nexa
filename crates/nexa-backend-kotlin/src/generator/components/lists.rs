@@ -20,6 +20,8 @@ struct SectionedPieces<'a> {
     element_type: &'a nexa_ir::Type,
     native: bool,
     item_extent: Option<f32>,
+    spacing: f32,
+    scroll_enabled: Option<&'a Expr>,
     section: &'a str,
     index: &'a str,
     item: &'a str,
@@ -131,6 +133,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_grid_list,
         "androidx.compose.foundation.lazy.grid.GridCells",
+    );
+    imports.add(
+        features.uses_fast_list,
+        "androidx.compose.foundation.layout.Arrangement",
     );
     imports.add(
         features.uses_grid_list
@@ -248,6 +254,8 @@ struct FlatPieces<'a> {
     index: &'a str,
     item: Option<&'a str>,
     item_extent: Option<f32>,
+    spacing: f32,
+    scroll_enabled: Option<&'a Expr>,
     key: Option<&'a Expr>,
     children: &'a [Node],
     swipe_actions: Option<&'a [Node]>,
@@ -283,6 +291,13 @@ enum FlatCount<'a> {
     },
 }
 
+fn scroll_enabled_expression(state: &str, enabled: Option<&Expr>) -> String {
+    let scroll_range = format!("({state}.canScrollForward || {state}.canScrollBackward)");
+    enabled.map_or(scroll_range.clone(), |value| {
+        format!("{scroll_range} && {}", expression(value))
+    })
+}
+
 pub(crate) fn render_virtualized_list(
     plan: &ListPlan,
     module: &Module,
@@ -307,6 +322,8 @@ pub(crate) fn render_virtualized_list(
                     element_type,
                     native: common.native,
                     item_extent: common.item_extent,
+                    spacing: common.spacing,
+                    scroll_enabled: common.scroll_enabled.as_ref(),
                     section,
                     index: &common.index,
                     item,
@@ -329,6 +346,8 @@ pub(crate) fn render_virtualized_list(
             index: &common.index,
             item: None,
             item_extent: common.item_extent,
+            spacing: common.spacing,
+            scroll_enabled: common.scroll_enabled.as_ref(),
             key: common.key.as_ref(),
             children: &common.children,
             swipe_actions: common.swipe_actions.as_deref(),
@@ -357,6 +376,8 @@ pub(crate) fn render_virtualized_list(
             index: &common.index,
             item: Some(item),
             item_extent: common.item_extent,
+            spacing: common.spacing,
+            scroll_enabled: common.scroll_enabled.as_ref(),
             key: common.key.as_ref(),
             children: &common.children,
             swipe_actions: common.swipe_actions.as_deref(),
@@ -371,8 +392,8 @@ pub(crate) fn render_virtualized_list(
         },
     };
     match pieces.axis {
-        ListAxis::Grid { columns } => {
-            return render_grid_list(columns, &pieces, module, features, depth, list_id, out);
+        ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } => {
+            return render_grid_list(pieces.axis, &pieces, module, features, depth, list_id, out);
         }
         ListAxis::Vertical | ListAxis::Horizontal => {}
     }
@@ -383,7 +404,7 @@ pub(crate) fn render_virtualized_list(
         || pieces.on_move.is_some()
         || pieces.scroll_position.is_some();
     let list_state = (has_list_observers
-        || (pieces.axis == ListAxis::Vertical && !pieces.page_snap))
+        || (matches!(pieces.axis, ListAxis::Vertical | ListAxis::Horizontal) && !pieces.page_snap))
         .then(|| format!("nexaListState{list_id}"));
     let list_count = (pieces.on_end_reached.is_some() || pieces.reverse_layout || pieces.page_snap)
         .then(|| format!("nexaListCount{list_id}"));
@@ -417,9 +438,20 @@ pub(crate) fn render_virtualized_list(
         FlatCount::Count(count) => format!("({}).coerceAtLeast(0)", expression(count)),
         FlatCount::Items { collection, .. } => format!("{}.size", expression(collection)),
     };
+    let spacing = format_float(pieces.spacing);
     let container = if pieces.axis == ListAxis::Horizontal {
+        let scroll_state = list_state.as_deref().unwrap_or_default();
         let mut arguments = vec!["modifier = Modifier.fillMaxWidth()".to_owned()];
+        if pieces.spacing > 0.0 {
+            arguments.push(format!(
+                "horizontalArrangement = Arrangement.spacedBy({spacing}.dp)"
+            ));
+        }
         arguments.extend(state_argument);
+        arguments.push(format!(
+            "userScrollEnabled = {}",
+            scroll_enabled_expression(scroll_state, pieces.scroll_enabled)
+        ));
         format!("LazyRow({})", arguments.join(", "))
     } else {
         let modifier = if pieces.native {
@@ -428,10 +460,16 @@ pub(crate) fn render_virtualized_list(
             "Modifier.fillMaxWidth()"
         };
         let mut arguments = vec![format!("modifier = {modifier}")];
+        if pieces.spacing > 0.0 {
+            arguments.push(format!(
+                "verticalArrangement = Arrangement.spacedBy({spacing}.dp)"
+            ));
+        }
         arguments.extend(state_argument);
         let scroll_state = list_state.as_deref().unwrap_or_default();
         arguments.push(format!(
-            "userScrollEnabled = ({scroll_state}.canScrollForward || {scroll_state}.canScrollBackward)"
+            "userScrollEnabled = {}",
+            scroll_enabled_expression(scroll_state, pieces.scroll_enabled)
         ));
         if pieces.reverse_layout {
             arguments.push("reverseLayout = true".to_owned());
@@ -623,7 +661,8 @@ fn render_page_snap_list(
     out.line_at(
         list_depth + 1,
         format_args!(
-            "userScrollEnabled = ({list_state}.canScrollForward || {list_state}.canScrollBackward),"
+            "userScrollEnabled = {},",
+            scroll_enabled_expression(list_state, pieces.scroll_enabled)
         ),
     );
     out.line_at(
@@ -697,6 +736,8 @@ fn render_sectioned_list(
         element_type,
         native,
         item_extent,
+        spacing,
+        scroll_enabled,
         section,
         index,
         item,
@@ -721,8 +762,16 @@ fn render_sectioned_list(
     };
     let list_depth = render_refresh_open(refresh, depth, out);
     indent(out, list_depth);
+    out.push_str(&format!("LazyColumn(state = {list_state}, "));
+    if spacing > 0.0 {
+        out.push_str(&format!(
+            "verticalArrangement = Arrangement.spacedBy({}.dp), ",
+            format_float(spacing),
+        ));
+    }
     out.push_str(&format!(
-        "LazyColumn(state = {list_state}, userScrollEnabled = ({list_state}.canScrollForward || {list_state}.canScrollBackward)"
+        "userScrollEnabled = {}",
+        scroll_enabled_expression(&list_state, scroll_enabled)
     ));
     if native {
         out.push_str(", modifier = NexaNativeListContainerModifier()");
@@ -858,7 +907,7 @@ fn render_sectioned_list(
 }
 
 fn render_grid_list(
-    columns: u32,
+    axis: ListAxis,
     pieces: &FlatPieces<'_>,
     module: &Module,
     features: &Features,
@@ -883,10 +932,31 @@ fn render_grid_list(
     );
     let state_parameter = format!("state = {list_state}, ");
     let scroll_state = list_state.as_str();
+    let spacing = format_float(pieces.spacing);
     let list_depth = render_refresh_open(pieces.refresh, depth, out);
+    let grid_cells = match axis {
+        ListAxis::Grid { columns } => format!("GridCells.Fixed({columns})"),
+        ListAxis::AutoGrid { min_cell_width } => {
+            format!("GridCells.Adaptive(minSize = {min_cell_width}.dp)")
+        }
+        ListAxis::Vertical | ListAxis::Horizontal => "GridCells.Fixed(1)".to_owned(),
+    };
     out.line_at(
         list_depth,
-        format_args!("LazyVerticalGrid({state_parameter}userScrollEnabled = ({scroll_state}.canScrollForward || {scroll_state}.canScrollBackward), columns = GridCells.Fixed({columns})) {{"),
+        format_args!(
+            "LazyVerticalGrid({state_parameter}userScrollEnabled = {}, columns = {grid_cells}{}{}) {{",
+            scroll_enabled_expression(scroll_state, pieces.scroll_enabled),
+            if pieces.spacing > 0.0 {
+                format!(", horizontalArrangement = Arrangement.spacedBy({spacing}.dp)")
+            } else {
+                String::new()
+            },
+            if pieces.spacing > 0.0 {
+                format!(", verticalArrangement = Arrangement.spacedBy({spacing}.dp)")
+            } else {
+                String::new()
+            },
+        ),
     );
     indent(out, list_depth + 1);
     match &pieces.count {
@@ -954,7 +1024,7 @@ fn render_grid_list(
             .item_extent
             .map(ListRowSizing::Fixed)
             .unwrap_or(ListRowSizing::Content),
-        ListAxis::Grid { columns },
+        axis,
         pieces.children,
         module,
         features,
@@ -1016,7 +1086,7 @@ fn render_list_observers(
     let scroll_actions = pieces.on_scroll;
     let scroll_position = scroll_position.map(state_name);
     let state_initializer = match axis {
-        ListAxis::Grid { .. } => "rememberLazyGridState",
+        ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } => "rememberLazyGridState",
         ListAxis::Vertical | ListAxis::Horizontal if pieces.page_snap => "rememberPagerState",
         ListAxis::Vertical | ListAxis::Horizontal => "rememberLazyListState",
     };
@@ -1264,7 +1334,7 @@ fn render_row_content(
                 ListAxis::Horizontal => {
                     format!("Modifier.width({extent}.dp).height({extent}.dp)")
                 }
-                ListAxis::Vertical | ListAxis::Grid { .. } => {
+                ListAxis::Vertical | ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } => {
                     format!("Modifier.fillMaxWidth().height({extent}.dp)")
                 }
             }

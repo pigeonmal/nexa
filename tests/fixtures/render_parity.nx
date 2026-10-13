@@ -121,7 +121,7 @@ app RenderParity {
                             Text("Accessible header", accessibilityLabel: "Parity section", accessibilityHint: "Opens this section", accessibilityValue: "Ready", accessibilityRole: Header)
                         }
                         Section(title: "Images and links") {
-                            Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, maxHeight: 64)
+                            Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, fillMaxSize: false, maxHeight: 64)
                                 .sharedElement(id: "parity-image")
                             Image(url: "https://parity.invalid/image.png", description: "Remote image fallback", scale: Fit, placeholder: "parity_sample", maxHeight: 64)
                             Image(url: "https://127.0.0.1:1/image.png", description: "Remote image blank by default", maxHeight: 64)
@@ -181,7 +181,7 @@ app RenderParity {
                             refreshing = false
                             refreshCount = refreshCount + 1
                         }
-                        FastList(count: 24, native: true, accessibilityLabel: "Parity task list") { index in
+                        FastList(count: 24, native: true, spacing: 4, accessibilityLabel: "Parity task list") { index in
                             Row(spacing: 8, padding: 8) {
                                 Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
                                 Text("Virtual row \(index)")
@@ -195,7 +195,7 @@ app RenderParity {
                         FastList(count: 5, rowHeight: 48, scrollPosition: listPosition, reverseLayout: true) { index in
                             Text("Reverse row \(index)")
                         }
-                        FastList(count: 12, rowHeight: 48, accessibilityLabel: "Scroll event list") { index in
+                        FastList(count: 12, rowHeight: 48, spacing: 8, accessibilityLabel: "Scroll event list") { index in
                             Text("Scroll event row \(index)")
                         }.onScroll {
                             progress = progress
@@ -207,7 +207,7 @@ app RenderParity {
                         FastList(count: 8, axis: Horizontal, rowHeight: 120) { index in
                             Text("Horizontal row \(index)")
                         }
-                        FastList(count: 8, axis: Grid(2), rowHeight: 92) { index in
+                        FastList(count: 8, axis: Grid(2), rowHeight: 92, scrollEnabled: enabled) { index in
                             Text("Grid row \(index)")
                         }
                         FastList(sections: sectionItems, native: true) { item, index, section in
@@ -319,7 +319,8 @@ app RenderParity {
                     blur: 0,
                     clip: Rounded(8),
                     zIndex: 1,
-                    animation: Spring(response: 0.35, damping: 0.8)
+                    animation: Spring(response: 0.35, damping: 0.8),
+                    glass: "rounded(8)"
                 ) {
                     Text("Column style parameters")
                 }
@@ -344,7 +345,8 @@ app RenderParity {
                     blur: 0,
                     clip: Rounded(8),
                     zIndex: 1,
-                    animation: EaseInOut
+                    animation: EaseInOut,
+                    glass: "capsule"
                 ) {
                     Text("Row style parameters")
                 }
@@ -368,7 +370,8 @@ app RenderParity {
                     blur: 0,
                     clip: Rounded(8),
                     zIndex: 1,
-                    animation: Linear
+                    animation: Linear,
+                    glass: "circle"
                 ) {
                     Text("Stack style parameters")
                 }

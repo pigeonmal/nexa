@@ -787,6 +787,35 @@ fn android_cronet_config_selects_provider_and_cache_for_dev_and_aot_hosts() {
 }
 
 #[test]
+fn android_aot_generation_removes_unused_dev_cronet_adapter() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(&entry, "app RuntimeSmoke { body { Text(\"AOT\") } }")
+        .expect("write simple app source");
+    let output = root.join("build");
+    let source_directory = output.join("android/app/src/main/java/dev/nexa/runtimesmoke");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "android",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate DevRuntime host with its network adapter");
+    assert!(source_directory.join("NexaCronetConfig.kt").exists());
+
+    nexa_cli::generate_project(&entry, "android", &output, "RuntimeSmoke")
+        .expect("generate network-free AOT host");
+
+    assert!(
+        !source_directory.join("NexaCronetConfig.kt").exists(),
+        "AOT generation should remove the unused DevRuntime Cronet adapter"
+    );
+}
+
+#[test]
 fn aot_plugin_hosts_include_value_runtime_when_unused_generic_methods_exist() {
     let project = nexa_testkit::TestProject::new("nexa-aot-plugin-value-runtime");
     project.write(
@@ -1409,7 +1438,8 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("rememberNavController()"));
-    assert!(kotlin.contains("NavHost(navController = navController"));
+    assert!(kotlin.contains("NavHost(\n            navController = navController"));
+    assert!(kotlin.contains("modifier = modifier.fillMaxSize()"));
     assert!(kotlin.contains("navigationEpoch"));
     assert!(
         fs::read_to_string(output.join("android/app/build.gradle.kts"))

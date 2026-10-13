@@ -23,6 +23,10 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v301` | Gives Swift page-snap rows the measured viewport height despite automatic cell sizing, so each feed item occupies one page. |
+| `build-v300` | Makes Swift paged FastLists fill their available viewport, matching native full-screen paging behavior. |
+| `build-v299` | Adds shared FastList spacing across AOT and DevRuntime and accounts for grid gaps in responsive AutoGrid column sizing. |
+| `build-v298` | Expands Swift remote and asset fill images to their proposed cell bounds, matching Compose image sizing. |
 | `build-v295` | Composes iOS Pressable tap, double-tap, and long-press actions exclusively so long presses do not fall through to tap callbacks. |
 | `build-v292` | Emits per-Pressable Android gesture imports and removes Material 3 ripple overlays from bottom-sheet toolbar controls. |
 | `build-v291` | Uses deployment-compatible system font constructors for cross-platform text font design. |

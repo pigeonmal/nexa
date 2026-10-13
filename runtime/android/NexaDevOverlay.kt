@@ -3,6 +3,8 @@ package __NEXA_PACKAGE__
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,6 +27,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalView
@@ -77,26 +81,31 @@ internal fun NexaDevErrorOverlay(
     val first = diagnostics.firstOrNull() ?: return
     var showDetails by remember(diagnostics) { mutableStateOf(false) }
     Surface(
-        modifier = modifier.clickable { showDetails = true },
+        modifier = modifier
+            .border(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+            .clickable { showDetails = true },
         shape = RoundedCornerShape(16.dp),
-        color = Color(0xF2221B1D),
-        tonalElevation = 8.dp,
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text("Nexa development error", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Column(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text("Nexa development error", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Text(
                 if (first.isRuntimeFailure) "Runtime error · source mapping unavailable"
                 else "${first.file.substringAfterLast('/').substringAfterLast('\\')}:${first.line}:${first.column}",
-                color = Color(0xFFFFC9C5),
+                color = MaterialTheme.colorScheme.error,
                 fontSize = 12.sp,
-                modifier = Modifier.padding(top = 2.dp),
+                fontFamily = FontFamily.Monospace,
             )
             Text(
                 first.message,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 15.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
             )
             Text(
                 when {
@@ -104,15 +113,18 @@ internal fun NexaDevErrorOverlay(
                     first.isRuntimeFailure -> "Tap to inspect stack trace"
                     else -> "Tap to inspect and open in editor"
                 },
-                color = Color(0xFFFFC9C5),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
-                modifier = Modifier.padding(top = 6.dp),
             )
         }
     }
     if (showDetails) {
         Dialog(onDismissRequest = { showDetails = false }) {
-            Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF211D23)) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ) {
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -120,25 +132,25 @@ internal fun NexaDevErrorOverlay(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    Text("Development diagnostics", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    Text("Development diagnostics", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                     diagnostics.forEach { diagnostic ->
                         Column(Modifier.padding(top = 16.dp)) {
                             if (diagnostic.isRuntimeFailure) {
-                                Text("Runtime error · source mapping unavailable", color = Color(0xFFFFC9C5), fontSize = 12.sp)
+                                Text("Runtime error · source mapping unavailable", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                             } else {
                                 Text(
                                     "${diagnostic.file}:${diagnostic.line}:${diagnostic.column}",
-                                    color = Color(0xFFFFC9C5),
+                                    color = MaterialTheme.colorScheme.error,
                                     fontSize = 12.sp,
                                 )
                             }
-                            Text(diagnostic.message, color = Color.White, modifier = Modifier.padding(top = 4.dp))
+                            Text(diagnostic.message, modifier = Modifier.padding(top = 4.dp))
                             if (diagnostic.isRuntimeFailure) {
                                 diagnostic.stackTrace?.takeIf(String::isNotBlank)?.let { stackTrace ->
                                     SelectionContainer {
                                         Text(
                                             stackTrace,
-                                            color = Color(0xFFE4DEE7),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 11.sp,
                                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                             modifier = Modifier.padding(top = 8.dp),

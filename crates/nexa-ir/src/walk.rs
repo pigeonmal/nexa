@@ -130,12 +130,20 @@ pub fn walk_ir(
             | Node::OnActive { actions }
             | Node::OnInactive { actions }
             | Node::OnBackground { actions } => walk_actions(actions, visit_expression),
-            Node::AppBottomBar { tint, tabs, .. } => {
+            Node::AppBottomBar {
+                tint,
+                tabs,
+                custom_bar,
+                ..
+            } => {
                 if let Some(crate::ColorExpression::Dynamic(color)) = tint {
                     walk_expression(color, visit_expression);
                 }
                 for tab in tabs {
                     walk_ir(&tab.children, visit_node, visit_expression);
+                }
+                if let Some(custom_bar) = custom_bar {
+                    walk_ir(custom_bar, visit_node, visit_expression);
                 }
             }
             Node::PagePager { pages, .. } => {
@@ -648,8 +656,11 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         Node::NavigationSplitView {
             sidebar, detail, ..
         } => contains_scrollable(sidebar) || contains_scrollable(detail),
-        Node::AppBottomBar { tabs, .. } => {
+        Node::AppBottomBar {
+            tabs, custom_bar, ..
+        } => {
             tabs.iter().any(|tab| contains_scrollable(&tab.children))
+                || custom_bar.as_deref().is_some_and(contains_scrollable)
         }
         Node::PagePager { pages, .. } => pages.iter().any(|page| contains_scrollable(page)),
         Node::If {
@@ -720,6 +731,9 @@ fn walk_list_plan_children(plan: &ListPlan, visit: &mut impl FnMut(&Expr)) {
         ListPlan::Items { collection, .. } | ListPlan::Sections { collection, .. } => {
             visit(collection);
         }
+    }
+    if let Some(enabled) = plan.scroll_enabled() {
+        visit(enabled);
     }
 }
 
@@ -1080,12 +1094,20 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         | Node::OnActive { actions }
         | Node::OnInactive { actions }
         | Node::OnBackground { actions } => visitor.visit_actions(actions),
-        Node::AppBottomBar { tint, tabs, .. } => {
+        Node::AppBottomBar {
+            tint,
+            tabs,
+            custom_bar,
+            ..
+        } => {
             if let Some(crate::ColorExpression::Dynamic(color)) = tint {
                 visitor.visit_expr(color);
             }
             for tab in tabs {
                 visitor.visit_nodes(&tab.children);
+            }
+            if let Some(custom_bar) = custom_bar {
+                visitor.visit_nodes(custom_bar);
             }
         }
         Node::PagePager { pages, .. } => {
@@ -1679,7 +1701,12 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::OnBackground { actions } => Some(Node::OnBackground {
             actions: folder.fold_actions(actions),
         }),
-        Node::AppBottomBar { state, tint, tabs } => Some(Node::AppBottomBar {
+        Node::AppBottomBar {
+            state,
+            tint,
+            tabs,
+            custom_bar,
+        } => Some(Node::AppBottomBar {
             state,
             tint: tint.map(|tint| match tint {
                 crate::ColorExpression::Dynamic(color) => {
@@ -1703,6 +1730,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                     children: folder.fold_nodes(tab.children),
                 })
                 .collect(),
+            custom_bar: custom_bar.map(|nodes| folder.fold_nodes(nodes)),
         }),
         Node::PagePager { state, pages } => Some(Node::PagePager {
             state,
@@ -1712,7 +1740,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 .collect(),
         }),
         Node::FastList { plan } => Some(Node::FastList {
-            plan: fold_list_plan(plan, folder),
+            plan: Box::new(fold_list_plan(*plan, folder)),
         }),
         Node::If {
             condition,
@@ -1916,6 +1944,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             placeholder,
             show_loading_indicator,
             max_height,
+            fill_max_size,
             shared_element,
         } => Some(Node::Image {
             source: match source {
@@ -1932,6 +1961,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             placeholder,
             show_loading_indicator,
             max_height,
+            fill_max_size,
             shared_element: shared_element.map(|id| folder.fold_expr(id)),
         }),
         Node::Content
@@ -1966,6 +1996,9 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
             count: folder.fold_expr(count),
             common: ListCommon {
                 key: common.key.map(|k| folder.fold_expr(k)),
+                scroll_enabled: common
+                    .scroll_enabled
+                    .map(|enabled| folder.fold_expr(enabled)),
                 children: folder.fold_nodes(common.children),
                 on_end_reached: common.on_end_reached.map(|a| folder.fold_actions(a)),
                 on_scroll: common.on_scroll.map(|a| folder.fold_actions(a)),
@@ -1995,6 +2028,9 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
             item,
             common: ListCommon {
                 key: common.key.map(|k| folder.fold_expr(k)),
+                scroll_enabled: common
+                    .scroll_enabled
+                    .map(|enabled| folder.fold_expr(enabled)),
                 children: folder.fold_nodes(common.children),
                 on_end_reached: common.on_end_reached.map(|a| folder.fold_actions(a)),
                 on_scroll: common.on_scroll.map(|a| folder.fold_actions(a)),
@@ -2026,6 +2062,9 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
             item,
             common: SectionedListCommon {
                 key: common.key.map(|k| folder.fold_expr(k)),
+                scroll_enabled: common
+                    .scroll_enabled
+                    .map(|enabled| folder.fold_expr(enabled)),
                 children: folder.fold_nodes(common.children),
                 section_header: common.section_header.map(|h| folder.fold_nodes(h)),
                 swipe_actions: common.swipe_actions.map(|nodes| folder.fold_nodes(nodes)),

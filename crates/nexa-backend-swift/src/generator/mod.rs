@@ -362,7 +362,6 @@ struct NexaTextPrimitive: View {
             .font(style.font)
             .fontWeight(style.weight)
             .foregroundStyle(style.color ?? Color.primary)
-            .multilineTextAlignment(style.alignment ?? .leading)
             .lineLimit(style.lineLimit)
             .tracking(style.tracking ?? 0)
             .strikethrough(style.strikethrough)
@@ -370,9 +369,17 @@ struct NexaTextPrimitive: View {
             .underline(style.underline)
             .__NEXA_TEXT_LINE_HEIGHT_MODIFIER__
         if style.selectable {
-            styledText.textSelection(.enabled)
+            if let alignment = style.alignment {
+                styledText.multilineTextAlignment(alignment).textSelection(.enabled)
+            } else {
+                styledText.textSelection(.enabled)
+            }
         } else {
-            styledText
+            if let alignment = style.alignment {
+                styledText.multilineTextAlignment(alignment)
+            } else {
+                styledText
+            }
         }
     }
 }
@@ -569,7 +576,7 @@ private struct NexaSharedBorderedButtonStyle: ButtonStyle {
         let padding: (horizontal: CGFloat, vertical: CGFloat) = switch size {
         case .small: (CGFloat(__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__), CGFloat(__NEXA_BUTTON_SMALL_VERTICAL_PADDING__))
         case .large: (CGFloat(__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__), CGFloat(__NEXA_BUTTON_LARGE_VERTICAL_PADDING__))
-        case .regular, nil: (8, 8)
+        case .regular, nil: (CGFloat(__NEXA_BUTTON_DEFAULT_HORIZONTAL_PADDING__), CGFloat(__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__))
         }
         let contentColor = isEnabled ? tint : tint.opacity(0.38)
         let borderColor = isEnabled ? tint : tint.opacity(0.12)
@@ -633,6 +640,35 @@ private extension View {
     }
 }
 
+private struct NexaSharedProminentButtonStyle: ButtonStyle {
+    let tint: Color
+    let shape: NexaSharedButtonOutline
+    let size: NexaSharedButtonSizeKind?
+    let iconOnlyCircle: Bool
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let padding: (horizontal: CGFloat, vertical: CGFloat) = switch size {
+        case .small: (CGFloat(__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__), CGFloat(__NEXA_BUTTON_SMALL_VERTICAL_PADDING__))
+        case .large: (CGFloat(__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__), CGFloat(__NEXA_BUTTON_LARGE_VERTICAL_PADDING__))
+        case .regular, nil: (CGFloat(__NEXA_BUTTON_DEFAULT_HORIZONTAL_PADDING__), CGFloat(__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__))
+        }
+        let contentColor = isEnabled ? Color.white : Color.primary.opacity(0.38)
+        let containerColor = isEnabled ? tint : Color.primary.opacity(0.12)
+        let minWidth = iconOnlyCircle ? CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__) : CGFloat(__NEXA_BUTTON_MIN_WIDTH__)
+        let minHeight = size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)
+        configuration.label
+            .foregroundStyle(contentColor)
+            .padding(.horizontal, iconOnlyCircle ? 0 : padding.horizontal)
+            .padding(.vertical, iconOnlyCircle ? 0 : padding.vertical)
+            .frame(minWidth: minWidth, minHeight: minHeight)
+            .background(containerColor, in: shape)
+            .overlay(shape.fill(Color.white.opacity(configuration.isPressed && isEnabled ? 0.10 : 0)))
+            .contentShape(shape)
+    }
+}
+
 // nexa-codegen: NexaButtonPrimitive
 struct NexaButtonPrimitive<Label: View>: View {
     let style: NexaSharedButtonStyleKind
@@ -642,6 +678,7 @@ struct NexaButtonPrimitive<Label: View>: View {
     let loading: Bool
     let disabled: Bool
     let glass: Bool
+    let iconOnlyCircle: Bool
     let action: () -> Void
     private let label: Label
 
@@ -653,6 +690,7 @@ struct NexaButtonPrimitive<Label: View>: View {
         loading: Bool,
         disabled: Bool,
         glass: Bool,
+        iconOnlyCircle: Bool,
         action: @escaping () -> Void,
         @ViewBuilder label: () -> Label
     ) {
@@ -663,6 +701,7 @@ struct NexaButtonPrimitive<Label: View>: View {
         self.loading = loading
         self.disabled = disabled
         self.glass = glass
+        self.iconOnlyCircle = iconOnlyCircle
         self.action = action
         self.label = label()
     }
@@ -704,12 +743,15 @@ struct NexaButtonPrimitive<Label: View>: View {
                 .buttonStyle(NexaSharedBorderedButtonStyle(tint: tint, shape: outline, size: size))
                 .modifier(NexaSharedGlassModifier(enabled: glass, tint: self.tint, shape: shape))
         case .borderedProminent:
-            platformSize(
-                Button(action: action) { labelContent }
-                    .disabled(disabled || loading)
-                    .buttonStyle(.borderedProminent)
-                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
-            )
+            Button(action: action) { labelContent }
+                .disabled(disabled || loading)
+                .buttonStyle(NexaSharedProminentButtonStyle(
+                    tint: tint ?? Color(uiColor: .systemBlue),
+                    shape: NexaSharedButtonOutline(kind: shape),
+                    size: size,
+                    iconOnlyCircle: iconOnlyCircle
+                ))
+                .modifier(NexaSharedGlassModifier(enabled: glass, tint: tint, shape: shape))
         case .borderless:
             platformSize(
                 Button(action: action) { labelContent }
@@ -768,9 +810,10 @@ struct NexaDividerPrimitive: View {
     let thickness: CGFloat
 
     var body: some View {
-        Divider()
-            .overlay(color)
-            .frame(height: thickness)
+        Rectangle()
+            .fill(color)
+            .frame(maxWidth: .infinity)
+            .frame(height: max(0, thickness))
     }
 }
 
@@ -855,21 +898,25 @@ struct NexaContentUnavailablePrimitive: View {
 // nexa-codegen: NexaColumnPrimitive
 struct NexaColumnPrimitive<Content: View>: View {
     let alignment: HorizontalAlignment
+    let textAlignment: TextAlignment
     let spacing: CGFloat
     private let content: Content
 
     init(
         alignment: HorizontalAlignment = .center,
+        textAlignment: TextAlignment = .center,
         spacing: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) {
         self.alignment = alignment
+        self.textAlignment = textAlignment
         self.spacing = spacing
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: alignment, spacing: spacing) { content }
+            .multilineTextAlignment(textAlignment)
     }
 }
 
@@ -909,16 +956,43 @@ struct NexaStackPrimitive<Content: View>: View {
     }
 }
 
-// nexa-codegen: NexaNativeListPrimitive
-struct NexaNativeListPrimitive<Content: View>: View {
+// Keep Stack's source order explicit in both drawing and hit testing. This
+// matters when an earlier child hosts UIKit content (for example FastList)
+// that otherwise captures touches intended for a later overlay child.
+struct NexaStackLayer<Content: View>: View {
+    let order: Double
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    init(order: Int, @ViewBuilder content: () -> Content) {
+        self.order = Double(order)
+        self.content = content()
+    }
+
+    var body: some View {
+        content.zIndex(order)
+    }
+}
+
+// nexa-codegen: NexaNativeListPrimitive
+struct NexaNativeListPrimitive<Content: View>: View {
+    private let spacing: CGFloat
+    private let scrollEnabled: Bool
+    private let content: Content
+
+    init(
+        spacing: CGFloat = 0,
+        scrollEnabled: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.spacing = spacing
+        self.scrollEnabled = scrollEnabled
         self.content = content()
     }
 
     var body: some View {
         List { content }
+            .listRowSpacing(spacing)
+            .scrollDisabled(!scrollEnabled)
             .modifier(NexaNativeListStyleModifier())
     }
 }
@@ -987,7 +1061,7 @@ struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View
         Section {
             content
         } header: {
-            header
+            header.foregroundStyle(.secondary)
         } footer: {
             footer
         }
@@ -1490,6 +1564,14 @@ fn shared_component_primitives(line_height: bool) -> String {
         (
             "__NEXA_BUTTON_LARGE_VERTICAL_PADDING__",
             nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_DEFAULT_HORIZONTAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_DEFAULT_HORIZONTAL_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_DEFAULT_VERTICAL_PADDING.to_string(),
         ),
         (
             "__NEXA_BUTTON_MIN_WIDTH__",
@@ -2260,6 +2342,9 @@ mod tests {
         let primitives = shared_component_primitives(false);
 
         assert!(primitives.contains("struct NexaButtonPrimitive<Label: View>"));
+        assert!(primitives.contains("private struct NexaSharedProminentButtonStyle: ButtonStyle"));
+        assert!(primitives.contains("NexaSharedProminentButtonStyle("));
+        assert!(primitives.contains("CGFloat(8)"));
         assert!(primitives.contains("struct NexaFormPrimitive<Content: View>"));
         assert!(primitives.contains(
             "struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>"
@@ -2273,6 +2358,23 @@ mod tests {
             !primitives.contains("__NEXA_"),
             "unresolved design token in helper source"
         );
+    }
+
+    #[test]
+    fn form_section_heading_uses_the_secondary_label_style() {
+        let primitives = shared_component_primitives(false);
+
+        assert!(primitives.contains("header.foregroundStyle(.secondary)"));
+    }
+
+    #[test]
+    fn text_alignment_inherits_column_default_when_not_explicit() {
+        let primitives = shared_component_primitives(false);
+
+        assert!(primitives.contains("if let alignment = style.alignment"));
+        assert!(primitives.contains("styledText.multilineTextAlignment(alignment)"));
+        assert!(!primitives.contains("style.alignment ?? .leading"));
+        assert!(primitives.contains(".multilineTextAlignment(textAlignment)"));
     }
 
     #[test]
@@ -2317,6 +2419,15 @@ mod tests {
         assert!(primitives.contains("struct NexaPageIndicatorRow: View"));
         assert!(primitives.contains("HStack(spacing: 8)"));
         assert!(primitives.contains(".padding(.bottom, 24)"));
+    }
+
+    #[test]
+    fn divider_primitive_renders_the_requested_thickness() {
+        let primitives = shared_component_primitives(false);
+
+        assert!(primitives.contains("Rectangle()"));
+        assert!(primitives.contains(".fill(color)"));
+        assert!(primitives.contains(".frame(height: max(0, thickness))"));
     }
 
     #[test]
@@ -2641,7 +2752,7 @@ mod tests {
             screens: Vec::new(),
             components: Vec::new(),
             body: vec![Node::FastList {
-                plan: ListPlan::Count {
+                plan: Box::new(ListPlan::Count {
                     count: Expr::Number {
                         raw: "3".to_owned(),
                         ty: NumericType::Int32,
@@ -2665,8 +2776,10 @@ mod tests {
                         swipe_actions: None,
                         sticky_header: None,
                         refresh: None,
+                        spacing: 0.0,
+                        scroll_enabled: None,
                     },
-                },
+                }),
             }],
             status_bar: None,
             direction: None,
@@ -2680,8 +2793,30 @@ mod tests {
 
         let swift = generate(&module);
         assert!(swift.contains("pageSnap: true"));
+        assert!(swift.contains("onScroll: nil,"));
+        let page_snap_call = swift
+            .split("NexaSwiftUIPageSnapList(")
+            .nth(1)
+            .expect("iOS 17 page-snapping list should be emitted");
+        let scroll_enabled = page_snap_call
+            .find("scrollEnabled: scrollEnabled")
+            .expect("page-snapping list should forward scrollEnabled");
+        let scroll_position_changed = page_snap_call
+            .find("onScrollPositionChanged: onScrollPositionChanged")
+            .expect("page-snapping list should forward its position callback");
+        let refresh = page_snap_call
+            .find("onRefresh: onRefresh")
+            .expect("page-snapping list should forward its refresh callback");
+        assert!(
+            scroll_enabled < scroll_position_changed && scroll_position_changed < refresh,
+            "the generated initializer call must follow the Swift parameter declaration order"
+        );
         assert!(swift.contains("tableView.isPagingEnabled = pageSnap"));
         assert!(swift.contains("tableView.rowHeight = height"));
+        assert!(swift.contains("height: pageSnap ? pageHeight : nil"));
+        assert!(
+            swift.contains("return pageHeight > 0 ? pageHeight : max(tableView.bounds.height, 1)")
+        );
         assert!(swift.contains("func scrollViewDidEndDecelerating(_ scrollView: UIScrollView)"));
         assert!(swift.contains("guard !pageSnap else { return }"));
         assert!(!swift.contains("onScroll?()"));
@@ -2703,7 +2838,7 @@ mod tests {
             screens: Vec::new(),
             components: Vec::new(),
             body: vec![Node::FastList {
-                plan: ListPlan::Count {
+                plan: Box::new(ListPlan::Count {
                     count: Expr::Number {
                         raw: "3".to_owned(),
                         ty: NumericType::Int32,
@@ -2727,8 +2862,10 @@ mod tests {
                         swipe_actions: None,
                         sticky_header: None,
                         refresh: None,
+                        spacing: 0.0,
+                        scroll_enabled: None,
                     },
-                },
+                }),
             }],
             status_bar: None,
             direction: None,
@@ -2745,6 +2882,18 @@ mod tests {
         assert!(swift.contains("ForEach(0..<(max(0, Int(3))), id: \\.self)"));
         assert!(!swift.contains("NexaFastList("));
         assert!(!swift.contains("import UIKit"));
+
+        let mut disabled_module = module.clone();
+        let Node::FastList { plan } = &mut disabled_module.body[0] else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let ListPlan::Count { common, .. } = plan.as_mut() else {
+            panic!("expected the count-backed FastList plan");
+        };
+        common.scroll_enabled = Some(Expr::Bool(false));
+        let disabled_swift = generate(&disabled_module);
+        assert!(disabled_swift.contains("NexaNativeListPrimitive(scrollEnabled: false)"));
+        assert!(disabled_swift.contains(".scrollDisabled(!scrollEnabled)"));
     }
 
     #[test]
@@ -2756,6 +2905,7 @@ mod tests {
             placeholder: None,
             show_loading_indicator: false,
             max_height: None,
+            fill_max_size: false,
             shared_element: Some(Expr::String("hero-image".to_owned())),
         };
         let module = Module {

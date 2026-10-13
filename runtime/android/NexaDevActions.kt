@@ -26,6 +26,7 @@ internal fun NexaDevStateStore.perform(actions: JSONArray, scope: String, locals
 }
 
 internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String, locals: Map<String, Any>): NexaDevActionFlow {
+    val actionLocals = locals.toMutableMap()
     for (index in 0 until actions.length()) {
         if (pendingPluginFailure != null) return NexaDevActionFlow.Normal
         val raw = actions.opt(index)
@@ -35,41 +36,48 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
             continue
         }
         val action = raw as? JSONObject ?: continue
+        val binding = action.optJSONObject("Let")
+        if (binding != null) {
+            val name = binding.optString("name")
+            if (name.isNotEmpty()) actionLocals[name] = evaluate(binding.opt("value"), actionLocals, scope)
+            continue
+        }
         val assign = action.optJSONObject("Assign")
         if (assign != null) {
             val name = assign.optString("name")
-            val nextValue = evaluate(assign.opt("value"), locals, scope)
+            val nextValue = evaluate(assign.opt("value"), actionLocals, scope)
             setState(name, nextValue, scope)
+            actionLocals[name] = nextValue
             moduleRevision++
             continue
         }
         val expression = action.opt("Expression")
         if (expression != null) {
-            evaluate(expression, locals, scope)
+            evaluate(expression, actionLocals, scope)
             continue
         }
         val branch = action.optJSONObject("If")
         if (branch != null) {
-            val selected = if (truthy(evaluate(branch.opt("condition"), locals, scope))) {
+            val selected = if (truthy(evaluate(branch.opt("condition"), actionLocals, scope))) {
                 branch.optJSONArray("then_branch")
             } else {
                 branch.optJSONArray("else_branch")
             }
-            val flow = performActions(selected ?: JSONArray(), scope, locals)
+            val flow = performActions(selected ?: JSONArray(), scope, actionLocals)
             if (flow != NexaDevActionFlow.Normal) return flow
             continue
         }
         val loop = action.optJSONObject("For")
         if (loop != null) {
             val name = loop.optString("name")
-            val iterable = evaluate(loop.opt("iterable"), locals, scope)
+            val iterable = evaluate(loop.opt("iterable"), actionLocals, scope)
             val items = when (iterable) {
                 is List<*> -> iterable
                 is Set<*> -> iterable.toList()
                 else -> emptyList<Any?>()
             }
             iteration@ for (item in items) {
-                val nextLocals = locals.toMutableMap()
+                val nextLocals = actionLocals.toMutableMap()
                 nextLocals[name] = item.orNullValue()
                 when (performActions(loop.optJSONArray("body") ?: JSONArray(), scope, nextLocals)) {
                     NexaDevActionFlow.Break -> break@iteration
@@ -82,10 +90,10 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         if (mapLoop != null) {
             val keyName = mapLoop.optString("key_name")
             val valueName = mapLoop.optString("value_name")
-            val iterable = evaluate(mapLoop.opt("iterable"), locals, scope)
+            val iterable = evaluate(mapLoop.opt("iterable"), actionLocals, scope)
             val map = iterable as? Map<*, *> ?: emptyMap<Any?, Any?>()
             iteration@ for ((key, value) in map) {
-                val nextLocals = locals.toMutableMap()
+                val nextLocals = actionLocals.toMutableMap()
                 nextLocals[keyName] = key.orNullValue()
                 nextLocals[valueName] = value.orNullValue()
                 when (performActions(mapLoop.optJSONArray("body") ?: JSONArray(), scope, nextLocals)) {
@@ -98,8 +106,8 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         val whileLoop = action.optJSONObject("While")
         if (whileLoop != null) {
             var iterations = 0
-            iteration@ while (iterations++ < 10_000 && truthy(evaluate(whileLoop.opt("condition"), locals, scope))) {
-                when (performActions(whileLoop.optJSONArray("body") ?: JSONArray(), scope, locals)) {
+            iteration@ while (iterations++ < 10_000 && truthy(evaluate(whileLoop.opt("condition"), actionLocals, scope))) {
+                when (performActions(whileLoop.optJSONArray("body") ?: JSONArray(), scope, actionLocals)) {
                     NexaDevActionFlow.Break -> break@iteration
                     NexaDevActionFlow.Continue, NexaDevActionFlow.Normal -> Unit
                 }
@@ -108,9 +116,9 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         }
         val nativeAssignment = action.optJSONObject("NativePropertyAssign")
         if (nativeAssignment != null) {
-            val receiver = evaluate(nativeAssignment.opt("receiver"), locals, scope)
+            val receiver = evaluate(nativeAssignment.opt("receiver"), actionLocals, scope)
             val property = nativeAssignment.optString("property")
-            val value = evaluate(nativeAssignment.opt("value"), locals, scope)
+            val value = evaluate(nativeAssignment.opt("value"), actionLocals, scope)
             if (!NexaDevPluginBridge.writeInstanceProperty(receiver, property, value)) {
                 android.util.Log.w("NexaDevRuntime", "Native property write is unsupported: $property")
             }
@@ -118,7 +126,7 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         }
         val subscription = action.optJSONObject("NativeEventSubscribe")
         if (subscription != null) {
-            val receiver = evaluate(subscription.opt("receiver"), locals, scope)
+            val receiver = evaluate(subscription.opt("receiver"), actionLocals, scope)
             val property = subscription.optString("property")
             if (!subscribeNativeEvent(
                 receiver = receiver,
@@ -126,7 +134,7 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
                 actions = subscription.optJSONArray("actions") ?: JSONArray(),
                 parameterNames = subscription.optJSONArray("parameters") ?: JSONArray(),
                 scope = scope,
-                locals = locals,
+                locals = actionLocals,
             )) {
                 android.util.Log.w("NexaDevRuntime", "Native event subscription is unsupported: $property")
             }
@@ -140,7 +148,7 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
                     parameter = parameter,
                     actions = networkSubscription.optJSONArray("actions") ?: JSONArray(),
                     scope = scope,
-                    locals = locals,
+                    locals = actionLocals,
                 )
             }
             continue
@@ -152,7 +160,7 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
                 executor = taskLaunch.optString("executor"),
                 actions = taskLaunch.optJSONArray("actions") ?: JSONArray(),
                 scope = scope,
-                locals = locals,
+                locals = actionLocals,
             )
             continue
         }
@@ -163,19 +171,19 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         }
         val withAnimation = action.optJSONObject("WithAnimation")
         if (withAnimation != null) {
-            val flow = performWithAnimation(withAnimation, scope, locals)
+            val flow = performWithAnimation(withAnimation, scope, actionLocals)
             if (flow != NexaDevActionFlow.Normal) return flow
             continue
         }
         val mutation = action.optJSONObject("CollectionMutation")
         if (mutation != null) {
-            mutateCollection(mutation, scope, locals)
+            mutateCollection(mutation, scope, actionLocals)
             continue
         }
         val tryCatch = action.optJSONObject("TryCatch")
         if (tryCatch != null) {
             pendingPluginFailure = null
-            val flow = performActions(tryCatch.optJSONArray("body") ?: JSONArray(), scope, locals)
+            val flow = performActions(tryCatch.optJSONArray("body") ?: JSONArray(), scope, actionLocals)
             if (flow != NexaDevActionFlow.Normal) return flow
             val failure = pendingPluginFailure
             pendingPluginFailure = null
@@ -184,14 +192,14 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
                     failure,
                     tryCatch.optJSONArray("error_catches") ?: JSONArray(),
                     scope,
-                    locals,
+                    actionLocals,
                 )
                 if (caught != null) {
                     if (caught != NexaDevActionFlow.Normal) return caught
                 } else {
                     val catchBody = tryCatch.optJSONArray("catch_body")
                     if (catchBody != null) {
-                        val catchFlow = performActions(catchBody, scope, locals)
+                        val catchFlow = performActions(catchBody, scope, actionLocals)
                         if (catchFlow != NexaDevActionFlow.Normal) return catchFlow
                     } else {
                         pendingPluginFailure = failure

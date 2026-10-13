@@ -85,20 +85,20 @@ struct NexaDevErrorOverlay: View {
             } label: {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Nexa development error")
-                        .font(.subheadline.weight(.semibold))
-                    Text(diagnostic.isRuntimeFailure ? "Runtime error · source mapping unavailable" : diagnostic.sourceLocation)
-                        .font(.caption.monospaced())
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(diagnostic.isRuntimeFailure ? "Runtime error · source mapping unavailable" : diagnostic.compactSourceLocation)
+                        .font(.system(size: 12, weight: .regular, design: .monospaced))
                         .foregroundStyle(.red)
                     Text(diagnostic.message)
-                        .font(.subheadline)
+                        .font(.system(size: 15))
                         .lineLimit(2)
                     Text(diagnostics.count > 1 ? "\(diagnostics.count) errors · tap to inspect" : (diagnostic.isRuntimeFailure ? "Tap to inspect stack trace" : "Tap to inspect and open in editor"))
-                        .font(.caption)
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16))
                 .overlay {
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(.red.opacity(0.35), lineWidth: 1)

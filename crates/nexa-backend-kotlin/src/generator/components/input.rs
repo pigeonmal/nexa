@@ -84,7 +84,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.ui.text.input.KeyboardType as NativeKeyboardType",
     );
     imports.add(
-        features.uses_text_input_submit,
+        features.uses_text_input || features.uses_text_input_submit,
         "androidx.compose.ui.text.input.ImeAction",
     );
     imports.add(

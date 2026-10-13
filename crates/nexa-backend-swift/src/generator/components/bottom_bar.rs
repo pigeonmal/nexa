@@ -170,6 +170,7 @@ pub(crate) fn render_app_bottom_bar(
     state: &str,
     tint: Option<&nexa_ir::ColorExpression>,
     tabs: &[BottomBarTab],
+    custom_bar: Option<&[Node]>,
     module: &Module,
     features: &Features,
     depth: usize,
@@ -191,8 +192,18 @@ pub(crate) fn render_app_bottom_bar(
     }
     indent(out, depth + 1);
     out.push_str(&format!(
-        "}}.modifier(NexaAppBottomBarPrimitive(tint: {tint}, adaptiveStyle: true, activatesSearchTab: {activates_search}))"
+        "}}.modifier(NexaAppBottomBarPrimitive(tint: {tint}, adaptiveStyle: {}, activatesSearchTab: {activates_search}))",
+        custom_bar.is_none()
     ));
+    if let Some(custom_bar) = custom_bar {
+        out.push_str(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom, spacing: 0) {");
+        out.push('\n');
+        for child in custom_bar {
+            crate::generator::components::render_node(child, module, features, depth + 2, out);
+            out.push('\n');
+        }
+        out.line_at(depth + 1, format_args!("}}"));
+    }
     render_app_tab_navigation_modifiers(state, tabs, module, features, depth + 1, out);
     out.push('\n');
     out.line_at(depth, format_args!("}} else {{"));
@@ -208,6 +219,15 @@ pub(crate) fn render_app_bottom_bar(
     out.push_str(&format!(
         ".modifier(NexaAppBottomBarPrimitive(tint: {tint}, adaptiveStyle: false, activatesSearchTab: false))"
     ));
+    if let Some(custom_bar) = custom_bar {
+        out.push_str(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom, spacing: 0) {");
+        out.push('\n');
+        for child in custom_bar {
+            crate::generator::components::render_node(child, module, features, depth + 2, out);
+            out.push('\n');
+        }
+        out.line_at(depth + 1, format_args!("}}"));
+    }
     render_app_tab_navigation_modifiers(state, tabs, module, features, depth + 1, out);
     out.push('\n');
     out.line_at(depth, format_args!("}}"));
@@ -425,6 +445,7 @@ mod tests {
                 state: "selectedTab".to_owned(),
                 tint: None,
                 tabs: vec![tab],
+                custom_bar: None,
             }],
             status_bar: None,
             direction: None,
@@ -475,6 +496,7 @@ mod tests {
                 Node::AppBottomBar { tabs, .. } => tabs,
                 _ => unreachable!(),
             },
+            None,
             &module,
             &Features::default(),
             0,
@@ -494,7 +516,13 @@ mod tests {
     #[test]
     fn titled_tabs_use_the_shared_navigation_title_mode_primitive() {
         let module = empty_module_with_search_tab();
-        let Node::AppBottomBar { state, tint, tabs } = &module.body[0] else {
+        let Node::AppBottomBar {
+            state,
+            tint,
+            tabs,
+            custom_bar,
+        } = &module.body[0]
+        else {
             unreachable!("test module contains an app bottom bar")
         };
         let mut output = SourceWriter::new();
@@ -502,6 +530,7 @@ mod tests {
             state,
             tint.as_ref(),
             tabs,
+            custom_bar.as_deref(),
             &module,
             &Features::default(),
             0,
@@ -510,5 +539,35 @@ mod tests {
 
         assert!(output.contains(".modifier(NexaAppTabNavigationTitlePrimitive(title:"));
         assert!(output.contains("large: true))"));
+    }
+
+    #[test]
+    fn custom_tab_bar_hides_native_chrome_but_keeps_the_tab_view() {
+        let module = empty_module_with_search_tab();
+        let tab = match &module.body[0] {
+            Node::AppBottomBar { tabs, .. } => tabs,
+            _ => unreachable!(),
+        };
+        let custom_bar = vec![Node::Text {
+            value: nexa_ir::Expr::String("Custom bar".to_owned()),
+            style: nexa_ir::TextStyle::default(),
+        }];
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            tab,
+            Some(&custom_bar),
+            &module,
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("TabView(selection: $nexa_selectedTab)"));
+        assert!(output.contains(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom"));
+        assert!(output.contains("Text(\"Custom bar\")"));
+        assert!(output.contains("adaptiveStyle: false"));
     }
 }

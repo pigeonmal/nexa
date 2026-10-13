@@ -122,6 +122,23 @@ private func nexaDevTransition(_ raw: Any?) -> AnyTransition? {
     }
 }
 
+private struct NexaDevFastListBounceBehavior: ViewModifier {
+    let axes: Axis.Set
+    let allowsShortContentBounce: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.scrollBounceBehavior(
+                allowsShortContentBounce ? .always : .basedOnSize,
+                axes: axes
+            )
+        } else {
+            content
+        }
+    }
+}
+
 private func nexaDevUsesIconOnlyButtonLabel(_ rawLabel: Any?, comment: Any?) -> Bool {
     guard comment == nil || comment is NSNull,
           let expression = rawLabel as? [String: Any]
@@ -252,6 +269,7 @@ enum NexaDevFastListAxis {
     case vertical
     case horizontal
     case grid(Int)
+    case adaptiveGrid(Int)
 
     var scrollAxis: Axis.Set {
         if case .horizontal = self { return .horizontal }
@@ -262,7 +280,7 @@ enum NexaDevFastListAxis {
         switch self {
         case .vertical: .top
         case .horizontal: .leading
-        case .grid: .topLeading
+        case .grid, .adaptiveGrid: .topLeading
         }
     }
 
@@ -286,7 +304,9 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     let axis: NexaDevFastListAxis
     let reverseLayout: Bool
     let pageSnap: Bool
+    let scrollEnabled: Bool
     let rowHeight: Double?
+    let spacing: Double
     let scrollPosition: Int?
     let sectionCounts: [Int]?
     let rowKey: ((Int, Int, Int) -> AnyHashable)?
@@ -324,8 +344,9 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
 
     @ViewBuilder
     var body: some View {
+        Group {
         if native {
-            NexaNativeListPrimitive {
+            NexaNativeListPrimitive(spacing: CGFloat(spacing), scrollEnabled: scrollEnabled) {
                 if let sectionCounts {
                     ForEach(sectionCounts.indices, id: \.self) { sectionIndex in
                         let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
@@ -363,10 +384,12 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                     }
                 }
             }
-        } else if case .vertical = axis, sectionCounts == nil, onMove == nil {
+        } else if case .vertical = axis, sectionCounts == nil, onMove == nil, !pageSnap {
             NexaFastListPrimitive(
                 rowCount: count,
                 rowHeight: rowHeight.map { CGFloat($0) },
+                spacing: CGFloat(spacing),
+                scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 reverseLayout: reverseLayout,
                 pageSnap: pageSnap,
@@ -386,6 +409,8 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
             NexaFastHorizontalListPrimitive(
                 rowCount: count,
                 itemExtent: rowHeight.map { CGFloat($0) },
+                spacing: CGFloat(spacing),
+                scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 scrollPosition: scrollPosition.map(Int32.init),
                 onScrollPositionChanged: { position in
@@ -403,6 +428,28 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 rowCount: count,
                 columns: columns,
                 itemHeight: rowHeight.map { CGFloat($0) },
+                spacing: CGFloat(spacing),
+                scrollEnabled: scrollEnabled,
+                rowKey: rowKey.map { key in { index in key(index, 0, index) } },
+                scrollPosition: scrollPosition.map(Int32.init),
+                onScrollPositionChanged: { position in
+                    latestPosition = position
+                    onScrollPositionChanged(position)
+                },
+                isRefreshing: isRefreshing,
+                onRefresh: onRefresh,
+                onEndReached: onEndReached.map { callback in { callback(latestPosition) } },
+                onScroll: onScroll.map { callback in { callback(latestPosition) } },
+                rowContent: { index in row(index, 0, index) }
+            )
+        } else if case let .adaptiveGrid(minCellWidth) = axis, sectionCounts == nil {
+            NexaFastGridListPrimitive(
+                rowCount: count,
+                columns: 1,
+                minCellWidth: CGFloat(minCellWidth),
+                itemHeight: rowHeight.map { CGFloat($0) },
+                spacing: CGFloat(spacing),
+                scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 scrollPosition: scrollPosition.map(Int32.init),
                 onScrollPositionChanged: { position in
@@ -420,6 +467,8 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 sectionCount: sectionCounts.count,
                 sectionCounts: sectionCounts,
                 rowHeight: rowHeight.map { CGFloat($0) },
+                spacing: CGFloat(spacing),
+                scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in
                     { sectionIndex, itemIndex in
                         let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
@@ -443,15 +492,29 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 .moveDisabled(!moveEnabled)
             }
         } else if pageSnap {
-            GeometryReader { _ in
-                NexaDevPageSnapList(
-                    count: count,
+            if #available(iOS 17.0, *) {
+                NexaSwiftUIPageSnapList(
+                    rowCount: count,
                     scrollPosition: scrollPosition,
-                    row: row,
+                    scrollEnabled: scrollEnabled,
                     onScrollPositionChanged: onScrollPositionChanged,
+                    onRefresh: onRefresh,
                     onScroll: onScroll,
-                    onEndReached: onEndReached
+                    onEndReached: onEndReached,
+                    rowContent: { index in row(index, 0, index) }
                 )
+            } else {
+                GeometryReader { _ in
+                    NexaDevPageSnapList(
+                        count: count,
+                        scrollPosition: scrollPosition,
+                        scrollEnabled: scrollEnabled,
+                        row: row,
+                        onScrollPositionChanged: onScrollPositionChanged,
+                        onScroll: onScroll,
+                        onEndReached: onEndReached
+                    )
+                }
             }
         } else {
             if case .horizontal = axis {
@@ -476,6 +539,8 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 }
             }
         }
+        }
+        .scrollDisabled(!scrollEnabled)
     }
 
     private func scrollView(proxy: ScrollViewProxy, viewportSize: CGSize) -> some View {
@@ -485,6 +550,10 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
         .refreshable {
             onRefresh?()
         }
+        .modifier(NexaDevFastListBounceBehavior(
+            axes: axis.scrollAxis,
+            allowsShortContentBounce: onRefresh != nil
+        ))
         .coordinateSpace(name: "nexa-dev-fast-list")
         .onAppear {
             if let scrollPosition, (0..<count).contains(scrollPosition) {
@@ -585,16 +654,26 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 }
             }
         case .horizontal:
-            LazyHStack(alignment: .top, spacing: 0) {
+            LazyHStack(alignment: .top, spacing: CGFloat(spacing)) {
                 ForEach(0..<count, id: \.self) { index in
                     listItem(index, section: 0, item: index, horizontal: true)
                 }
             }
         case let .grid(columns):
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: max(1, columns)),
+                columns: Array(repeating: GridItem(.flexible(), spacing: CGFloat(spacing)), count: max(1, columns)),
                 alignment: .leading,
-                spacing: 0
+                spacing: CGFloat(spacing)
+            ) {
+                ForEach(0..<count, id: \.self) { index in
+                    listItem(index, section: 0, item: index, horizontal: false)
+                }
+            }
+        case let .adaptiveGrid(minCellWidth):
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: CGFloat(max(1, minCellWidth))), spacing: CGFloat(spacing))],
+                alignment: .leading,
+                spacing: CGFloat(spacing)
             ) {
                 ForEach(0..<count, id: \.self) { index in
                     listItem(index, section: 0, item: index, horizontal: false)
@@ -604,10 +683,19 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     }
 
     private func listItem(_ index: Int, section: Int, item: Int, horizontal: Bool) -> some View {
-        row(index, section, item)
+        let sectionRowCount = sectionCounts.flatMap { counts in
+            counts.indices.contains(section) ? counts[section] : nil
+        } ?? count
+        let usesVerticalSpacing: Bool = {
+            if case .vertical = axis { return true }
+            return false
+        }()
+        return row(index, section, item)
             .frame(minWidth: horizontal ? rowHeight.map { CGFloat($0) } : nil)
             .frame(minHeight: horizontal ? nil : rowHeight.map { CGFloat($0) })
             .frame(maxWidth: horizontal ? nil : .infinity, alignment: .leading)
+            .padding(.top, usesVerticalSpacing && item > 0 ? CGFloat(spacing) / 2 : 0)
+            .padding(.bottom, usesVerticalSpacing && item + 1 < sectionRowCount ? CGFloat(spacing) / 2 : 0)
             .id(index)
             .onAppear {
                 guard (reverseLayout ? index == 0 : index >= count - 1), !didReachEnd else { return }
@@ -641,6 +729,7 @@ private final class NexaDevPageSnapTableView: UITableView {
 private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
     let count: Int
     let scrollPosition: Int?
+    let scrollEnabled: Bool
     let row: (Int, Int, Int) -> RowContent
     let onScrollPositionChanged: (Int) -> Void
     let onScroll: ((Int) -> Void)?
@@ -669,6 +758,7 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
         tableView.dataSource = coordinator
         tableView.delegate = coordinator
         tableView.isPagingEnabled = true
+        tableView.isScrollEnabled = scrollEnabled
         tableView.contentInsetAdjustmentBehavior = .never
         tableView.separatorStyle = .none
         tableView.allowsSelection = false
@@ -688,6 +778,7 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
         let previousPage = coordinator.currentPage(in: tableView)
         coordinator.count = max(0, count)
         coordinator.scrollPosition = scrollPosition
+        tableView.isScrollEnabled = scrollEnabled
         coordinator.row = row
         coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onScroll = onScroll
@@ -759,6 +850,7 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
             cell.selectionStyle = .none
             cell.contentConfiguration = UIHostingConfiguration {
                 row(indexPath.row, 0, indexPath.row)
+                    .frame(width: tableView.bounds.width, height: pageHeight, alignment: .topLeading)
             }
             .margins(.all, 0)
             return cell
@@ -823,6 +915,46 @@ private struct NexaDevScopedRevisionView<Content: View>: View {
     }
 }
 
+private func nexaDevNodeContainsFastList(
+    _ value: Any,
+    module: [String: Any],
+    visitedComponents: inout Set<String>
+) -> Bool {
+    if let tagged = value as? [String: Any], tagged.count == 1,
+       let (kind, rawPayload) = tagged.first {
+        if kind == "FastList" { return true }
+        let fields = rawPayload as? [String: Any] ?? [:]
+        if kind == "ComponentCall",
+           let name = fields["name"] as? String,
+           visitedComponents.insert(name).inserted {
+            if let component = (module["components"] as? [[String: Any]])?.first(where: {
+                $0["name"] as? String == name
+            }), let body = component["body"] as? [Any],
+               body.contains(where: {
+                   nexaDevNodeContainsFastList($0, module: module, visitedComponents: &visitedComponents)
+               }) {
+                visitedComponents.remove(name)
+                return true
+            }
+            visitedComponents.remove(name)
+        }
+        return fields.values.contains {
+            nexaDevNodeContainsFastList($0, module: module, visitedComponents: &visitedComponents)
+        }
+    }
+    if let nodes = value as? [Any] {
+        return nodes.contains {
+            nexaDevNodeContainsFastList($0, module: module, visitedComponents: &visitedComponents)
+        }
+    }
+    if let fields = value as? [String: Any] {
+        return fields.values.contains {
+            nexaDevNodeContainsFastList($0, module: module, visitedComponents: &visitedComponents)
+        }
+    }
+    return false
+}
+
 @MainActor
 struct NexaDevNodeList: View {
     let nodes: [Any]
@@ -830,6 +962,7 @@ struct NexaDevNodeList: View {
     let store: NexaDevStateStore
     var focusedField: FocusState<String?>.Binding
     var parameters: [String: Any] = [:]
+    var stateDeclarations: [[String: Any]]?
     var stateScope: String = "app"
     var rendersFormRows = false
     var appliesFormRowMetrics = false
@@ -844,7 +977,9 @@ struct NexaDevNodeList: View {
     }
 
     @ViewBuilder private var renderedBody: some View {
-        let locals = store.locals(scope: stateScope, parameters: parameters)
+        let locals = stateDeclarations.map {
+            store.bindings($0, parameters: parameters, scope: stateScope)
+        } ?? store.locals(scope: stateScope, parameters: parameters)
         if nodes.isEmpty {
             EmptyView()
         } else if rendersFormRows {
@@ -927,7 +1062,10 @@ struct NexaDevNodeList: View {
             }
             let spacing = fields["spacing"] as? Double ?? 0
             let style = fields["style"] as? [String: Any] ?? [:]
-            let alignment = style["alignment"] as? String
+            let rawAlignment = fields["alignment"]
+            let alignment = rawAlignment as? String
+                ?? (rawAlignment as? [String: Any])?.keys.first
+                ?? style["alignment"] as? String
             let rowAlignment: VerticalAlignment = switch alignment {
             case "Start": .top
             case "End": .bottom
@@ -943,17 +1081,72 @@ struct NexaDevNodeList: View {
             case "End": .trailing
             default: .center
             }
+            let columnTextAlignment: TextAlignment = switch alignment {
+            case "Start": .leading
+            case "End": .trailing
+            default: .center
+            }
+            let frameAlignment: Alignment = switch fields["kind"] as? String {
+            case "Row":
+                switch alignment {
+                case "Start": .topLeading
+                case "End": .bottomLeading
+                default: .leading
+                }
+            case "Stack": stackAlignment
+            default:
+                switch alignment {
+                case "Start": .topLeading
+                case "End": .topTrailing
+                default: .top
+                }
+            }
             let nativeSpacing = CGFloat(spacing)
+            var stackOverlayStart: Int?
+            if fields["kind"] as? String == "Stack" {
+                var hasFastListBelow = false
+                for index in contentChildren.indices {
+                    if hasFastListBelow {
+                        stackOverlayStart = index
+                        break
+                    }
+                    var visitedComponents = Set<String>()
+                    hasFastListBelow = nexaDevNodeContainsFastList(
+                        contentChildren[index],
+                        module: module,
+                        visitedComponents: &visitedComponents
+                    )
+                }
+            }
             let container: AnyView
             switch fields["kind"] as? String {
             case "Row":
                 container = AnyView(NexaRowPrimitive(alignment: rowAlignment, spacing: nativeSpacing) { ForEach(contentChildren.indices, id: \.self) { renderNode(contentChildren[$0], locals: locals, scope: scope) } })
             case "Stack":
-                container = AnyView(NexaStackPrimitive(alignment: stackAlignment) { ForEach(contentChildren.indices, id: \.self) { renderNode(contentChildren[$0], locals: locals, scope: scope) } })
+                container = AnyView(NexaStackPrimitive(alignment: stackAlignment) {
+                    ForEach(0..<(stackOverlayStart ?? contentChildren.count), id: \.self) { index in
+                        NexaStackLayer(order: index) {
+                            renderNode(contentChildren[index], locals: locals, scope: scope)
+                        }
+                    }
+                })
             default:
-                container = AnyView(NexaColumnPrimitive(alignment: columnAlignment, spacing: nativeSpacing) { ForEach(contentChildren.indices, id: \.self) { renderNode(contentChildren[$0], locals: locals, scope: scope) } })
+                container = AnyView(NexaColumnPrimitive(alignment: columnAlignment, textAlignment: columnTextAlignment, spacing: nativeSpacing) { ForEach(contentChildren.indices, id: \.self) { renderNode(contentChildren[$0], locals: locals, scope: scope) } })
             }
             var styled = container
+            if let stackOverlayStart {
+                // Keep Stack overlays anchored to the parent's full proposal.
+                // Otherwise a UIKit-backed AutoGrid reports an intrinsic height
+                // smaller than the screen and the tab bar is placed halfway up.
+                styled = AnyView(styled.frame(maxWidth: .infinity, maxHeight: .infinity))
+                for index in stackOverlayStart..<contentChildren.count {
+                    styled = AnyView(styled.overlay(alignment: stackAlignment) {
+                        NexaStackLayer(order: index) {
+                            renderNode(contentChildren[index], locals: locals, scope: scope)
+                        }
+                    })
+                }
+            }
             let width = style["width"] as? Double
             let height = style["height"] as? Double
             let minWidth = style["min_width"] as? Double
@@ -961,16 +1154,24 @@ struct NexaDevNodeList: View {
             let minHeight = style["min_height"] as? Double
             let maxHeight = style["max_height"] as? Double
             if width != nil || height != nil || minWidth != nil || maxWidth != nil || minHeight != nil || maxHeight != nil {
-                if let width, let height { styled = AnyView(styled.frame(width: width, height: height)) }
-                else if let width { styled = AnyView(styled.frame(width: width)) }
-                else if let height { styled = AnyView(styled.frame(height: height)) }
                 if minWidth != nil || maxWidth != nil || minHeight != nil || maxHeight != nil {
                     styled = AnyView(styled.frame(
                         minWidth: minWidth.map { CGFloat($0) }, maxWidth: maxWidth.map { CGFloat($0) },
-                        minHeight: minHeight.map { CGFloat($0) }, maxHeight: maxHeight.map { CGFloat($0) }
+                        minHeight: minHeight.map { CGFloat($0) }, maxHeight: maxHeight.map { CGFloat($0) },
+                        alignment: frameAlignment
                     ))
                 }
+                // Put the flexible range inside fixed dimensions. SwiftUI's flexible
+                // frame can expand to its proposal, otherwise overriding width/height.
+                if let width, let height {
+                    styled = AnyView(styled.frame(width: width, height: height, alignment: frameAlignment))
+                } else if let width {
+                    styled = AnyView(styled.frame(width: width, alignment: frameAlignment))
+                } else if let height {
+                    styled = AnyView(styled.frame(height: height, alignment: frameAlignment))
+                }
             }
+            if maxHeight != nil { styled = AnyView(styled.clipped()) }
             if let padding = style["padding"] as? Double { styled = AnyView(styled.padding(padding)) }
             if let background = devColor(style["background"], isDark: colorScheme == .dark) {
                 styled = AnyView(styled.background(background))
@@ -983,7 +1184,7 @@ struct NexaDevNodeList: View {
                 let width = borderWidth
                 styled = AnyView(styled.overlay(RoundedRectangle(cornerRadius: style["corner_radius"] as? Double ?? 0).stroke(border, lineWidth: width)))
             }
-            if let opacity = style["opacity"] as? Double { styled = AnyView(styled.opacity(opacity)) }
+            if let opacity = style["opacity"] as? Double { styled = AnyView(styled.compositingGroup().opacity(opacity)) }
             let effects = style["effects"] as? [String: Any] ?? [:]
             if let scale = effects["scale"] as? Double { styled = AnyView(styled.scaleEffect(scale)) }
             if let rotation = effects["rotation"] as? Double { styled = AnyView(styled.rotationEffect(.degrees(rotation))) }
@@ -1196,13 +1397,15 @@ struct NexaDevNodeList: View {
                 scope: scope,
                 parameters: locals
             )
+            let componentScope = "component/\(name)"
             return AnyView(NexaDevNodeList(
                 nodes: component["body"] as? [Any] ?? [],
                 module: module,
                 store: store,
                 focusedField: focusedField,
                 parameters: componentParameters,
-                stateScope: "component/\(name)"
+                stateDeclarations: component["states"] as? [[String: Any]] ?? [],
+                stateScope: componentScope
             ).environment(\.nexaDevContentSlot, slot))
         case "NativeComponentCall":
             let namespace = fields["namespace"] as? String ?? ""
@@ -1270,6 +1473,9 @@ struct NexaDevNodeList: View {
             let symbol = icon["sf_symbol"]
                 ?? icon["shared"].flatMap(nexaDevSharedIconSymbol)
                 ?? icon["material_symbol"].flatMap(nexaDevMaterialIconSymbol)
+            let iconOnlyCircle: Bool
+            if symbol != nil, label.isEmpty, case .circle = shape { iconOnlyCircle = true }
+            else { iconOnlyCircle = false }
             let tint: Color? = {
                 guard let tintValue = fields["tint"] as? [String: Any] else { return nil }
                 if let dynamic = tintValue["Dynamic"] {
@@ -1285,6 +1491,7 @@ struct NexaDevNodeList: View {
                 loading: loading,
                 disabled: disabled,
                 glass: fields["glass"] as? Bool == true,
+                iconOnlyCircle: iconOnlyCircle,
                 action: { store.perform(actions, scope: scope, locals: locals) },
                 label: {
                     if let symbol {
@@ -1536,17 +1743,27 @@ struct NexaDevNodeList: View {
             } else if let grid = (listFields["axis"] as? [String: Any])?["Grid"] as? [String: Any],
                       let columns = grid["columns"] as? Int {
                 axis = .grid(max(1, columns))
+            } else if let grid = (listFields["axis"] as? [String: Any])?["AutoGrid"] as? [String: Any],
+                      let minCellWidth = grid["min_cell_width"] as? Int {
+                axis = .adaptiveGrid(max(1, minCellWidth))
             } else {
                 axis = .vertical
             }
             let reverseLayout = listFields[NexaDevKeys.reverseLayout] as? Bool ?? false
             let pageSnap = listFields[NexaDevKeys.pageSnap] as? Bool ?? false
+            let scrollEnabledExpression = listFields["scroll_enabled"].flatMap {
+                $0 is NSNull ? nil : $0
+            }
+            let scrollEnabled = scrollEnabledExpression.map {
+                store.truthy(store.evaluate($0, locals: locals, scope: scope))
+            } ?? true
             let native = listFields["native"] as? Bool ?? false
             let indexName = listFields["index"] as? String ?? "index"
             let itemName = listFields["item"] as? String
             let sectionName = listFields["section"] as? String ?? "section"
             let children = listFields["children"] as? [Any] ?? []
             let itemExtent = listFields["item_extent"] as? Double
+            let spacing = listFields["spacing"] as? Double ?? 0
             let scrollPositionName = listFields["scroll_position"] as? String
             let requestedIndex = scrollPositionName.flatMap { name in
                 (store.value(name, scope: scope) as? NSNumber)?.intValue
@@ -1607,7 +1824,9 @@ struct NexaDevNodeList: View {
                 axis: axis,
                 reverseLayout: reverseLayout,
                 pageSnap: pageSnap,
+                scrollEnabled: scrollEnabled,
                 rowHeight: itemExtent,
+                spacing: spacing,
                 scrollPosition: requestedIndex,
                 sectionCounts: sourceSections?.map(\.count),
                 rowKey: rowKey,
@@ -1770,14 +1989,17 @@ struct NexaDevNodeList: View {
             let description = fields["description"] as? String ?? ""
             let scale: NexaImageScale = fields["scale"] as? String == "Fill" ? .fill : .fit
             let placeholder = fields["placeholder"] as? String
+            let showLoadingIndicator = fields["show_loading_indicator"] as? Bool ?? false
             let maxHeight = fields["max_height"] as? CGFloat
+            let fillMaxSize = fields["fill_max_size"] as? Bool ?? false
             var rendered: AnyView
             if let asset = source["Asset"] as? String {
                 rendered = AnyView(NexaAssetImagePrimitive(
                     name: asset,
                     description: description,
                     scale: scale,
-                    maxHeight: maxHeight
+                    maxHeight: maxHeight,
+                    fillMaxSize: fillMaxSize
                 ))
             } else if let expression = source["RemoteUrl"] {
                 let urlText = store.stringify(store.evaluate(expression, locals: locals, scope: scope))
@@ -1785,9 +2007,11 @@ struct NexaDevNodeList: View {
                     url: urlText,
                     scale: scale,
                     placeholder: placeholder,
+                    showLoadingIndicator: showLoadingIndicator,
                     allowsFile: false,
                     description: description,
-                    maxHeight: maxHeight
+                    maxHeight: maxHeight,
+                    fillMaxSize: fillMaxSize
                 ))
             } else if let expression = source["LocalFile"] {
                 let urlText = store.stringify(store.evaluate(expression, locals: locals, scope: scope))
@@ -1795,16 +2019,16 @@ struct NexaDevNodeList: View {
                     url: urlText,
                     scale: scale,
                     placeholder: nil,
+                    showLoadingIndicator: showLoadingIndicator,
                     allowsFile: true,
                     description: description,
-                    maxHeight: maxHeight
+                    maxHeight: maxHeight,
+                    fillMaxSize: fillMaxSize
                 ))
             } else {
-                rendered = AnyView(NexaImageFallbackPrimitive(
-                    placeholder: placeholder,
-                    description: description,
-                    scale: scale,
-                    maxHeight: maxHeight
+                rendered = AnyView(NexaImagePlaceholderPrimitive(
+                    name: placeholder ?? "",
+                    scale: scale
                 ))
             }
             if let sharedExpression = fields["shared_element"] as? [String: Any],
@@ -1883,6 +2107,7 @@ struct NexaDevNodeList: View {
         case "AppBottomBar":
             let state = fields["state"] as? String ?? ""
             let tabs = fields["tabs"] as? [[String: Any]] ?? []
+            let customBar = fields["custom_bar"] as? [Any]
             let tintValue = fields["tint"] as? [String: Any]
             let tint: Color? = {
                 guard let tintValue else { return nil }
@@ -1979,7 +2204,7 @@ struct NexaDevNodeList: View {
                     }
                 }.modifier(NexaAppBottomBarPrimitive(
                     tint: tint,
-                    adaptiveStyle: true,
+                    adaptiveStyle: customBar == nil,
                     activatesSearchTab: tabs.contains { $0["role"] as? String == "search" }
                 )))
             } else {
@@ -2007,6 +2232,20 @@ struct NexaDevNodeList: View {
                     adaptiveStyle: false,
                     activatesSearchTab: false
                 )))
+            }
+            if let customBar {
+                tabView = AnyView(tabView
+                    .toolbar(.hidden, for: .tabBar)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        NexaDevNodeList(
+                            nodes: customBar,
+                            module: module,
+                            store: store,
+                            focusedField: focusedField,
+                            parameters: locals,
+                            stateScope: scope
+                        )
+                    })
             }
             let titledTabs = tabs.filter {
                 guard let title = $0["navigation_title"] as? String else { return false }
@@ -2243,22 +2482,29 @@ struct NexaDevNodeList: View {
     private func renderScreen(_ screen: [String: Any], parameters: [String: Any]) -> AnyView {
         let name = screen["name"] as? String ?? ""
         let scope = "screen/\(name)"
+        let stateDeclarations = screen["states"] as? [[String: Any]] ?? []
         return AnyView(NexaDevNodeList(
             nodes: screen["body"] as? [Any] ?? [],
             module: module,
             store: store,
             focusedField: focusedField,
             parameters: parameters,
+            stateDeclarations: stateDeclarations,
             stateScope: scope
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
-            store.screenDidAppear(scope: scope, parameters: parameters)
+            let screenBindings = store.bindings(
+                stateDeclarations,
+                parameters: parameters,
+                scope: scope
+            )
+            store.screenDidAppear(scope: scope, parameters: screenBindings)
             let actions = screen["on_appear"] as? [Any] ?? []
             if screen["on_appear_async"] as? Bool == true {
                 Task { @MainActor in
                     do {
-                        _ = try await store.performAsync(actions, scope: scope, locals: parameters)
+                        _ = try await store.performAsync(actions, scope: scope, locals: screenBindings)
                     } catch is CancellationError {
                         return
                     } catch {
@@ -2266,11 +2512,16 @@ struct NexaDevNodeList: View {
                     }
                 }
             } else {
-                store.perform(actions, scope: scope, locals: parameters)
+                store.perform(actions, scope: scope, locals: screenBindings)
             }
         }
         .onDisappear {
-            store.perform(screen["on_disappear"] as? [Any] ?? [], scope: scope, locals: parameters)
+            let screenBindings = store.bindings(
+                stateDeclarations,
+                parameters: parameters,
+                scope: scope
+            )
+            store.perform(screen["on_disappear"] as? [Any] ?? [], scope: scope, locals: screenBindings)
             store.screenDidDisappear(scope: scope)
         })
     }

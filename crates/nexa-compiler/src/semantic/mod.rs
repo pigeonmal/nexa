@@ -254,7 +254,7 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                     visit(children, span)?;
                 }
                 Node::FastList { plan } => {
-                    let common = match plan {
+                    let common = match plan.as_ref() {
                         nexa_ir::ListPlan::Count { common, .. }
                         | nexa_ir::ListPlan::Items { common, .. } => common,
                         nexa_ir::ListPlan::Sections { .. } => {

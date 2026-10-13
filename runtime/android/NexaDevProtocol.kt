@@ -8,6 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.net.InetSocketAddress
 import java.net.Socket
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -21,31 +22,63 @@ internal class NexaDevSocketClient(
     private val store: NexaDevStateStore,
 ) {
     private val active = AtomicBoolean(false)
+    private val started = AtomicBoolean(false)
+    private val connectionLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var currentRevision: String? = null
+    private var workerThread: Thread? = null
+    private var connectionSocket: Socket? = null
 
     fun connect() {
-        if (!active.compareAndSet(false, true)) return
-        Thread({ runConnection() }, "nexa-dev-websocket").apply { isDaemon = true }.start()
+        synchronized(connectionLock) {
+            if (!started.compareAndSet(false, true)) return
+            active.set(true)
+            val worker = Thread({ runConnection() }, "nexa-dev-websocket").apply {
+                isDaemon = true
+            }
+            workerThread = worker
+            worker.start()
+        }
+    }
+
+    fun disconnect() {
+        val (socket, worker) = synchronized(connectionLock) {
+            active.set(false)
+            val socket = connectionSocket
+            connectionSocket = null
+            socket to workerThread
+        }
+        runCatching { socket?.close() }
+        worker?.interrupt()
     }
 
     private fun runConnection() {
         var retryDelayMs = 50L
-        while (active.get()) {
-            try {
-                connectOnce { retryDelayMs = 50L }
-            } catch (error: Exception) {
-                if (active.get()) android.util.Log.e("NexaDevRuntime", "Dev connection ended; retrying", error)
-            }
-            if (active.get()) {
+        try {
+            while (active.get()) {
                 try {
-                    Thread.sleep(retryDelayMs)
-                    retryDelayMs = (retryDelayMs * 2).coerceAtMost(1_000L)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    active.set(false)
+                    connectOnce { retryDelayMs = 50L }
+                } catch (error: Exception) {
+                    if (active.get()) android.util.Log.e("NexaDevRuntime", "Dev connection ended; retrying", error)
+                }
+                if (active.get()) {
+                    try {
+                        Thread.sleep(retryDelayMs)
+                        retryDelayMs = (retryDelayMs * 2).coerceAtMost(1_000L)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        active.set(false)
+                    }
                 }
             }
+        } finally {
+            val socket = synchronized(connectionLock) {
+                if (workerThread === Thread.currentThread()) workerThread = null
+                val socket = connectionSocket
+                connectionSocket = null
+                socket
+            }
+            runCatching { socket?.close() }
         }
     }
 
@@ -53,7 +86,21 @@ internal class NexaDevSocketClient(
         val parsed = Uri.parse(serverURL)
         val host = parsed.host ?: return
         val port = if (parsed.port > 0) parsed.port else 80
-        Socket(host, port).use { socket ->
+        val socket = Socket()
+        val registered = synchronized(connectionLock) {
+            if (!active.get()) {
+                false
+            } else {
+                connectionSocket = socket
+                true
+            }
+        }
+        if (!registered) {
+            socket.close()
+            return
+        }
+        try {
+            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
             socket.tcpNoDelay = true
             val input = BufferedInputStream(socket.getInputStream())
             val output = BufferedOutputStream(socket.getOutputStream())
@@ -101,6 +148,11 @@ internal class NexaDevSocketClient(
             } finally {
                 if (store.openEditorHandler === editorHandler) store.openEditorHandler = null
             }
+        } finally {
+            synchronized(connectionLock) {
+                if (connectionSocket === socket) connectionSocket = null
+            }
+            socket.close()
         }
     }
 
@@ -254,5 +306,9 @@ internal class NexaDevSocketClient(
             if (count < 0) throw java.io.EOFException("WebSocket frame ended early")
             offset += count
         }
+    }
+
+    private companion object {
+        const val CONNECT_TIMEOUT_MS = 5_000
     }
 }

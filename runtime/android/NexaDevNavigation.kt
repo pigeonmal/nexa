@@ -1,6 +1,7 @@
 package __NEXA_PACKAGE__
 
 import android.util.Base64
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -14,6 +15,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.Modifier
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -92,6 +94,7 @@ internal fun RenderNavigationStack(
     store: NexaDevStateStore,
     locals: Map<String, Any>,
     scope: String,
+    modifier: Modifier = Modifier,
 ) {
     val screens = module.optJSONArray("screens") ?: JSONArray()
     val rootScreen = screens.optJSONObject(fields.optInt("root", -1)) ?: return
@@ -113,7 +116,11 @@ internal fun RenderNavigationStack(
     }
     androidx.compose.runtime.key(store.navigationEpoch) {
         val navController = rememberNavController()
-        NavHost(navController = navController, startDestination = route) {
+        NavHost(
+            navController = navController,
+            startDestination = route,
+            modifier = modifier.fillMaxSize(),
+        ) {
             composable("nexa/{routeData}") { backStackEntry ->
                 val routeData = backStackEntry.arguments?.getString("routeData")
                 val destination = routeData?.let(store::decodeScreenRoute)
@@ -127,18 +134,25 @@ internal fun RenderNavigationStack(
                         screen,
                         destination.optJSONObject("parameters") ?: JSONObject(),
                     )
+                    val scope = "screen/${screen.optString("name")}"
+                    val screenBindings = store.bindings(
+                        screen.optJSONArray("states"),
+                        parameters,
+                        scope,
+                    )
                     CompositionLocalProvider(
                         LocalNexaDevNavController provides navController,
                         LocalNexaAnimatedVisibilityScope provides animatedVisibilityScope,
                     ) {
                         val screenContent: @Composable () -> Unit = {
-                            NexaDevScreenLifecycle(screen, store, parameters)
+                            NexaDevScreenLifecycle(screen, store, screenBindings)
                             NexaDevNodeList(
                                 screen.optJSONArray("body") ?: JSONArray(),
                                 module,
                                 store,
-                                parameters,
-                                "screen/${screen.optString("name")}",
+                                screenBindings,
+                                scope,
+                                modifier = Modifier.fillMaxSize(),
                             )
                         }
                         val routeContent: @Composable () -> Unit = {

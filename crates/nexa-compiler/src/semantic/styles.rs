@@ -158,15 +158,45 @@ pub(super) fn lower_glass(
         ast::Expr::Call(ref name, _, ref args, _span) if name == "Glass" => {
             let mut shape = nexa_ir::GlassShape::Circle;
             let mut tint = None;
-            for arg in args {
-                match arg {
-                    ast::Expr::String(s, span) => {
-                        shape = parse_glass_shape(s, *span)?;
+            for (index, arg) in args.iter().enumerate() {
+                if index == 0 {
+                    let ast::Expr::String(value, span) = arg else {
+                        return Err(CompileError::new(
+                            arg.span(),
+                            "Glass positional shape must be a string",
+                        ));
+                    };
+                    shape = parse_glass_shape(value, *span)?;
+                } else {
+                    tint = Some(parse_color(arg.clone(), themes, "glass tint")?);
+                }
+            }
+            Ok(nexa_ir::ViewGlass { tint, shape })
+        }
+        ast::Expr::CallNamed {
+            ref name,
+            arguments,
+            ..
+        } if name == "Glass" => {
+            let mut shape = nexa_ir::GlassShape::Circle;
+            let mut tint = None;
+            for (name, value_expr) in arguments {
+                match name.as_str() {
+                    "shape" => {
+                        let ast::Expr::String(value, span) = value_expr else {
+                            return Err(CompileError::new(
+                                value_expr.span(),
+                                "Glass shape must be a string",
+                            ));
+                        };
+                        shape = parse_glass_shape(&value, span)?;
                     }
+                    "tint" => tint = Some(parse_color(value_expr, themes, "glass tint")?),
                     _ => {
-                        if let Ok(c) = parse_color(arg.clone(), themes, "glass tint") {
-                            tint = Some(c);
-                        }
+                        return Err(CompileError::new(
+                            value_expr.span(),
+                            format!("unknown Glass argument `{name}`; expected `shape` or `tint`"),
+                        ));
                     }
                 }
             }
@@ -174,7 +204,7 @@ pub(super) fn lower_glass(
         }
         _ => Err(CompileError::new(
             expr.span(),
-            "glass expects a shape string (\"circle\", \"capsule\", \"rounded\") or Glass(shape, tint: ...)",
+            "glass expects a shape string (\"circle\", \"capsule\", \"rounded\") or Glass(shape: \"circle\", tint: \"#RRGGBB\")",
         )),
     }
 }

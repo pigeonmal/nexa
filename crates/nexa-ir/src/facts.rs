@@ -29,10 +29,22 @@ pub struct ModuleFacts {
     /// A task launch appears in an action, independent of whether app code
     /// stores its handle in state.
     pub uses_task_launch: bool,
+    /// UI scopes that need a Compose coroutine scope for `Task.launch`.
+    /// Keeping this scoped avoids allocating a remembered scope in unrelated
+    /// screens and components when any part of the module launches a task.
+    pub task_launch_scopes: TaskLaunchScopes,
     pub ui: UiFacts,
     pub permissions: PermissionFacts,
     pub component_calls: ComponentCallGraph,
     pub focus_bindings: BindingSet,
+}
+
+/// UI scopes containing a task-launch action.
+#[derive(Clone, Debug, Default)]
+pub struct TaskLaunchScopes {
+    pub app: bool,
+    pub screens: BTreeSet<String>,
+    pub components: BTreeSet<String>,
 }
 
 /// Type shapes observed in state declarations and route parameters.
@@ -462,7 +474,9 @@ impl ModuleFacts {
         {
             facts.capabilities.uses_network_connectivity |=
                 actions_contain_network_status_subscription(actions);
-            facts.uses_task_launch |= actions_contain_task_launch(actions);
+            let launches_task = actions_contain_task_launch(actions);
+            facts.uses_task_launch |= launches_task;
+            facts.task_launch_scopes.app |= launches_task;
             walk_actions(actions, &mut |expression| {
                 observe_expr(
                     expression,
@@ -489,7 +503,11 @@ impl ModuleFacts {
             for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
-                facts.uses_task_launch |= actions_contain_task_launch(actions);
+                let launches_task = actions_contain_task_launch(actions);
+                facts.uses_task_launch |= launches_task;
+                if launches_task {
+                    facts.task_launch_scopes.screens.insert(screen.name.clone());
+                }
                 walk_actions(actions, &mut |expression| {
                     observe_expr(
                         expression,
@@ -508,7 +526,14 @@ impl ModuleFacts {
             {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
-                facts.uses_task_launch |= actions_contain_task_launch(actions);
+                let launches_task = actions_contain_task_launch(actions);
+                facts.uses_task_launch |= launches_task;
+                if launches_task {
+                    facts
+                        .task_launch_scopes
+                        .components
+                        .insert(component.name.clone());
+                }
                 walk_actions(actions, &mut |expression| {
                     observe_expr(
                         expression,
@@ -527,7 +552,9 @@ impl ModuleFacts {
             walk_callback_actions(&module.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
-                facts.uses_task_launch |= actions_contain_task_launch(actions);
+                let launches_task = actions_contain_task_launch(actions);
+                facts.uses_task_launch |= launches_task;
+                facts.task_launch_scopes.app |= launches_task;
             });
             walk_ir(
                 &module.body,
@@ -559,7 +586,11 @@ impl ModuleFacts {
             walk_callback_actions(&screen.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
-                facts.uses_task_launch |= actions_contain_task_launch(actions);
+                let launches_task = actions_contain_task_launch(actions);
+                facts.uses_task_launch |= launches_task;
+                if launches_task {
+                    facts.task_launch_scopes.screens.insert(screen.name.clone());
+                }
             });
             walk_ir(
                 &screen.body,
@@ -595,7 +626,14 @@ impl ModuleFacts {
             walk_callback_actions(&component.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
-                facts.uses_task_launch |= actions_contain_task_launch(actions);
+                let launches_task = actions_contain_task_launch(actions);
+                facts.uses_task_launch |= launches_task;
+                if launches_task {
+                    facts
+                        .task_launch_scopes
+                        .components
+                        .insert(component.name.clone());
+                }
             });
             for actions in component
                 .on_appear
@@ -604,7 +642,14 @@ impl ModuleFacts {
             {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
-                facts.uses_task_launch |= actions_contain_task_launch(actions);
+                let launches_task = actions_contain_task_launch(actions);
+                facts.uses_task_launch |= launches_task;
+                if launches_task {
+                    facts
+                        .task_launch_scopes
+                        .components
+                        .insert(component.name.clone());
+                }
             }
             let calls = facts
                 .component_calls
@@ -1023,7 +1068,12 @@ fn observe_node(
             ui.dialog_present = true;
             record_child_layout(children, ui);
         }
-        Node::AppBottomBar { tint, tabs, .. } => {
+        Node::AppBottomBar {
+            tint,
+            tabs,
+            custom_bar,
+            ..
+        } => {
             ui.bottom_bar.present = true;
             ui.bottom_bar.adaptive_tabs = true;
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
@@ -1045,6 +1095,9 @@ fn observe_node(
                 ui.bottom_bar.tab_badge |= tab.badge.is_some();
                 record_child_layout(&tab.children, ui);
             }
+            if let Some(custom_bar) = custom_bar {
+                record_child_layout(custom_bar, ui);
+            }
         }
         Node::PagePager { pages, .. } => {
             ui.page_pager = true;
@@ -1061,20 +1114,21 @@ fn observe_node(
         }
         Node::FastList { plan } => {
             let axis = plan.axis();
-            let grid = matches!(axis, ListAxis::Grid { .. });
+            let grid = matches!(axis, ListAxis::Grid { .. } | ListAxis::AutoGrid { .. });
             ui.lists.any = true;
             ui.lists.virtualized |= !plan.native();
             ui.lists.reverse_layout |= plan.reverse_layout();
             ui.lists.page_snap |= plan.page_snap();
-            ui.lists.sectioned |= matches!(plan, ListPlan::Sections { .. });
+            ui.lists.sectioned |= matches!(plan.as_ref(), ListPlan::Sections { .. });
             match axis {
                 ListAxis::Vertical => {
-                    if !matches!(plan, ListPlan::Sections { .. }) {
+                    if !matches!(plan.as_ref(), ListPlan::Sections { .. }) {
                         ui.lists.vertical = true;
                     }
                 }
                 ListAxis::Horizontal => ui.lists.horizontal = true,
                 ListAxis::Grid { .. } => ui.lists.grid = true,
+                ListAxis::AutoGrid { .. } => ui.lists.grid = true,
             }
             ui.lists.sticky_header |= plan.sticky_header().is_some();
             ui.lists.section_header |= plan.section_header().is_some();
@@ -1613,6 +1667,7 @@ mod tests {
         let module = empty_module(vec![Node::AppBottomBar {
             state: "selectedTab".to_owned(),
             tint: None,
+            custom_bar: None,
             tabs: vec![BottomBarTab {
                 index: 0,
                 label: "Primary".to_owned(),
@@ -1643,6 +1698,7 @@ mod tests {
         let module = empty_module(vec![Node::AppBottomBar {
             state: "selectedTab".to_owned(),
             tint: None,
+            custom_bar: None,
             tabs: vec![BottomBarTab {
                 index: 4,
                 label: "Search".to_owned(),
@@ -1710,9 +1766,13 @@ mod tests {
                 section_header: None,
                 swipe_actions: None,
                 refresh: None,
+                spacing: 0.0,
+                scroll_enabled: None,
             },
         };
-        let module = empty_module(vec![Node::FastList { plan }]);
+        let module = empty_module(vec![Node::FastList {
+            plan: Box::new(plan),
+        }]);
         let facts = ModuleFacts::analyze(&module);
         assert!(facts.ui.lists.any);
         assert!(facts.ui.lists.sectioned);
@@ -1732,6 +1792,7 @@ mod tests {
             placeholder: None,
             show_loading_indicator: false,
             max_height: None,
+            fill_max_size: false,
             shared_element: None,
         }]);
         let facts = ModuleFacts::analyze(&module);

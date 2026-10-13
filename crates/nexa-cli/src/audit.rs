@@ -85,6 +85,10 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     let mut all_warnings = Vec::new();
     for (index, ((name, _), compilation)) in targets.iter().zip(compilations).enumerate() {
         all_warnings.extend(compilation.warnings.clone());
+        let native_plugins = crate::project::plugin_package::packages_for_module(
+            &compilation.plugins,
+            &compilation.module,
+        );
         let module = compilation.module;
         let capabilities = nexa_ir::capabilities::analyze(&module);
         let (source, dependencies) = generated_source_and_dependencies(name, &module);
@@ -97,6 +101,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
             capabilities,
             source.len(),
             &dependencies,
+            &native_plugins,
         ));
     }
     report.push_str("\n  ],\n  \"warnings\": [");
@@ -195,6 +200,7 @@ fn target_report(
     capabilities: Capabilities,
     generated_bytes: usize,
     dependencies: &[String],
+    native_plugins: &[crate::project::plugin_package::PluginPackage],
 ) -> String {
     let mut output = format!(
         "    {{\n      \"target\": \"{target}\",\n      \"app\": \"{}\",\n      \"generatedSourceBytes\": {generated_bytes},\n      \"capabilities\": {{\n        \"remoteImage\": {},\n        \"network\": {},\n        \"path\": {},\n        \"file\": {},\n        \"fileAsync\": {},\n        \"storage\": {},\n        \"secureStorage\": {}\n      }},\n      \"dependencies\": [",
@@ -213,8 +219,92 @@ fn target_report(
         }
         output.push_str(&format!("\"{}\"", json_escape(dependency)));
     }
-    output.push_str("]\n    }");
+    output.push_str("],\n      \"nativePlugins\": ");
+    output.push_str(&native_plugins_report(target, native_plugins));
+    output.push_str("\n    }");
     output
+}
+
+fn native_plugins_report(
+    target: &str,
+    plugins: &[crate::project::plugin_package::PluginPackage],
+) -> String {
+    let mut output = String::from("[");
+    for (index, plugin) in plugins.iter().enumerate() {
+        if index != 0 {
+            output.push_str(", ");
+        }
+        output.push_str(&format!(
+            "{{\"namespace\": \"{}\", \"dependencies\": {{",
+            json_escape(&plugin.namespace)
+        ));
+        if target == "ios" {
+            output.push_str(&format!(
+                "\"frameworks\": {}, \"xcframeworks\": {}, \"swiftPackages\": [",
+                string_array_json(&plugin.artifacts.ios_frameworks),
+                path_name_array_json(&plugin.artifacts.ios_xcframeworks),
+            ));
+            for (package_index, package) in plugin.artifacts.swift_packages.iter().enumerate() {
+                if package_index != 0 {
+                    output.push_str(", ");
+                }
+                output.push_str(&format!(
+                    "{{\"url\": \"{}\", \"requirement\": {}, \"products\": {}}}",
+                    json_escape(&package.url),
+                    swift_package_requirement_json(&package.requirement),
+                    string_array_json(&package.products)
+                ));
+            }
+            output.push(']');
+        } else {
+            output.push_str(&format!(
+                "\"mavenDependencies\": {}, \"aars\": {}",
+                string_array_json(&plugin.artifacts.maven_dependencies),
+                path_name_array_json(&plugin.artifacts.android_aars),
+            ));
+        }
+        output.push_str("}}");
+    }
+    output.push(']');
+    output
+}
+
+fn string_array_json(values: &[String]) -> String {
+    let values = values
+        .iter()
+        .map(|value| format!("\"{}\"", json_escape(value)))
+        .collect::<Vec<_>>();
+    format!("[{}]", values.join(", "))
+}
+
+fn path_name_array_json(paths: &[String]) -> String {
+    let names = paths
+        .iter()
+        .map(|path| {
+            PathBuf::from(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(path)
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    string_array_json(&names)
+}
+
+fn swift_package_requirement_json(
+    requirement: &nexa_plugin_idl::manifest::SwiftPackageRequirement,
+) -> String {
+    use nexa_plugin_idl::manifest::SwiftPackageRequirement;
+
+    let (kind, value) = match requirement {
+        SwiftPackageRequirement::From(value) => ("from", value),
+        SwiftPackageRequirement::Branch(value) => ("branch", value),
+        SwiftPackageRequirement::Revision(value) => ("revision", value),
+    };
+    format!(
+        "{{\"kind\": \"{kind}\", \"value\": \"{}\"}}",
+        json_escape(value)
+    )
 }
 
 fn json_escape(value: &str) -> String {
@@ -223,4 +313,64 @@ fn json_escape(value: &str) -> String {
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::native_plugins_report;
+    use crate::project::plugin_package::{PluginArtifacts, PluginPackage};
+    use nexa_plugin_idl::manifest::{SwiftPackage, SwiftPackageRequirement};
+
+    #[test]
+    fn native_plugin_report_shows_platform_dependencies_without_machine_paths() {
+        let plugins = [PluginPackage {
+            namespace: "VideoPlayer".to_owned(),
+            idl_path: "/tmp/video-player/native.nxid".to_owned(),
+            artifacts: PluginArtifacts {
+                ios_frameworks: vec!["AVFoundation".to_owned()],
+                ios_xcframeworks: vec!["/tmp/video-player/VideoCore.xcframework".to_owned()],
+                swift_packages: vec![SwiftPackage {
+                    url: "https://example.com/video-core.git".to_owned(),
+                    requirement: SwiftPackageRequirement::From("1.2.0".to_owned()),
+                    products: vec!["VideoCore".to_owned()],
+                    extension_products: Vec::new(),
+                }],
+                maven_dependencies: vec!["androidx.media3:media3-exoplayer:1.11.1".to_owned()],
+                android_aars: vec!["/tmp/video-player/media-decoder.aar".to_owned()],
+                ..PluginArtifacts::default()
+            },
+        }];
+
+        let ios: serde_json::Value = serde_json::from_str(&native_plugins_report("ios", &plugins))
+            .expect("iOS plugin dependency report should be valid JSON");
+        assert_eq!(ios[0]["namespace"], "VideoPlayer");
+        assert_eq!(ios[0]["dependencies"]["frameworks"][0], "AVFoundation");
+        assert_eq!(
+            ios[0]["dependencies"]["xcframeworks"][0],
+            "VideoCore.xcframework"
+        );
+        assert_eq!(
+            ios[0]["dependencies"]["swiftPackages"][0]["products"][0],
+            "VideoCore"
+        );
+        assert_eq!(
+            ios[0]["dependencies"]["swiftPackages"][0]["requirement"]["kind"],
+            "from"
+        );
+        assert_eq!(
+            ios[0]["dependencies"]["swiftPackages"][0]["requirement"]["value"],
+            "1.2.0"
+        );
+        assert!(!ios.to_string().contains("/tmp/video-player"));
+
+        let android: serde_json::Value =
+            serde_json::from_str(&native_plugins_report("android", &plugins))
+                .expect("Android plugin dependency report should be valid JSON");
+        assert_eq!(
+            android[0]["dependencies"]["mavenDependencies"][0],
+            "androidx.media3:media3-exoplayer:1.11.1"
+        );
+        assert_eq!(android[0]["dependencies"]["aars"][0], "media-decoder.aar");
+        assert!(!android.to_string().contains("/tmp/video-player"));
+    }
 }

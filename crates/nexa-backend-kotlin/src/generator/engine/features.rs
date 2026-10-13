@@ -114,6 +114,7 @@ pub(crate) struct Features {
     pub(crate) uses_graphics_layer: bool,
     pub(crate) uses_drop_shadow: bool,
     pub(crate) uses_blur: bool,
+    pub(crate) uses_glass: bool,
     pub(crate) uses_z_index: bool,
     pub(crate) uses_animation: bool,
     pub(crate) uses_animation_spring: bool,
@@ -137,6 +138,7 @@ pub(crate) struct Features {
     pub(crate) uses_mutable_generic_state: bool,
     pub(crate) uses_result: bool,
     pub(crate) uses_tasks: bool,
+    pub(crate) uses_task_launch: bool,
     /// Target-neutral facts from the single analysis pass. Renderers read
     /// per-scope data (such as focus bindings) from here instead of
     /// re-walking subtrees.
@@ -180,6 +182,7 @@ impl Features {
         self.uses_file_async = capabilities.uses_file_async;
         self.uses_result = capabilities.uses_result;
         self.uses_tasks = facts.used_types.task_handle || facts.uses_task_launch;
+        self.uses_task_launch = facts.uses_task_launch;
         self.uses_permissions = facts.permissions.present;
         self.uses_permission_request = facts.permissions.request;
         self.used_permissions = facts.permissions.used.clone();
@@ -340,6 +343,8 @@ impl Features {
         self.uses_graphics_layer = style.scale || style.rotation;
         self.uses_drop_shadow = style.shadow;
         self.uses_blur = style.blur;
+        self.uses_glass = style.glass;
+        self.uses_background |= style.glass;
         self.uses_z_index = style.z_index;
         self.uses_animation = style.animation;
         self.uses_animation_spring = style.spring;
@@ -350,7 +355,8 @@ impl Features {
         self.uses_conditional_transition = ui.conditional_transition;
         self.uses_modifier |= style.modifier;
         self.uses_color |= style.color;
-        self.uses_dp |= style.dp;
+        self.uses_color |= style.glass;
+        self.uses_dp |= style.dp || style.glass;
 
         let haptic_anywhere = ui.app.haptic || ui.components.values().any(|scope| scope.haptic);
         self.uses_haptic = haptic_anywhere;
@@ -429,6 +435,18 @@ impl Features {
 
     pub(crate) fn component_requires_navigation(&self, name: &str) -> bool {
         self.components_using_navigation.contains(name)
+    }
+
+    pub(crate) fn app_uses_task_scope(&self) -> bool {
+        self.facts.task_launch_scopes.app
+    }
+
+    pub(crate) fn screen_uses_task_scope(&self, name: &str) -> bool {
+        self.facts.task_launch_scopes.screens.contains(name)
+    }
+
+    pub(crate) fn component_uses_task_scope(&self, name: &str) -> bool {
+        self.facts.task_launch_scopes.components.contains(name)
     }
 }
 

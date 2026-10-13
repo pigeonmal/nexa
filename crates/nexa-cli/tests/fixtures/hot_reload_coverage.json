@@ -963,6 +963,11 @@
         "name": "Grid",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "AutoGrid",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "ListPlan": [

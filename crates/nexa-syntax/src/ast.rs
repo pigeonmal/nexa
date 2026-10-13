@@ -537,6 +537,11 @@ pub enum ChildBody {
     Actions(Vec<Stmt>),
     /// `AppBottomBar` tab declarations.
     Tabs(Vec<TabDecl>),
+    /// Tab destinations plus an optional author-rendered tab bar.
+    AppBottomBar {
+        tabs: Vec<TabDecl>,
+        custom_bar: Option<Vec<Node>>,
+    },
     /// `NavigationSplitView` sidebar and detail columns.
     SplitPanes {
         sidebar: Vec<Node>,

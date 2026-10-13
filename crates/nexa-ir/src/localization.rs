@@ -81,6 +81,12 @@ pub fn is_integer_argument(expression: &Expr) -> bool {
     )
 }
 
+/// Returns whether a localized interpolation is passed to Apple's format API
+/// as a numeric value rather than a string object.
+pub fn is_numeric_argument(expression: &Expr) -> bool {
+    expression_type(expression).is_some()
+}
+
 /// Builds a source-language format value for Android string resources.
 /// Android accepts `%s` for every value because Java's formatter stringifies
 /// numbers and booleans without boxing in generated Compose call sites.
@@ -488,6 +494,7 @@ fn expression_type(expression: &Expr) -> Option<NumericType> {
             return_type: Type::Numeric(ty),
             ..
         } => Some(*ty),
+        Expr::Add(_, _, ty) | Expr::Arithmetic { ty, .. } | Expr::Negate { ty, .. } => Some(*ty),
         Expr::Number { ty, .. } => Some(*ty),
         _ => None,
     }

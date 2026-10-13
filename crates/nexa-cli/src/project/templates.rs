@@ -583,6 +583,16 @@ fn merge_maven_dependencies(plugins: &[PluginPackage]) -> Result<Vec<String>, St
     Ok(dependencies)
 }
 
+fn deduplicate_android_dependency_declarations(dependencies: &str) -> String {
+    let mut seen = std::collections::HashSet::new();
+    dependencies
+        .lines()
+        .filter(|declaration| seen.insert(*declaration))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
 /// Renders `project.pbxproj` in a single pass from typed objects. All PBX
 /// identifiers come from one [`PbxIdAllocator`]; see its docs for the key
 /// scheme.
@@ -2259,6 +2269,7 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
     for aar in local_aars {
         dependencies.push_str(&format!("    implementation(files(\"libs/{aar}\"))\n"));
     }
+    let dependencies = deduplicate_android_dependency_declarations(&dependencies);
     let abi_filters = config
         .android_arch
         .as_deref()

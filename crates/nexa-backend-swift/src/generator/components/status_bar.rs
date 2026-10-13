@@ -25,7 +25,7 @@ pub(crate) fn render(config: Option<StatusBarConfig>, depth: usize, out: &mut So
     }
     if let Some(background) = config.background {
         out.push('\n');
-        out.text_at(depth, format_args!(".background(alignment: .top) {{ GeometryReader {{ proxy in {}.frame(height: proxy.safeAreaInsets.top) }}.ignoresSafeArea(edges: .top) }}",
+        out.text_at(depth, format_args!(".overlay(alignment: .top) {{ GeometryReader {{ proxy in {}.frame(height: proxy.safeAreaInsets.top) }}.ignoresSafeArea(edges: .top).allowsHitTesting(false) }}",
             colors::expression(background)
         ));
     }

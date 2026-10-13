@@ -146,6 +146,7 @@ mod tests {
             placeholder: None,
             show_loading_indicator: false,
             max_height: None,
+            fill_max_size: false,
             shared_element: None,
         }]);
 

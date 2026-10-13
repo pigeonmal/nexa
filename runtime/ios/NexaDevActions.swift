@@ -102,6 +102,7 @@ extension NexaDevStateStore {
 
     @discardableResult
     func performActions(_ actions: [Any], scope: String, locals: [String: Any]) -> NexaDevActionFlow {
+        var actionLocals = locals
         for action in actions {
             if pendingPluginFailure != nil { return .normal }
             if let unitVariant = action as? String {
@@ -110,23 +111,31 @@ extension NexaDevStateStore {
                 continue
             }
             guard let tagged = action as? [String: Any] else { continue }
+            if let binding = tagged["Let"] as? [String: Any],
+               let name = binding["name"] as? String,
+               let expression = binding["value"] {
+                actionLocals[name] = evaluate(expression, locals: actionLocals, scope: scope)
+                continue
+            }
             if let assignment = tagged["Assign"] as? [String: Any],
                let name = assignment["name"] as? String,
                let expression = assignment["value"] {
-                setValue(name, value: evaluate(expression, locals: locals, scope: scope), scope: scope)
+                let value = evaluate(expression, locals: actionLocals, scope: scope)
+                setValue(name, value: value, scope: scope)
+                actionLocals[name] = value
             } else if let expression = tagged["Expression"] {
-                _ = evaluate(expression, locals: locals, scope: scope)
+                _ = evaluate(expression, locals: actionLocals, scope: scope)
             } else if let branch = tagged["If"] as? [String: Any],
                       let condition = branch["condition"] {
-                let selected = truthy(evaluate(condition, locals: locals, scope: scope))
+                let selected = truthy(evaluate(condition, locals: actionLocals, scope: scope))
                     ? branch["then_branch"] as? [Any]
                     : branch["else_branch"] as? [Any]
-                let flow = performActions(selected ?? [], scope: scope, locals: locals)
+                let flow = performActions(selected ?? [], scope: scope, locals: actionLocals)
                 if flow != .normal { return flow }
             } else if let loop = tagged["For"] as? [String: Any],
                       let name = loop["name"] as? String,
                       let iterableExpression = loop["iterable"] {
-                let values = evaluate(iterableExpression, locals: locals, scope: scope)
+                let values = evaluate(iterableExpression, locals: actionLocals, scope: scope)
                 let items: [Any]
                 if let array = values as? [Any] { items = array }
                 else if let set = NexaDevValueCodec.asSet(values) {
@@ -136,7 +145,7 @@ extension NexaDevStateStore {
                 else if let range = values as? ClosedRange<Int> { items = Array(range) }
                 else { items = [] }
                 iterationLoop: for item in items {
-                    var iterationLocals = locals
+                    var iterationLocals = actionLocals
                     iterationLocals[name] = item
                     switch performActions(loop["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals) {
                     case .break: break iterationLoop
@@ -147,9 +156,9 @@ extension NexaDevStateStore {
                       let keyName = loop["key_name"] as? String,
                       let valueName = loop["value_name"] as? String,
                       let iterableExpression = loop["iterable"],
-                      let map = evaluate(iterableExpression, locals: locals, scope: scope) as? [String: Any] {
+                      let map = evaluate(iterableExpression, locals: actionLocals, scope: scope) as? [String: Any] {
                 iterationLoop: for key in map.keys.sorted() {
-                    var iterationLocals = locals
+                    var iterationLocals = actionLocals
                     iterationLocals[keyName] = key
                     iterationLocals[valueName] = map[key] ?? NSNull()
                     switch performActions(loop["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals) {
@@ -159,8 +168,8 @@ extension NexaDevStateStore {
                 }
             } else if let loop = tagged["While"] as? [String: Any], let condition = loop["condition"] {
                 iterationLoop: for _ in 0..<10_000 {
-                    guard truthy(evaluate(condition, locals: locals, scope: scope)) else { break }
-                    switch performActions(loop["body"] as? [Any] ?? [], scope: scope, locals: locals) {
+                    guard truthy(evaluate(condition, locals: actionLocals, scope: scope)) else { break }
+                    switch performActions(loop["body"] as? [Any] ?? [], scope: scope, locals: actionLocals) {
                     case .break: break iterationLoop
                     case .normal, .continue: continue
                     }
@@ -169,22 +178,22 @@ extension NexaDevStateStore {
                       let receiverExpression = assignment["receiver"],
                       let property = assignment["property"] as? String,
                       let valueExpression = assignment["value"] {
-                let receiver = evaluate(receiverExpression, locals: locals, scope: scope)
-                let value = evaluate(valueExpression, locals: locals, scope: scope)
+                let receiver = evaluate(receiverExpression, locals: actionLocals, scope: scope)
+                let value = evaluate(valueExpression, locals: actionLocals, scope: scope)
                 if !NexaDevPluginBridge.writeInstanceProperty(receiver: receiver, property: property, value: value) {
                     NSLog("NexaDevRuntime: native property write is unsupported: %@", property)
                 }
             } else if let subscription = tagged["NativeEventSubscribe"] as? [String: Any],
                       let receiverExpression = subscription["receiver"],
                       let property = subscription["property"] as? String {
-                let receiver = evaluate(receiverExpression, locals: locals, scope: scope)
+                let receiver = evaluate(receiverExpression, locals: actionLocals, scope: scope)
                 if !subscribeNativeEvent(
                     receiver: receiver,
                     property: property,
                     subscription["actions"] as? [Any] ?? [],
                     parameters: subscription["parameters"] as? [String] ?? [],
                     scope: scope,
-                    locals: locals
+                    locals: actionLocals
                 ) {
                     NSLog("NexaDevRuntime: native event subscription is unsupported: %@", property)
                 }
@@ -194,7 +203,7 @@ extension NexaDevStateStore {
                     parameter: parameter,
                     actions: subscription["actions"] as? [Any] ?? [],
                     scope: scope,
-                    locals: locals
+                    locals: actionLocals
                 )
             } else if let task = tagged["TaskLaunch"] as? [String: Any] {
                 launchNativeTask(
@@ -202,7 +211,7 @@ extension NexaDevStateStore {
                     executor: task["executor"] as? String ?? "Main",
                     actions: task["actions"] as? [Any] ?? [],
                     scope: scope,
-                    locals: locals
+                    locals: actionLocals
                 )
             } else if let task = tagged["TaskCancel"] as? [String: Any],
                       let handle = task["handle"] as? String {
@@ -212,19 +221,19 @@ extension NexaDevStateStore {
                 let targets = animated["animated_states"] as? [String] ?? []
                 let flow: NexaDevActionFlow
                 if targets.isEmpty {
-                    flow = performActions(actions, scope: scope, locals: locals)
+                    flow = performActions(actions, scope: scope, locals: actionLocals)
                 } else {
                     flow = withAnimation(nexaDevAnimation(animated["animation"])) {
-                        performActions(actions, scope: scope, locals: locals)
+                        performActions(actions, scope: scope, locals: actionLocals)
                     }
                 }
                 if flow != .normal { return flow }
             } else if let mutation = tagged["CollectionMutation"] as? [String: Any],
                       let name = mutation["name"] as? String {
-                performCollectionMutation(mutation, name: name, scope: scope, locals: locals)
+                performCollectionMutation(mutation, name: name, scope: scope, locals: actionLocals)
             } else if let tryCatch = tagged["TryCatch"] as? [String: Any] {
                 pendingPluginFailure = nil
-                let flow = performActions(tryCatch["body"] as? [Any] ?? [], scope: scope, locals: locals)
+                let flow = performActions(tryCatch["body"] as? [Any] ?? [], scope: scope, locals: actionLocals)
                 if flow != .normal { return flow }
                 if let failure = pendingPluginFailure {
                     pendingPluginFailure = nil
@@ -232,11 +241,11 @@ extension NexaDevStateStore {
                         failure,
                         arms: tryCatch["error_catches"] as? [Any] ?? [],
                         scope: scope,
-                        locals: locals
+                        locals: actionLocals
                     ) {
                         if caught != .normal { return caught }
                     } else if let catchBody = tryCatch["catch_body"] as? [Any] {
-                        let catchFlow = performActions(catchBody, scope: scope, locals: locals)
+                        let catchFlow = performActions(catchBody, scope: scope, locals: actionLocals)
                         if catchFlow != .normal { return catchFlow }
                     } else {
                         pendingPluginFailure = failure

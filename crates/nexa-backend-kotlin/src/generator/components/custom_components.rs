@@ -72,7 +72,7 @@ fn render_component(
     }
     out.push_str(") {\n");
 
-    if features.uses_tasks {
+    if features.component_uses_task_scope(&component.name) {
         out.push_str("    val nexaTaskScope = rememberCoroutineScope()\n");
     }
     if features.component_uses_link(&component.name) {

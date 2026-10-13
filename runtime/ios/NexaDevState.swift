@@ -356,6 +356,36 @@ final class NexaDevStateStore: ObservableObject {
         parameters
     }
 
+    func bindings(
+        _ declarations: [[String: Any]]?,
+        parameters: [String: Any],
+        scope: String
+    ) -> [String: Any] {
+        var resolved = parameters
+        for declaration in declarations ?? [] {
+            guard let name = declaration["name"] as? String,
+                  let initial = declaration["initial"] else { continue }
+            let type = declaration["ty"] as? [String: Any] ?? [:]
+            let stableNativeValue = type["Class"] != nil || type["Plugin"] != nil || type["Signal"] != nil
+            if declaration["mutable"] as? Bool == true || stableNativeValue {
+                let identity = "\(scope)/state/\(name)"
+                if values[identity] == nil {
+                    values[identity] = evaluate(initial, locals: resolved, scope: scope)
+                }
+                // Mutable state must be read through `value(_:scope:)` so the
+                // active scope is registered as a reader and invalidated when
+                // the state changes. Capturing its current value in `locals`
+                // makes SwiftUI keep rendering the initial snapshot forever.
+                if declaration["mutable"] as? Bool != true {
+                    resolved[name] = values[identity] ?? NSNull()
+                }
+            } else {
+                resolved[name] = evaluate(initial, locals: resolved, scope: scope)
+            }
+        }
+        return resolved
+    }
+
     func setValue(_ name: String, value: Any, scope: String) {
         let key = "\(scope)/state/\(name)"
         let storageKey: String
@@ -701,6 +731,9 @@ final class NexaDevStateStore: ObservableObject {
             if name == "isEmpty" {
                 if let values = value as? [Any] { return values.isEmpty }
                 if let values = value as? [String: Any] { return values.isEmpty }
+            }
+            if name == "trimmed", let text = value as? String {
+                return text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             if let object = value as? [String: Any] { return object[name] ?? NSNull() }
             if let pair = value as? [Any] {

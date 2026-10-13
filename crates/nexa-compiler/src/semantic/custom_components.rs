@@ -482,6 +482,14 @@ fn invocation_child_nodes(inv: &ast::ComponentInvocation) -> Vec<&Vec<ast::Node>
                 groups.push(&tab.children);
             }
         }
+        ast::ChildBody::AppBottomBar { tabs, custom_bar } => {
+            for tab in tabs {
+                groups.push(&tab.children);
+            }
+            if let Some(custom_bar) = custom_bar {
+                groups.push(custom_bar);
+            }
+        }
         ast::ChildBody::Rows(rows) => groups.push(&rows.children),
         ast::ChildBody::SplitPanes { sidebar, detail } => {
             groups.push(sidebar);
@@ -554,9 +562,16 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                 }
             }
         }
-        Node::AppBottomBar { tabs, .. } => {
+        Node::AppBottomBar {
+            tabs, custom_bar, ..
+        } => {
             for tab in tabs {
                 for child in &tab.children {
+                    collect_ir_component_calls(child, calls);
+                }
+            }
+            if let Some(custom_bar) = custom_bar {
+                for child in custom_bar {
                     collect_ir_component_calls(child, calls);
                 }
             }

@@ -20,8 +20,11 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     // The DevRuntime host keeps this shared primitive ready for hot reload,
     // so its imports must not depend on the initial module using a large title.
     for value in [
+        "androidx.compose.foundation.layout.Box",
         "androidx.compose.foundation.layout.BoxWithConstraints",
         "androidx.compose.foundation.layout.Column",
+        "androidx.compose.foundation.layout.fillMaxSize",
+        "androidx.compose.foundation.layout.fillMaxWidth",
         "androidx.compose.ui.input.nestedscroll.nestedScroll",
         "androidx.compose.material3.LargeTopAppBar",
         "androidx.compose.material3.TopAppBarDefaults",
@@ -274,6 +277,7 @@ pub(crate) fn render_app_bottom_bar(
     state: &str,
     tint: Option<&nexa_ir::ColorExpression>,
     tabs: &[BottomBarTab],
+    custom_bar: Option<&[Node]>,
     module: &Module,
     features: &Features,
     depth: usize,
@@ -289,54 +293,66 @@ pub(crate) fn render_app_bottom_bar(
     let tint = tint
         .map(crate::generator::colors::expression_for_color)
         .unwrap_or_else(|| "null".to_owned());
-    let content_depth = depth;
+    let content_depth = depth + if custom_bar.is_some() { 2 } else { 0 };
     let has_grouped_surface_tab = tabs
         .iter()
         .any(|tab| tab_contains_form(&tab.children) || tab_contains_native_list(&tab.children));
     out.line_at(depth, format_args!("NexaAppBottomBarPrimitive("));
     out.line_at(depth + 1, format_args!("tint = {tint},"));
+    if custom_bar.is_some() {
+        out.line_at(depth + 1, format_args!("showNavigationSuite = false,"));
+    }
     out.line_at(
         depth + 1,
         format_args!("navigationSuiteItems = {{ {item_colors} ->"),
     );
-    for tab in tabs {
-        out.line_at(
-            content_depth + 2,
-            format_args!(
-                "item(selected = {selected} == {}, onClick = {{ {selected} = {} }}, icon = {{",
-                tab.index, tab.index
-            ),
-        );
-        if let Some(icon) = &tab.icon {
-            out.line_at(
-                content_depth + 3,
-                format_args!(
-                    "Icon(imageVector = {}, contentDescription = null)",
-                    icon.material_reference()
-                ),
-            );
-        } else {
-            out.line_at(depth + 3, format_args!("Spacer(Modifier.size(24.dp))"));
-        }
-        out.line_at(
-            content_depth + 2,
-            format_args!(
-                "}}, label = {{ Text(stringResource(R.string.{})) }},",
-                nexa_codegen::names::localization_resource_name(&tab.label)
-            ),
-        );
-        if let Some(badge) = &tab.badge {
+    if custom_bar.is_none() {
+        for tab in tabs {
             out.line_at(
                 content_depth + 2,
-                format_args!("badge = {{ Badge {{ Text({}) }} }},", kotlin_string(badge)),
+                format_args!(
+                    "item(selected = {selected} == {}, onClick = {{ {selected} = {} }}, icon = {{",
+                    tab.index, tab.index
+                ),
             );
+            if let Some(icon) = &tab.icon {
+                out.line_at(
+                    content_depth + 3,
+                    format_args!(
+                        "Icon(imageVector = {}, contentDescription = null)",
+                        icon.material_reference()
+                    ),
+                );
+            } else {
+                out.line_at(depth + 3, format_args!("Spacer(Modifier.size(24.dp))"));
+            }
+            out.line_at(
+                content_depth + 2,
+                format_args!(
+                    "}}, label = {{ Text(stringResource(R.string.{})) }},",
+                    nexa_codegen::names::localization_resource_name(&tab.label)
+                ),
+            );
+            if let Some(badge) = &tab.badge {
+                out.line_at(
+                    content_depth + 2,
+                    format_args!("badge = {{ Badge {{ Text({}) }} }},", kotlin_string(badge)),
+                );
+            }
+            out.line_at(content_depth + 2, format_args!("alwaysShowLabel = true,"));
+            out.line_at(content_depth + 2, format_args!("colors = {item_colors},"));
+            out.line_at(content_depth + 2, format_args!(")"));
         }
-        out.line_at(content_depth + 2, format_args!("alwaysShowLabel = true,"));
-        out.line_at(content_depth + 2, format_args!("colors = {item_colors},"));
-        out.line_at(content_depth + 2, format_args!(")"));
     }
-    out.line_at(content_depth + 1, format_args!("}},"));
-    out.line_at(content_depth, format_args!(") {{"));
+    out.line_at(depth + 1, format_args!("}},"));
+    out.line_at(depth, format_args!(") {{"));
+    if custom_bar.is_some() {
+        out.line_at(depth + 1, format_args!("Column(Modifier.fillMaxSize()) {{"));
+        out.line_at(
+            depth + 2,
+            format_args!("Box(Modifier.weight(1f).fillMaxWidth()) {{"),
+        );
+    }
     for tab in tabs {
         out.line_at(
             content_depth + 1,
@@ -632,7 +648,15 @@ pub(crate) fn render_app_bottom_bar(
         out.push_str("}\n");
         out.line_at(content_depth + 1, format_args!("}}"));
     }
-    out.line_at(content_depth, format_args!("}}"));
+    if let Some(custom_bar) = custom_bar {
+        out.line_at(depth + 1, format_args!("}}"));
+        for child in custom_bar {
+            render_node(child, module, features, depth + 2, out);
+            out.push('\n');
+        }
+        out.line_at(depth, format_args!("}}"));
+    }
+    out.line_at(depth, format_args!("}}"));
 }
 
 fn tab_contains_form(children: &[Node]) -> bool {
@@ -913,6 +937,7 @@ mod tests {
             "selectedTab",
             None,
             &[tab],
+            None,
             &empty_module(),
             &Features::default(),
             0,
@@ -970,6 +995,7 @@ mod tests {
             "selectedTab",
             None,
             &[tab],
+            None,
             &module,
             &Features::default(),
             0,
@@ -1022,6 +1048,7 @@ mod tests {
             "selectedTab",
             None,
             &[tab],
+            None,
             &empty_module(),
             &Features::default(),
             0,
@@ -1058,6 +1085,7 @@ mod tests {
             "selectedTab",
             None,
             &[tab],
+            None,
             &empty_module(),
             &features,
             0,
@@ -1096,6 +1124,7 @@ mod tests {
             state: "selectedTab".to_owned(),
             tint: None,
             tabs: vec![tab.clone()],
+            custom_bar: None,
         }];
         let mut output = SourceWriter::new();
 
@@ -1103,6 +1132,7 @@ mod tests {
             "selectedTab",
             None,
             &[tab],
+            None,
             &module,
             &Features::default(),
             0,
@@ -1148,5 +1178,47 @@ mod tests {
         ));
         assert!(output.contains("rememberPagerState(initialPage = nexa_currentPage,"));
         assert!(!output.contains(".toInt()"));
+    }
+
+    #[test]
+    fn custom_tab_bar_keeps_real_destinations_and_omits_adaptive_chrome() {
+        let tab = BottomBarTab {
+            index: 0,
+            label: "Home".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: None,
+            navigation_title: None,
+            large_title: false,
+            search_state: None,
+            search_prompt: None,
+            children: vec![Node::Text {
+                value: nexa_ir::Expr::String("Destination".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+        };
+        let custom_bar = vec![Node::Text {
+            value: nexa_ir::Expr::String("Custom bar".to_owned()),
+            style: nexa_ir::TextStyle::default(),
+        }];
+        let module = empty_module();
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            &[tab],
+            Some(&custom_bar),
+            &module,
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("showNavigationSuite = false"));
+        assert!(output.contains("Box(Modifier.weight(1f).fillMaxWidth())"));
+        assert!(output.contains("NexaTextPrimitive(text = \"Destination\")"));
+        assert!(output.contains("NexaTextPrimitive(text = \"Custom bar\")"));
     }
 }

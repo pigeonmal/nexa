@@ -1359,6 +1359,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 false,
                 "Image showLoadingIndicator",
             )?;
+            let fill_max_size =
+                optional_bool(args.remove("fillMaxSize"), false, "Image fillMaxSize")?;
             let max_height = args
                 .remove("maxHeight")
                 .map(|value| {
@@ -1459,6 +1461,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 placeholder,
                 show_loading_indicator,
                 max_height,
+                fill_max_size,
                 shared_element,
             })
         }
@@ -2141,8 +2144,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 .remove("tint")
                 .map(|value| lower_color_expression(value, "AppBottomBar tint", cx))
                 .transpose()?;
-            let tabs = match inv.children {
-                ast::ChildBody::Tabs(tabs) => tabs,
+            let (tabs, custom_bar) = match inv.children {
+                ast::ChildBody::Tabs(tabs) => (tabs, None),
+                ast::ChildBody::AppBottomBar { tabs, custom_bar } if !is_pager => {
+                    (tabs, custom_bar)
+                }
                 _ => return Err(child_mismatch(span)),
             };
             let state = require_mutable_binding(
@@ -2265,6 +2271,9 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 state,
                 tint,
                 tabs: lowered_tabs,
+                custom_bar: custom_bar
+                    .map(|nodes| lower_nodes(nodes, &child_cx))
+                    .transpose()?,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "FastList" => {
@@ -2284,7 +2293,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             } = rows;
             let axis = args.remove("axis");
             let item_extent = args.remove("rowHeight");
+            let spacing = args.remove("spacing");
             let scroll_position = args.remove("scrollPosition");
+            let scroll_enabled = args
+                .remove("scrollEnabled")
+                .map(|enabled| lower_expr(&enabled, Some(&Type::Bool), &cx.exprs(false)))
+                .transpose()?;
             let reverse_layout = optional_bool(
                 args.remove("reverseLayout"),
                 false,
@@ -2381,7 +2395,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     _ => {
                         return Err(CompileError::new(
                             axis_span,
-                            "FastList `axis` must be `Vertical`, `Horizontal`, or `Grid(columns)`",
+                            "FastList `axis` must be `Vertical`, `Horizontal`, `Grid(columns)`, or `AutoGrid(minCellWidth)`",
                         ));
                     }
                 },
@@ -2410,10 +2424,35 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         }
                     }
                 }
+                Some(ast::Expr::Call(name, _, arguments, axis_span)) if name == "AutoGrid" => {
+                    match arguments.as_slice() {
+                        [ast::Expr::Number(raw, width_span)] => {
+                            let Ok(min_cell_width) = raw.parse::<u32>() else {
+                                return Err(CompileError::new(
+                                    *width_span,
+                                    "FastList AutoGrid minimum cell width must be a positive integer literal",
+                                ));
+                            };
+                            if min_cell_width == 0 {
+                                return Err(CompileError::new(
+                                    *width_span,
+                                    "FastList AutoGrid minimum cell width must be greater than zero",
+                                ));
+                            }
+                            ListAxis::AutoGrid { min_cell_width }
+                        }
+                        _ => {
+                            return Err(CompileError::new(
+                                axis_span,
+                                "FastList `AutoGrid` requires one positive integer minimum cell width",
+                            ));
+                        }
+                    }
+                }
                 Some(expression) => {
                     return Err(CompileError::new(
                         expression.span(),
-                        "FastList `axis` must be `Vertical`, `Horizontal`, or `Grid(columns)`",
+                        "FastList `axis` must be `Vertical`, `Horizontal`, `Grid(columns)`, or `AutoGrid(minCellWidth)`",
                     ));
                 }
             };
@@ -2530,6 +2569,25 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 return Err(CompileError::new(
                     span,
                     "FastList `rowHeight` must be greater than zero",
+                ));
+            }
+            let spacing = optional_dimension(
+                spacing,
+                "FastList spacing",
+                Some(ast::ThemeTokenKind::Spacing),
+                themes,
+            )?
+            .unwrap_or(0.0);
+            if spacing < 0.0 {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `spacing` must be zero or greater",
+                ));
+            }
+            if page_snap && spacing > 0.0 {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `pageSnap` fills the viewport; `spacing` must be zero",
                 ));
             }
             let row_index_type = Type::Numeric(NumericType::Int32);
@@ -2795,7 +2853,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 })
                 .transpose()?;
             Ok(Node::FastList {
-                plan: match parts {
+                plan: Box::new(match parts {
                     ListSourceParts::Count { count } => ListPlan::Count {
                         count,
                         common: ListCommon {
@@ -2804,6 +2862,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             reverse_layout,
                             page_snap,
                             item_extent,
+                            spacing,
+                            scroll_enabled,
                             index,
                             key,
                             scroll_position,
@@ -2830,6 +2890,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             reverse_layout,
                             page_snap,
                             item_extent,
+                            spacing,
+                            scroll_enabled,
                             index,
                             key,
                             scroll_position,
@@ -2865,6 +2927,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             common: SectionedListCommon {
                                 native,
                                 item_extent,
+                                spacing,
+                                scroll_enabled,
                                 index,
                                 key,
                                 children: lowered_children,
@@ -2874,7 +2938,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             },
                         }
                     }
-                },
+                }),
             })
         }
         ast::Node::ComponentInvocation(inv) => Err(CompileError::new(

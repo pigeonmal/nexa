@@ -233,7 +233,7 @@ pub(crate) fn render_navigation_stack(
                 );
             }
         }
-        if features.uses_tasks {
+        if features.screen_uses_task_scope(&screen.name) {
             out.line_at(
                 depth + 2,
                 format_args!("val nexaTaskScope = rememberCoroutineScope()"),
@@ -491,20 +491,30 @@ fn render_screen_body(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    // Match SwiftUI's screen-level `.frame(maxWidth: .infinity, maxHeight: .infinity)`.
+    // Propagating the minimum constraints ensures a root Column/Stack can lay out
+    // weighted spacers and backgrounds against the actual screen viewport.
+    out.line_at(
+        depth,
+        format_args!("Box(modifier = Modifier.fillMaxSize(), propagateMinConstraints = true) {{"),
+    );
     if features.uses_shared_elements {
         out.line_at(
-            depth,
+            depth + 1,
             format_args!(
                 "CompositionLocalProvider(LocalNexaAnimatedVisibilityScope provides nexaAnimatedVisibilityScope) {{"
             ),
         );
-        render_children(&screen.body, module, features, depth + 1, out);
+        render_children(&screen.body, module, features, depth + 2, out);
         out.push('\n');
-        indent(out, depth);
+        indent(out, depth + 1);
         out.push('}');
     } else {
-        render_children(&screen.body, module, features, depth, out);
+        render_children(&screen.body, module, features, depth + 1, out);
     }
+    out.push('\n');
+    indent(out, depth);
+    out.push('}');
 }
 
 fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWriter) {

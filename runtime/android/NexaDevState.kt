@@ -495,6 +495,34 @@ internal class NexaDevStateStore(internal val context: Context) {
         return parameters
     }
 
+    fun bindings(
+        declarations: JSONArray?,
+        parameters: Map<String, Any>,
+        scope: String,
+    ): Map<String, Any> {
+        val resolved = parameters.toMutableMap()
+        if (declarations == null) return resolved
+        for (index in 0 until declarations.length()) {
+            val declaration = declarations.optJSONObject(index) ?: continue
+            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: continue
+            val initial = declaration.opt("initial") ?: continue
+            val type = declaration.optJSONObject("ty")
+            val stableNativeValue = type?.has("Class") == true ||
+                type?.has("Plugin") == true ||
+                type?.has("Signal") == true
+            if (declaration.optBoolean("mutable") || stableNativeValue) {
+                val identity = "$scope/state/$name"
+                if (!values.containsKey(identity)) {
+                    values[identity] = evaluate(initial, resolved, scope)
+                }
+                resolved[name] = values[identity] ?: JSONObject.NULL
+            } else {
+                resolved[name] = evaluate(initial, resolved, scope)
+            }
+        }
+        return resolved
+    }
+
     fun evaluate(raw: Any?, locals: Map<String, Any>, scope: String = "app"): Any {
         val expression = when (raw) {
             is JSONObject -> raw

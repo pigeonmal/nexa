@@ -47,7 +47,11 @@ pub(crate) fn render_button(
         Some(nexa_ir::ButtonSize::Large) => ".large",
         None => "nil",
     };
-    let shape = match shape.unwrap_or(nexa_codegen::design_system::DEFAULT_BUTTON_SHAPE) {
+    let resolved_shape = shape.unwrap_or(nexa_codegen::design_system::DEFAULT_BUTTON_SHAPE);
+    let icon_only_circle = icon.is_some()
+        && resolved_shape == nexa_ir::ButtonShape::Circle
+        && is_empty_button_label(label);
+    let shape = match resolved_shape {
         nexa_ir::ButtonShape::Circle => ".circle".to_owned(),
         nexa_ir::ButtonShape::Capsule => ".capsule".to_owned(),
         nexa_ir::ButtonShape::Rounded(radius) => format!(".rounded({radius})"),
@@ -67,6 +71,10 @@ pub(crate) fn render_button(
     out.line_at(depth + 1, format_args!("loading: {loading},"));
     out.line_at(depth + 1, format_args!("disabled: {disabled},"));
     out.line_at(depth + 1, format_args!("glass: {glass},"));
+    out.line_at(
+        depth + 1,
+        format_args!("iconOnlyCircle: {icon_only_circle},"),
+    );
     out.line_at(depth + 1, format_args!("action: {{"));
     render_actions(actions, depth + 2, out);
     out.line_at(depth + 1, format_args!("}},"));

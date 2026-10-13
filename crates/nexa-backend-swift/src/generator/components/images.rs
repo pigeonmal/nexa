@@ -14,6 +14,7 @@ pub(crate) fn render_image(
     placeholder: Option<&str>,
     show_loading_indicator: bool,
     max_height: Option<f32>,
+    fill_max_size: bool,
     shared_element: Option<&nexa_ir::Expr>,
     depth: usize,
     out: &mut SourceWriter,
@@ -22,18 +23,19 @@ pub(crate) fn render_image(
     match source {
         ImageSource::Asset(asset) => {
             out.push_str(&format!(
-                "NexaAssetImagePrimitive(name: {}, description: {}, scale: {}, maxHeight: {})",
+                "NexaAssetImagePrimitive(name: {}, description: {}, scale: {}, maxHeight: {}, fillMaxSize: {})",
                 swift_string(asset),
                 swift_string(description),
                 image_scale(scale),
                 max_height
                     .map(crate::generator::engine::utils::number)
-                    .unwrap_or_else(|| "nil".to_owned())
+                    .unwrap_or_else(|| "nil".to_owned()),
+                fill_max_size
             ));
         }
         ImageSource::RemoteUrl(url) => {
             out.push_str(&format!(
-                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: {}, showLoadingIndicator: {}, allowsFile: false, description: {}, maxHeight: {})",
+                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: {}, showLoadingIndicator: {}, allowsFile: false, description: {}, maxHeight: {}, fillMaxSize: {})",
                 expression(url),
                 image_scale(scale),
                 placeholder
@@ -43,19 +45,21 @@ pub(crate) fn render_image(
                 swift_string(description),
                 max_height
                     .map(crate::generator::engine::utils::number)
-                    .unwrap_or_else(|| "nil".to_owned())
+                    .unwrap_or_else(|| "nil".to_owned()),
+                fill_max_size
             ));
         }
         ImageSource::LocalFile(file) => {
             out.push_str(&format!(
-                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: nil, showLoadingIndicator: {}, allowsFile: true, description: {}, maxHeight: {})",
+                "NexaRemoteImagePrimitive(url: {}, scale: {}, placeholder: nil, showLoadingIndicator: {}, allowsFile: true, description: {}, maxHeight: {}, fillMaxSize: {})",
                 expression(file),
                 image_scale(scale),
                 show_loading_indicator,
                 swift_string(description),
                 max_height
                     .map(crate::generator::engine::utils::number)
-                    .unwrap_or_else(|| "nil".to_owned())
+                    .unwrap_or_else(|| "nil".to_owned()),
+                fill_max_size
             ));
         }
     }
@@ -95,11 +99,13 @@ pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: 
     let description: String
     let scale: NexaImageScale
     let maxHeight: CGFloat?
+    let fillMaxSize: Bool
 
     var body: some View {
         Image(name)
             .resizable()
             .aspectRatio(contentMode: scale == .fit ? .fit : .fill)
+            .frame(maxWidth: fillMaxSize || scale == .fill ? .infinity : nil, maxHeight: fillMaxSize ? .infinity : nil)
             .frame(maxHeight: maxHeight)
             .accessibilityLabel(description)
             .accessibilityHidden(description.isEmpty)
@@ -119,9 +125,11 @@ pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: 
     let allowsFile: Bool
     let description: String
     let maxHeight: CGFloat?
+    let fillMaxSize: Bool
 
     var body: some View {
         NexaRemoteImage(url: url, scale: scale, placeholder: placeholder, showLoadingIndicator: showLoadingIndicator, allowsFile: allowsFile)
+            .frame(maxWidth: fillMaxSize || scale == .fill ? .infinity : nil, maxHeight: fillMaxSize ? .infinity : nil)
             .frame(maxHeight: maxHeight)
             .accessibilityLabel(description)
             .accessibilityHidden(description.isEmpty)
@@ -163,6 +171,7 @@ mod tests {
             None,
             true,
             Some(80.0),
+            false,
             None,
             0,
             &mut output,

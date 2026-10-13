@@ -636,10 +636,21 @@ fn walk_invocation(
             if let Some(selected) = inv.arguments.get("selected") {
                 walk_expression(selected, names, used);
             }
-            if let ast::ChildBody::Tabs(tabs) = &inv.children {
-                for tab in tabs {
-                    walk_child_nodes(&tab.children, names, used, target, file, warnings);
+            match &inv.children {
+                ast::ChildBody::Tabs(tabs) => {
+                    for tab in tabs {
+                        walk_child_nodes(&tab.children, names, used, target, file, warnings);
+                    }
                 }
+                ast::ChildBody::AppBottomBar { tabs, custom_bar } => {
+                    for tab in tabs {
+                        walk_child_nodes(&tab.children, names, used, target, file, warnings);
+                    }
+                    if let Some(custom_bar) = custom_bar {
+                        walk_child_nodes(custom_bar, names, used, target, file, warnings);
+                    }
+                }
+                _ => {}
             }
         }
         "FastList" => {
@@ -767,6 +778,14 @@ fn walk_invocation(
                 ast::ChildBody::Tabs(tabs) => {
                     for tab in tabs {
                         walk_child_nodes(&tab.children, names, used, target, file, warnings);
+                    }
+                }
+                ast::ChildBody::AppBottomBar { tabs, custom_bar } => {
+                    for tab in tabs {
+                        walk_child_nodes(&tab.children, names, used, target, file, warnings);
+                    }
+                    if let Some(custom_bar) = custom_bar {
+                        walk_child_nodes(custom_bar, names, used, target, file, warnings);
                     }
                 }
                 ast::ChildBody::Rows(rows) => {

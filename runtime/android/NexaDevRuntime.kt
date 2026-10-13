@@ -6,6 +6,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
@@ -50,8 +51,10 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result -> NexaRuntime.dispatchPermissionResult(result) }
     SideEffect { NexaRuntime.bindPermissionLauncher(permissionLauncher) }
-    LaunchedEffect(serverURL, sessionToken) {
-        NexaDevSocketClient(serverURL, sessionToken, store).connect()
+    DisposableEffect(serverURL, sessionToken, store) {
+        val socketClient = NexaDevSocketClient(serverURL, sessionToken, store)
+        socketClient.connect()
+        onDispose { socketClient.disconnect() }
     }
     val module = store.module
     val latestModule = rememberUpdatedState(module)
@@ -154,7 +157,10 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
             if (store.diagnostics.isNotEmpty()) {
                 NexaDevErrorOverlay(
                     diagnostics = store.diagnostics,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     onOpenInEditor = store::requestEditorOpen,
                 )
             }

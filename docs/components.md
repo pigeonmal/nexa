@@ -81,6 +81,37 @@ Event modifiers are reserved for interactions and system triggers. For example, 
 
 `FastList` is the virtualized list component. Pass exactly one data source (`collection`, `count:`, or `sections:`), a row key when rendering a collection, and an explicit binding block. The compiler checks the number and type of row bindings.
 
+| Parameter | Type | Required/default | Behavior |
+|---|---|---|---|
+| Data source | `Array<T>`, `count: Int32`, or `sections: Array<Array<T>>` | Exactly one source | Positional arrays and named `count:` or `sections:` sources are supported. |
+| `key` | Statically known scalar item property | Required for collection sources | Declared in the list row binding; provides stable identity for virtualized items. |
+| `axis` | `Vertical`, `Horizontal`, `Grid(Int32)`, or `AutoGrid(Int32)` | `Vertical` | `Grid(columns)` fixes the column count. `AutoGrid(minCellWidth)` fits as many columns as available width allows while preserving the minimum cell width in logical units (dp on Android, points on iOS). Both numeric arguments must be positive integer literals. |
+| `rowHeight` | `Float64` | Content-sized | Optional fixed row height; for grids it is the cell height. Must be greater than zero. |
+| `spacing` | `Float64` | `0` | Gap between adjacent items. Applies along the list axis, or to both rows and columns for `Grid` and `AutoGrid`; `pageSnap` requires zero spacing. |
+| `scrollPosition` | `Int32` state | Omitted | Binds the first visible item index for supported flat lists. |
+| `scrollEnabled` | `Bool` expression | Platform default | Enables or disables user-driven scrolling for flat, sectioned, and adaptive-grid lists; supports reactive state. |
+| `reverseLayout` | `Bool` | `false` | Reverses a flat vertical list; cannot be combined with sections, sticky headers, or page snapping. |
+| `pageSnap` | `Bool` | `false` | Pages a flat vertical list by viewport height; omit `rowHeight`. |
+| `native` | `Bool` | `false` | Uses a platform-native vertical list without custom scroll behavior. |
+| `accessibilityLabel` | `String` | Omitted | Accessible label for the list. |
+
+| Modifier | Arguments and body | Behavior |
+|---|---|---|
+| `.onEndReached { ... }` | Actions | Runs when a supported flat list nears its final item. |
+| `.onScroll { ... }` | Actions | Runs as a supported flat list scrolls. |
+| `.onMove(enabled:) { from, to -> ... }` | Optional `Bool` (`true`); event actions | Reorders a native array-backed vertical list. |
+| `.stickyHeader { ... }` | Nodes | Adds a header to a flat vertical list. |
+| `.sectionHeader { section -> ... }` | Nodes | Renders a header for each `sections:` group. |
+| `.swipeActions { ... }` | Nodes | Adds one trailing action to a native list row. |
+
+Use `AutoGrid` for responsive media galleries so the same source adapts to phones, tablets, and resizable windows:
+
+```nx
+FastList(videos, key: .id, axis: AutoGrid(168), rowHeight: 240) { video, index in
+    Image(url: video.coverUrl, description: "Video thumbnail", scale: Fill, maxHeight: 240)
+}
+```
+
 ```nx
 struct OrderLine {
     id: Int32,
@@ -161,6 +192,7 @@ precedence over the loading indicator.
 | `placeholder` | `String` | Omitted | URL-only drawable/asset name shown during loading and on failure. |
 | `showLoadingIndicator` | `Bool` | `false` | URL/file-only; shows a small native indicator while loading when no placeholder is supplied. |
 | `maxHeight` | `Float64` | Omitted | Optional maximum rendered height; must be greater than 0 and at most 4096. |
+| `fillMaxSize` | `Bool` | `false` | Expands the image to the available width and height of its parent, cropping when `scale: Fill`; useful for media backgrounds and full-page posters. |
 | `.sharedElement(id:)` | `String` | Omitted | Joins the image to a matching shared-element transition. |
 
 ```nx

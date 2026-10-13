@@ -18,6 +18,9 @@ struct NexaDevDiagnostic: Identifiable, Equatable {
     }
 
     var sourceLocation: String { "\(file):\(line):\(column)" }
+    var compactSourceLocation: String {
+        "\(URL(fileURLWithPath: file).lastPathComponent):\(line):\(column)"
+    }
     var isRuntimeFailure: Bool { file == "<runtime>" }
 }
 
@@ -32,7 +35,7 @@ final class NexaDevRuntime: ObservableObject {
     private let serverURL: String
     private let sessionToken: String
     private var socket: URLSessionWebSocketTask?
-    private var connectionTask: Task<Void, Never>?
+    private var isConnecting = false
     private var currentRevision: String?
 
     init(serverURL: String, sessionToken: String) {
@@ -53,41 +56,55 @@ final class NexaDevRuntime: ObservableObject {
         )]
     }
 
-    func connect() {
-        guard connectionTask == nil, let url = URL(string: serverURL) else { return }
-        connectionTask = Task { [weak self] in
-            guard let self else { return }
-            var retryDelayNanoseconds: UInt64 = 50_000_000
-            while !Task.isCancelled {
-                let socket = URLSession.shared.webSocketTask(with: url)
-                self.socket = socket
-                socket.resume()
-                do {
-                    try await socket.send(.string(try Self.encode([
-                        NexaDevKeys.type: NexaDevKeys.msgHello,
-                        NexaDevKeys.payload: [
-                            NexaDevKeys.protocolVersion: NexaDevSchema.protocolVersion,
-                            NexaDevKeys.sessionToken: sessionToken,
-                            NexaDevKeys.target: NexaDevSchema.targetPlatform,
-                        ],
-                    ])))
-                    retryDelayNanoseconds = 50_000_000
-                    while !Task.isCancelled {
-                        let message = try await socket.receive()
-                        guard case let .string(text) = message else { continue }
-                        self.receive(text)
+    func connect() async {
+        guard !isConnecting, let url = URL(string: serverURL) else { return }
+        isConnecting = true
+        defer {
+            socket = nil
+            isConnecting = false
+        }
+
+        var retryDelayNanoseconds: UInt64 = 50_000_000
+        while !Task.isCancelled {
+            let socket = URLSession.shared.webSocketTask(with: url)
+            self.socket = socket
+            socket.resume()
+            do {
+                let hello = try Self.encode([
+                    NexaDevKeys.type: NexaDevKeys.msgHello,
+                    NexaDevKeys.payload: [
+                        NexaDevKeys.protocolVersion: NexaDevSchema.protocolVersion,
+                        NexaDevKeys.sessionToken: sessionToken,
+                        NexaDevKeys.target: NexaDevSchema.targetPlatform,
+                    ],
+                ])
+                // URLSession queues writes until the WebSocket upgrade is complete.
+                try await withTaskCancellationHandler {
+                    try await socket.send(.string(hello))
+                } onCancel: {
+                    socket.cancel(with: .goingAway, reason: nil)
+                }
+                retryDelayNanoseconds = 50_000_000
+                while !Task.isCancelled {
+                    let message = try await withTaskCancellationHandler {
+                        try await socket.receive()
+                    } onCancel: {
+                        socket.cancel(with: .goingAway, reason: nil)
                     }
-                } catch {
-                    guard !Task.isCancelled else { break }
+                    guard case let .string(text) = message else { continue }
+                    receive(text)
+                }
+            } catch {
+                if !Task.isCancelled {
                     print("Nexa dev connection ended: \(error); retrying")
                 }
-                self.socket = nil
-                if !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: retryDelayNanoseconds)
-                    retryDelayNanoseconds = min(retryDelayNanoseconds * 2, 1_000_000_000)
-                }
             }
-            self.connectionTask = nil
+            socket.cancel(with: Task.isCancelled ? .goingAway : .normalClosure, reason: nil)
+            self.socket = nil
+            if !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: retryDelayNanoseconds)
+                retryDelayNanoseconds = min(retryDelayNanoseconds * 2, 1_000_000_000)
+            }
         }
     }
 

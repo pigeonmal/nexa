@@ -228,6 +228,7 @@ pub(crate) fn render_node(
             placeholder,
             show_loading_indicator,
             max_height,
+            fill_max_size,
             shared_element,
         } => images::render_image(
             source,
@@ -236,6 +237,7 @@ pub(crate) fn render_node(
             placeholder.as_deref(),
             *show_loading_indicator,
             *max_height,
+            *fill_max_size,
             shared_element.as_ref(),
             depth,
             out,
@@ -342,10 +344,16 @@ pub(crate) fn render_node(
         } => {
             refresh::render_refresh_control(state, children, actions, module, features, depth, out)
         }
-        Node::AppBottomBar { state, tint, tabs } => bottom_bar::render_app_bottom_bar(
+        Node::AppBottomBar {
+            state,
+            tint,
+            tabs,
+            custom_bar,
+        } => bottom_bar::render_app_bottom_bar(
             state,
             tint.as_ref(),
             tabs,
+            custom_bar.as_deref(),
             module,
             features,
             depth,

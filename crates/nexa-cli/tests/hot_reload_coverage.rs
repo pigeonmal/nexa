@@ -114,6 +114,26 @@ fn android_dev_runtime_unboxes_primitive_state_and_closes_its_event_scope() {
 }
 
 #[test]
+fn android_dev_socket_is_closed_when_its_compose_lifetime_ends() {
+    let (root, _) = fixture();
+    let kotlin_protocol = fs::read_to_string(root.join("../../runtime/android/NexaDevProtocol.kt"))
+        .expect("read Android dev socket client");
+    let kotlin_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRuntime.kt"))
+        .expect("read Android dev runtime");
+
+    assert!(kotlin_runtime.contains("DisposableEffect(serverURL, sessionToken, store)"));
+    assert!(kotlin_runtime.contains("socketClient.connect()"));
+    assert!(kotlin_runtime.contains("onDispose { socketClient.disconnect() }"));
+    assert!(kotlin_protocol.contains("fun disconnect()"));
+    assert!(kotlin_protocol.contains("socket?.close()"));
+    assert!(kotlin_protocol.contains("worker?.interrupt()"));
+    assert!(
+        kotlin_protocol
+            .contains("socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)")
+    );
+}
+
+#[test]
 fn android_dev_node_dispatch_is_split_into_art_jittable_composable_families() {
     let (root, _) = fixture();
     let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
@@ -192,6 +212,16 @@ fn collect_parity_components(
                         found.insert("Tab".to_owned());
                         for tab in tabs {
                             collect_parity_components(&tab.children, found, arguments);
+                        }
+                    }
+                    ChildBody::AppBottomBar { tabs, custom_bar } => {
+                        found.insert("Tab".to_owned());
+                        for tab in tabs {
+                            collect_parity_components(&tab.children, found, arguments);
+                        }
+                        if let Some(custom_bar) = custom_bar {
+                            found.insert("TabBar".to_owned());
+                            collect_parity_components(custom_bar, found, arguments);
                         }
                     }
                     ChildBody::SplitPanes { sidebar, detail } => {
@@ -355,6 +385,378 @@ fn component_parity_app_exercises_every_catalog_component() {
         "component parity app is missing shared accessibility parameters: {}",
         missing_accessibility.join(", ")
     );
+    assert!(
+        source.contains("axis: Grid(2)"),
+        "FastList parity route must retain a fixed-grid case"
+    );
+    assert!(
+        source.contains("axis: AutoGrid(160)"),
+        "FastList parity route must retain an adaptive-grid case"
+    );
+    assert!(
+        source.contains("scrollEnabled: allowGridScroll"),
+        "FastList parity route must exercise reactive scroll enablement"
+    );
+}
+
+#[test]
+fn component_parity_app_generates_release_code_for_both_targets() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let entry = root.join("../../examples/component-parity/App.nx");
+    // This integration fixture compiles the entire component catalog. Give its
+    // recursive parser / IR walk enough stack independently of the test runner's
+    // small default test-thread stack.
+    let (swift, kotlin) = std::thread::Builder::new()
+        .name("component-parity-codegen".to_owned())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
+            let compilations = nexa_compiler::compile_file_with_warnings_for_targets(
+                &entry,
+                &[nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin],
+            )
+            .expect("compile the component parity app for both AOT targets");
+            assert_eq!(compilations.len(), 2);
+
+            (
+                SwiftBackend.generate(&compilations[0].module),
+                KotlinBackend.generate(&compilations[1].module),
+            )
+        })
+        .expect("spawn the parity codegen thread")
+        .join()
+        .expect("compile the component parity app without overflowing the test runner stack");
+    let bounds = swift
+        .find(".frame(minWidth: 220, maxWidth: 260, minHeight: 64, maxHeight: 80, alignment: .top)")
+        .expect("ColumnCases should exercise bounded dimensions");
+    let fixed = swift
+        .find(".frame(width: 240, height: 72, alignment: .top)")
+        .expect("ColumnCases should exercise fixed dimensions");
+    assert!(bounds < fixed, "SwiftUI fixed dimensions must wrap bounds");
+    assert!(swift.contains(".frame(width: 280, alignment: .topLeading)"));
+    assert!(swift.contains(".frame(width: 280, alignment: .top)"));
+    assert!(swift.contains(".frame(width: 280, alignment: .topTrailing)"));
+    assert!(
+        swift.contains(".clipped()"),
+        "bounded Column children must remain in their height"
+    );
+
+    for (parameter, swift_fragment, kotlin_fragment) in [
+        (
+            "spacing",
+            "NexaColumnPrimitive(alignment: .leading, textAlignment: .leading, spacing: 0)",
+            "spacing = 0f",
+        ),
+        (
+            "alignment Start",
+            "NexaColumnPrimitive(alignment: .leading, textAlignment: .leading, spacing: 0)",
+            "horizontalAlignment = Alignment.Start",
+        ),
+        (
+            "alignment Center",
+            "NexaColumnPrimitive(alignment: .center, textAlignment: .center, spacing: 8)",
+            "horizontalAlignment = Alignment.CenterHorizontally",
+        ),
+        (
+            "alignment End",
+            "NexaColumnPrimitive(alignment: .trailing, textAlignment: .trailing, spacing: 20)",
+            "horizontalAlignment = Alignment.End",
+        ),
+        ("padding", ".padding(12)", ".padding(12.dp)"),
+        (
+            "width",
+            ".frame(width: 220, alignment: .top)",
+            ".width(220.dp)",
+        ),
+        (
+            "height",
+            ".frame(height: 56, alignment: .top)",
+            ".height(56.dp)",
+        ),
+        (
+            "min/max width",
+            ".frame(minWidth: 210, maxWidth: 260",
+            ".widthIn(min = 210.dp, max = 260.dp)",
+        ),
+        (
+            "min/max height",
+            ".frame(minWidth: 210, maxWidth: 260, minHeight: 64, maxHeight: 84, alignment: .top)",
+            ".heightIn(min = 64.dp, max = 84.dp)",
+        ),
+        ("background", ".background(", ".background("),
+        (
+            "corner radius",
+            ".clipShape(RoundedRectangle(cornerRadius: 14))",
+            ".clip(RoundedCornerShape(14.dp))",
+        ),
+        ("border", ".stroke(", ".border(width = 2.dp,"),
+        (
+            "opacity",
+            ".compositingGroup().opacity(0.45)",
+            ".graphicsLayer(alpha = 0.45f, compositingStrategy = CompositingStrategy.Offscreen)",
+        ),
+        (
+            "scale",
+            ".scaleEffect(1.2)",
+            ".graphicsLayer(scaleX = 1.2f, scaleY = 1.2f, rotationZ = 0.0f)",
+        ),
+        (
+            "rotation",
+            ".rotationEffect(.degrees(12))",
+            ".graphicsLayer(scaleX = 1.0f, scaleY = 1.0f, rotationZ = 12f)",
+        ),
+        ("shadow", "radius: 8, x: 4, y: 6)", "Shadow(radius = 8.dp"),
+        ("blur", ".blur(radius: 2)", ".blur(2.dp)"),
+        (
+            "clip",
+            ".clipShape(RoundedRectangle(cornerRadius: 14))",
+            ".clip(RoundedCornerShape(14.dp))",
+        ),
+        ("zIndex", ".zIndex(2)", ".zIndex(2f)"),
+        (
+            "glass circle",
+            ".nexaGlass(shape: .circle)",
+            "val surfaceShape: Shape = CircleShape",
+        ),
+        (
+            "glass capsule",
+            ".nexaGlass(shape: .capsule)",
+            "val surfaceShape: Shape = RoundedCornerShape(percent = 50)",
+        ),
+        (
+            "glass rounded",
+            ".nexaGlass(shape: .rounded(12))",
+            "val surfaceShape: Shape = RoundedCornerShape(12.dp)",
+        ),
+        (
+            "EaseIn",
+            ".animation(.easeIn)",
+            "animateContentSize(animationSpec = tween(easing = FastOutLinearInEasing))",
+        ),
+        (
+            "EaseOut",
+            ".animation(.easeOut)",
+            "animateContentSize(animationSpec = tween(easing = LinearOutSlowInEasing))",
+        ),
+        (
+            "EaseInOut",
+            ".animation(.easeInOut)",
+            "animateContentSize(animationSpec = tween(easing = FastOutSlowInEasing))",
+        ),
+        (
+            "Linear",
+            ".animation(.linear)",
+            "animateContentSize(animationSpec = tween(easing = LinearEasing))",
+        ),
+        (
+            "Spring",
+            ".spring(response: 0.35, dampingFraction: 0.8)",
+            "animateContentSize(animationSpec = spring(dampingRatio = 0.8f, stiffness = ",
+        ),
+        (
+            "accessibility label, hint, value, and heading role",
+            "label: Text(\"Column accessibility sample\")",
+            "NexaAccessibilityPrimitive(",
+        ),
+    ] {
+        assert!(
+            swift.contains(swift_fragment),
+            "iOS AOT omitted Column {parameter} mapping: {swift_fragment}"
+        );
+        assert!(
+            kotlin.contains(kotlin_fragment),
+            "Android AOT omitted Column {parameter} mapping: {kotlin_fragment}"
+        );
+    }
+    assert!(swift.contains("hint: Text(\"Demonstrates Column semantics\")"));
+    assert!(swift.contains("value: Text(\"Ready\")"));
+    assert!(swift.contains("role: \"Header\""));
+    assert!(kotlin.contains("label = NexaRuntime.context().getString(R.string."));
+    assert!(kotlin.contains("hint = NexaRuntime.context().getString(R.string."));
+    assert!(kotlin.contains("value = NexaRuntime.context().getString(R.string."));
+    assert!(kotlin.contains("role = null,"));
+    assert!(kotlin.contains("isHeading = true,"));
+    assert!(swift.contains("role: \"Button\""));
+    assert!(swift.contains("role: \"Link\""));
+    assert!(swift.contains("role: \"Image\""));
+    assert!(swift.contains("role: \"None\""));
+    for label in [
+        "Button role sample",
+        "Link role sample",
+        "Image role sample",
+        "None role sample",
+    ] {
+        let resource = nexa_codegen::names::localization_resource_name(label);
+        assert!(kotlin.contains(&format!("R.string.{resource}")));
+    }
+    assert!(kotlin.contains("role = \"Button\","));
+    assert!(kotlin.contains("role = \"Image\","));
+    assert!(swift.contains(
+        ".nexaGlass(tint: Color(red: 0.882353, green: 0.113725, blue: 0.282353, opacity: 1.000000), shape: .capsule)"
+    ));
+    assert!(kotlin.contains("Color(0xFFE11D48).copy(alpha = 1f)"));
+    assert!(kotlin.contains("val surfaceColor = MaterialTheme.colorScheme.surface"));
+    assert!(kotlin.contains("it.clip(surfaceShape).background(surfaceColor, surfaceShape)"));
+    assert!(kotlin.contains(".background(surfaceColor, surfaceShape)"));
+    assert!(
+        !kotlin.contains(".border(1.dp, MaterialTheme.colorScheme.outlineVariant, surfaceShape)")
+    );
+    assert!(!kotlin.contains("glassTintAlpha"));
+    assert!(!kotlin.contains("Color.White.copy(alpha = 0.16f)"));
+
+    assert!(swift.contains("minCellWidth: 160"));
+    assert!(kotlin.contains("GridCells.Adaptive(minSize = 160.dp)"));
+    assert!(swift.contains("NexaFastGridListPrimitive(rowCount:"));
+    assert!(swift.contains("group.interItemSpacing = .fixed(spacing)"));
+    assert!(swift.contains("environment.container.effectiveContentSize.width"));
+    assert!(swift.contains("spacing * CGFloat(columnCount - 1)"));
+    assert!(swift.contains("widthDimension: .absolute(cellWidth)"));
+    assert!(swift.contains("collectionView.setCollectionViewLayout("));
+    assert!(kotlin.contains("GridCells.Adaptive(minSize = 160.dp)"));
+    assert!(kotlin.contains("horizontalArrangement = Arrangement.spacedBy(4.dp)"));
+    assert!(kotlin.contains("verticalArrangement = Arrangement.spacedBy(4.dp)"));
+    for primitive in [
+        "NexaBottomSheetPrimitive(",
+        "NexaContentUnavailablePrimitive(",
+        "NexaDatePickerPrimitive(",
+        "NexaNavigationSplitViewPrimitive(",
+    ] {
+        assert!(swift.contains(primitive), "iOS AOT omitted {primitive}");
+        assert!(
+            kotlin.contains(primitive),
+            "Android AOT omitted {primitive}"
+        );
+    }
+}
+
+#[test]
+fn ios_dev_runtime_keeps_fixed_dimensions_outside_flexible_bounds() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    let size_styles = renderer
+        .split_once("let minWidth = style[\"min_width\"]")
+        .expect("find iOS style sizing")
+        .1
+        .split_once("if let padding = style[\"padding\"]")
+        .expect("find end of iOS style sizing")
+        .0;
+    let bounds = size_styles
+        .find("if minWidth != nil || maxWidth != nil")
+        .expect("apply flexible bounds");
+    let fixed = size_styles
+        .find("if let width, let height")
+        .expect("apply explicit dimensions");
+    assert!(bounds < fixed, "SwiftUI fixed dimensions must wrap bounds");
+    assert!(size_styles.contains("alignment: frameAlignment"));
+    assert!(size_styles.contains("if maxHeight != nil"));
+    assert!(size_styles.contains("styled.clipped()"));
+}
+
+#[test]
+fn android_dev_runtime_animates_content_before_size_modifiers() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+    let layout = renderer
+        .split_once("\"Layout\" -> {")
+        .expect("find Android DevRuntime layout rendering")
+        .1
+        .split_once("\"ContentUnavailable\" -> {")
+        .expect("find end of Android DevRuntime layout rendering")
+        .0;
+    let animation = layout
+        .find("if (!style.isNull(\"animation\"))")
+        .expect("apply layout content-size animation");
+    for sizing_modifier in [
+        "if (!style.isNull(\"padding\"))",
+        "if (!style.isNull(\"width\"))",
+        "if (!style.isNull(\"height\"))",
+        "if (!style.isNull(\"min_width\")",
+        "if (!style.isNull(\"min_height\")",
+    ] {
+        let sizing = layout
+            .find(sizing_modifier)
+            .unwrap_or_else(|| panic!("apply {sizing_modifier}"));
+        assert!(
+            animation < sizing,
+            "content-size animation must precede {sizing_modifier}"
+        );
+    }
+}
+
+#[test]
+fn android_dev_runtime_inherits_parent_alignment_when_text_alignment_is_unset() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+    let text = renderer
+        .split_once("private fun NexaDevRenderTextNode(")
+        .expect("find Android DevRuntime text rendering")
+        .1
+        .split_once("private fun NexaDevRenderControlNode(")
+        .expect("find end of Android DevRuntime text rendering")
+        .0;
+
+    assert!(text.contains("\"Leading\" -> TextAlign.Start"));
+    assert!(text.contains("\"Center\" -> TextAlign.Center"));
+    assert!(text.contains("\"Trailing\" -> TextAlign.End"));
+    assert!(text.contains("else -> null"));
+    assert!(text.contains("textAlign = textAlign,"));
+    assert!(!text.contains("else -> TextAlign.Unspecified"));
+}
+
+#[test]
+fn ios_dev_runtime_inherits_column_text_alignment_when_unset() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    let text = renderer
+        .split_once("case \"Text\":")
+        .expect("find iOS DevRuntime Text rendering")
+        .1
+        .split_once("case \"TextInput\":")
+        .expect("find end of iOS DevRuntime Text rendering")
+        .0;
+
+    assert!(renderer.contains("let columnTextAlignment: TextAlignment"));
+    assert!(renderer.contains("textAlignment: columnTextAlignment"));
+    assert!(
+        text.contains("if let alignment { nativeStyle = nativeStyle.withAlignment(alignment) }")
+    );
+}
+
+#[test]
+fn android_dev_runtime_maps_glass_effect_to_material_surface() {
+    let (root, _) = fixture();
+    let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+    let layout = renderer
+        .split_once("\"Layout\" -> {")
+        .expect("find Android DevRuntime layout rendering")
+        .1
+        .split_once("\"ContentUnavailable\" -> {")
+        .expect("find end of Android DevRuntime layout rendering")
+        .0;
+
+    assert!(layout.contains("effects.optJSONObject(\"glass\")"));
+    assert!(layout.contains("shapeFields.has(\"Circle\") -> CircleShape"));
+    assert!(layout.contains("shapeFields.has(\"Rounded\") -> RoundedCornerShape"));
+    assert!(layout.contains("RoundedCornerShape(percent = 50)"));
+    assert!(layout.contains("glass.optJSONObject(\"tint\")"));
+    assert!(layout.contains("?.copy(alpha = 1f)"));
+    assert!(
+        layout.contains(
+            "?: nexaDevColor(style.optJSONObject(\"background\"), isSystemInDarkTheme())"
+        )
+    );
+    assert!(layout.contains("?: MaterialTheme.colorScheme.surface"));
+    assert!(layout.contains(".clip(glassShape)"));
+    assert!(layout.contains(".background(surfaceColor, glassShape)"));
+    assert!(
+        !layout.contains(".border(1.dp, MaterialTheme.colorScheme.outlineVariant, glassShape)")
+    );
+    assert!(!layout.contains("0.05f"));
+    assert!(!layout.contains("Color.White.copy(alpha = 0.16f)"));
 }
 
 #[test]
@@ -382,7 +784,8 @@ fn android_aot_and_dev_runtime_share_refresh_control_layout() {
         .split_once("@Composable\n@OptIn")
         .expect("find end of Android DevRuntime column child renderer")
         .0;
-    assert!(column_children.contains("if (child.has(\"Spacer\")) Modifier.weight(1f)"));
+    assert!(column_children.contains("child.has(\"Spacer\") -> Modifier.weight(1f)"));
+    assert!(column_children.contains("child.has(\"NavigationStack\") -> Modifier.fillMaxSize()"));
     assert!(!column_children.contains("child.has(\"RefreshControl\")"));
     assert!(!column_children.contains("child.has(\"FastList\")"));
 }
@@ -416,7 +819,7 @@ fn empty_module(body: Vec<Node>) -> Module {
 fn keyed_fast_list_module(native: bool) -> Module {
     let item_type = nexa_ir::Type::String;
     empty_module(vec![Node::FastList {
-        plan: ListPlan::Items {
+        plan: Box::new(ListPlan::Items {
             collection: Expr::Array(vec![Expr::String("task-a".to_owned())]),
             element_type: item_type.clone(),
             item: "task".to_owned(),
@@ -429,6 +832,7 @@ fn keyed_fast_list_module(native: bool) -> Module {
                 index: "index".to_owned(),
                 key: Some(Expr::State("task".to_owned(), item_type.clone())),
                 scroll_position: None,
+                scroll_enabled: None,
                 children: vec![Node::Text {
                     value: Expr::State("task".to_owned(), item_type),
                     style: nexa_ir::TextStyle::default(),
@@ -439,8 +843,9 @@ fn keyed_fast_list_module(native: bool) -> Module {
                 swipe_actions: None,
                 sticky_header: None,
                 refresh: None,
+                spacing: 0.0,
             },
-        },
+        }),
     }])
 }
 
@@ -555,6 +960,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             placeholder: None,
             show_loading_indicator: false,
             max_height: Some(96.0),
+            fill_max_size: false,
             shared_element: None,
         },
         Node::Image {
@@ -566,6 +972,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             placeholder: Some("task_placeholder".to_owned()),
             show_loading_indicator: false,
             max_height: Some(144.0),
+            fill_max_size: false,
             shared_element: None,
         },
         Node::Image {
@@ -577,6 +984,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             placeholder: None,
             show_loading_indicator: false,
             max_height: None,
+            fill_max_size: false,
             shared_element: None,
         },
         Node::PagePager {
@@ -606,6 +1014,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         Node::AppBottomBar {
             state: "selectedTab".to_owned(),
             tint: None,
+            custom_bar: None,
             tabs: vec![nexa_ir::BottomBarTab {
                 index: 0,
                 label: "Today".to_owned(),
@@ -824,7 +1233,11 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         .expect("read Android DevRuntime renderer");
 
     assert!(swift.contains("struct NexaColumnPrimitive<Content: View>"));
-    assert!(swift.contains("NexaColumnPrimitive(alignment: .center, spacing: 8)"));
+    assert!(
+        swift.contains(
+            "NexaColumnPrimitive(alignment: .center, textAlignment: .center, spacing: 8)"
+        )
+    );
     assert!(swift.contains("struct NexaTextPrimitive: View"));
     assert!(swift.contains("struct NexaButtonPrimitive<Label: View>"));
     assert!(swift.contains("NexaTextPrimitive("));
@@ -2000,6 +2413,8 @@ fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
             .expect("read Android dev protocol");
     let android_overlay = fs::read_to_string(root.join("../../runtime/android/NexaDevOverlay.kt"))
         .expect("read Android dev overlay");
+    let android_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRuntime.kt"))
+        .expect("read Android dev runtime");
     let android_state = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
         .expect("read Android dev state");
     let android_actions = fs::read_to_string(root.join("../../runtime/android/NexaDevActions.kt"))
@@ -2012,6 +2427,13 @@ fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
     assert!(ios_protocol.contains("NexaDevKeys.msgOpenInEditor"));
     assert!(ios_protocol.contains("NexaDevDiagnostic(file: file, line: line, column: column"));
     assert!(ios_overlay.contains("Development diagnostics"));
+    assert!(ios_overlay.contains("diagnostic.compactSourceLocation"));
+    assert!(ios_overlay.contains(".background(Color(uiColor: .systemBackground)"));
+    assert!(ios_overlay.contains(".font(.system(size: 15, weight: .semibold))"));
+    assert!(ios_overlay.contains(".font(.system(size: 15))"));
+    assert!(ios_overlay.contains(".font(.system(size: 12))"));
+    assert!(ios_overlay.contains(".padding(14)"));
+    assert!(ios_protocol.contains("var compactSourceLocation: String"));
     assert!(ios_overlay.contains("onOpenInEditor(item)"));
     assert!(ios_overlay.contains("item.stackTrace"));
     assert!(ios_overlay.contains("source mapping unavailable"));
@@ -2020,6 +2442,14 @@ fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
     assert!(android_protocol.contains("NexaDevKeys.MSG_OPEN_IN_EDITOR"));
     assert!(android_protocol.contains("NexaDevDiagnostic("));
     assert!(android_overlay.contains("Development diagnostics"));
+    assert!(android_overlay.contains("MaterialTheme.colorScheme.surface"));
+    assert!(android_overlay.contains("MaterialTheme.colorScheme.onSurfaceVariant"));
+    assert!(android_overlay.contains("MaterialTheme.colorScheme.error"));
+    assert!(android_overlay.contains("fontSize = 15.sp"));
+    assert!(android_overlay.contains("fontSize = 12.sp"));
+    assert!(android_overlay.contains("Arrangement.spacedBy(5.dp)"));
+    assert!(android_overlay.contains("Modifier.fillMaxWidth().padding(14.dp)"));
+    assert!(android_runtime.contains(".statusBarsPadding()"));
     assert!(android_overlay.contains("onOpenInEditor(diagnostic)"));
     assert!(android_overlay.contains("diagnostic.stackTrace"));
     assert!(android_overlay.contains("source mapping unavailable"));
@@ -2487,7 +2917,7 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
         style: nexa_ir::TextStyle::default(),
     };
     let module = empty_module(vec![Node::FastList {
-        plan: ListPlan::Count {
+        plan: Box::new(ListPlan::Count {
             count,
             common: ListCommon {
                 axis: ListAxis::Vertical,
@@ -2498,6 +2928,7 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                 index: "index".to_owned(),
                 key: None,
                 scroll_position: None,
+                scroll_enabled: None,
                 children: vec![row("Task title"), row("Task details")],
                 on_end_reached: None,
                 on_scroll: None,
@@ -2516,8 +2947,9 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                 }]),
                 sticky_header: None,
                 refresh: None,
+                spacing: 4.0,
             },
-        },
+        }),
     }]);
     let aot = KotlinBackend.generate(&module);
     let keyed_aot = KotlinBackend.generate(&keyed_fast_list_module(false));
@@ -2530,6 +2962,7 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
     assert!(aot.contains("NexaFastListRowPrimitive("));
     assert!(aot.contains("NexaFastListDividerPrimitive()"));
     assert!(aot.contains("Modifier.fillMaxWidth().height(72.dp)"));
+    assert!(aot.contains("verticalArrangement = Arrangement.spacedBy(4.dp)"));
     assert!(aot.contains("horizontalAlignment = Alignment.CenterHorizontally"));
     assert!(aot.contains("NexaFastListSwipePrimitive("));
     assert!(keyed_aot.contains("key = { itemPosition ->"));
@@ -2540,6 +2973,10 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
     assert!(renderer.contains("NexaFastListDividerPrimitive()"));
     assert!(renderer.contains("horizontalAlignment = if (rowNodes.length() > 1)"));
     assert!(renderer.contains("NexaFastListSwipePrimitive("));
+    assert!(renderer.contains("options.optDouble(\"spacing\", 0.0).coerceAtLeast(0.0).dp"));
+    assert!(renderer.contains("options?.opt(\"scroll_enabled\")"));
+    assert!(renderer.contains("userScrollEnabled = scrollEnabled &&"));
+    assert!(renderer.contains("verticalArrangement = Arrangement.spacedBy(spacing)"));
     assert!(renderer.contains("val keyExpression = options?.opt(\"key\")"));
     assert!(
         renderer
@@ -2555,7 +2992,7 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
 #[test]
 fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
     let module = empty_module(vec![Node::FastList {
-        plan: ListPlan::Count {
+        plan: Box::new(ListPlan::Count {
             count: Expr::Number {
                 raw: "3".to_owned(),
                 ty: NumericType::Int32,
@@ -2569,6 +3006,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 index: "index".to_owned(),
                 key: None,
                 scroll_position: None,
+                scroll_enabled: None,
                 children: vec![Node::Text {
                     value: Expr::String("AOT and DevRuntime row".to_owned()),
                     style: nexa_ir::TextStyle::default(),
@@ -2579,8 +3017,9 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 swipe_actions: None,
                 sticky_header: None,
                 refresh: None,
+                spacing: 4.0,
             },
-        },
+        }),
     }]);
     let aot = SwiftBackend.generate(&module);
     let keyed_native_aot = SwiftBackend.generate(&keyed_fast_list_module(true));
@@ -2590,11 +3029,16 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
         .expect("read iOS DevRuntime list renderer");
 
     assert!(aot.contains("NexaFastListPrimitive(rowCount:"));
+    assert!(aot.contains("spacing: 4"));
     assert!(keyed_native_aot.contains("NexaIdentifiedListRow(id: AnyHashable("));
     assert!(
         dev_host.contains("func NexaFastListPrimitive<RowContent: View, HeaderContent: View>(")
     );
     assert!(renderer.contains("NexaFastListPrimitive("));
+    assert!(renderer.contains("listFields[\"spacing\"] as? Double ?? 0"));
+    assert!(renderer.contains("listFields[\"scroll_enabled\"]"));
+    assert!(renderer.contains(".scrollDisabled(!scrollEnabled)"));
+    assert!(renderer.contains("CGFloat(spacing) / 2"));
     assert!(renderer.contains("sectionCounts == nil, onMove == nil"));
     assert!(renderer.contains("let rowKey: ((Int, Int, Int) -> AnyHashable)?"));
     assert!(renderer.contains("ForEach(identifiedRows(count: count))"));
@@ -2614,7 +3058,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
         "NexaFastHorizontalListPrimitive(",
         "NexaFastGridListPrimitive(",
         "NexaFastSectionedListPrimitive(",
-        "NexaNativeListPrimitive {",
+        "NexaNativeListPrimitive(spacing:",
     ] {
         assert!(renderer.contains(call), "DevRuntime omitted {call}");
     }
@@ -2625,7 +3069,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
     assert!(!empty_release.contains("func NexaFastListPrimitive<"));
 
     let swipe_actions_aot = SwiftBackend.generate(&empty_module(vec![Node::FastList {
-        plan: ListPlan::Count {
+        plan: Box::new(ListPlan::Count {
             count: Expr::Number {
                 raw: "1".to_owned(),
                 ty: NumericType::Int32,
@@ -2639,6 +3083,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 index: "index".to_owned(),
                 key: None,
                 scroll_position: None,
+                scroll_enabled: None,
                 children: vec![Node::Text {
                     value: Expr::String("Task".to_owned()),
                     style: nexa_ir::TextStyle::default(),
@@ -2660,10 +3105,11 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 }]),
                 sticky_header: None,
                 refresh: None,
+                spacing: 0.0,
             },
-        },
+        }),
     }]));
-    assert!(swipe_actions_aot.contains("NexaNativeListPrimitive {"));
+    assert!(swipe_actions_aot.contains("NexaNativeListPrimitive(scrollEnabled: true) {"));
     assert!(swipe_actions_aot.contains(".swipeActions(edge: .trailing)"));
 }
 
@@ -2688,7 +3134,7 @@ fn development_button_shape_defaults_match_on_both_platforms() {
     ));
     assert!(kotlin_primitives.contains("style: String?,"));
     assert!(kotlin_primitives.contains(
-        "val resolvedStyle = style ?: if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else \"BorderedProminent\""
+        "val resolvedStyle = if (LocalNexaBottomSheetToolbarButtons.current) \"Plain\" else style ?: \"BorderedProminent\""
     ));
 }
 
@@ -2698,9 +3144,27 @@ fn android_dev_bottom_sheet_only_shows_toolbar_slots_from_the_active_branch() {
     let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime renderer");
 
-    assert!(renderer.contains("hasNavigationIcon = nexaDevHasActiveSheetToolbar("));
-    assert!(renderer.contains("hasActions = nexaDevHasActiveSheetToolbar("));
-    assert!(renderer.contains("private fun nexaDevHasActiveSheetToolbar("));
+    assert!(renderer.contains("val leading = if (hasTitle) {"));
+    assert!(renderer.contains("val trailing = if (hasTitle) {"));
+    assert!(
+        renderer.contains(
+            "nexaDevActiveSheetToolbarNodes(children, \"Leading\", store, locals, scope)"
+        )
+    );
+    assert!(
+        renderer.contains(
+            "nexaDevActiveSheetToolbarNodes(children, \"Trailing\", store, locals, scope)"
+        )
+    );
+    assert!(renderer.contains("hasNavigationIcon = leading.length() > 0"));
+    assert!(renderer.contains("hasActions = trailing.length() > 0"));
+    assert!(renderer.contains("private fun nexaDevActiveSheetToolbarNodes("));
+    assert!(renderer.contains("private fun nexaDevActiveBranchNodes("));
+    assert!(
+        renderer.contains(
+            "val activeChildren = nexaDevActiveBranchNodes(children, store, locals, scope)"
+        )
+    );
     assert!(
         renderer.contains("fields.optJSONArray(if (condition) \"then_body\" else \"else_body\")")
     );

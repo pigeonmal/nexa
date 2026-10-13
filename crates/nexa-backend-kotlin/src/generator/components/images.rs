@@ -12,6 +12,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_asset || features.uses_placeholder || features.uses_remote_image;
     imports.add(uses_images, "androidx.compose.ui.Modifier");
     imports.add(uses_images, "androidx.compose.ui.unit.dp");
+    imports.add(
+        uses_images,
+        "androidx.compose.foundation.layout.fillMaxSize",
+    );
     imports.add(features.uses_remote_image, "coil3.ImageLoader");
     imports.add(features.uses_remote_image, "coil3.network.NetworkClient");
     imports.add(features.uses_remote_image, "coil3.network.NetworkFetcher");
@@ -33,6 +37,7 @@ pub(crate) fn render_image(
     placeholder: Option<&str>,
     show_loading_indicator: bool,
     max_height: Option<f32>,
+    fill_max_size: bool,
     shared_element: Option<&nexa_ir::Expr>,
     depth: usize,
     out: &mut SourceWriter,
@@ -58,16 +63,16 @@ pub(crate) fn render_image(
     let indent = "    ".repeat(depth);
     match source {
         ImageSource::Asset(asset) => out.push_str(&format!(
-            "NexaAssetImagePrimitive(\n{indent}    name = {},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
+            "NexaAssetImagePrimitive(\n{indent}    name = {},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    fillMaxSize = {fill_max_size},\n{indent}    modifier = {modifier},\n{indent})",
             kotlin_string(asset),
         )),
         ImageSource::RemoteUrl(url) => out.push_str(&format!(
-            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = false,\n{indent}    placeholder = {},\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
+            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = false,\n{indent}    placeholder = {},\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    fillMaxSize = {fill_max_size},\n{indent}    modifier = {modifier},\n{indent})",
             expression(url),
             placeholder.map(kotlin_string).unwrap_or_else(|| "null".to_owned()),
         )),
         ImageSource::LocalFile(file) => out.push_str(&format!(
-            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = true,\n{indent}    placeholder = null,\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    modifier = {modifier},\n{indent})",
+            "NexaRemoteImagePrimitive(\n{indent}    url = {},\n{indent}    allowsFile = true,\n{indent}    placeholder = null,\n{indent}    showLoadingIndicator = {show_loading_indicator},\n{indent}    contentDescription = {content_description},\n{indent}    contentScale = {content_scale},\n{indent}    maxHeight = {max_height},\n{indent}    fillMaxSize = {fill_max_size},\n{indent}    modifier = {modifier},\n{indent})",
             expression(file),
         )),
     }
@@ -82,12 +87,13 @@ internal fun NexaAssetImagePrimitive(
     contentDescription: String?,
     contentScale: androidx.compose.ui.layout.ContentScale,
     maxHeight: androidx.compose.ui.unit.Dp?,
+    fillMaxSize: Boolean,
     modifier: androidx.compose.ui.Modifier,
 ) {
     val imageModifier = modifier.then(
         maxHeight?.let { androidx.compose.ui.Modifier.heightIn(max = it) }
             ?: androidx.compose.ui.Modifier
-    )
+    ).then(if (fillMaxSize) Modifier.fillMaxSize() else Modifier)
     androidx.compose.foundation.Image(
         painter = nexaDrawablePainter(name),
         contentDescription = contentDescription,
@@ -110,6 +116,7 @@ internal fun NexaRemoteImagePrimitive(
     contentDescription: String?,
     contentScale: androidx.compose.ui.layout.ContentScale,
     maxHeight: androidx.compose.ui.unit.Dp?,
+    fillMaxSize: Boolean,
     modifier: androidx.compose.ui.Modifier,
 ) {
     val safeModel = if (allowsFile) {
@@ -121,7 +128,7 @@ internal fun NexaRemoteImagePrimitive(
     val imageModifier = modifier.then(
         maxHeight?.let { androidx.compose.ui.Modifier.heightIn(max = it) }
             ?: androidx.compose.ui.Modifier
-    )
+    ).then(if (fillMaxSize) Modifier.fillMaxSize() else Modifier)
     val imageLoading = if (showLoadingIndicator && placeholderPainter == null) {
         remember(safeModel) { androidx.compose.runtime.mutableStateOf(safeModel != null) }
     } else {
@@ -220,6 +227,7 @@ mod tests {
             None,
             true,
             Some(80.0),
+            false,
             None,
             0,
             &mut output,

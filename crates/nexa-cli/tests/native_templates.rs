@@ -1090,6 +1090,43 @@ mod template_generation {
     }
 
     #[test]
+    fn android_dependencies_are_deduplicated_across_host_and_plugin_features() {
+        let mut config = ProjectConfig::from_defaults(&[], "Demo").expect("default config");
+        config.android_cronet_provider = crate::config::AndroidCronetProvider::Embedded;
+        let mut video_player = plugin("VideoPlayer");
+        video_player.artifacts.maven_dependencies = vec![
+            "org.chromium.net:cronet-embedded:143.7445.0".to_owned(),
+            "androidx.media3:media3-exoplayer:1.11.1".to_owned(),
+        ];
+        let gradle = android_app_gradle_with_dev_runtime(
+            "com.example.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures {
+                uses_network: true,
+                ..Default::default()
+            },
+            &[video_player],
+            &[],
+            &config,
+            false,
+        )
+        .expect("Android app dependencies should render");
+
+        assert_eq!(
+            gradle
+                .matches("implementation(\"org.chromium.net:cronet-embedded:143.7445.0\")")
+                .count(),
+            1,
+            "the selected host Cronet provider and plugin requirement share one Gradle declaration"
+        );
+        assert_eq!(
+            gradle
+                .matches("implementation(\"androidx.media3:media3-exoplayer:1.11.1\")")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn plugin_platform_permissions_reach_generated_manifests() {
         let mut plugin = plugin("Video");
         plugin.artifacts.ios_usage_descriptions.push((

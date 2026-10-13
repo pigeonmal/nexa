@@ -407,7 +407,7 @@ internal fun NexaButtonPrimitive(
         iconOnlyCircle || resolvedStyle == "Plain" || resolvedStyle == "Borderless" -> androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
         size == "Small" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_VERTICAL_PADDING__.toFloat()))
         size == "Large" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_LARGE_VERTICAL_PADDING__.toFloat()))
-        else -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(8f), vertical = androidx.compose.ui.unit.Dp(8f))
+        else -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_DEFAULT_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__.toFloat()))
     }
     val buttonContents: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
         if (loading) {
@@ -1215,7 +1215,9 @@ internal fun NexaColumnPrimitive(
         androidx.compose.ui.Alignment.End -> androidx.compose.ui.text.style.TextAlign.End
         else -> null
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalNexaTextAlignment provides textAlignment) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalNexaTextAlignment provides textAlignment,
+    ) {
         androidx.compose.foundation.layout.Column(modifier, verticalArrangement = arrangement, horizontalAlignment = horizontalAlignment, content = content)
     }
 }
@@ -1231,7 +1233,9 @@ internal fun NexaRowPrimitive(
     val arrangement = if (spacing > 0f) {
         androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(spacing))
     } else androidx.compose.foundation.layout.Arrangement.Start
-    androidx.compose.runtime.CompositionLocalProvider(LocalNexaTextAlignment provides null) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalNexaTextAlignment provides null,
+    ) {
         androidx.compose.foundation.layout.Row(modifier, horizontalArrangement = arrangement, verticalAlignment = verticalAlignment, content = content)
     }
 }
@@ -1249,7 +1253,9 @@ internal fun NexaStackPrimitive(
         androidx.compose.ui.Alignment.BottomEnd -> androidx.compose.ui.text.style.TextAlign.End
         else -> null
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalNexaTextAlignment provides textAlignment) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalNexaTextAlignment provides textAlignment,
+    ) {
         androidx.compose.foundation.layout.Box(modifier, contentAlignment = contentAlignment, content = content)
     }
 }
@@ -1372,6 +1378,7 @@ internal fun NexaFormSectionPrimitive(
                 title,
                 modifier = androidx.compose.ui.Modifier.padding(vertical = androidx.compose.ui.unit.Dp(8f)),
                 style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         androidx.compose.material3.Surface(
@@ -1886,6 +1893,7 @@ internal fun NexaPageIndicatorRow(
 const NEXA_APP_BOTTOM_BAR_PRIMITIVE: &str = r#"@androidx.compose.runtime.Composable
 internal fun NexaAppBottomBarPrimitive(
     tint: androidx.compose.ui.graphics.Color?,
+    showNavigationSuite: Boolean = true,
     navigationSuiteItems: androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScope.(androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItemColors?) -> Unit,
     content: @androidx.compose.runtime.Composable () -> Unit,
 ) {
@@ -1912,10 +1920,14 @@ internal fun NexaAppBottomBarPrimitive(
     }
     val currentScheme = androidx.compose.material3.MaterialTheme.colorScheme
     val themedContent: @androidx.compose.runtime.Composable () -> Unit = {
-        androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold(
-            navigationSuiteItems = { navigationSuiteItems(itemColors) },
-            content = content,
-        )
+        if (showNavigationSuite) {
+            androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold(
+                navigationSuiteItems = { navigationSuiteItems(itemColors) },
+                content = content,
+            )
+        } else {
+            content()
+        }
     }
     if (tint == null) {
         themedContent()
@@ -2109,6 +2121,14 @@ fn shared_component_primitives() -> String {
         (
             "__NEXA_BUTTON_LARGE_VERTICAL_PADDING__",
             nexa_codegen::design_system::BUTTON_LARGE_VERTICAL_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_DEFAULT_HORIZONTAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_DEFAULT_HORIZONTAL_PADDING.to_string(),
+        ),
+        (
+            "__NEXA_BUTTON_DEFAULT_VERTICAL_PADDING__",
+            nexa_codegen::design_system::BUTTON_DEFAULT_VERTICAL_PADDING.to_string(),
         ),
         (
             "__NEXA_DEFAULT_MATERIAL_ICON_SIZE__",
@@ -2493,7 +2513,7 @@ fn generate_with_analysis(
                 "@Composable\nfun {}() {{\n",
                 nexa_codegen::names::screen_name(&module.app_name)
             ));
-            if features.uses_tasks {
+            if features.app_uses_task_scope() {
                 out.push_str("    val nexaTaskScope = rememberCoroutineScope()\n");
             }
             if features.uses_adaptive_color {
@@ -2640,7 +2660,7 @@ fn generate_with_analysis(
     units.write("components", |out| {
         custom_components::render(module, features, out);
         out.push_str(COLLECTION_ITERATION_HELPERS);
-        if features.uses_tasks {
+        if features.uses_task_launch {
             out.push_str(
                 "\ninternal val nexaTaskExceptionHandler = CoroutineExceptionHandler { _, error ->\n    android.util.Log.e(\"Nexa\", \"Unhandled task failure\", error)\n}\n",
             );
@@ -2749,8 +2769,91 @@ mod tests {
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
         ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
-        SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        SystemIcon, TaskExecutor, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn horizontal_fast_list_disables_gestures_when_content_fits() {
+        let module = Module {
+            app_name: "HorizontalListScroll".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::FastList {
+                plan: Box::new(ListPlan::Count {
+                    count: Expr::Number {
+                        raw: "2".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                    common: ListCommon {
+                        axis: ListAxis::Horizontal,
+                        native: false,
+                        reverse_layout: false,
+                        page_snap: false,
+                        item_extent: Some(80.0),
+                        index: "index".to_owned(),
+                        key: None,
+                        scroll_position: None,
+                        children: vec![Node::Text {
+                            value: Expr::String("Card".to_owned()),
+                            style: TextStyle::default(),
+                        }],
+                        on_end_reached: None,
+                        on_scroll: None,
+                        on_move: None,
+                        swipe_actions: None,
+                        sticky_header: None,
+                        refresh: None,
+                        spacing: 0.0,
+                        scroll_enabled: None,
+                    },
+                }),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("val nexaListState0 = rememberLazyListState()"));
+        assert!(kotlin.contains(
+            "LazyRow(modifier = Modifier.fillMaxWidth(), state = nexaListState0, userScrollEnabled = (nexaListState0.canScrollForward || nexaListState0.canScrollBackward))"
+        ));
+
+        let mut disabled_module = module.clone();
+        let Node::FastList { plan } = &mut disabled_module.body[0] else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let ListPlan::Count { common, .. } = plan.as_mut() else {
+            panic!("expected the count-backed FastList plan");
+        };
+        common.scroll_enabled = Some(Expr::Bool(false));
+        let disabled_kotlin = generate(&disabled_module);
+        assert!(disabled_kotlin.contains(
+            "userScrollEnabled = (nexaListState0.canScrollForward || nexaListState0.canScrollBackward) && false"
+        ));
+    }
+
+    #[test]
+    fn divider_primitive_passes_thickness_through_to_compose() {
+        let primitives = shared_component_primitives();
+
+        assert!(primitives.contains("internal fun NexaDividerPrimitive("));
+        assert!(primitives.contains("HorizontalDivider(color = color, thickness = thickness)"));
+    }
 
     #[test]
     fn split_view_uses_shared_layout_without_route_or_icon_dependencies() {
@@ -2802,6 +2905,11 @@ mod tests {
 
         assert!(primitives.contains("internal fun NexaButtonPrimitive("));
         assert!(primitives.contains(
+            "PaddingValues(horizontal = androidx.compose.ui.unit.Dp(8.toFloat()), vertical = androidx.compose.ui.unit.Dp(8.toFloat()))"
+        ));
+        assert!(primitives.contains("textAlign = textAlign ?: LocalNexaTextAlignment.current"));
+        assert!(!primitives.contains("LocalNexaTextFillWidth"));
+        assert!(primitives.contains(
             "containerColor = androidx.compose.ui.graphics.Color.Transparent,\n                contentColor = tint ?: androidx.compose.ui.graphics.Color.Unspecified,\n                disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,"
         ));
         assert!(primitives.contains("internal fun NexaFormPrimitive("));
@@ -2831,6 +2939,15 @@ mod tests {
             !primitives.contains("__NEXA_"),
             "unresolved design token in helper source"
         );
+    }
+
+    #[test]
+    fn form_section_heading_uses_the_shared_muted_text_role() {
+        let primitives = shared_component_primitives();
+
+        assert!(primitives.contains(
+            "style = androidx.compose.material3.MaterialTheme.typography.titleSmall,\n                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,"
+        ));
     }
 
     #[test]
@@ -3205,7 +3322,7 @@ mod tests {
             components: Vec::new(),
             body: vec![
                 Node::FastList {
-                    plan: ListPlan::Count {
+                    plan: Box::new(ListPlan::Count {
                         count: Expr::Number {
                             raw: "3".to_owned(),
                             ty: NumericType::Int32,
@@ -3229,8 +3346,10 @@ mod tests {
                             swipe_actions: None,
                             sticky_header: None,
                             refresh: None,
+                            spacing: 0.0,
+                            scroll_enabled: None,
                         },
-                    },
+                    }),
                 },
                 Node::BottomSheet {
                     state: "commentsPresented".to_owned(),
@@ -3294,6 +3413,7 @@ mod tests {
             placeholder: None,
             show_loading_indicator: false,
             max_height: None,
+            fill_max_size: false,
             shared_element: Some(Expr::String("hero-image".to_owned())),
         };
         let module = Module {
@@ -4099,6 +4219,130 @@ mod tests {
         assert!(kotlin.contains(&format!(
             "val {state_name}: VideoPlayer = remember {{ VideoPlayer() }}"
         )));
+    }
+
+    #[test]
+    fn coroutine_scopes_are_emitted_only_for_ui_scopes_that_launch_tasks() {
+        fn task_launch() -> Action {
+            Action::TaskLaunch {
+                handle: None,
+                executor: TaskExecutor::Main,
+                actions: Vec::new(),
+            }
+        }
+
+        fn pressable_with_task() -> Node {
+            Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                fill_max_size: false,
+                children: Vec::new(),
+                actions: vec![task_launch()],
+                double_tap_actions: Vec::new(),
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                long_press_actions: Vec::new(),
+                context_menu: Vec::new(),
+                drag_parameters: Vec::new(),
+                drag_actions: Vec::new(),
+                pinch_parameter: None,
+                pinch_actions: Vec::new(),
+            }
+        }
+
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "TaskScopeProbe".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: vec![Screen {
+                id: ScreenId(0),
+                name: "BusyScreen".to_owned(),
+                parameters: Vec::new(),
+                states: Vec::new(),
+                body: vec![pressable_with_task()],
+                status_bar: None,
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            components: vec![
+                Component {
+                    name: "IdlePanel".to_owned(),
+                    source_file: None,
+                    parameters: Vec::new(),
+                    states: Vec::new(),
+                    body: Vec::new(),
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+                Component {
+                    name: "BusyPanel".to_owned(),
+                    source_file: None,
+                    parameters: Vec::new(),
+                    states: Vec::new(),
+                    body: vec![pressable_with_task()],
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+            ],
+            body: vec![Node::NavigationStack {
+                root: ScreenId(0),
+                arguments: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        let scope_declaration = "val nexaTaskScope = rememberCoroutineScope()";
+        assert_eq!(
+            kotlin.matches(scope_declaration).count(),
+            2,
+            "unexpected Compose scope placements:\n{kotlin}"
+        );
+        let screen_route = kotlin
+            .split_once("composable(route = \"nexa_screen_0\") {")
+            .expect("busy screen route was generated")
+            .1;
+        assert!(
+            screen_route
+                .lines()
+                .take(4)
+                .any(|line| line.contains(scope_declaration))
+        );
+        let busy_panel = kotlin
+            .split_once("NexaBusyPanelComponent() {")
+            .expect("busy component was generated")
+            .1
+            .split_once("\n}")
+            .expect("busy component body closes")
+            .0;
+        assert!(busy_panel.contains(scope_declaration));
+        let idle_panel = kotlin
+            .split_once("NexaIdlePanelComponent() {")
+            .expect("idle component was generated")
+            .1
+            .split_once("\n}")
+            .expect("idle component body closes")
+            .0;
+        assert!(!idle_panel.contains(scope_declaration));
     }
 
     #[test]

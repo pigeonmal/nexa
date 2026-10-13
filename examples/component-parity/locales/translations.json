@@ -2,6 +2,10 @@
   "format": 1,
   "sourceLanguage": "en",
   "strings": {
+    "12 dp padding": {
+      "source": "12 dp padding",
+      "translations": {}
+    },
     "Accessibility": {
       "source": "Accessibility",
       "translations": {}
@@ -10,10 +14,28 @@
       "source": "Accessibility semantics",
       "translations": {}
     },
+    "Accessible Column": {
+      "source": "Accessible Column",
+      "translations": {}
+    },
     "Action {actions}": {
       "source": "Action {actions}",
       "arguments": [
         "actions"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Adaptive grid": {
+      "source": "Adaptive grid",
+      "translations": {}
+    },
+    "Adaptive grid {index}": {
+      "source": "Adaptive grid {index}",
+      "arguments": [
+        "index"
       ],
       "argument_types": [
         "Int32"
@@ -27,6 +49,14 @@
     "Aligned text with visual effects": {
       "source": "Aligned text with visual effects",
       "comment": "Text appearance parity sample",
+      "translations": {}
+    },
+    "Allow adaptive grid scrolling": {
+      "source": "Allow adaptive grid scrolling",
+      "translations": {}
+    },
+    "Animation and accessibility tests": {
+      "source": "Animation and accessibility tests",
       "translations": {}
     },
     "App active events: {appActivations}": {
@@ -77,6 +107,18 @@
       ],
       "translations": {}
     },
+    "Behavior": {
+      "source": "Behavior",
+      "translations": {}
+    },
+    "Blue fill · 14 dp corners · 2 dp border": {
+      "source": "Blue fill · 14 dp corners · 2 dp border",
+      "translations": {}
+    },
+    "Blur radius 2": {
+      "source": "Blur radius 2",
+      "translations": {}
+    },
     "Bold 26": {
       "source": "Bold 26",
       "translations": {}
@@ -93,8 +135,20 @@
       "source": "BottomSheet",
       "translations": {}
     },
+    "Bounds": {
+      "source": "Bounds",
+      "translations": {}
+    },
     "Button": {
       "source": "Button",
+      "translations": {}
+    },
+    "Button role": {
+      "source": "Button role",
+      "translations": {}
+    },
+    "Button role sample": {
+      "source": "Button role sample",
       "translations": {}
     },
     "Button styles and states": {
@@ -105,20 +159,36 @@
       "source": "Cancel",
       "translations": {}
     },
+    "Capsule": {
+      "source": "Capsule",
+      "translations": {}
+    },
     "Center": {
       "source": "Center",
+      "translations": {}
+    },
+    "Center · spacing 8": {
+      "source": "Center · spacing 8",
       "translations": {}
     },
     "Centered": {
       "source": "Centered",
       "translations": {}
     },
+    "Circle": {
+      "source": "Circle",
+      "translations": {}
+    },
+    "Clipped": {
+      "source": "Clipped",
+      "translations": {}
+    },
     "Column": {
       "source": "Column",
       "translations": {}
     },
-    "Column sizing and visual parameters": {
-      "source": "Column sizing and visual parameters",
+    "Column accessibility sample": {
+      "source": "Column accessibility sample",
       "translations": {}
     },
     "Column spacing and padding": {
@@ -135,6 +205,10 @@
     },
     "Compare the explicit back control with each platform's navigation header.": {
       "source": "Compare the explicit back control with each platform's navigation header.",
+      "translations": {}
+    },
+    "Compare with the padded card above": {
+      "source": "Compare with the padded card above",
       "translations": {}
     },
     "Complete progress": {
@@ -183,10 +257,6 @@
       ],
       "translations": {}
     },
-    "Custom background and radius": {
-      "source": "Custom background and radius",
-      "translations": {}
-    },
     "Dark appearance surface": {
       "source": "Dark appearance surface",
       "translations": {}
@@ -218,6 +288,10 @@
     "Delete task?": {
       "source": "Delete task?",
       "comment": "Dialog with cancel and delete actions",
+      "translations": {}
+    },
+    "Demonstrates Column semantics": {
+      "source": "Demonstrates Column semantics",
       "translations": {}
     },
     "Departures: {departures}": {
@@ -288,8 +362,30 @@
       ],
       "translations": {}
     },
-    "Eight": {
-      "source": "Eight",
+    "EaseIn": {
+      "source": "EaseIn",
+      "translations": {}
+    },
+    "EaseInOut · expanded: {columnAnimationExpanded}": {
+      "source": "EaseInOut · expanded: {columnAnimationExpanded}",
+      "arguments": [
+        "columnAnimationExpanded"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
+      "translations": {}
+    },
+    "EaseOut": {
+      "source": "EaseOut",
+      "translations": {}
+    },
+    "Effects": {
+      "source": "Effects",
+      "translations": {}
+    },
+    "Effects and behavior tests": {
+      "source": "Effects and behavior tests",
       "translations": {}
     },
     "Email search": {
@@ -315,8 +411,16 @@
       "source": "End aligned",
       "translations": {}
     },
+    "End · spacing 20": {
+      "source": "End · spacing 20",
+      "translations": {}
+    },
     "Enter a task": {
       "source": "Enter a task",
+      "translations": {}
+    },
+    "Expanded": {
+      "source": "Expanded",
       "translations": {}
     },
     "Explicit 12 dp padding": {
@@ -339,6 +443,10 @@
       "source": "FastList row sizing",
       "translations": {}
     },
+    "First child · zIndex 2": {
+      "source": "First child · zIndex 2",
+      "translations": {}
+    },
     "First group": {
       "source": "First group",
       "comment": "Grouped rows with explanatory footer",
@@ -357,8 +465,42 @@
       "comment": "Grouped rows with explanatory footer",
       "translations": {}
     },
+    "Fixed 240 × 72 inside 220–260 × 64–80": {
+      "source": "Fixed 240 × 72 inside 220–260 × 64–80",
+      "translations": {}
+    },
+    "Fixed grid {index}": {
+      "source": "Fixed grid {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Fixed height: 56": {
+      "source": "Fixed height: 56",
+      "translations": {}
+    },
     "Fixed row height: 56 dp": {
       "source": "Fixed row height: 56 dp",
+      "translations": {}
+    },
+    "Fixed two-column grid": {
+      "source": "Fixed two-column grid",
+      "translations": {}
+    },
+    "Fixed width: 220": {
+      "source": "Fixed width: 220",
+      "translations": {}
+    },
+    "Flow": {
+      "source": "Flow",
+      "translations": {}
+    },
+    "Flow and alignment tests": {
+      "source": "Flow and alignment tests",
       "translations": {}
     },
     "Form and Section": {
@@ -373,12 +515,20 @@
       "source": "Four dp",
       "translations": {}
     },
+    "Fourth line": {
+      "source": "Fourth line",
+      "translations": {}
+    },
     "Full-size pressable": {
       "source": "Full-size pressable",
       "translations": {}
     },
     "Gap": {
       "source": "Gap",
+      "translations": {}
+    },
+    "Glass capsule row": {
+      "source": "Glass capsule row",
       "translations": {}
     },
     "Glass icon": {
@@ -416,6 +566,14 @@
       "source": "Image asset rendering",
       "translations": {}
     },
+    "Image role": {
+      "source": "Image role",
+      "translations": {}
+    },
+    "Image role sample": {
+      "source": "Image role sample",
+      "translations": {}
+    },
     "Inbox": {
       "source": "Inbox",
       "translations": {}
@@ -428,8 +586,12 @@
       "source": "Increment context action",
       "translations": {}
     },
-    "Inner spacing: 18 dp": {
-      "source": "Inner spacing: 18 dp",
+    "Inner spacing stays local": {
+      "source": "Inner spacing stays local",
+      "translations": {}
+    },
+    "Inner spacing: 18": {
+      "source": "Inner spacing: 18",
       "translations": {}
     },
     "Introduces the controls below": {
@@ -464,6 +626,10 @@
       "source": "Large-only sheet content",
       "translations": {}
     },
+    "Later child · zIndex 1": {
+      "source": "Later child · zIndex 1",
+      "translations": {}
+    },
     "Layout": {
       "source": "Layout",
       "translations": {}
@@ -480,6 +646,10 @@
       "source": "Light appearance surface",
       "translations": {}
     },
+    "Linear": {
+      "source": "Linear",
+      "translations": {}
+    },
     "Linear gradient": {
       "source": "Linear gradient",
       "translations": {}
@@ -490,6 +660,14 @@
     },
     "Link": {
       "source": "Link",
+      "translations": {}
+    },
+    "Link role": {
+      "source": "Link role",
+      "translations": {}
+    },
+    "Link role sample": {
+      "source": "Link role sample",
       "translations": {}
     },
     "Loading": {
@@ -520,6 +698,14 @@
       ],
       "translations": {}
     },
+    "Maximum height: 68": {
+      "source": "Maximum height: 68",
+      "translations": {}
+    },
+    "Maximum width wraps this longer label onto multiple lines": {
+      "source": "Maximum width wraps this longer label onto multiple lines",
+      "translations": {}
+    },
     "Media and navigation": {
       "source": "Media and navigation",
       "translations": {}
@@ -548,12 +734,12 @@
       ],
       "translations": {}
     },
-    "Monospaced design": {
-      "source": "Monospaced design",
+    "Minimum expands this short content": {
+      "source": "Minimum expands this short content",
       "translations": {}
     },
-    "Must keep its explicit value": {
-      "source": "Must keep its explicit value",
+    "Monospaced design": {
+      "source": "Monospaced design",
       "translations": {}
     },
     "Native row {index}": {
@@ -599,6 +785,14 @@
       "source": "No search results",
       "translations": {}
     },
+    "None role": {
+      "source": "None role",
+      "translations": {}
+    },
+    "None role sample": {
+      "source": "None role sample",
+      "translations": {}
+    },
     "Normal 14": {
       "source": "Normal 14",
       "translations": {}
@@ -617,6 +811,18 @@
     },
     "One row": {
       "source": "One row",
+      "translations": {}
+    },
+    "Opacity 0.0 · transparent": {
+      "source": "Opacity 0.0 · transparent",
+      "translations": {}
+    },
+    "Opacity 0.45": {
+      "source": "Opacity 0.45",
+      "translations": {}
+    },
+    "Opacity 1.0": {
+      "source": "Opacity 1.0",
       "translations": {}
     },
     "Open actions": {
@@ -648,8 +854,8 @@
       "source": "Outer spacing resumes",
       "translations": {}
     },
-    "Outer spacing: 4 dp": {
-      "source": "Outer spacing: 4 dp",
+    "Outer spacing: 4": {
+      "source": "Outer spacing: 4",
       "translations": {}
     },
     "Page pager": {
@@ -771,6 +977,10 @@
       "source": "Pull to refresh",
       "translations": {}
     },
+    "Ready": {
+      "source": "Ready",
+      "translations": {}
+    },
     "RefreshControl": {
       "source": "RefreshControl",
       "translations": {}
@@ -783,6 +993,10 @@
       "argument_types": [
         "Int32"
       ],
+      "translations": {}
+    },
+    "Responsive grid with 160 dp minimum cells": {
+      "source": "Responsive grid with 160 dp minimum cells",
       "translations": {}
     },
     "Return to component index": {
@@ -802,6 +1016,14 @@
     },
     "Reversed rows": {
       "source": "Reversed rows",
+      "translations": {}
+    },
+    "Rotate": {
+      "source": "Rotate",
+      "translations": {}
+    },
+    "Rounded": {
+      "source": "Rounded",
       "translations": {}
     },
     "Rounded design": {
@@ -829,6 +1051,10 @@
       "comment": "Empty state with supporting detail",
       "translations": {}
     },
+    "Scale": {
+      "source": "Scale",
+      "translations": {}
+    },
     "Screen lifecycle": {
       "source": "Screen lifecycle",
       "translations": {}
@@ -841,8 +1067,16 @@
       "source": "Search tab content",
       "translations": {}
     },
+    "Second child": {
+      "source": "Second child",
+      "translations": {}
+    },
     "Second group": {
       "source": "Second group",
+      "translations": {}
+    },
+    "Second line": {
+      "source": "Second line",
       "translations": {}
     },
     "Second page": {
@@ -911,6 +1145,10 @@
       "source": "Serif design",
       "translations": {}
     },
+    "Shadow radius 8, offset 4 × 6": {
+      "source": "Shadow radius 8, offset 4 × 6",
+      "translations": {}
+    },
     "Sheet content": {
       "source": "Sheet content",
       "translations": {}
@@ -925,6 +1163,10 @@
     },
     "Sidebar": {
       "source": "Sidebar",
+      "translations": {}
+    },
+    "Size and bounds tests": {
+      "source": "Size and bounds tests",
       "translations": {}
     },
     "Slider": {
@@ -948,8 +1190,8 @@
       "source": "Spacer distribution",
       "translations": {}
     },
-    "Spacing": {
-      "source": "Spacing",
+    "Spring": {
+      "source": "Spring",
       "translations": {}
     },
     "Stack": {
@@ -964,12 +1206,24 @@
       "source": "Stack sizing and visual parameters",
       "translations": {}
     },
+    "Start · spacing 0": {
+      "source": "Start · spacing 0",
+      "translations": {}
+    },
     "Status bar": {
       "source": "Status bar",
       "translations": {}
     },
     "StatusBar": {
       "source": "StatusBar",
+      "translations": {}
+    },
+    "Surface": {
+      "source": "Surface",
+      "translations": {}
+    },
+    "Surface and padding tests": {
+      "source": "Surface and padding tests",
       "translations": {}
     },
     "Switch": {
@@ -1037,13 +1291,25 @@
       "source": "The app pins LTR to make paired layout screenshots deterministic.",
       "translations": {}
     },
+    "Third line": {
+      "source": "Third line",
+      "translations": {}
+    },
     "This action can be undone.": {
       "source": "This action can be undone.",
       "comment": "Dialog with cancel and delete actions",
       "translations": {}
     },
+    "This changes the Column size": {
+      "source": "This changes the Column size",
+      "translations": {}
+    },
     "Time range": {
       "source": "Time range",
+      "translations": {}
+    },
+    "Tinted capsule": {
+      "source": "Tinted capsule",
       "translations": {}
     },
     "Today": {
@@ -1052,6 +1318,10 @@
     },
     "Today tab content": {
       "source": "Today tab content",
+      "translations": {}
+    },
+    "Toggle animated content": {
+      "source": "Toggle animated content",
       "translations": {}
     },
     "Toggle selection": {
@@ -1080,10 +1350,6 @@
     },
     "Twelve": {
       "source": "Twelve",
-      "translations": {}
-    },
-    "Twenty with explicit padding": {
-      "source": "Twenty with explicit padding",
       "translations": {}
     },
     "Twenty-four": {

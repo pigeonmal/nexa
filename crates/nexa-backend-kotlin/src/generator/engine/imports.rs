@@ -326,17 +326,31 @@ mod tests {
     }
 
     #[test]
-    fn task_imports_are_gated_to_task_handle_usage() {
+    fn task_handle_and_launch_imports_are_gated_to_their_usage() {
         let baseline = render_features(&Features::default());
         assert!(!baseline.contains("kotlinx.coroutines."));
 
         let mut features = Features::default();
         features.uses_tasks = true;
-        let imports = render_features(&features);
-        assert!(imports.contains("import kotlinx.coroutines.Job\n"));
-        assert!(imports.contains("import kotlinx.coroutines.launch\n"));
-        assert!(imports.contains("import kotlinx.coroutines.CoroutineStart\n"));
-        assert!(imports.contains("import androidx.compose.runtime.rememberCoroutineScope\n"));
+        let handle_imports = render_features(&features);
+        assert!(handle_imports.contains("import kotlinx.coroutines.Job\n"));
+        assert!(!handle_imports.contains("import kotlinx.coroutines.launch\n"));
+        assert!(!handle_imports.contains("import kotlinx.coroutines.CoroutineStart\n"));
+        assert!(!handle_imports.contains("import kotlinx.coroutines.Dispatchers\n"));
+        assert!(!handle_imports.contains("import kotlinx.coroutines.CoroutineExceptionHandler\n"));
+        assert!(
+            !handle_imports.contains("import androidx.compose.runtime.rememberCoroutineScope\n")
+        );
+
+        features.uses_task_launch = true;
+        let launch_imports = render_features(&features);
+        assert!(launch_imports.contains("import kotlinx.coroutines.launch\n"));
+        assert!(launch_imports.contains("import kotlinx.coroutines.CoroutineStart\n"));
+        assert!(launch_imports.contains("import kotlinx.coroutines.Dispatchers\n"));
+        assert!(launch_imports.contains("import kotlinx.coroutines.CoroutineExceptionHandler\n"));
+        assert!(
+            launch_imports.contains("import androidx.compose.runtime.rememberCoroutineScope\n")
+        );
     }
 
     #[test]

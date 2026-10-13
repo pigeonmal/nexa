@@ -831,6 +831,8 @@ pub enum Node {
         #[serde(default)]
         show_loading_indicator: bool,
         max_height: Option<f32>,
+        #[serde(default)]
+        fill_max_size: bool,
         shared_element: Option<Expr>,
     },
     SystemIcon {
@@ -926,6 +928,8 @@ pub enum Node {
         state: String,
         tint: Option<ColorExpression>,
         tabs: Vec<BottomBarTab>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        custom_bar: Option<Vec<Node>>,
     },
     PagePager {
         state: String,
@@ -936,7 +940,7 @@ pub enum Node {
         children: Vec<Node>,
     },
     FastList {
-        plan: ListPlan,
+        plan: Box<ListPlan>,
     },
     If {
         condition: Expr,
@@ -1033,6 +1037,14 @@ pub struct ListCommon {
     #[serde(default)]
     pub page_snap: bool,
     pub item_extent: Option<f32>,
+    /// Distance between adjacent items, in logical points/dp. Grid axes apply
+    /// the same gap horizontally and vertically.
+    #[serde(default)]
+    pub spacing: f32,
+    /// Whether the user can scroll this list. `None` preserves the default
+    /// platform behavior; a present expression can react to application state.
+    #[serde(default)]
+    pub scroll_enabled: Option<Expr>,
     /// Row index binding name (always `Int32`).
     pub index: String,
     pub key: Option<Expr>,
@@ -1070,6 +1082,13 @@ pub struct SectionedListCommon {
     #[serde(default)]
     pub native: bool,
     pub item_extent: Option<f32>,
+    /// Vertical distance between adjacent rows, in logical points/dp.
+    #[serde(default)]
+    pub spacing: f32,
+    /// Whether the user can scroll this list. `None` preserves the default
+    /// platform behavior; a present expression can react to application state.
+    #[serde(default)]
+    pub scroll_enabled: Option<Expr>,
     /// Row index binding name (always `Int32`).
     pub index: String,
     pub key: Option<Expr>,
@@ -1159,6 +1178,16 @@ impl ListPlan {
                 common.scroll_position.as_deref()
             }
             ListPlan::Sections { .. } => None,
+        }
+    }
+
+    /// User-controlled scroll enablement expression, if explicitly provided.
+    pub fn scroll_enabled(&self) -> Option<&Expr> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.scroll_enabled.as_ref()
+            }
+            ListPlan::Sections { common, .. } => common.scroll_enabled.as_ref(),
         }
     }
 
@@ -1409,6 +1438,7 @@ pub enum ListAxis {
     Vertical,
     Horizontal,
     Grid { columns: u32 },
+    AutoGrid { min_cell_width: u32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

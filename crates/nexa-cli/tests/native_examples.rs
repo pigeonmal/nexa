@@ -78,6 +78,105 @@ fn generated_android_activity_binds_runtime_before_compose_starts() {
     );
 }
 
+#[test]
+fn fast_list_auto_grid_generates_adaptive_native_grids_for_both_targets() {
+    let project = TestProject::new("nexa-fast-list-auto-grid-parity");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app AdaptiveGallery {
+    body {
+        FastList(count: 3, pageSnap: true) { index in
+            Text("Page \(index)")
+        }
+        FastList(count: 12, axis: AutoGrid(112), rowHeight: 140, spacing: 4) { index in
+            Text("Clip \(index)")
+        }
+    }
+}"#,
+    )
+    .expect("write adaptive gallery fixture");
+
+    let ios = project.join("ios");
+    nexa_cli::generate_project(&entry, "ios", &ios, "AdaptiveGallery")
+        .expect("generate the iOS adaptive gallery");
+    let swift = swift_sources(&ios)
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Swift source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        swift.contains("minCellWidth: 112"),
+        "Swift output must keep the requested minimum cell width"
+    );
+    assert!(
+        swift.contains("environment.container.effectiveContentSize.width")
+            && swift.contains("columnCount = minCellWidth.map"),
+        "Swift output must calculate columns from the live available width"
+    );
+    assert!(
+        swift.contains("spacing: 4"),
+        "Swift output must preserve the shared grid spacing"
+    );
+    let page_snap_call = swift
+        .split("NexaSwiftUIPageSnapList(")
+        .nth(1)
+        .expect("Swift output should use the native iOS 17 pager");
+    let scroll_enabled = page_snap_call
+        .find("scrollEnabled: scrollEnabled")
+        .expect("Swift output should forward page snapping scroll state");
+    let scroll_changed = page_snap_call
+        .find("onScrollPositionChanged: onScrollPositionChanged")
+        .expect("Swift output should forward the settled page callback");
+    let refresh = page_snap_call
+        .find("onRefresh: onRefresh")
+        .expect("Swift output should forward refresh after scroll state");
+    assert!(scroll_enabled < scroll_changed && scroll_changed < refresh);
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-swift-version",
+                "6",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios16.0-simulator",
+            ])
+            .args(swift_sources(&ios.join("ios/AdaptiveGallery")))
+            .output()
+            .expect("Swift compiler should start for the adaptive gallery");
+        assert!(
+            built.status.success(),
+            "iOS adaptive gallery failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+
+    let android = project.join("android");
+    nexa_cli::generate_project(&entry, "android", &android, "AdaptiveGallery")
+        .expect("generate the Android adaptive gallery");
+    let kotlin = kotlin_sources(&android)
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Kotlin source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        kotlin.contains("GridCells.Adaptive(minSize = 112.dp)"),
+        "Compose output must use adaptive cells with the same minimum width"
+    );
+    assert!(
+        kotlin.contains("horizontalArrangement = Arrangement.spacedBy(4.dp)")
+            && kotlin.contains("verticalArrangement = Arrangement.spacedBy(4.dp)"),
+        "Compose output must preserve the same horizontal and vertical grid spacing"
+    );
+    build_android_debug_if_available(&android, "Android adaptive gallery");
+}
+
 fn build_android_debug_if_available(android_project: &Path, host: &str) {
     if !Toolchain::should_run_native_builds() {
         return;

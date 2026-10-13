@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env, fs,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -379,6 +380,7 @@ struct AndroidResult {
     assets_uncompressed: Option<u64>,
     native_compressed: Option<u64>,
     native_uncompressed: Option<u64>,
+    native_libraries: Option<Vec<ApkLibrary>>,
     other_compressed: Option<u64>,
     mapping_bytes: Option<u64>,
     usage_bytes: Option<u64>,
@@ -419,6 +421,7 @@ impl AndroidResult {
             assets_uncompressed: None,
             native_compressed: None,
             native_uncompressed: None,
+            native_libraries: None,
             other_compressed: None,
             mapping_bytes: None,
             usage_bytes: None,
@@ -565,6 +568,7 @@ impl AndroidResult {
         self.assets_uncompressed = Some(stats.assets.uncompressed);
         self.native_compressed = Some(stats.native.compressed);
         self.native_uncompressed = Some(stats.native.uncompressed);
+        self.native_libraries = Some(stats.native_libraries);
         self.other_compressed = Some(stats.other.compressed);
         self.mapping_bytes = file_bytes_if_present(&app_dir.join("mapping.txt"));
         self.usage_bytes = file_bytes_if_present(&app_dir.join("usage.txt"));
@@ -581,7 +585,7 @@ impl AndroidResult {
             optional_string(self.gradle_version.as_deref())
         );
         format!(
-            "{{\"status\": {}, \"reason\": {}, \"configuration\": \"Release\"{version}, \"minificationEnabled\": {}, \"resourceShrinkingEnabled\": {}, \"apkBytes\": {}, \"aabBytes\": {}, \"apkEntryCount\": {}, \"dexCompressedBytes\": {}, \"dexUncompressedBytes\": {}, \"resourcesCompressedBytes\": {}, \"resourcesUncompressedBytes\": {}, \"assetsCompressedBytes\": {}, \"assetsUncompressedBytes\": {}, \"nativeLibrariesCompressedBytes\": {}, \"nativeLibrariesUncompressedBytes\": {}, \"otherCompressedBytes\": {}, \"r8MappingBytes\": {}, \"r8UsageReportBytes\": {}, \"resourceShrinkerReportBytes\": {}}}",
+            "{{\"status\": {}, \"reason\": {}, \"configuration\": \"Release\"{version}, \"minificationEnabled\": {}, \"resourceShrinkingEnabled\": {}, \"apkBytes\": {}, \"aabBytes\": {}, \"apkEntryCount\": {}, \"dexCompressedBytes\": {}, \"dexUncompressedBytes\": {}, \"resourcesCompressedBytes\": {}, \"resourcesUncompressedBytes\": {}, \"assetsCompressedBytes\": {}, \"assetsUncompressedBytes\": {}, \"nativeLibrariesCompressedBytes\": {}, \"nativeLibrariesUncompressedBytes\": {}, \"nativeLibrariesByAbi\": {}, \"nativeLibraries\": {}, \"otherCompressedBytes\": {}, \"r8MappingBytes\": {}, \"r8UsageReportBytes\": {}, \"resourceShrinkerReportBytes\": {}}}",
             quote(self.status),
             optional_string(self.reason.as_deref()),
             optional_bool(self.minification_enabled),
@@ -597,6 +601,8 @@ impl AndroidResult {
             optional_number(self.assets_uncompressed),
             optional_number(self.native_compressed),
             optional_number(self.native_uncompressed),
+            native_libraries_by_abi_json(self.native_libraries.as_deref()),
+            native_libraries_json(self.native_libraries.as_deref()),
             optional_number(self.other_compressed),
             optional_number(self.mapping_bytes),
             optional_number(self.usage_bytes),
@@ -674,7 +680,14 @@ struct ApkInventory {
     resources: ApkCategory,
     assets: ApkCategory,
     native: ApkCategory,
+    native_libraries: Vec<ApkLibrary>,
     other: ApkCategory,
+}
+
+struct ApkLibrary {
+    path: String,
+    compressed: u64,
+    uncompressed: u64,
 }
 
 fn apk_inventory(path: &Path) -> Result<ApkInventory, String> {
@@ -749,8 +762,67 @@ fn apk_inventory(path: &Path) -> Result<ApkInventory, String> {
             .uncompressed
             .checked_add(uncompressed)
             .ok_or_else(|| "APK uncompressed category size overflow".to_owned())?;
+        if name.starts_with("lib/") && name.ends_with(".so") {
+            inventory.native_libraries.push(ApkLibrary {
+                path: name.into_owned(),
+                compressed,
+                uncompressed,
+            });
+        }
     }
+    inventory.native_libraries.sort_by(|left, right| {
+        right
+            .compressed
+            .cmp(&left.compressed)
+            .then_with(|| left.path.cmp(&right.path))
+    });
     Ok(inventory)
+}
+
+fn native_libraries_json(libraries: Option<&[ApkLibrary]>) -> String {
+    let Some(libraries) = libraries else {
+        return "null".to_owned();
+    };
+    let entries = libraries
+        .iter()
+        .map(|library| {
+            format!(
+                "{{\"path\": {}, \"compressedBytes\": {}, \"uncompressedBytes\": {}}}",
+                quote(&library.path),
+                library.compressed,
+                library.uncompressed
+            )
+        })
+        .collect::<Vec<_>>();
+    format!("[{}]", entries.join(", "))
+}
+
+fn native_libraries_by_abi_json(libraries: Option<&[ApkLibrary]>) -> String {
+    let Some(libraries) = libraries else {
+        return "null".to_owned();
+    };
+    let mut totals = BTreeMap::<&str, (u64, u64)>::new();
+    for library in libraries {
+        let Some(relative_path) = library.path.strip_prefix("lib/") else {
+            continue;
+        };
+        let Some((abi, _)) = relative_path.split_once('/') else {
+            continue;
+        };
+        let total = totals.entry(abi).or_default();
+        total.0 += library.compressed;
+        total.1 += library.uncompressed;
+    }
+    let entries = totals
+        .into_iter()
+        .map(|(abi, (compressed, uncompressed))| {
+            format!(
+                "{{\"abi\": {}, \"compressedBytes\": {compressed}, \"uncompressedBytes\": {uncompressed}}}",
+                quote(abi)
+            )
+        })
+        .collect::<Vec<_>>();
+    format!("[{}]", entries.join(", "))
 }
 
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
@@ -855,7 +927,8 @@ fn optional_bool(value: Option<bool>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        apk_inventory, directory_bytes, find_release_aab, find_release_apk, gradle_wrapper_path,
+        ApkLibrary, apk_inventory, directory_bytes, find_release_aab, find_release_apk,
+        gradle_wrapper_path, native_libraries_by_abi_json, native_libraries_json,
         prepare_unsigned_release_build,
     };
     use std::fs;
@@ -899,17 +972,67 @@ mod tests {
         let apk = temp.0.join("app-release.apk");
         fs::write(&apk, minimal_apk()).expect("synthetic APK should be written");
         let inventory = apk_inventory(&apk).expect("APK central directory should be parsed");
-        assert_eq!(inventory.entry_count, 5);
+        assert_eq!(inventory.entry_count, 6);
         assert_eq!(inventory.dex.compressed, 2);
         assert_eq!(inventory.dex.uncompressed, 8);
         assert_eq!(inventory.resources.compressed, 3);
         assert_eq!(inventory.resources.uncompressed, 12);
         assert_eq!(inventory.assets.compressed, 4);
         assert_eq!(inventory.assets.uncompressed, 16);
-        assert_eq!(inventory.native.compressed, 5);
-        assert_eq!(inventory.native.uncompressed, 20);
+        assert_eq!(inventory.native.compressed, 12);
+        assert_eq!(inventory.native.uncompressed, 48);
+        assert_eq!(inventory.native_libraries.len(), 2);
+        assert_eq!(inventory.native_libraries[0].path, "lib/x86_64/libvideo.so");
+        assert_eq!(inventory.native_libraries[0].compressed, 7);
+        assert_eq!(inventory.native_libraries[0].uncompressed, 28);
+        assert_eq!(
+            inventory.native_libraries[1].path,
+            "lib/arm64-v8a/libnexa.so"
+        );
+        assert_eq!(inventory.native_libraries[1].compressed, 5);
+        assert_eq!(inventory.native_libraries[1].uncompressed, 20);
         assert_eq!(inventory.other.compressed, 6);
         assert_eq!(inventory.other.uncompressed, 24);
+    }
+
+    #[test]
+    fn android_release_report_lists_library_paths_and_both_sizes() {
+        let libraries = [ApkLibrary {
+            path: "lib/arm64-v8a/libvideo.so".to_owned(),
+            compressed: 19,
+            uncompressed: 24,
+        }];
+        assert_eq!(
+            native_libraries_json(Some(&libraries)),
+            "[{\"path\": \"lib/arm64-v8a/libvideo.so\", \"compressedBytes\": 19, \"uncompressedBytes\": 24}]"
+        );
+        assert_eq!(native_libraries_json(None), "null");
+    }
+
+    #[test]
+    fn android_release_report_groups_native_bytes_by_abi() {
+        let libraries = [
+            ApkLibrary {
+                path: "lib/x86_64/libvideo.so".to_owned(),
+                compressed: 19,
+                uncompressed: 24,
+            },
+            ApkLibrary {
+                path: "lib/arm64-v8a/libvideo.so".to_owned(),
+                compressed: 11,
+                uncompressed: 16,
+            },
+            ApkLibrary {
+                path: "lib/arm64-v8a/libcodec.so".to_owned(),
+                compressed: 5,
+                uncompressed: 8,
+            },
+        ];
+        assert_eq!(
+            native_libraries_by_abi_json(Some(&libraries)),
+            "[{\"abi\": \"arm64-v8a\", \"compressedBytes\": 16, \"uncompressedBytes\": 24}, {\"abi\": \"x86_64\", \"compressedBytes\": 19, \"uncompressedBytes\": 24}]"
+        );
+        assert_eq!(native_libraries_by_abi_json(None), "null");
     }
 
     #[test]
@@ -954,6 +1077,7 @@ mod tests {
             ("resources.arsc", 3, 12),
             ("assets/payload.bin", 4, 16),
             ("lib/arm64-v8a/libnexa.so", 5, 20),
+            ("lib/x86_64/libvideo.so", 7, 28),
             ("META-INF/cert", 6, 24),
         ];
         let mut bytes = Vec::new();

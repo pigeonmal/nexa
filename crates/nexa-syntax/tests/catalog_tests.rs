@@ -230,7 +230,9 @@ fn fast_list_source_grammar_is_catalogued() {
         [
             "axis",
             "rowHeight",
+            "spacing",
             "scrollPosition",
+            "scrollEnabled",
             "reverseLayout",
             "pageSnap",
             "native"

@@ -573,7 +573,11 @@ struct NexaRemoteImage: View {
     @State private var failed = false
 
     var body: some View {
-        Group {
+        ZStack {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityHidden(true)
+
             if let image {
                 image.resizable().aspectRatio(contentMode: scale == .fit ? .fit : .fill)
             } else if failed {

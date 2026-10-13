@@ -405,36 +405,74 @@ fn serve_client(
     if stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT)).is_err() {
         return;
     }
-    let Ok(mut websocket) = accept(stream) else {
-        return;
-    };
-
-    let target = match websocket.read() {
-        Ok(Message::Text(text)) => match decode_client(text.as_str()) {
-            Ok(ClientMessage::Hello {
-                protocol_version,
-                session_token: supplied_token,
-                target,
-            }) => {
-                let version_ok = protocol_version == PROTOCOL_VERSION;
-                let token_ok = token_matches(&session_token, &supplied_token);
-                if version_ok && token_ok {
-                    target
-                } else {
-                    let _ = websocket.close(None);
-                    return;
-                }
-            }
-            _ => {
-                let _ = websocket.close(None);
-                return;
-            }
-        },
-        _ => {
-            let _ = websocket.close(None);
+    let mut websocket = match accept(stream) {
+        Ok(websocket) => websocket,
+        Err(error) => {
+            eprintln!("Nexa dev WebSocket upgrade failed: {error}");
             return;
         }
     };
+
+    let handshake_deadline = std::time::Instant::now() + HANDSHAKE_TIMEOUT;
+    let target = loop {
+        match websocket.read() {
+            Ok(Message::Text(text)) => match decode_client(text.as_str()) {
+                Ok(ClientMessage::Hello {
+                    protocol_version,
+                    session_token: supplied_token,
+                    target,
+                }) => {
+                    let version_ok = protocol_version == PROTOCOL_VERSION;
+                    let token_ok = token_matches(&session_token, &supplied_token);
+                    if version_ok && token_ok {
+                        break target;
+                    }
+                    eprintln!(
+                        "Nexa dev client hello rejected (protocol_match={version_ok}, token_match={token_ok})"
+                    );
+                    let _ = websocket.close(None);
+                    return;
+                }
+                _ => {
+                    eprintln!("Nexa dev client closed or sent an invalid hello");
+                    let _ = websocket.close(None);
+                    return;
+                }
+            },
+            Ok(message) => {
+                let frame_kind = match message {
+                    Message::Binary(_) => "binary",
+                    Message::Ping(_) => "ping",
+                    Message::Pong(_) => "pong",
+                    Message::Close(_) => "close",
+                    Message::Frame(_) => "raw frame",
+                    Message::Text(_) => "text",
+                };
+                eprintln!("Nexa dev client sent a {frame_kind} frame before hello");
+                let _ = websocket.close(None);
+                return;
+            }
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                if std::time::Instant::now() >= handshake_deadline {
+                    eprintln!("Nexa dev client did not send hello before timeout");
+                    let _ = websocket.close(None);
+                    return;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => {
+                eprintln!("Nexa dev client failed before hello: {error}");
+                let _ = websocket.close(None);
+                return;
+            }
+        }
+    };
+    eprintln!("Nexa dev client connected for {target:?}");
 
     let (updates_tx, updates_rx) = mpsc::channel::<Arc<ClientUpdate>>();
     let (module, diagnostics, performance_overlay_enabled) = {

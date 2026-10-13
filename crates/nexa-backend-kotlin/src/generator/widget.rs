@@ -184,9 +184,17 @@ fn collect_drawables(
                     collect_drawables(widget, children, output)?;
                 }
             }
-            Node::FastList {
-                plan: ListPlan::Count { common, .. } | ListPlan::Items { common, .. },
-            } => collect_drawables(widget, &common.children, output)?,
+            Node::FastList { plan } => match plan.as_ref() {
+                ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                    collect_drawables(widget, &common.children, output)?
+                }
+                ListPlan::Sections { .. } => {
+                    return Err(crate::WidgetGenerationError {
+                        widget: widget.name.clone(),
+                        message: "sectioned FastList".to_owned(),
+                    });
+                }
+            },
             _ => {}
         }
     }
@@ -308,9 +316,13 @@ fn validate_widget(widget: &Widget) -> Result<(), crate::WidgetGenerationError> 
                         validate_nodes(widget, body)?;
                     }
                 }
-                Node::FastList {
-                    plan: ListPlan::Count { common, .. } | ListPlan::Items { common, .. },
-                } => {
+                Node::FastList { plan } => {
+                    let common = match plan.as_ref() {
+                        ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common,
+                        ListPlan::Sections { .. } => {
+                            return Err(fail(widget, "sectioned FastList"));
+                        }
+                    };
                     if common.axis != nexa_ir::ListAxis::Vertical
                         || common.native
                         || common.reverse_layout
@@ -332,7 +344,6 @@ fn validate_widget(widget: &Widget) -> Result<(), crate::WidgetGenerationError> 
                     }
                     validate_nodes(widget, &common.children)?;
                 }
-                Node::FastList { .. } => return Err(fail(widget, "sectioned FastList")),
                 _ => return Err(fail(widget, "node outside the widget-safe subset")),
             }
         }
@@ -931,26 +942,34 @@ fn render_node(
             render_nodes(children, depth + 1, out, widget)?;
             out.line_at(depth, format_args!("}}"));
         }
-        Node::FastList { plan: ListPlan::Count { count, common } } => {
-            let index = nexa_codegen::names::state_name(&common.index);
-            out.line_at(depth, format_args!("GlanceColumn {{"));
-            out.line_at(depth + 1, format_args!("for ({index} in 0 until maxOf({}, 0)) {{", expressions::expression(count)));
-            render_nodes(&common.children, depth + 2, out, widget)?;
-            out.line_at(depth + 1, format_args!("}}"));
-            out.line_at(depth, format_args!("}}"));
-        }
-        Node::FastList { plan: ListPlan::Items { collection, item, common, .. } } => {
-            let values = format!("__nexaWidgetItems{}", common.index);
-            let index = nexa_codegen::names::state_name(&common.index);
-            let item = nexa_codegen::names::state_name(item);
-            out.line_at(depth, format_args!("GlanceColumn {{"));
-            out.line_at(depth + 1, format_args!("val {values} = {}", expressions::expression(collection)));
-            out.line_at(depth + 1, format_args!("for ({index} in 0 until {values}.size) {{"));
-            out.line_at(depth + 2, format_args!("val {item} = {values}[{index}]"));
-            render_nodes(&common.children, depth + 2, out, widget)?;
-            out.line_at(depth + 1, format_args!("}}"));
-            out.line_at(depth, format_args!("}}"));
-        }
+        Node::FastList { plan } => match plan.as_ref() {
+            ListPlan::Count { count, common } => {
+                let index = nexa_codegen::names::state_name(&common.index);
+                out.line_at(depth, format_args!("GlanceColumn {{"));
+                out.line_at(depth + 1, format_args!("for ({index} in 0 until maxOf({}, 0)) {{", expressions::expression(count)));
+                render_nodes(&common.children, depth + 2, out, widget)?;
+                out.line_at(depth + 1, format_args!("}}"));
+                out.line_at(depth, format_args!("}}"));
+            }
+            ListPlan::Items { collection, item, common, .. } => {
+                let values = format!("__nexaWidgetItems{}", common.index);
+                let index = nexa_codegen::names::state_name(&common.index);
+                let item = nexa_codegen::names::state_name(item);
+                out.line_at(depth, format_args!("GlanceColumn {{"));
+                out.line_at(depth + 1, format_args!("val {values} = {}", expressions::expression(collection)));
+                out.line_at(depth + 1, format_args!("for ({index} in 0 until {values}.size) {{"));
+                out.line_at(depth + 2, format_args!("val {item} = {values}[{index}]"));
+                render_nodes(&common.children, depth + 2, out, widget)?;
+                out.line_at(depth + 1, format_args!("}}"));
+                out.line_at(depth, format_args!("}}"));
+            }
+            ListPlan::Sections { .. } => {
+                return Err(crate::WidgetGenerationError {
+                    widget: widget.name.clone(),
+                    message: "sectioned FastList".to_owned(),
+                });
+            }
+        },
         Node::SystemIcon { icon, description, size, tint } => {
             let drawable = icon.android_widget_drawable().ok_or_else(|| crate::WidgetGenerationError { widget: widget.name.clone(), message: format!("no Android Glance drawable mapping for system icon {icon:?}") })?;
             let color = widget_icon_color(tint);

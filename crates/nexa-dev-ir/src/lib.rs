@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use nexa_ir::{Module, Node};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 39;
+pub const DEV_IR_FORMAT_VERSION: u16 = 40;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevModule {
@@ -387,10 +387,18 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
             groups.push(("else".to_owned(), else_body.as_slice()));
             groups
         }
-        Node::AppBottomBar { tabs, .. } => tabs
-            .iter()
-            .map(|tab| (format!("tab:{}", tab.index), tab.children.as_slice()))
-            .collect(),
+        Node::AppBottomBar {
+            tabs, custom_bar, ..
+        } => {
+            let mut groups = tabs
+                .iter()
+                .map(|tab| (format!("tab:{}", tab.index), tab.children.as_slice()))
+                .collect::<Vec<_>>();
+            if let Some(custom_bar) = custom_bar {
+                groups.push(("custom_bar".to_owned(), custom_bar.as_slice()));
+            }
+            groups
+        }
         Node::PagePager { pages, .. } => pages
             .iter()
             .enumerate()

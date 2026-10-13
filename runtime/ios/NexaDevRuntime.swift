@@ -102,7 +102,7 @@ public struct NexaDevRuntimeRoot: View {
             runtime.store.clearNativeEventSubscriptions(scope: "app")
             runtime.store.clearNativeTasks(scope: "app")
         }
-        .task { runtime.connect() }
+        .task { await runtime.connect() }
         .onChange(of: activeInput) { runtime.store.focusChanged(to: $0) }
         .onChange(of: runtime.store.focusedFieldKey) { activeInput = $0 }
         .onChange(of: runtime.performanceOverlayEnabled) { enabled in
@@ -112,11 +112,12 @@ public struct NexaDevRuntimeRoot: View {
         .environment(\.nexaSharedNamespace, nexaSharedNamespace)
         .modifier(NexaDevStatusBarVisibility(hidden: statusBar["hidden"] as? Bool ?? false))
         .modifier(NexaDevOptionalPreferredColorScheme(colorScheme: statusBarColorScheme))
-        .background(alignment: .top) {
+        .overlay(alignment: .top) {
             if let color = devStatusBarColor(statusBar["background"], isDark: colorScheme == .dark) {
                 GeometryReader { proxy in
                     color.frame(height: proxy.safeAreaInsets.top).ignoresSafeArea(edges: .top)
                 }
+                .allowsHitTesting(false)
             }
         }
     }
