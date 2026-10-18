@@ -114,9 +114,7 @@ screen Main {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                                                         Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
                                                     }.onTap {
-                                                        withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                            tasks = toggleTodo(tasks, task.id)
-                                                        }
+                                                        tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
                                                         cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                         Task.launch(executor: TaskExecutor.Main) {
@@ -129,9 +127,7 @@ screen Main {
                                                     Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                                                         Icon(system: "circle", size: 28, tint: themeTint(selectedTheme), description: "")
                                                     }.onTap {
-                                                        withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                            tasks = toggleTodo(tasks, task.id)
-                                                        }
+                                                        tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
                                                         cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                         Task.launch(executor: TaskExecutor.Main) {
@@ -172,9 +168,7 @@ screen Main {
                                                     showingTaskEditor = true
                                                 }
                                                 Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
-                                                    withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                        tasks = toggleTodo(tasks, task.id)
-                                                    }
+                                                    tasks = toggleTodo(tasks, task.id)
                                                     Haptics.notification(kind: Success)
                                                     cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                     Task.launch(executor: TaskExecutor.Main) {
@@ -247,9 +241,7 @@ screen Main {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                                                         Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
                                                     }.onTap {
-                                                        withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                            tasks = toggleTodo(tasks, task.id)
-                                                        }
+                                                        tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
                                                         cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                         Task.launch(executor: TaskExecutor.Main) {
@@ -262,9 +254,7 @@ screen Main {
                                                     Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                                                         Icon(system: "circle", size: 28, tint: themeTint(selectedTheme), description: "")
                                                     }.onTap {
-                                                        withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                            tasks = toggleTodo(tasks, task.id)
-                                                        }
+                                                        tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
                                                         cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                         Task.launch(executor: TaskExecutor.Main) {
@@ -305,9 +295,7 @@ screen Main {
                                                     showingTaskEditor = true
                                                 }
                                                 Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
-                                                    withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                        tasks = toggleTodo(tasks, task.id)
-                                                    }
+                                                    tasks = toggleTodo(tasks, task.id)
                                                     Haptics.notification(kind: Success)
                                                     cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                     Task.launch(executor: TaskExecutor.Main) {
@@ -382,9 +370,7 @@ screen Main {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                                                         Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
                                                     }.onTap {
-                                                        withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                            tasks = toggleTodo(tasks, task.id)
-                                                        }
+                                                        tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
                                                         cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                         Task.launch(executor: TaskExecutor.Main) {
@@ -397,9 +383,7 @@ screen Main {
                                                     Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                                                         Icon(system: "circle", size: 28, tint: themeTint(selectedTheme), description: "")
                                                     }.onTap {
-                                                        withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                            tasks = toggleTodo(tasks, task.id)
-                                                        }
+                                                        tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
                                                         cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                         Task.launch(executor: TaskExecutor.Main) {
@@ -440,9 +424,7 @@ screen Main {
                                                     showingTaskEditor = true
                                                 }
                                                 Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
-                                                    withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                        tasks = toggleTodo(tasks, task.id)
-                                                    }
+                                                    tasks = toggleTodo(tasks, task.id)
                                                     Haptics.notification(kind: Success)
                                                     cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                     Task.launch(executor: TaskExecutor.Main) {
@@ -592,9 +574,7 @@ screen Main {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                                                         Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
                                                     }.onTap {
-                                                        withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                            tasks = toggleTodo(tasks, task.id)
-                                                        }
+                                                        tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
                                                         cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                         Task.launch(executor: TaskExecutor.Main) {
@@ -607,9 +587,7 @@ screen Main {
                                                     Pressable(accessibilityLabel: "Not completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                                                         Icon(system: "circle", size: 28, tint: themeTint(selectedTheme), description: "")
                                                     }.onTap {
-                                                        withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                            tasks = toggleTodo(tasks, task.id)
-                                                        }
+                                                        tasks = toggleTodo(tasks, task.id)
                                                         Haptics.notification(kind: Success)
                                                         cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                         Task.launch(executor: TaskExecutor.Main) {
@@ -649,9 +627,7 @@ screen Main {
                                                     showingTaskEditor = true
                                                 }
                                                 Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
-                                                    withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                                        tasks = toggleTodo(tasks, task.id)
-                                                    }
+                                                    tasks = toggleTodo(tasks, task.id)
                                                     Haptics.notification(kind: Success)
                                                     cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                                                     Task.launch(executor: TaskExecutor.Main) {
@@ -701,7 +677,10 @@ screen Main {
                             }
                             Form {
                                 Section {
-                                    DatePicker(timestamp: pickerTimestamp, hasTime: pickerHasTime)
+                                    Text("Date")
+                                    if pickerHasTime {
+                                        Text("Time")
+                                    }
                                 }
                             }
                         }
@@ -944,7 +923,10 @@ screen Main {
                             Form {
                                 Section {
                                     TextInput(value: reminderTitle, placeholder: "Note (optional)")
-                                    DatePicker(timestamp: reminderTimestamp, hasTime: reminderHasTime)
+                                    Text("Date")
+                                    if reminderHasTime {
+                                        Text("Time")
+                                    }
                                 }
                             }
                             if reminderStatus != "" {

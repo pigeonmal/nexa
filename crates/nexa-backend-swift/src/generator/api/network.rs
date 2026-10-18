@@ -525,9 +525,16 @@ public enum NexaNetwork {
 
     public static func delete(_ path: String) async throws -> Bool {
         try await Task.detached(priority: .utility) {
-            try FileManager.default.removeItem(atPath: path)
+            let fileManager = FileManager.default
+            guard fileManager.fileExists(atPath: path) else { return false }
+            do {
+                try fileManager.removeItem(atPath: path)
+                return true
+            } catch {
+                guard !fileManager.fileExists(atPath: path) else { throw error }
+                return false
+            }
         }.value
-        return true
     }
 
 "#,
@@ -723,5 +730,20 @@ mod tests {
         assert!(output.contains("try Task.checkCancellation()"));
         assert!(output.contains("} catch is CancellationError {"));
         assert!(output.contains("guard !Task.isCancelled else { return }"));
+    }
+
+    #[test]
+    fn file_writes_are_atomic_and_delete_missing_paths_returns_false() {
+        let mut output = SourceWriter::new();
+        render(&mut output, false, false, false, true, true, false);
+
+        assert!(output.contains("try data.write(to: url, options: .atomic)"));
+        assert!(
+            output.contains("guard fileManager.fileExists(atPath: path) else { return false }")
+        );
+        assert!(output.contains("try fileManager.removeItem(atPath: path)"));
+        assert!(
+            output.contains("guard !fileManager.fileExists(atPath: path) else { throw error }")
+        );
     }
 }

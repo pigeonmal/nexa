@@ -1027,16 +1027,30 @@ fn render_layout(
     if let Some(radius) = style.corner_radius {
         modifiers.push(format!("cornerRadius({radius}.dp)"));
     }
-    let modifier = if modifiers.is_empty() {
-        String::new()
-    } else {
-        format!("modifier = GlanceModifier.{}, ", modifiers.join("."))
-    };
+    if kind == LayoutKind::Row && style.horizontal_arrangement.is_some() && style.width.is_none() {
+        modifiers.insert(0, "fillMaxWidth()".to_owned());
+    }
+    let mut arguments = Vec::new();
+    if !modifiers.is_empty() {
+        arguments.push(format!("modifier = GlanceModifier.{}", modifiers.join(".")));
+    }
     let container = match kind {
         LayoutKind::Column => "GlanceColumn",
         LayoutKind::Row => "GlanceRow",
         LayoutKind::Stack => "GlanceBox",
     };
+    if kind == LayoutKind::Row
+        && let Some(arrangement) = style.horizontal_arrangement
+    {
+        let alignment = match arrangement {
+            nexa_ir::HorizontalArrangement::Start => "Start",
+            nexa_ir::HorizontalArrangement::Center => "CenterHorizontally",
+            nexa_ir::HorizontalArrangement::End => "End",
+        };
+        arguments.push(format!(
+            "horizontalAlignment = androidx.glance.layout.Alignment.Horizontal.{alignment}"
+        ));
+    }
     let alignment = match (kind, style.alignment) {
         (LayoutKind::Column, Some(nexa_ir::Alignment::Start)) => {
             "horizontalAlignment = androidx.glance.layout.Alignment.Horizontal.Start".to_owned()
@@ -1069,12 +1083,22 @@ fn render_layout(
         }
         _ => String::new(),
     };
-    let arguments = match (modifier.is_empty(), alignment.is_empty()) {
-        (true, true) => String::new(),
-        (false, true) => modifier.trim_end_matches(", ").to_owned(),
-        (true, false) => alignment,
-        (false, false) => format!("{modifier}{alignment}"),
-    };
+    if kind == LayoutKind::Row
+        && let Some(arrangement) = style.horizontal_arrangement
+    {
+        let alignment = match arrangement {
+            nexa_ir::HorizontalArrangement::Start => "Start",
+            nexa_ir::HorizontalArrangement::Center => "CenterHorizontally",
+            nexa_ir::HorizontalArrangement::End => "End",
+        };
+        arguments.push(format!(
+            "horizontalAlignment = androidx.glance.layout.Alignment.Horizontal.{alignment}"
+        ));
+    }
+    if !alignment.is_empty() {
+        arguments.push(alignment);
+    }
+    let arguments = arguments.join(", ");
     out.line_at(depth, format_args!("{container}({arguments}) {{"));
     for (index, child) in children.iter().enumerate() {
         if index > 0 && spacing > 0.0 {
@@ -1137,8 +1161,90 @@ fn widget_text_resource(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::generate;
-    use nexa_ir::{Expr, Module, Node, StructDecl, TextStyle, Type, Widget, WidgetFamily};
+    use super::{generate, render_layout};
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::{
+        Expr, HorizontalArrangement, LayoutKind, Module, Node, StructDecl, TextStyle, Type,
+        ViewStyle, Widget, WidgetFamily,
+    };
+
+    #[test]
+    fn glance_rows_map_horizontal_arrangement_and_expand_when_width_is_unspecified() {
+        let widget = Widget {
+            name: "Tasks".into(),
+            display_name: None,
+            description: None,
+            configuration_title: None,
+            configuration_description: None,
+            configuration: None,
+            entry_provider: Expr::String("entry".into()),
+            placeholder_provider: None,
+            entry_provider_async: false,
+            entry_provider_throws: false,
+            entry_type: Type::String,
+            families: vec![WidgetFamily::Small],
+            refresh_seconds: 1800,
+            body: vec![],
+        };
+        let children = [Node::Text {
+            value: Expr::String("Row content".into()),
+            style: TextStyle::default(),
+        }];
+
+        for (arrangement, native_alignment) in [
+            (HorizontalArrangement::Start, "Start"),
+            (HorizontalArrangement::Center, "CenterHorizontally"),
+            (HorizontalArrangement::End, "End"),
+        ] {
+            let mut output = SourceWriter::new();
+            render_layout(
+                LayoutKind::Row,
+                &children,
+                0.0,
+                &ViewStyle {
+                    horizontal_arrangement: Some(arrangement),
+                    ..ViewStyle::default()
+                },
+                0,
+                &mut output,
+                &widget,
+            )
+            .expect("Glance Row arrangement should generate");
+            let source = output.finish();
+            assert!(source.contains("GlanceModifier.fillMaxWidth()"), "{source}");
+            assert!(
+                source.contains(&format!(
+                    "horizontalAlignment = androidx.glance.layout.Alignment.Horizontal.{native_alignment}"
+                )),
+                "{source}"
+            );
+        }
+
+        let mut output = SourceWriter::new();
+        render_layout(
+            LayoutKind::Row,
+            &children,
+            0.0,
+            &ViewStyle {
+                width: Some(280.0),
+                horizontal_arrangement: Some(HorizontalArrangement::Center),
+                ..ViewStyle::default()
+            },
+            0,
+            &mut output,
+            &widget,
+        )
+        .expect("fixed-width Glance Row arrangement should generate");
+        let source = output.finish();
+        assert!(source.contains("GlanceModifier.width(280.dp)"), "{source}");
+        assert!(
+            !source.contains("GlanceModifier.fillMaxWidth()"),
+            "{source}"
+        );
+        assert!(source.contains(
+            "horizontalAlignment = androidx.glance.layout.Alignment.Horizontal.CenterHorizontally"
+        ));
+    }
 
     #[test]
     fn emits_glance_receiver_provider_and_widget_composables() {

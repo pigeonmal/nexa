@@ -19,7 +19,23 @@ if [[ "$platform" != ios && "$platform" != android ]]; then
 fi
 
 "$nexa" create ComponentSmoke --directory "$project"
+if [[ "$platform" == android ]]; then
+    python3 - "$project/nexa.config.nx" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+config = Path(sys.argv[1])
+source = config.read_text()
+match = re.search(r"(\bandroid\s*\{\s*minSdk:\s*)(\d+)\b", source)
+if match is None:
+    raise SystemExit(f"could not set the Android component smoke minSdk in {config}")
+if int(match.group(2)) < 24:
+    config.write_text(source[:match.start(2)] + "24" + source[match.end(2):])
+PY
+fi
 cp "$script_dir/fixtures/dev_component_initial.nx" "$project/App.nx"
+rm -f "$project/dev-stdin"
 mkfifo "$project/dev-stdin"
 exec 3<>"$project/dev-stdin"
 cd "$project"
@@ -134,6 +150,45 @@ wait_for_log "Nexa app state restarted in the running app."
 if [[ "$platform" == android ]]; then
     xml="$project/build/components.xml"
     dump="$project/build/components-current.xml"
+    android_capture_ui() {
+        python3 - "$1" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+remote = "/sdcard/nexa-components.xml"
+try:
+    subprocess.run(
+        ["adb", "shell", "uiautomator", "dump", "--compressed", remote],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=True,
+        timeout=12,
+    )
+    result = subprocess.run(
+        ["adb", "exec-out", "cat", remote],
+        capture_output=True,
+        check=True,
+        timeout=5,
+    )
+except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+    raise SystemExit(f"Android UI hierarchy capture failed: {error}")
+Path(sys.argv[1]).write_bytes(result.stdout)
+PY
+    }
+    print_android_ui_labels() {
+        python3 - "$1" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+source = Path(sys.argv[1]).read_text(errors="replace")
+labels = sorted({value for value in re.findall(r'(?:text|content-desc)="([^"]+)"', source) if value})
+print("Android accessibility labels captured:")
+for label in labels:
+    print(f"  {label}")
+PY
+    }
     screen_size=$(adb shell wm size | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | tail -n 1)
     read -r screen_width screen_height <<<"$screen_size"
     if [[ -z "${screen_width:-}" || -z "${screen_height:-}" ]]; then
@@ -145,8 +200,7 @@ if [[ "$platform" == android ]]; then
     scroll_end=$((screen_height / 4))
     : >"$xml"
     for _ in $(seq 1 30); do
-        adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
-        adb exec-out cat /sdcard/nexa-components.xml >"$dump"
+        android_capture_ui "$dump"
         cat "$dump" >>"$xml"
         if grep -Fq 'text="Card: Reloaded"' "$xml" \
             && grep -Fq 'text="Increment button: 0"' "$xml" \
@@ -180,13 +234,11 @@ if [[ "$platform" == android ]]; then
             && grep -Fq 'text="Accessible header"' "$xml" \
             && grep -Fq 'text="Accessible image"' "$xml" \
             && grep -Fq 'text="Accessible none"' "$xml" \
-            && grep -Fq 'text="External link"' "$xml" \
             && grep -Fq 'text="Keyboard text"' "$xml" \
             && grep -Fq 'text="Keyboard number"' "$xml" \
             && grep -Fq 'text="Keyboard email"' "$xml" \
             && grep -Fq 'text="Keyboard phone"' "$xml" \
             && grep -Fq 'text="Keyboard url"' "$xml" \
-            && grep -Fq 'text="Never dismiss"' "$xml" \
             && grep -Fq 'text="Haptic light"' "$xml" \
             && grep -Fq 'text="Haptic medium"' "$xml" \
             && grep -Fq 'text="Haptic heavy"' "$xml"; then
@@ -203,13 +255,12 @@ left, top, right, bottom = map(int, node.attrib["bounds"].strip("[]").replace("]
 subprocess.run(["adb", "shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2)], check=True)
 PY
             for _ in $(seq 1 15); do
-                adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
-                adb exec-out cat /sdcard/nexa-components.xml >"$dump"
+                android_capture_ui "$dump"
                 if grep -Fq 'text="Increment button: 1"' "$dump"; then break; fi
                 sleep 0.25
             done
             if ! grep -Fq 'text="Increment button: 1"' "$dump"; then
-                cat "$dump" >&2
+                print_android_ui_labels "$dump" >&2
                 echo "Android Button action did not update state" >&2
                 exit 1
             fi
@@ -226,13 +277,12 @@ left, top, right, bottom = map(int, node.attrib["bounds"].strip("[]").replace("]
 subprocess.run(["adb", "shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2)], check=True)
 PY
             for _ in $(seq 1 15); do
-                adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
-                adb exec-out cat /sdcard/nexa-components.xml >"$dump"
+                android_capture_ui "$dump"
                 if grep -Fq 'text="If branch: enabled"' "$dump"; then break; fi
                 sleep 0.25
             done
             if ! grep -Fq 'text="If branch: enabled"' "$dump"; then
-                cat "$dump" >&2
+                print_android_ui_labels "$dump" >&2
                 echo "Android If branch did not update after Button interaction" >&2
                 exit 1
             fi
@@ -242,7 +292,7 @@ PY
         adb shell input swipe "$scroll_x" "$scroll_start" "$scroll_x" "$scroll_end" 250 >/dev/null 2>&1 || true
         sleep 0.25
     done
-    cat "$xml" >&2
+    print_android_ui_labels "$xml" >&2
     cat "$log_file" >&2
     exit 1
 fi

@@ -1138,13 +1138,13 @@ extension NexaDevStateStore {
     }
 }
 
-private func nexaDevAnimation(_ value: Any?) -> Animation? {
+func nexaDevAnimation(_ value: Any?) -> Animation? {
     if let kind = value as? String {
         switch kind {
-        case "EaseIn": return .easeIn
-        case "EaseOut": return .easeOut
-        case "EaseInOut": return .easeInOut
-        case "Linear": return .linear
+        case "EaseIn": return nexaDevTween(0.3, "EaseIn")
+        case "EaseOut": return nexaDevTween(0.3, "EaseOut")
+        case "EaseInOut": return nexaDevTween(0.3, "EaseInOut")
+        case "Linear": return nexaDevTween(0.3, "Linear")
         default: return .default
         }
     }
@@ -1152,9 +1152,38 @@ private func nexaDevAnimation(_ value: Any?) -> Animation? {
         return .default
     }
     if kind == "Spring", let fields = payload as? [String: Any] {
-        let response = fields["response"] as? Double ?? 0.5
-        let damping = fields["damping"] as? Double ?? 0.825
-        return .spring(response: response, dampingFraction: damping)
+        let response = max(fields["response"] as? Double ?? 0.5, 0.0001)
+        let damping = max(fields["damping"] as? Double ?? 0.825, 0.0001)
+        let stiffness = 100.0 / (response * response)
+        let dampingCoefficient = 2.0 * damping * stiffness.squareRoot()
+        return .interpolatingSpring(
+            mass: 1,
+            stiffness: stiffness,
+            damping: dampingCoefficient,
+            initialVelocity: 0
+        )
+    }
+    if kind == "Tween", let fields = payload as? [String: Any] {
+        let duration = min(max(fields["duration"] as? Double ?? 0.3, 0.001), 60.0)
+        let delay = min(max(fields["delay"] as? Double ?? 0.0, 0.0), 60.0)
+        if let easing = fields["easing"] as? [String: Any],
+           let bezier = easing["CubicBezier"] as? [String: Any] {
+            let x1 = bezier["x1"] as? Double ?? 0.4
+            let y1 = bezier["y1"] as? Double ?? 0.0
+            let x2 = bezier["x2"] as? Double ?? 0.2
+            let y2 = bezier["y2"] as? Double ?? 1.0
+            return Animation.timingCurve(x1, y1, x2, y2, duration: duration).delay(delay)
+        }
+        return nexaDevTween(duration, fields["easing"] as? String ?? "EaseInOut").delay(delay)
     }
     return nexaDevAnimation(kind)
+}
+
+private func nexaDevTween(_ duration: Double, _ easing: String) -> Animation {
+    switch easing {
+    case "Linear": return .linear(duration: duration)
+    case "EaseIn": return .timingCurve(0.4, 0.0, 1.0, 1.0, duration: duration)
+    case "EaseOut": return .timingCurve(0.0, 0.0, 0.2, 1.0, duration: duration)
+    default: return .timingCurve(0.4, 0.0, 0.2, 1.0, duration: duration)
+    }
 }

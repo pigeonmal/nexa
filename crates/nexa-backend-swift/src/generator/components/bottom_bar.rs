@@ -64,10 +64,12 @@ pub(crate) fn render_bottom_bar_helpers(
                         .cloned()
                         .collect();
                     render_children(&content, module, features, 3, out);
-                    out.push_str("\n        }");
+                    out.push_str(
+                        "\n        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)",
+                    );
                     if tab_contains_grouped_surface(&tab.children) {
                         out.push_str(
-                            "\n        .frame(maxWidth: .infinity, maxHeight: .infinity)\n        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())",
+                            "\n            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())",
                         );
                     }
                     out.push_str("\n    }\n");
@@ -145,7 +147,9 @@ pub(crate) fn render_page_pager(
     for index in 0..pages.len() {
         out.line_at(
             depth + 2,
-            format_args!("{prefix}_{index}().tag(Int32({index}))"),
+            format_args!(
+                "{prefix}_{index}().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).tag(Int32({index}))"
+            ),
         );
     }
     indent(out, depth + 1);
@@ -246,7 +250,10 @@ fn render_app_tab_navigation_modifiers(
         .iter()
         .filter_map(|tab| tab.navigation_title.as_ref().map(|title| (tab, title)))
         .collect::<Vec<_>>();
-    if !titled_tabs.is_empty() {
+    let has_tab_toolbar = tabs
+        .iter()
+        .any(|tab| !collect_navigation_toolbars(&tab.children).is_empty());
+    if !titled_tabs.is_empty() || has_tab_toolbar {
         let title = titled_tabs
             .iter()
             .rev()
@@ -257,36 +264,64 @@ fn render_app_tab_navigation_modifiers(
                     swift_string(title)
                 )
             });
-        let large = titled_tabs.iter().all(|(tab, _)| tab.large_title);
+        let large = titled_tabs
+            .iter()
+            .rev()
+            .fold("false".to_owned(), |fallback, (tab, _)| {
+                format!(
+                    "({selected} == Int32({} ) ? {} : {fallback})",
+                    tab.index, tab.large_title
+                )
+            });
         out.push_str(&format!(
-            "\n.modifier(NexaAppTabNavigationTitlePrimitive(title: {title}, large: {large}))"
+            "\n.navigationTitle({title})\n.modifier(NexaNavigationTitleDisplayModeModifier(inline: !{large}))\n.toolbar {{\n"
         ));
-    }
-
-    if tabs
-        .iter()
-        .any(|tab| !collect_navigation_toolbars(&tab.children).is_empty())
-    {
-        out.push_str("\n.toolbar {");
         for tab in tabs {
             let toolbars = collect_navigation_toolbars(&tab.children);
             if toolbars.is_empty() {
                 continue;
             }
-            out.push('\n');
-            indent(out, depth + 1);
-            out.push_str(&format!("if {selected} == Int32({}) {{", tab.index));
-            for toolbar in &toolbars {
-                out.push('\n');
-                render_navigation_toolbar_items(toolbar, module, features, depth + 2, out);
+            out.line_at(
+                depth + 1,
+                format_args!("if {selected} == Int32({}) {{", tab.index),
+            );
+            for (placement, swift_placement) in [
+                (ToolbarPlacement::Leading, ".navigationBarLeading"),
+                (ToolbarPlacement::Trailing, ".navigationBarTrailing"),
+            ] {
+                let children = toolbars
+                    .iter()
+                    .filter_map(|toolbar| match toolbar {
+                        Node::Toolbar {
+                            placement: actual,
+                            children,
+                        } if *actual == placement => Some(children),
+                        _ => None,
+                    })
+                    .flatten()
+                    .collect::<Vec<_>>();
+                if children.is_empty() {
+                    continue;
+                }
+                out.line_at(
+                    depth + 2,
+                    format_args!("ToolbarItemGroup(placement: {swift_placement}) {{"),
+                );
+                for child in children {
+                    crate::generator::components::render_node(
+                        child,
+                        module,
+                        features,
+                        depth + 3,
+                        out,
+                    );
+                    out.push('\n');
+                }
+                out.line_at(depth + 2, format_args!("}}"));
             }
-            out.push('\n');
-            indent(out, depth + 1);
-            out.push('}');
+            out.line_at(depth + 1, format_args!("}}"));
         }
-        out.push('\n');
-        indent(out, depth);
-        out.push('}');
+        out.line_at(depth, format_args!("}}"));
     }
 }
 
@@ -408,7 +443,7 @@ fn swift_tab_label(tab: &BottomBarTab) -> String {
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{BottomBarTab, Module, Node};
+    use nexa_ir::{BottomBarTab, Module, Node, ToolbarPlacement};
 
     use crate::generator::engine::features::Features;
 
@@ -471,6 +506,19 @@ mod tests {
     }
 
     #[test]
+    fn page_pager_pages_fill_the_viewport_and_align_to_the_top() {
+        let mut output = SourceWriter::new();
+        render_page_pager("currentPage", &[Vec::new(), Vec::new()], 0, &mut output);
+
+        assert!(output.contains(
+            "nexa_currentPage_page_0().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).tag(Int32(0))"
+        ));
+        assert!(output.contains(
+            "nexa_currentPage_page_1().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).tag(Int32(1))"
+        ));
+    }
+
+    #[test]
     fn searchable_tab_renders_a_visible_native_text_input() {
         let module = empty_module_with_search_tab();
         let mut output = SourceWriter::new();
@@ -481,7 +529,31 @@ mod tests {
         assert!(output.contains("placeholder: Text(\"Search tasks...\")"));
         assert!(output.contains("searchable: true"));
         assert!(output.contains(".padding(.horizontal, 16)"));
+        assert!(
+            output.contains(
+                ".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"
+            )
+        );
         assert!(!output.contains(".searchable(text:"));
+    }
+
+    #[test]
+    fn app_tab_content_aligns_to_top_leading_like_android() {
+        let mut module = empty_module_with_search_tab();
+        let Node::AppBottomBar { tabs, .. } = &mut module.body[0] else {
+            unreachable!("test module contains an app bottom bar")
+        };
+        tabs[0].children.push(Node::Text {
+            value: nexa_ir::Expr::String("Inbox tab content".to_owned()),
+            style: nexa_ir::TextStyle::default(),
+        });
+
+        let mut output = SourceWriter::new();
+        render_bottom_bar_helpers(&module.body, &module, &Features::default(), &mut output);
+
+        assert!(output.contains(
+            "}.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"
+        ));
     }
 
     #[test]
@@ -514,8 +586,18 @@ mod tests {
     }
 
     #[test]
-    fn titled_tabs_use_the_shared_navigation_title_mode_primitive() {
-        let module = empty_module_with_search_tab();
+    fn titled_tabs_use_the_shared_navigation_title_primitive() {
+        let mut module = empty_module_with_search_tab();
+        let Node::AppBottomBar { tabs, .. } = &mut module.body[0] else {
+            unreachable!("test module contains an app bottom bar")
+        };
+        tabs[0].children.push(Node::Toolbar {
+            placement: ToolbarPlacement::Trailing,
+            children: vec![Node::Text {
+                value: nexa_ir::Expr::String("Done".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+        });
         let Node::AppBottomBar {
             state,
             tint,
@@ -537,8 +619,11 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains(".modifier(NexaAppTabNavigationTitlePrimitive(title:"));
-        assert!(output.contains("large: true))"));
+        assert!(output.contains(".navigationTitle("));
+        assert!(output.contains("NexaNavigationTitleDisplayModeModifier(inline: !"));
+        assert!(output.contains(".toolbar {"));
+        assert!(output.contains("ToolbarItemGroup(placement: .navigationBarTrailing)"));
+        assert!(!output.contains("NexaNavigationChromeModifier"));
     }
 
     #[test]

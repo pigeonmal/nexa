@@ -11,9 +11,7 @@ screen Completed {
                         Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                             Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
                         }.onTap {
-                            withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                tasks = toggleTodo(tasks, task.id)
-                            }
+                            tasks = toggleTodo(tasks, task.id)
                             Haptics.notification(kind: Success)
                             cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                             Task.launch(executor: TaskExecutor.Main) {
@@ -49,9 +47,7 @@ screen Completed {
                             showingTaskEditor = true
                         }
                         Button("Mark Incomplete", icon: "undo") {
-                            withAnimation(Spring(response: 0.35, damping: 0.8)) {
-                                tasks = toggleTodo(tasks, task.id)
-                            }
+                            tasks = toggleTodo(tasks, task.id)
                             Haptics.notification(kind: Success)
                             cancelRemindersIfCompleted(tasks, reminders, task.id, notifications)
                             Task.launch(executor: TaskExecutor.Main) {

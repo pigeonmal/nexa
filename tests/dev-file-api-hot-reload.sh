@@ -56,25 +56,25 @@ wait_for_log() {
     echo "timed out waiting for: $expected" >&2
     return 1
 }
-wait_for_patch() {
+wait_for_update() {
     local before=$1
     for _ in $(seq 1 180); do
         local count
-        count=$(grep -Fc "Nexa $platform_label dev runtime applied patch" "$log_file" || true)
+        count=$(grep -Ec "Nexa $platform_label dev runtime applied (patch|module)" "$log_file" || true)
         if (( count > before )); then return 0; fi
         if ! kill -0 "$dev_pid" 2>/dev/null; then cat "$log_file" >&2; return 1; fi
         sleep 1
     done
     cat "$log_file" >&2
-    echo "timed out waiting for the file API hot reload" >&2
+    echo "timed out waiting for the file API module update" >&2
     return 1
 }
 
 wait_for_log "Nexa $platform_label dev runtime connected."
 wait_for_log "Nexa $platform_label dev runtime applied module"
-patch_count=$(grep -Fc "Nexa $platform_label dev runtime applied patch" "$log_file" || true)
+applied_count=$(grep -Ec "Nexa $platform_label dev runtime applied (patch|module)" "$log_file" || true)
 cp "$script_dir/fixtures/dev_file_api_reloaded.nx" "$project/App.nx"
-wait_for_patch "$patch_count"
+wait_for_update "$applied_count"
 printf 'R\n' >&3
 wait_for_log "Nexa app state restarted in the running app."
 

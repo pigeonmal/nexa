@@ -1,0 +1,315 @@
+import "../models/ShortVideo.nx"
+import "../components/TopInset.nx"
+import "../components/CreatorAvatar.nx"
+import "../components/ShortArtwork.nx"
+plugin "../../../../plugins/video-player" as VideoPlayer
+
+component HomeScreen() {
+    let forYou: Array<ShortVideo> = [
+        ShortVideo("midnight-skate", "@jules.city", "One last lap before the lights come on. #skate", "Night Shift · jules.city", "https://videos.pexels.com/video-files/12788069/12788069-hd_1080_1920_60fps.mp4", "city", "jules", "128.4K", "2,310", "1.8M"),
+        ShortVideo("blue-water", "@mira.cooks", "A slower kind of morning by the coast. #weekend", "Blue Hour", "https://videos.pexels.com/video-files/8094305/8094305-hd_1080_1920_25fps.mp4", "coast", "mira", "86.2K", "1,904", "940K"),
+        ShortVideo("mountain-air", "@noah.outside", "Got up early for this view. #hiking", "First Light · noah", "https://videos.pexels.com/video-files/5136243/5136243-hd_1080_1920_25fps.mp4", "trail", "noah", "204K", "5,402", "2.8M"),
+        ShortVideo("sunday-cooking", "@mira.cooks", "Lunch is better when nobody is in a hurry.", "Sunday Kitchen", "https://videos.pexels.com/video-files/6317339/6317339-hd_720_1280_25fps.mp4", "food", "mira", "47.6K", "987", "634K"),
+    ]
+    let following: Array<ShortVideo> = [forYou[1], forYou[3], forYou[2]]
+    let player = VideoPlayer()
+    state followingSelected: Bool = false
+    let clips: Array<ShortVideo> = if followingSelected { following } else { forYou }
+    state page: Int32 = 0
+    state preparedPage: Int32 = -1
+    state loadTask: TaskHandle? = null
+    state generation: Int32 = 0
+    state hasFrame: Bool = false
+    state playing: Bool = false
+    state likedIds: Set<String> = []
+    state savedIds: Set<String> = []
+    state followingCreator: Bool = false
+    state commentsOpen: Bool = false
+    state searchOpen: Bool = false
+    state searchQuery: String = ""
+    state commentDraft: String = ""
+    state comments: Array<String> = ["This is such a good reminder.", "Adding this to the weekend list ✨", "Where was this filmed?"]
+    state notice: String = ""
+
+    body {
+        OnAppear {
+            player.looping = true
+            player.volume = 1.0
+            if clips.count > 0 {
+                preparedPage = 0
+                player.setPreloadPosition(0)
+                if clips.count > 1 { player.preload(clips[1].videoUrl, 1) }
+                generation += 1
+                let request = generation
+                Task.launch(handle: loadTask, executor: TaskExecutor.Main) {
+                    try {
+                        await player.prepare(clips[0].videoUrl)
+                        if request == generation {
+                            player.play()
+                            playing = true
+                        }
+                    } catch {
+                        case VideoPlayer.PlayerError.invalidUrl { notice = "This video is unavailable." }
+                        case VideoPlayer.PlayerError.decodingFailed(_) { notice = "This video could not be played." }
+                    }
+                }
+            }
+        }
+        OnDisappear {
+            generation += 1
+            Task.cancel(handle: loadTask)
+            player.pause()
+            player.dispose()
+        }
+
+        Stack(alignment: Center, background: "#050505") {
+            FastList(clips, key: .id, pageSnap: true, scrollPosition: page, accessibilityLabel: "For You video feed") { clip, index in
+                Stack(alignment: Center, background: "#00000000") {
+                    if index == page {
+                        // Keep the active video surface in its feed page so it travels
+                        // with that clip while the user swipes vertically.
+                        Stack(alignment: Center) {
+                            VideoPlayer.VideoView(player: player, controls: false, softwareDecodingEnabled: false) {
+                                Column(width: 1, height: 1) {}
+                            }.onFirstFrame { url ->
+                                if index == page && url == clip.videoUrl {
+                                    hasFrame = true
+                                }
+                            }
+                            if !hasFrame {
+                                ShortArtwork(assetName: clip.artwork)
+                            }
+                        }
+                    } else {
+                        ShortArtwork(assetName: clip.artwork)
+                    }
+                    Pressable(fillMaxSize: true, accessibilityLabel: "Pause or play video", accessibilityRole: Button) {
+                        Stack(width: 1, height: 1, background: "#00000000") {}
+                    }.onTap {
+                        if playing {
+                            player.pause()
+                            playing = false
+                        } else {
+                            player.play()
+                            playing = true
+                        }
+                    }.onDoubleTap {
+                        likedIds.insert(clip.id)
+                        notice = "Liked"
+                    }
+                }
+            }.onScroll {
+                if page >= 0 && page < clips.count && page != preparedPage {
+                    preparedPage = page
+                    hasFrame = false
+                    playing = false
+                    generation += 1
+                    let request = generation
+                    Task.cancel(handle: loadTask)
+                    player.pause()
+                    player.setPreloadPosition(page)
+                    if page + 1 < clips.count { player.preload(clips[page + 1].videoUrl, page + 1) }
+                    let nextUrl = clips[page].videoUrl
+                    Task.launch(handle: loadTask, executor: TaskExecutor.Main) {
+                        try {
+                            await player.prepare(nextUrl)
+                            if request == generation {
+                                player.play()
+                                playing = true
+                            }
+                        } catch {
+                            case VideoPlayer.PlayerError.invalidUrl {
+                                if request == generation { notice = "This video is unavailable." }
+                            }
+                            case VideoPlayer.PlayerError.decodingFailed(_) {
+                                if request == generation { notice = "This video could not be played." }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Keep shading fixed to the viewport. Vertical paging belongs to FastList,
+            // so the gradient stays a passive visual layer as each clip changes.
+            Column {
+                LinearGradient(startColor: "#00000070", endColor: "#00000000", direction: TopToBottom, height: 150)
+                Spacer()
+            }
+            Column {
+                Spacer()
+                LinearGradient(startColor: "#00000000", endColor: "#000000E8", direction: BottomToTop, height: 290)
+            }
+
+            Column(spacing: 0) {
+                TopInset()
+                Row(spacing: 14, alignment: Center, padding: 15) {
+                    Pressable(accessibilityLabel: "Following videos", accessibilityRole: Button) {
+                        if followingSelected { Text("Following", color: "#FFFFFF", fontSize: 16, fontWeight: Bold) } else { Text("Following", color: "#C8C8CA", fontSize: 14, fontWeight: Medium) }
+                    }.onTap {
+                        followingSelected = true
+                        page = 0
+                        preparedPage = -1
+                        hasFrame = false
+                        if following.count > 0 {
+                            generation += 1
+                            let request = generation
+                            Task.cancel(handle: loadTask)
+                            player.pause()
+                            player.setPreloadPosition(0)
+                            if following.count > 1 { player.preload(following[1].videoUrl, 1) }
+                            Task.launch(handle: loadTask, executor: TaskExecutor.Main) {
+                                try {
+                                    await player.prepare(following[0].videoUrl)
+                                    if request == generation {
+                                        player.play()
+                                        playing = true
+                                        preparedPage = 0
+                                    }
+                                } catch {
+                                    case VideoPlayer.PlayerError.invalidUrl { notice = "This video is unavailable." }
+                                    case VideoPlayer.PlayerError.decodingFailed(_) { notice = "This video could not be played." }
+                                }
+                            }
+                        }
+                    }
+                    Pressable(accessibilityLabel: "Recommended videos", accessibilityRole: Button) {
+                        Column(spacing: 5, alignment: Center) {
+                            if followingSelected { Text("For You", color: "#C8C8CA", fontSize: 14, fontWeight: Medium) } else { Text("For You", color: "#FFFFFF", fontSize: 16, fontWeight: Bold) }
+                            if !followingSelected { Stack(width: 25, height: 2, background: "#FFFFFF", cornerRadius: 1) {} }
+                        }
+                    }.onTap {
+                        followingSelected = false
+                        page = 0
+                        preparedPage = -1
+                        hasFrame = false
+                        generation += 1
+                        let request = generation
+                        Task.cancel(handle: loadTask)
+                        player.pause()
+                        player.setPreloadPosition(0)
+                        if forYou.count > 1 { player.preload(forYou[1].videoUrl, 1) }
+                        Task.launch(handle: loadTask, executor: TaskExecutor.Main) {
+                            try {
+                                await player.prepare(forYou[0].videoUrl)
+                                if request == generation {
+                                    player.play()
+                                    playing = true
+                                    preparedPage = 0
+                                }
+                            } catch {
+                                case VideoPlayer.PlayerError.invalidUrl { notice = "This video is unavailable." }
+                                case VideoPlayer.PlayerError.decodingFailed(_) { notice = "This video could not be played." }
+                            }
+                        }
+                    }
+                    Spacer()
+                    Pressable(accessibilityLabel: "Search videos", accessibilityRole: Button) {
+                        Icon(system: "search", description: "Search", size: 23, tint: "#FFFFFF")
+                    }.onTap { searchOpen = true }
+                }
+                Spacer()
+                Row(spacing: 8, alignment: End, padding: 13) {
+                    Column(spacing: 7, maxWidth: 270) {
+                        Row(spacing: 7, alignment: Center) {
+                            Text(clips[page].creator, color: "#FFFFFF", fontSize: 15, fontWeight: Bold, lineLimit: 1)
+                            Text("✓", color: "#25F4EE", fontSize: 12, fontWeight: Bold)
+                            Pressable(accessibilityLabel: "Follow creator", accessibilityRole: Button) {
+                                Text(if followingCreator { "Following" } else { "Follow" }, color: "#FFFFFF", fontSize: 12, fontWeight: Bold)
+                            }.onTap { followingCreator = !followingCreator }
+                        }
+                        Text(clips[page].caption, color: "#FFFFFF", fontSize: 13, lineLimit: 2)
+                        Row(spacing: 6, alignment: Center) {
+                            Icon(system: "music", description: "Sound", size: 13, tint: "#FFFFFF")
+                            Text(clips[page].sound, color: "#EEEEF0", fontSize: 11, lineLimit: 1)
+                        }
+                    }
+                    Spacer()
+                    Column(spacing: 15, alignment: Center) {
+                        Stack(alignment: Center, width: 48, height: 52) {
+                            CreatorAvatar(assetName: clips[page].avatar, scale: "small")
+                            Column {
+                                Spacer()
+                                Stack(alignment: Center, width: 19, height: 19, background: "#FE2C55", cornerRadius: 10) {
+                                    Icon(system: "add", description: "Follow", size: 12, tint: "#FFFFFF")
+                                }
+                            }
+                        }
+                        Pressable(accessibilityLabel: "Like video", accessibilityRole: Button) {
+                            Column(spacing: 2, alignment: Center) {
+                                if clips[page].id in likedIds { Icon(system: "favorite_filled", description: "Liked", size: 30, tint: "#FE2C55") } else { Icon(system: "favorite", description: "Like", size: 30, tint: "#FFFFFF") }
+                                Text(clips[page].likeCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
+                            }
+                        }.onTap {
+                            if clips[page].id in likedIds { likedIds.remove(clips[page].id) } else { likedIds.insert(clips[page].id) }
+                        }
+                        Pressable(accessibilityLabel: "Read comments", accessibilityRole: Button) {
+                            Column(spacing: 2, alignment: Center) {
+                                Icon(system: "comment_filled", description: "Comments", size: 27, tint: "#FFFFFF")
+                                Text(clips[page].commentCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
+                            }
+                        }.onTap { commentsOpen = true }
+                        Pressable(accessibilityLabel: "Save video", accessibilityRole: Button) {
+                            Column(spacing: 2, alignment: Center) {
+                                if clips[page].id in savedIds { Icon(system: "bookmark_filled", description: "Saved", size: 25, tint: "#F4D548") } else { Icon(system: "bookmark", description: "Save", size: 25, tint: "#FFFFFF") }
+                                Text("Save", color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
+                            }
+                        }.onTap {
+                            if clips[page].id in savedIds { savedIds.remove(clips[page].id) } else { savedIds.insert(clips[page].id) }
+                        }
+                        Pressable(accessibilityLabel: "Share video", accessibilityRole: Button) {
+                            Column(spacing: 2, alignment: Center) {
+                                Icon(system: "share", description: "Share", size: 25, tint: "#FFFFFF")
+                                Text(clips[page].viewCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
+                            }
+                        }.onTap { notice = "Share link copied" }
+                    }
+                }
+                Column(height: 76) {}
+            }
+
+            if notice != "" {
+                Column {
+                    Spacer()
+                    Row(alignment: Center, padding: 9, background: "#CC17171B", cornerRadius: 18) {
+                        Text(notice, color: "#FFFFFF", fontSize: 12, fontWeight: Semibold)
+                    }
+                    Column(height: 100) {}
+                }
+            }
+        }
+
+        BottomSheet(isPresented: commentsOpen, partial: true, title: "Comments · \(clips[page].commentCount)") {
+            Column(spacing: 12, padding: 16, background: "#17171B") {
+                FastList(comments, key: .self, rowHeight: 54, accessibilityLabel: "Video comments") { comment, index in
+                    Row(spacing: 10, alignment: Center, padding: 5) {
+                        CreatorAvatar(assetName: if index == 1 { "mira" } else { "alex" }, scale: "small")
+                        Column(spacing: 2) {
+                            Text(if index == 1 { "@mira.cooks" } else { "@viewer" }, color: "#ACACB0", fontSize: 10, fontWeight: Semibold)
+                            Text(comment, color: "#FFFFFF", fontSize: 13)
+                        }
+                    }
+                }
+                Row(spacing: 8, alignment: Center) {
+                    TextInput(value: commentDraft, placeholder: "Add a comment…", maxLength: 280)
+                    Pressable(accessibilityLabel: "Post comment", accessibilityRole: Button) {
+                        Text("Post", color: "#FE2C55", fontSize: 13, fontWeight: Bold)
+                    }.onTap {
+                        if commentDraft != "" {
+                            comments.append(commentDraft)
+                            commentDraft = ""
+                        }
+                    }
+                }
+            }
+        }
+
+        BottomSheet(isPresented: searchOpen, partial: true, title: "Search") {
+            Column(spacing: 14, padding: 18, background: "#17171B") {
+                TextInput(value: searchQuery, placeholder: "Search creators, sounds, videos", searchable: true)
+                Text("Trending now", color: "#FFFFFF", fontSize: 16, fontWeight: Bold)
+                Text("#weekend · #foodtok · #travel · #foryou", color: "#B5B5B8", fontSize: 13)
+            }
+        }
+    }
+
+}

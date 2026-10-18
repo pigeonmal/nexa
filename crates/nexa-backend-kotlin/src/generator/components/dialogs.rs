@@ -65,8 +65,19 @@ pub(crate) fn render_dialog(
         out.line_at(depth + 2, format_args!("}} }},"));
     }
     indent(out, depth + 2);
+    if actions.len() == 2 {
+        out.push_str("dismissButton = {\n");
+        render_children(&actions[..1], scope.module, scope.features, depth + 3, out);
+        out.push('\n');
+        indent(out, depth + 2);
+        out.push_str("},\n");
+    }
     out.push_str("confirmButton = {\n");
-    render_children(&actions, scope.module, scope.features, depth + 3, out);
+    if actions.len() == 2 {
+        render_children(&actions[1..], scope.module, scope.features, depth + 3, out);
+    } else {
+        render_children(&actions, scope.module, scope.features, depth + 3, out);
+    }
     out.push('\n');
     indent(out, depth + 2);
     out.push_str("},\n");
@@ -157,7 +168,7 @@ mod tests {
 
     use crate::generator::features::Features;
 
-    use super::{RenderScope, render_confirmation_dialog};
+    use super::{RenderScope, render_confirmation_dialog, render_dialog};
 
     #[test]
     fn confirmation_dialog_routes_actions_through_shared_primitives() {
@@ -225,5 +236,72 @@ mod tests {
                 "modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)"
             )
         );
+    }
+
+    #[test]
+    fn two_alert_actions_use_material_dialog_dismiss_and_confirm_slots() {
+        let module = Module {
+            app_name: "Dialog".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let button = |label: &str| Node::Button {
+            label: Expr::String(label.to_owned()),
+            icon: None,
+            loading: None,
+            disabled: None,
+            style: None,
+            size: None,
+            shape: None,
+            tint: None,
+            glass: false,
+            actions: Vec::new(),
+        };
+        let children = [button("Cancel"), button("Delete")];
+        let mut output = SourceWriter::new();
+
+        render_dialog(
+            "dialogPresented",
+            &Expr::String("Delete task?".to_owned()),
+            &Expr::String("This action can be undone.".to_owned()),
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
+
+        let generated = output.as_str();
+        let dismiss_slot = generated.find("dismissButton = {").expect("dismiss slot");
+        let confirm_slot = generated.find("confirmButton = {").expect("confirm slot");
+        assert!(dismiss_slot < confirm_slot);
+        let dismiss = &generated[dismiss_slot..confirm_slot];
+        let confirm = &generated[confirm_slot..];
+        assert!(dismiss.contains("label = \"Cancel\""));
+        assert!(confirm.contains("label = \"Delete\""));
+        assert!(!dismiss.contains("label = \"Delete\""));
+        assert!(!confirm.contains("label = \"Cancel\""));
     }
 }

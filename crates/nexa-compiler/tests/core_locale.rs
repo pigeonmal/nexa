@@ -119,6 +119,79 @@ fn text_literals_are_translation_keys_and_keep_translator_comments() {
 }
 
 #[test]
+fn picker_and_segmented_choices_use_the_localization_catalog() {
+    let project = TestProject::new("nexa-localized-selection-choices");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app LocalizedSelections {
+    state pickerOptions: Array<String> = [
+        Locale.localized("Due date"),
+        Locale.localized("Priority")
+    ]
+    state pickerSelection: String = Locale.localized("Due date")
+    state segmentSelection: String = Locale.localized("Week")
+    state directSelection: String = Locale.localized("Newest")
+
+    body {
+        Column {
+            Picker(items: pickerOptions, selected: pickerSelection)
+            Picker(
+                items: ["Newest", "Oldest"],
+                selected: directSelection,
+                comment: "Sort order"
+            )
+            SegmentedControl(items: ["Week", "Month"], selected: segmentSelection)
+        }
+    }
+}
+"#,
+    )
+    .expect("test source should be written");
+
+    let module = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .expect("localized picker and segment choices should compile")
+        .module;
+    let entries = nexa_ir::localization::extract(&module);
+
+    for source in ["Due date", "Priority", "Newest", "Oldest", "Week", "Month"] {
+        assert!(
+            entries.contains_key(source),
+            "missing catalog entry for {source}"
+        );
+    }
+    assert_eq!(entries["Newest"].comment.as_deref(), Some("Sort order"));
+
+    let swift = nexa_backend_swift::SwiftBackend
+        .generate_units(&module)
+        .units
+        .into_iter()
+        .map(|unit| unit.contents)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("NSLocalizedString(\"Due date\""), "{swift}");
+    assert!(swift.contains("NSLocalizedString(\"Newest\""), "{swift}");
+    assert!(swift.contains("NSLocalizedString(\"Week\""), "{swift}");
+
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    let due_date_resource = nexa_codegen::names::localization_resource_name("Due date");
+    let newest_resource = nexa_codegen::names::localization_resource_name("Newest");
+    let week_resource = nexa_codegen::names::localization_resource_name("Week");
+    assert!(
+        kotlin.contains(&format!("getString(R.string.{due_date_resource})")),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains(&format!("getString(R.string.{newest_resource})")),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains(&format!("getString(R.string.{week_resource})")),
+        "{kotlin}"
+    );
+}
+
+#[test]
 fn locale_localized_accepts_source_text_for_native_api_arguments() {
     let project = TestProject::new("nexa-locale-localized-source-text");
     let entry = project.join("App.nx");

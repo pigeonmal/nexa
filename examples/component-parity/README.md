@@ -18,7 +18,7 @@ nexa dev --all
 | Area | Focused routes |
 |---|---|
 | Layout | Column, Row, Stack, Spacer, Divider |
-| Text and controls | Text, Button, TextInput, Switch, Slider, SegmentedControl, Picker, DatePicker |
+| Text and controls | Text, Button, TextInput, Switch, Slider, SegmentedControl, Picker, PickerDate |
 | Content and lists | Form/Section, ContentUnavailable, ProgressBar, ProgressRing, FastList, RefreshControl, KeyboardAware |
 | Media and navigation | Icon, Image, LinearGradient, Link, NavigationBack, Toolbar, PagePager, AppBottomBar, NavigationSplitView |
 | Presentation and environment | BottomSheet, Dialog, ConfirmationDialog, Appearance, StatusBar, accessibility semantics, screen lifecycle |

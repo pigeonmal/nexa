@@ -1,0 +1,430 @@
+{
+  "format": 1,
+  "sourceLanguage": "en",
+  "strings": {
+    "#weekend · #foodtok · #travel · #foryou": {
+      "source": "#weekend · #foodtok · #travel · #foryou",
+      "translations": {}
+    },
+    "1 hour ago": {
+      "source": "1 hour ago",
+      "translations": {}
+    },
+    "12 min ago": {
+      "source": "12 min ago",
+      "translations": {}
+    },
+    "128": {
+      "source": "128",
+      "translations": {}
+    },
+    "24.6K": {
+      "source": "24.6K",
+      "translations": {}
+    },
+    "612K": {
+      "source": "612K",
+      "translations": {}
+    },
+    "@alex.morgan": {
+      "source": "@alex.morgan",
+      "translations": {}
+    },
+    "@mira.cooks": {
+      "source": "@mira.cooks",
+      "translations": {}
+    },
+    "@viewer": {
+      "source": "@viewer",
+      "translations": {}
+    },
+    "Activity": {
+      "source": "Activity",
+      "translations": {}
+    },
+    "Add a comment…": {
+      "source": "Add a comment…",
+      "translations": {}
+    },
+    "Add a sound": {
+      "source": "Add a sound",
+      "translations": {}
+    },
+    "Add sound": {
+      "source": "Add sound",
+      "translations": {}
+    },
+    "Alex Morgan": {
+      "source": "Alex Morgan",
+      "translations": {}
+    },
+    "Allow comments": {
+      "source": "Allow comments",
+      "translations": {}
+    },
+    "Change audience": {
+      "source": "Change audience",
+      "translations": {}
+    },
+    "Change video": {
+      "source": "Change video",
+      "translations": {}
+    },
+    "Choose a clip from your library to start.": {
+      "source": "Choose a clip from your library to start.",
+      "translations": {}
+    },
+    "Comments · {commentCount}": {
+      "source": "Comments · {commentCount}",
+      "arguments": [
+        "commentCount"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Create": {
+      "source": "Create",
+      "translations": {}
+    },
+    "Create a video": {
+      "source": "Create a video",
+      "translations": {}
+    },
+    "Create your next video": {
+      "source": "Create your next video",
+      "translations": {}
+    },
+    "Creator": {
+      "source": "Creator",
+      "translations": {}
+    },
+    "Creator · videos for your feed": {
+      "source": "Creator · videos for your feed",
+      "translations": {}
+    },
+    "Discard draft": {
+      "source": "Discard draft",
+      "translations": {}
+    },
+    "Discover": {
+      "source": "Discover",
+      "translations": {}
+    },
+    "Discover tab": {
+      "source": "Discover tab",
+      "translations": {}
+    },
+    "Drafts": {
+      "source": "Drafts",
+      "translations": {}
+    },
+    "Follow": {
+      "source": "Follow",
+      "translations": {}
+    },
+    "Follow Alex": {
+      "source": "Follow Alex",
+      "translations": {}
+    },
+    "Follow creator": {
+      "source": "Follow creator",
+      "translations": {}
+    },
+    "Followers": {
+      "source": "Followers",
+      "translations": {}
+    },
+    "Following": {
+      "source": "Following",
+      "translations": {}
+    },
+    "Following videos": {
+      "source": "Following videos",
+      "translations": {}
+    },
+    "For You": {
+      "source": "For You",
+      "translations": {}
+    },
+    "For You video feed": {
+      "source": "For You video feed",
+      "translations": {}
+    },
+    "For you": {
+      "source": "For you",
+      "translations": {}
+    },
+    "Hi! I saw your video and wanted to say hello.": {
+      "source": "Hi! I saw your video and wanted to say hello.",
+      "translations": {}
+    },
+    "Home": {
+      "source": "Home",
+      "translations": {}
+    },
+    "Home tab": {
+      "source": "Home tab",
+      "translations": {}
+    },
+    "Inbox": {
+      "source": "Inbox",
+      "translations": {}
+    },
+    "Inbox tab": {
+      "source": "Inbox tab",
+      "translations": {}
+    },
+    "Like video": {
+      "source": "Like video",
+      "translations": {}
+    },
+    "Likes": {
+      "source": "Likes",
+      "translations": {}
+    },
+    "Making small things worth remembering ✨\nPortland · video maker": {
+      "source": "Making small things worth remembering ✨\nPortland · video maker",
+      "translations": {}
+    },
+    "Message": {
+      "source": "Message",
+      "translations": {}
+    },
+    "Messages": {
+      "source": "Messages",
+      "translations": {}
+    },
+    "New post": {
+      "source": "New post",
+      "translations": {}
+    },
+    "Nothing found": {
+      "source": "Nothing found",
+      "translations": {}
+    },
+    "Open chat with {creator}, conversation {value2}": {
+      "source": "Open chat with {creator}, conversation {value2}",
+      "arguments": [
+        "creator",
+        "value2"
+      ],
+      "argument_types": [
+        "String",
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Open inbox settings": {
+      "source": "Open inbox settings",
+      "translations": {}
+    },
+    "Open video {value1} by {creator}": {
+      "source": "Open video {value1} by {creator}",
+      "arguments": [
+        "value1",
+        "creator"
+      ],
+      "argument_types": [
+        "Int32",
+        "String"
+      ],
+      "translations": {}
+    },
+    "Pause or play video": {
+      "source": "Pause or play video",
+      "translations": {}
+    },
+    "Play video {value1}": {
+      "source": "Play video {value1}",
+      "arguments": [
+        "value1"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Popular videos": {
+      "source": "Popular videos",
+      "translations": {}
+    },
+    "Post": {
+      "source": "Post",
+      "translations": {}
+    },
+    "Post comment": {
+      "source": "Post comment",
+      "translations": {}
+    },
+    "Preparing video…": {
+      "source": "Preparing video…",
+      "translations": {}
+    },
+    "Preview": {
+      "source": "Preview",
+      "translations": {}
+    },
+    "Profile": {
+      "source": "Profile",
+      "translations": {}
+    },
+    "Profile options": {
+      "source": "Profile options",
+      "translations": {}
+    },
+    "Profile tab": {
+      "source": "Profile tab",
+      "translations": {}
+    },
+    "Publish video": {
+      "source": "Publish video",
+      "translations": {}
+    },
+    "Read comments": {
+      "source": "Read comments",
+      "translations": {}
+    },
+    "Recent activity": {
+      "source": "Recent activity",
+      "translations": {}
+    },
+    "Recent conversations": {
+      "source": "Recent conversations",
+      "translations": {}
+    },
+    "Recommended videos": {
+      "source": "Recommended videos",
+      "translations": {}
+    },
+    "Responsive profile video grid": {
+      "source": "Responsive profile video grid",
+      "translations": {}
+    },
+    "Responsive video discovery grid": {
+      "source": "Responsive video discovery grid",
+      "translations": {}
+    },
+    "Save": {
+      "source": "Save",
+      "translations": {}
+    },
+    "Save draft": {
+      "source": "Save draft",
+      "translations": {}
+    },
+    "Save video": {
+      "source": "Save video",
+      "translations": {}
+    },
+    "Scan a code": {
+      "source": "Scan a code",
+      "translations": {}
+    },
+    "Search": {
+      "source": "Search",
+      "translations": {}
+    },
+    "Search creators, sounds, videos": {
+      "source": "Search creators, sounds, videos",
+      "translations": {}
+    },
+    "Search results": {
+      "source": "Search results",
+      "translations": {}
+    },
+    "Search videos": {
+      "source": "Search videos",
+      "translations": {}
+    },
+    "Search videos and creators": {
+      "source": "Search videos and creators",
+      "translations": {}
+    },
+    "Select video": {
+      "source": "Select video",
+      "translations": {}
+    },
+    "Send a message": {
+      "source": "Send a message",
+      "translations": {}
+    },
+    "Sent today": {
+      "source": "Sent today",
+      "translations": {}
+    },
+    "Share profile": {
+      "source": "Share profile",
+      "translations": {}
+    },
+    "Share video": {
+      "source": "Share video",
+      "translations": {}
+    },
+    "Show activity": {
+      "source": "Show activity",
+      "translations": {}
+    },
+    "Show liked videos": {
+      "source": "Show liked videos",
+      "translations": {}
+    },
+    "Show messages": {
+      "source": "Show messages",
+      "translations": {}
+    },
+    "Show saved videos": {
+      "source": "Show saved videos",
+      "translations": {}
+    },
+    "Show videos": {
+      "source": "Show videos",
+      "translations": {}
+    },
+    "Today": {
+      "source": "Today",
+      "translations": {}
+    },
+    "Topic {value1}: {topic}": {
+      "source": "Topic {value1}: {topic}",
+      "arguments": [
+        "value1",
+        "topic"
+      ],
+      "argument_types": [
+        "Int32",
+        "String"
+      ],
+      "translations": {}
+    },
+    "Trending now": {
+      "source": "Trending now",
+      "translations": {}
+    },
+    "Try a different topic or creator.": {
+      "source": "Try a different topic or creator.",
+      "translations": {}
+    },
+    "Video comments": {
+      "source": "Video comments",
+      "translations": {}
+    },
+    "Video topics": {
+      "source": "Video topics",
+      "translations": {}
+    },
+    "Who can watch this video": {
+      "source": "Who can watch this video",
+      "translations": {}
+    },
+    "Write a caption…": {
+      "source": "Write a caption…",
+      "translations": {}
+    },
+    "✓": {
+      "source": "✓",
+      "translations": {}
+    }
+  }
+}

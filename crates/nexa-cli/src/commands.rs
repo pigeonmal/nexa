@@ -2504,7 +2504,12 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
     };
     #[cfg(not(windows))]
     let mut command = Command::new(&gradle);
-    command.current_dir(root.join("android")).arg(task);
+    // Refresh only the Material 3 family whose explicit version is selected
+    // by generated Nexa features. These artifacts share an atomic version.
+    command.current_dir(root.join("android")).arg(task).args([
+        "--update-locks",
+        "androidx.compose.material3:material3,androidx.compose.material3:material3-adaptive-navigation-suite,androidx.compose.material3:material3-ripple",
+    ]);
     if matches!(mode, BuildMode::Release) {
         let signing = validate_android_release_signing()?;
         command
@@ -3123,7 +3128,7 @@ fn starter_config(name: &str) -> String {
         .collect::<String>()
         .to_ascii_lowercase();
     format!(
-        "config {{\n    app {{ displayName: \"{name}\", version: \"1.0.0\", buildNumber: 1, deepLinks: [] }}\n    flavors {{ staging {{ suffix: \"staging\" }} }}\n    ios {{ minVersion: \"16.0\", bundleIdentifier: \"dev.nexa.{id}\" }}\n    android {{ minSdk: 23, targetSdk: 36, applicationId: \"dev.nexa.{id}\", cronet {{ provider: \"play-services\", diskCacheSizeMb: 64 }} }}\n    permissions {{}}\n}}\n"
+        "config {{\n    app {{ displayName: \"{name}\", version: \"1.0.0\", buildNumber: 1, deepLinks: [] }}\n    flavors {{ staging {{ suffix: \"staging\" }} }}\n    ios {{ minVersion: \"16.0\", bundleIdentifier: \"dev.nexa.{id}\" }}\n    android {{ minSdk: 24, targetSdk: 36, applicationId: \"dev.nexa.{id}\", cronet {{ provider: \"play-services\", diskCacheSizeMb: 64 }} }}\n    permissions {{}}\n}}\n"
     )
 }
 

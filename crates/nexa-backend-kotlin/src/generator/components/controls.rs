@@ -1,8 +1,8 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
-    Action, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node,
-    SystemIcon, TaskExecutor,
+    Action, AnimationEasing, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle,
+    Module, Node, SystemIcon, TaskExecutor,
 };
 
 use crate::generator::{
@@ -52,6 +52,11 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_context_menu,
+        "androidx.compose.material3.MenuDefaults",
+    );
+    imports.add(features.uses_context_menu, "androidx.compose.ui.unit.dp");
+    imports.add(
+        features.uses_context_menu,
         "androidx.compose.runtime.mutableStateOf",
     );
     imports.add(
@@ -73,6 +78,14 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_drag || features.uses_pinch,
         "androidx.compose.ui.input.pointer.pointerInput",
+    );
+    imports.add(
+        features.uses_drag || features.uses_pinch,
+        "androidx.compose.runtime.mutableStateOf",
+    );
+    imports.add(
+        features.uses_drag || features.uses_pinch,
+        "androidx.compose.runtime.remember",
     );
     imports.add(
         features.uses_drag_velocity_without_pinch,
@@ -149,11 +162,11 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.Row",
     );
     imports.add(
-        features.uses_switch || features.uses_date_picker,
+        features.uses_switch,
         "androidx.compose.foundation.layout.fillMaxWidth",
     );
     imports.add(
-        features.uses_switch || features.uses_date_picker,
+        features.uses_switch,
         "androidx.compose.foundation.selection.toggleable",
     );
     imports.add(features.uses_switch, "androidx.compose.ui.Alignment");
@@ -204,6 +217,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_picker, "androidx.compose.ui.graphics.Color");
     imports.add(
         features.uses_picker,
+        "androidx.compose.ui.graphics.compositeOver",
+    );
+    imports.add(
+        features.uses_picker,
         "androidx.compose.material3.DropdownMenu",
     );
     imports.add(
@@ -225,91 +242,36 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(features.uses_picker, "androidx.compose.runtime.remember");
     imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.DatePicker",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.DatePickerDialog",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.AlertDialog",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.OutlinedButton",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.TextButton",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.MaterialTheme",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.foundation.layout.Column",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.foundation.layout.Row",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.foundation.layout.Spacer",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.foundation.layout.width",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.Switch",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.TimePicker",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.rememberDatePickerState",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.material3.rememberTimePickerState",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.runtime.LaunchedEffect",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.runtime.mutableStateOf",
-    );
-    imports.add(
-        features.uses_date_picker,
-        "androidx.compose.runtime.remember",
-    );
-    imports.add(features.uses_date_picker, "androidx.compose.ui.Alignment");
-    imports.add(features.uses_date_picker, "androidx.compose.ui.Modifier");
-    imports.add(features.uses_date_picker, "androidx.compose.ui.unit.dp");
-    imports.add(features.uses_date_picker, "java.util.Calendar");
-    imports.add(features.uses_date_picker, "java.util.TimeZone");
-    imports.add(
         features.uses_progress_bar,
         "androidx.compose.material3.LinearProgressIndicator",
     );
+    imports.add(
+        features.uses_progress_bar,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(features.uses_progress_bar, "androidx.compose.ui.Modifier");
     imports.add(
         features.uses_progress_ring,
         "androidx.compose.material3.CircularProgressIndicator",
     );
     imports.add(
-        features.uses_button
-            || features.uses_segmented_control
-            || features.uses_picker
-            || features.uses_date_picker,
+        features.uses_segmented_control,
+        "androidx.compose.foundation.layout.offset",
+    );
+    imports.add(
+        features.uses_segmented_control,
+        "androidx.compose.foundation.border",
+    );
+    imports.add(
+        features.uses_segmented_control,
+        "androidx.compose.ui.unit.dp",
+    );
+    imports.add(
+        features.uses_segmented_control,
+        "androidx.compose.ui.unit.sp",
+    );
+    imports.add(
+        features.uses_button || features.uses_segmented_control || features.uses_picker,
         "androidx.compose.material3.Text",
     );
     imports.add(
@@ -468,7 +430,19 @@ pub(crate) fn render_slider(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let intervals = ((max - min) / step).round() as i32;
+    let intervals = if step > 0.0 {
+        ((max - min) / step).round() as i32
+    } else {
+        0
+    };
+    let on_value_change = if step > 0.0 {
+        // Material3 Slider stores its value as Float. Convert stepped values back to
+        // the declared Nexa Float64 range so binary Float error does not leak into
+        // observable state (for example, 0.9 becoming 0.8999999761581421).
+        format!("({min:?} + kotlin.math.round((it.toDouble() - {min:?}) / {step:?}) * {step:?})")
+    } else {
+        "it.toDouble()".to_owned()
+    };
     let value = if animated {
         format!("{}Animated", state_name(state))
     } else {
@@ -477,7 +451,7 @@ pub(crate) fn render_slider(
     out.line_at(
         depth,
         format_args!(
-            "NexaSliderPrimitive(value = {value}.toFloat(), onValueChange = {{ {} = it.toDouble() }}, valueRange = {}f..{}f, steps = {})",
+            "NexaSliderPrimitive(value = {value}.toFloat(), onValueChange = {{ {} = {on_value_change} }}, valueRange = {}f..{}f, steps = {})",
             state_name(state),
             min as f32,
             max as f32,
@@ -506,18 +480,72 @@ pub(crate) fn render_progress_ring(progress: &Expr, depth: usize, out: &mut Sour
     );
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct SegmentedControlStyle<'a> {
+    pub tint: Option<&'a nexa_ir::ColorExpression>,
+    pub background: Option<&'a nexa_ir::ColorExpression>,
+    pub text_color: Option<&'a nexa_ir::ColorExpression>,
+    pub selected_text_color: Option<&'a nexa_ir::ColorExpression>,
+    pub font_size: Option<f32>,
+    pub font_weight: Option<nexa_ir::FontWeight>,
+    pub height: Option<f32>,
+    pub corner_radius: Option<f32>,
+    pub border_color: Option<&'a nexa_ir::ColorExpression>,
+    pub border_width: Option<f32>,
+}
+
 pub(crate) fn render_segmented_control(
     items: &Expr,
     state: &str,
+    animation: Option<AnimationSpec>,
+    style: SegmentedControlStyle<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     let options = expression(items);
     let selected = state_name(state);
+    let animation = animation.map_or_else(|| "null".to_owned(), kotlin_animation);
+    let color = |value: Option<&nexa_ir::ColorExpression>| {
+        value.map_or_else(
+            || "null".to_owned(),
+            crate::generator::colors::expression_for_color,
+        )
+    };
+    let tint = color(style.tint);
+    let background = color(style.background);
+    let text_color = color(style.text_color);
+    let selected_text_color = color(style.selected_text_color);
+    let font_size = style
+        .font_size
+        .map_or_else(|| "null".to_owned(), |value| format!("{value}f.sp"));
+    let font_weight = style.font_weight.map_or_else(
+        || "null".to_owned(),
+        |weight| {
+            match weight {
+                nexa_ir::FontWeight::Normal => "androidx.compose.ui.text.font.FontWeight.Normal",
+                nexa_ir::FontWeight::Medium => "androidx.compose.ui.text.font.FontWeight.Medium",
+                nexa_ir::FontWeight::Semibold => {
+                    "androidx.compose.ui.text.font.FontWeight.SemiBold"
+                }
+                nexa_ir::FontWeight::Bold => "androidx.compose.ui.text.font.FontWeight.Bold",
+            }
+            .to_owned()
+        },
+    );
+    let height = style
+        .height
+        .map_or_else(|| "null".to_owned(), |value| format!("{value}f.dp"));
+    let corner_radius = style
+        .corner_radius
+        .map_or_else(|| "null".to_owned(), |value| format!("{value}f.dp"));
+    let border_color = color(style.border_color);
+    let border_width = style
+        .border_width
+        .map_or_else(|| "null".to_owned(), |value| format!("{value}f.dp"));
     out.line_at(
         depth,
         format_args!(
-            "NexaSegmentedControlPrimitive(items = {options}, selected = {selected}, onSelected = {{ {selected} = it }})"
+            "NexaSegmentedControlPrimitive(items = {options}, selected = {selected}, animation = {animation}, tint = {tint}, background = {background}, textColor = {text_color}, selectedTextColor = {selected_text_color}, fontSize = {font_size}, fontWeight = {font_weight}, height = {height}, cornerRadius = {corner_radius}, borderColor = {border_color}, borderWidth = {border_width}, onSelected = {{ {selected} = it }})"
         ),
     );
 }
@@ -525,6 +553,7 @@ pub(crate) fn render_segmented_control(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_picker(
     items: &Expr,
+    item_icons: &[SystemIcon],
     state: &str,
     icon: Option<&SystemIcon>,
     label: Option<&Expr>,
@@ -535,6 +564,18 @@ pub(crate) fn render_picker(
 ) {
     let selected = state_name(state);
     let icon = icon.map_or_else(|| "null".to_owned(), SystemIcon::material_reference);
+    let item_icons = if item_icons.is_empty() {
+        "emptyList()".to_owned()
+    } else {
+        format!(
+            "listOf({})",
+            item_icons
+                .iter()
+                .map(SystemIcon::material_reference)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     let label = label.map_or_else(|| "null".to_owned(), expression);
     let tint = tint.map_or_else(
         || "null".to_owned(),
@@ -544,27 +585,167 @@ pub(crate) fn render_picker(
     out.line_at(
         depth,
         format_args!(
-            "NexaPickerPrimitive(items = {}, selected = {selected}, icon = {icon}, label = {label}, tint = {tint}, fillMaxWidth = {fill_max_width}) {{ {selected} = it }}",
+            "NexaPickerPrimitive(items = {}, itemIcons = {item_icons}, selected = {selected}, icon = {icon}, label = {label}, tint = {tint}, fillMaxWidth = {fill_max_width}) {{ {selected} = it }}",
             expression(items),
         ),
     );
 }
 
-pub(crate) fn render_date_picker(
-    timestamp_state: &str,
-    has_time_state: &str,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    let timestamp = state_name(timestamp_state);
-    let has_time = state_name(has_time_state);
-    let identity = format!("nexa-date-picker-{}", out.next_id());
+pub(crate) fn render_picker_date(node: &Node, depth: usize, out: &mut SourceWriter) {
+    let Node::PickerDate { props } = node else {
+        return;
+    };
+    let nexa_ir::PickerDateProps {
+        picker_type,
+        style,
+        selection,
+        timestamp_state,
+        start_timestamp_state,
+        end_timestamp_state,
+        minimum,
+        maximum,
+        tint,
+        text_color,
+        background_color,
+        picker_background_color,
+        border_color,
+        border_width,
+        corner_radius,
+        locale,
+        time_zone,
+        is_24_hour,
+        enabled,
+        accessibility_label,
+    } = props.as_ref();
+    let kind = match picker_type {
+        nexa_ir::PickerDateType::Date => "Date",
+        nexa_ir::PickerDateType::Time => "Time",
+        nexa_ir::PickerDateType::DateTime => "DateTime",
+    };
+    let style = match style {
+        nexa_ir::PickerDateStyle::Automatic => "Automatic",
+        nexa_ir::PickerDateStyle::Graphical => "Graphical",
+        nexa_ir::PickerDateStyle::Compact => "Compact",
+        nexa_ir::PickerDateStyle::Input => "Input",
+        nexa_ir::PickerDateStyle::Wheel => "Wheel",
+    };
+    let selection = match selection {
+        nexa_ir::PickerDateSelection::Single => "Single",
+        nexa_ir::PickerDateSelection::Range => "Range",
+    };
+    let binding = |state: &Option<String>| {
+        state
+            .as_deref()
+            .map_or_else(|| "null".to_owned(), state_name)
+    };
+    let optional_expr = |value: Option<&Expr>| value.map_or_else(|| "null".to_owned(), expression);
+    let color = |value: Option<&nexa_ir::ColorExpression>| {
+        value.map_or_else(
+            || "null".to_owned(),
+            crate::generator::colors::expression_for_color,
+        )
+    };
+    let optional_float =
+        |value: Option<f32>| value.map_or_else(|| "null".to_owned(), |v| format!("{v}f.dp"));
+    let timestamp_callback = timestamp_state.as_deref().map_or_else(
+        || "null".to_owned(),
+        |state| format!("{{ value -> {} = value }}", state_name(state)),
+    );
+    let range_callback = match (
+        start_timestamp_state.as_deref(),
+        end_timestamp_state.as_deref(),
+    ) {
+        (Some(start), Some(end)) => format!(
+            "{{ start, finish -> {} = start; {} = finish }}",
+            state_name(start),
+            state_name(end)
+        ),
+        _ => "null".to_owned(),
+    };
+    out.line_at(depth, format_args!("NexaDatePickerPrimitive("));
     out.line_at(
-        depth,
+        depth + 1,
+        format_args!("timestamp = {},", binding(timestamp_state)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("startTimestamp = {},", binding(start_timestamp_state)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("endTimestamp = {},", binding(end_timestamp_state)),
+    );
+    out.line_at(depth + 1, format_args!("pickerType = {kind:?},"));
+    out.line_at(depth + 1, format_args!("style = {style:?},"));
+    out.line_at(depth + 1, format_args!("selection = {selection:?},"));
+    out.line_at(
+        depth + 1,
+        format_args!("minimum = {},", optional_expr(minimum.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("maximum = {},", optional_expr(maximum.as_ref())),
+    );
+    out.line_at(depth + 1, format_args!("tint = {},", color(tint.as_ref())));
+    out.line_at(
+        depth + 1,
+        format_args!("textColor = {},", color(text_color.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("backgroundColor = {},", color(background_color.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
         format_args!(
-            "NexaDatePickerPrimitive(timestamp = {timestamp}, includesTime = {has_time}, identity = \"{identity}\", onTimestampChanged = {{ {timestamp} = it }}, onIncludesTimeChanged = {{ {has_time} = it }})"
+            "pickerBackgroundColor = {},",
+            color(picker_background_color.as_ref())
         ),
     );
+    out.line_at(
+        depth + 1,
+        format_args!("borderColor = {},", color(border_color.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("borderWidth = {},", optional_float(*border_width)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("cornerRadius = {},", optional_float(*corner_radius)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("localeTag = {},", optional_expr(locale.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("timeZoneId = {},", optional_expr(time_zone.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("is24Hour = {},", optional_expr(is_24_hour.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("enabled = {},", optional_expr(enabled.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "accessibilityLabel = {},",
+            optional_expr(accessibility_label.as_ref())
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("onTimestampChanged = {timestamp_callback},"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("onRangeChanged = {range_callback},"),
+    );
+    out.line_at(depth, format_args!(")"));
 }
 
 pub(crate) fn render_pressable(
@@ -664,6 +845,14 @@ pub(crate) fn render_pressable(
             format_args!("val nexaContextMenuExpanded = remember {{ mutableStateOf(false) }}"),
         );
     }
+    let gesture_consumed_name =
+        (has_drag || has_pinch).then(|| format!("nexaPressableGestureConsumed{}", out.next_id()));
+    if let Some(name) = &gesture_consumed_name {
+        out.line_at(
+            depth,
+            format_args!("val {name} = remember {{ mutableStateOf(false) }}"),
+        );
+    }
     out.text_at(
         depth,
         format_args!("Box(\n{}    modifier = Modifier", "    ".repeat(depth)),
@@ -696,6 +885,9 @@ pub(crate) fn render_pressable(
             );
             out.line_at(depth + 5, format_args!("nexaTranslationX += nexaPan.x"));
             out.line_at(depth + 5, format_args!("nexaTranslationY += nexaPan.y"));
+            if let Some(name) = &gesture_consumed_name {
+                out.line_at(depth + 5, format_args!("{name}.value = true"));
+            }
             let names = drag_parameters
                 .iter()
                 .map(|name| state_name(name))
@@ -742,6 +934,9 @@ pub(crate) fn render_pressable(
             out.line_at(depth + 4, format_args!("}}"));
         }
         out.line_at(depth + 4, format_args!("if (nexaZoomChange != 1f) {{"));
+        if let Some(name) = &gesture_consumed_name {
+            out.line_at(depth + 5, format_args!("{name}.value = true"));
+        }
         let pinch_name = pinch_parameter
             .as_deref()
             .map(state_name)
@@ -789,6 +984,9 @@ pub(crate) fn render_pressable(
             out.line_at(depth + 4, format_args!("}},"));
         }
         out.line_at(depth + 4, format_args!("onDrag = {{ change, dragAmount ->"));
+        if let Some(name) = &gesture_consumed_name {
+            out.line_at(depth + 5, format_args!("{name}.value = true"));
+        }
         out.line_at(depth + 5, format_args!("nexaTranslationX += dragAmount.x"));
         out.line_at(depth + 5, format_args!("nexaTranslationY += dragAmount.y"));
         let names = drag_parameters
@@ -843,10 +1041,9 @@ pub(crate) fn render_pressable(
     out.push_str(&format!(".{modifier}(\n"));
     out.line_at(depth + 2, format_args!("enabled = {enabled},"));
     out.line_at(depth + 2, format_args!("interactionSource = null,"));
-    out.line_at(depth + 2, format_args!("indication = null,"));
     out.line_at(depth + 2, format_args!("role = Role.Button,"));
     out.text_at(depth + 2, format_args!("onClick = {{"));
-    if actions.is_empty() && haptic.is_none() {
+    if actions.is_empty() && haptic.is_none() && gesture_consumed_name.is_none() {
         out.push_str(if has_combined_clickable {
             " },\n"
         } else {
@@ -854,10 +1051,21 @@ pub(crate) fn render_pressable(
         });
     } else {
         out.push('\n');
-        if let Some(haptic) = haptic {
-            render_haptic(*haptic, depth + 3, out);
+        if let Some(name) = &gesture_consumed_name {
+            out.line_at(depth + 3, format_args!("if ({name}.value) {{"));
+            out.line_at(depth + 4, format_args!("{name}.value = false"));
+            out.line_at(depth + 3, format_args!("}} else {{"));
+            if let Some(haptic) = haptic {
+                render_haptic(*haptic, depth + 4, out);
+            }
+            render_actions(actions, depth + 4, out);
+            out.line_at(depth + 3, format_args!("}}"));
+        } else {
+            if let Some(haptic) = haptic {
+                render_haptic(*haptic, depth + 3, out);
+            }
+            render_actions(actions, depth + 3, out);
         }
-        render_actions(actions, depth + 3, out);
         indent(out, depth + 2);
         out.push_str(if has_combined_clickable {
             "},\n"
@@ -895,6 +1103,12 @@ pub(crate) fn render_pressable(
         indent(out, depth + 1);
         out.push_str("),\n");
     }
+    if *fill_max_size {
+        out.line_at(
+            depth + 1,
+            format_args!("contentAlignment = Alignment.Center,"),
+        );
+    }
     indent(out, depth);
     out.push_str(") {\n");
     render_children(children, module, features, depth + 1, out);
@@ -904,17 +1118,42 @@ pub(crate) fn render_pressable(
     if has_context_menu {
         out.push('\n');
         indent(out, depth);
-        out.push_str("DropdownMenu(\n");
         out.line_at(
-            depth + 1,
+            depth,
+            format_args!(
+                "androidx.compose.material3.MaterialExpressiveTheme(colorScheme = androidx.compose.material3.MaterialTheme.colorScheme) {{"
+            ),
+        );
+        out.line_at(depth + 1, format_args!("DropdownMenu("));
+        out.line_at(
+            depth + 2,
             format_args!("expanded = nexaContextMenuExpanded.value,"),
         );
         out.line_at(
-            depth + 1,
+            depth + 2,
             format_args!("onDismissRequest = {{ nexaContextMenuExpanded.value = false }},"),
         );
-        out.line_at(depth, format_args!(") {{"));
-        render_context_menu(context_menu, depth + 1, out);
+        out.line_at(
+            depth + 2,
+            format_args!("shape = MenuDefaults.standaloneGroupShape,"),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!("containerColor = MenuDefaults.groupStandardContainerColor,"),
+        );
+        out.line_at(depth + 2, format_args!("tonalElevation = 0.dp,"));
+        out.line_at(depth + 2, format_args!("shadowElevation = 8.dp,"));
+        out.line_at(depth + 1, format_args!(") {{"));
+        let item_count = context_menu
+            .iter()
+            .filter(|node| matches!(node, Node::Button { .. }))
+            .count();
+        if item_count > 0 {
+            render_context_menu(context_menu, item_count, depth + 2, out);
+        }
+        out.push('\n');
+        indent(out, depth + 1);
+        out.push('}');
         out.push('\n');
         indent(out, depth);
         out.push('}');
@@ -929,7 +1168,8 @@ pub(crate) fn render_pressable(
     }
 }
 
-fn render_context_menu(nodes: &[Node], depth: usize, out: &mut SourceWriter) {
+fn render_context_menu(nodes: &[Node], item_count: usize, depth: usize, out: &mut SourceWriter) {
+    let mut item_index = 0;
     for node in nodes {
         let Node::Button {
             label,
@@ -942,6 +1182,12 @@ fn render_context_menu(nodes: &[Node], depth: usize, out: &mut SourceWriter) {
             continue;
         };
         out.line_at(depth, format_args!("DropdownMenuItem("));
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "shape = MenuDefaults.itemShape(index = {item_index}, count = {item_count}).shape,"
+            ),
+        );
         out.line_at(
             depth + 1,
             format_args!("text = {{ Text({}) }},", expression(label)),
@@ -968,6 +1214,7 @@ fn render_context_menu(nodes: &[Node], depth: usize, out: &mut SourceWriter) {
         );
         out.line_at(depth + 1, format_args!("}},"));
         out.line_at(depth, format_args!(")"));
+        item_index += 1;
     }
 }
 
@@ -1128,13 +1375,32 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 actions,
             } => {
                 let spec = kotlin_animation(*animation);
+                let mut previous_values = Vec::with_capacity(animated_states.len());
                 for state in animated_states {
-                    out.line_at(
-                        depth,
-                        format_args!("{}AnimationSpec = {spec}", state_name(state)),
-                    );
+                    let state = state_name(state);
+                    let previous = format!("nexaAnimatedStateBefore{}", out.next_id());
+                    previous_values.push((state.clone(), previous.clone()));
+                    out.line_at(depth, format_args!("val {previous} = {state}"));
+                    out.line_at(depth, format_args!("{state}AnimationSpec = {spec}"));
                 }
                 render_actions(actions, depth, out);
+                for (state, previous) in previous_values {
+                    // `animateFloatAsState` only invokes its finished listener
+                    // when the target changes. Clear a one-shot spec here when
+                    // this transaction leaves a value untouched, including
+                    // branches that do not execute their assignment.
+                    out.line_at(
+                        depth,
+                        format_args!("if ({state}.toBits() == {previous}.toBits()) {{"),
+                    );
+                    out.line_at(
+                        depth + 1,
+                        format_args!(
+                            "{state}AnimationSpec = androidx.compose.animation.core.snap()"
+                        ),
+                    );
+                    out.line_at(depth, format_args!("}}"));
+                }
             }
             Action::CollectionMutation {
                 name,
@@ -1282,18 +1548,60 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
     }
 }
 
-fn kotlin_animation(animation: AnimationSpec) -> String {
+pub(crate) fn kotlin_animation(animation: AnimationSpec) -> String {
     match animation {
         AnimationSpec::Spring { response, damping } => {
-            let stiffness = (100.0 / f64::from(response).powi(2)) as f32;
+            let physics = nexa_codegen::animation::spring_physics(response, damping);
             format!(
-                "androidx.compose.animation.core.spring(dampingRatio = {damping}f, stiffness = {stiffness}f)"
+                "androidx.compose.animation.core.spring(dampingRatio = {damping}f, stiffness = {}f)",
+                physics.stiffness
             )
         }
-        AnimationSpec::EaseIn => "androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.FastOutLinearInEasing)".to_owned(),
-        AnimationSpec::EaseOut => "androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.LinearOutSlowInEasing)".to_owned(),
-        AnimationSpec::EaseInOut => "androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.FastOutSlowInEasing)".to_owned(),
-        AnimationSpec::Linear => "androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.LinearEasing)".to_owned(),
+        AnimationSpec::Tween {
+            duration,
+            delay,
+            easing,
+        } => {
+            let duration_millis = (duration * 1000.0).round() as u32;
+            let delay_millis = (delay * 1000.0).round() as u32;
+            let delay_parameter = if delay_millis > 0 {
+                format!(", delayMillis = {delay_millis}")
+            } else {
+                String::new()
+            };
+            format!(
+                "androidx.compose.animation.core.tween(durationMillis = {duration_millis}{delay_parameter}, easing = {})",
+                kotlin_easing(easing)
+            )
+        }
+        AnimationSpec::EaseIn => kotlin_tween("FastOutLinearInEasing"),
+        AnimationSpec::EaseOut => kotlin_tween("LinearOutSlowInEasing"),
+        AnimationSpec::EaseInOut => kotlin_tween("FastOutSlowInEasing"),
+        AnimationSpec::Linear => kotlin_tween("LinearEasing"),
+    }
+}
+
+fn kotlin_tween(easing: &str) -> String {
+    format!(
+        "androidx.compose.animation.core.tween(durationMillis = 300, easing = androidx.compose.animation.core.{easing})"
+    )
+}
+
+fn kotlin_easing(easing: AnimationEasing) -> String {
+    match easing {
+        AnimationEasing::Linear => "androidx.compose.animation.core.LinearEasing".to_owned(),
+        AnimationEasing::EaseIn => {
+            "androidx.compose.animation.core.FastOutLinearInEasing".to_owned()
+        }
+        AnimationEasing::EaseOut => {
+            "androidx.compose.animation.core.LinearOutSlowInEasing".to_owned()
+        }
+        AnimationEasing::EaseInOut => {
+            "androidx.compose.animation.core.FastOutSlowInEasing".to_owned()
+        }
+        AnimationEasing::CubicBezier { x1, y1, x2, y2 } => {
+            format!("androidx.compose.animation.core.CubicBezierEasing({x1}f, {y1}f, {x2}f, {y2}f)")
+        }
     }
 }
 
@@ -1356,8 +1664,8 @@ mod tests {
     use nexa_ir::{Action, CollectionMutation, Expr, NumericType, SystemIcon, TaskExecutor, Type};
 
     use super::{
-        render_actions, render_button, render_date_picker, render_picker, render_progress_bar,
-        render_progress_ring, render_slider, render_switch,
+        render_actions, render_button, render_picker, render_progress_bar, render_progress_ring,
+        render_slider, render_switch,
     };
 
     #[test]
@@ -1366,6 +1674,7 @@ mod tests {
 
         render_picker(
             &Expr::Array(vec![Expr::String("Low".to_owned())]),
+            &[],
             "priority",
             Some(&SystemIcon::Shared("flag_filled".to_owned())),
             None,
@@ -1375,7 +1684,9 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"Low\")"));
+        assert!(
+            output.contains("NexaPickerPrimitive(items = listOf(\"Low\"), itemIcons = emptyList()")
+        );
         assert!(output.contains("icon = Icons.Filled.Flag"));
         assert!(
             output
@@ -1384,16 +1695,48 @@ mod tests {
     }
 
     #[test]
-    fn picker_renders_dynamic_tint_and_an_anchored_dropdown() {
-        let items = Expr::Array(vec![Expr::String("None".to_owned())]);
-        let tint = nexa_ir::ColorExpression::Dynamic(Expr::State(
-            "priorityTint".to_owned(),
-            nexa_ir::Type::String,
-        ));
+    fn picker_generates_material_icons_for_each_menu_row() {
+        let items = Expr::Array(vec![
+            Expr::String("Due date".to_owned()),
+            Expr::String("Priority".to_owned()),
+            Expr::String("Title".to_owned()),
+        ]);
+        let item_icons = vec![
+            SystemIcon::Shared("calendar".to_owned()),
+            SystemIcon::Shared("flag_filled".to_owned()),
+            SystemIcon::Shared("edit".to_owned()),
+        ];
         let mut output = SourceWriter::new();
 
         render_picker(
             &items,
+            &item_icons,
+            "priority",
+            None,
+            Some(&Expr::String("Priority".to_owned())),
+            None,
+            true,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains(
+            "itemIcons = listOf(Icons.Outlined.CalendarMonth, Icons.Filled.Flag, Icons.Filled.Edit)"
+        ));
+    }
+
+    #[test]
+    fn picker_renders_dynamic_tint_and_an_anchored_dropdown() {
+        let items = Expr::Array(vec![Expr::String("None".to_owned())]);
+        let tint = nexa_ir::ColorExpression::Dynamic(Box::new(Expr::State(
+            "priorityTint".to_owned(),
+            nexa_ir::Type::String,
+        )));
+        let mut output = SourceWriter::new();
+
+        render_picker(
+            &items,
+            &[],
             "priority",
             Some(&SystemIcon::Shared("flag_filled".to_owned())),
             None,
@@ -1404,7 +1747,7 @@ mod tests {
         );
 
         assert!(output.contains("nexaColorFromHex(nexa_priorityTint)"));
-        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), selected = nexa_priority, icon = Icons.Filled.Flag, label = null, tint = nexaColorFromHex(nexa_priorityTint), fillMaxWidth = true)"));
+        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), itemIcons = emptyList(), selected = nexa_priority, icon = Icons.Filled.Flag, label = null, tint = nexaColorFromHex(nexa_priorityTint), fillMaxWidth = true)"));
     }
 
     #[test]
@@ -1538,18 +1881,6 @@ mod tests {
     }
 
     #[test]
-    fn date_picker_uses_the_shared_native_primitive() {
-        let mut output = SourceWriter::new();
-
-        render_date_picker("reminderTimestamp", "reminderHasTime", 0, &mut output);
-
-        assert_eq!(
-            output.as_str().trim(),
-            "NexaDatePickerPrimitive(timestamp = nexa_reminderTimestamp, includesTime = nexa_reminderHasTime, identity = \"nexa-date-picker-0\", onTimestampChanged = { nexa_reminderTimestamp = it }, onIncludesTimeChanged = { nexa_reminderHasTime = it })"
-        );
-    }
-
-    #[test]
     fn renders_native_progress_indicators_with_bounded_float_values() {
         let progress = Expr::State(
             "progress".to_owned(),
@@ -1570,7 +1901,27 @@ mod tests {
         render_slider("volume", false, 0.0, 1.0, 0.1, 0, &mut output);
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(value = nexa_volume.toFloat(), onValueChange = { nexa_volume = it.toDouble() }, valueRange = 0f..1f, steps = 9)\n"
+            "NexaSliderPrimitive(value = nexa_volume.toFloat(), onValueChange = { nexa_volume = (0.0 + kotlin.math.round((it.toDouble() - 0.0) / 0.1) * 0.1) }, valueRange = 0f..1f, steps = 9)\n"
+        );
+    }
+
+    #[test]
+    fn rounds_stepped_slider_values_back_to_the_declared_double_range() {
+        let mut output = SourceWriter::new();
+        render_slider("zoom", false, -1.0, 1.0, 0.25, 0, &mut output);
+        assert_eq!(
+            output.as_str(),
+            "NexaSliderPrimitive(value = nexa_zoom.toFloat(), onValueChange = { nexa_zoom = (-1.0 + kotlin.math.round((it.toDouble() - -1.0) / 0.25) * 0.25) }, valueRange = -1f..1f, steps = 7)\n"
+        );
+    }
+
+    #[test]
+    fn leaves_continuous_slider_values_unquantized() {
+        let mut output = SourceWriter::new();
+        render_slider("progress", false, 0.0, 1.0, 0.0, 0, &mut output);
+        assert_eq!(
+            output.as_str(),
+            "NexaSliderPrimitive(value = nexa_progress.toFloat(), onValueChange = { nexa_progress = it.toDouble() }, valueRange = 0f..1f, steps = 0)\n"
         );
     }
 

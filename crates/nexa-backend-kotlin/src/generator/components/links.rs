@@ -8,6 +8,10 @@ use crate::generator::engine::imports::ImportSet;
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_link, "android.content.Intent");
     imports.add(
+        features.uses_link,
+        "android.content.ActivityNotFoundException",
+    );
+    imports.add(
         features.uses_link || features.uses_navigation_uri,
         "android.net.Uri",
     );
@@ -34,17 +38,15 @@ pub(crate) fn render_link(
             expression(url)
         ),
     );
-    out.line_at(
-        depth + 1,
-        format_args!(
-            "if (nexaLinkIntent.resolveActivity(nexaLinkContext.packageManager) != null) {{"
-        ),
-    );
+    out.line_at(depth + 1, format_args!("try {{"));
     out.line_at(
         depth + 2,
         format_args!("nexaLinkContext.startActivity(nexaLinkIntent)"),
     );
-    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(
+        depth + 1,
+        format_args!("}} catch (_: ActivityNotFoundException) {{}}"),
+    );
     out.line_at(depth, format_args!("}}) {{"));
     render_children(children, module, features, depth + 1, out);
     out.push('\n');

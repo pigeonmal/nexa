@@ -2,8 +2,56 @@
   "format": 1,
   "sourceLanguage": "en",
   "strings": {
+    "": {
+      "source": "",
+      "translations": {}
+    },
+    "0 dp": {
+      "source": "0 dp",
+      "translations": {}
+    },
+    "1 dp red border": {
+      "source": "1 dp red border",
+      "translations": {}
+    },
+    "12 dp above": {
+      "source": "12 dp above",
+      "translations": {}
+    },
     "12 dp padding": {
       "source": "12 dp padding",
+      "translations": {}
+    },
+    "16 dp padding · blue fill": {
+      "source": "16 dp padding · blue fill",
+      "translations": {}
+    },
+    "24 dp": {
+      "source": "24 dp",
+      "translations": {}
+    },
+    "3 dp blue border": {
+      "source": "3 dp blue border",
+      "translations": {}
+    },
+    "8 dp": {
+      "source": "8 dp",
+      "translations": {}
+    },
+    "A": {
+      "source": "A",
+      "translations": {}
+    },
+    "Above": {
+      "source": "Above",
+      "translations": {}
+    },
+    "Above · z 2": {
+      "source": "Above · z 2",
+      "translations": {}
+    },
+    "Accent, text, surfaces, border, and radius": {
+      "source": "Accent, text, surfaces, border, and radius",
       "translations": {}
     },
     "Accessibility": {
@@ -16,6 +64,51 @@
     },
     "Accessible Column": {
       "source": "Accessible Column",
+      "translations": {}
+    },
+    "Accessible Row": {
+      "source": "Accessible Row",
+      "translations": {}
+    },
+    "Accessible Stack": {
+      "source": "Accessible Stack",
+      "translations": {}
+    },
+    "Accessible Stack sample": {
+      "source": "Accessible Stack sample",
+      "translations": {}
+    },
+    "Accessible row sample": {
+      "source": "Accessible row sample",
+      "translations": {}
+    },
+    "Accessible text": {
+      "source": "Accessible text",
+      "comment": "Text with screen reader metadata",
+      "translations": {}
+    },
+    "Accessible text label": {
+      "source": "Accessible text label",
+      "translations": {}
+    },
+    "Action count: {leadingTitleActions}": {
+      "source": "Action count: {leadingTitleActions}",
+      "arguments": [
+        "leadingTitleActions"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Action count: {titleActions}": {
+      "source": "Action count: {titleActions}",
+      "arguments": [
+        "titleActions"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
       "translations": {}
     },
     "Action {actions}": {
@@ -46,9 +139,8 @@
       "source": "Adaptive split view",
       "translations": {}
     },
-    "Aligned text with visual effects": {
-      "source": "Aligned text with visual effects",
-      "comment": "Text appearance parity sample",
+    "Align": {
+      "source": "Align",
       "translations": {}
     },
     "Allow adaptive grid scrolling": {
@@ -107,28 +199,100 @@
       ],
       "translations": {}
     },
+    "Appointment date and time": {
+      "source": "Appointment date and time",
+      "translations": {}
+    },
+    "Appointment time": {
+      "source": "Appointment time",
+      "translations": {}
+    },
+    "Archive": {
+      "source": "Archive",
+      "translations": {}
+    },
+    "Arrange": {
+      "source": "Arrange",
+      "translations": {}
+    },
+    "Arrangement fills available width": {
+      "source": "Arrangement fills available width",
+      "translations": {}
+    },
+    "Automatic · explicit native style": {
+      "source": "Automatic · explicit native style",
+      "translations": {}
+    },
+    "B": {
+      "source": "B",
+      "translations": {}
+    },
     "Behavior": {
       "source": "Behavior",
+      "translations": {}
+    },
+    "Behind": {
+      "source": "Behind",
+      "translations": {}
+    },
+    "Behind · z 1": {
+      "source": "Behind · z 1",
+      "translations": {}
+    },
+    "Below": {
+      "source": "Below",
+      "translations": {}
+    },
+    "Blue color range": {
+      "source": "Blue color range",
       "translations": {}
     },
     "Blue fill · 14 dp corners · 2 dp border": {
       "source": "Blue fill · 14 dp corners · 2 dp border",
       "translations": {}
     },
+    "Blue · 4 dp": {
+      "source": "Blue · 4 dp",
+      "translations": {}
+    },
+    "Blur": {
+      "source": "Blur",
+      "translations": {}
+    },
     "Blur radius 2": {
       "source": "Blur radius 2",
+      "translations": {}
+    },
+    "Body": {
+      "source": "Body",
       "translations": {}
     },
     "Bold 26": {
       "source": "Bold 26",
       "translations": {}
     },
+    "Border #93C5FD · width 1": {
+      "source": "Border #93C5FD · width 1",
+      "translations": {}
+    },
     "Bordered": {
       "source": "Bordered",
       "translations": {}
     },
+    "Borderless": {
+      "source": "Borderless",
+      "translations": {}
+    },
+    "Bottom": {
+      "source": "Bottom",
+      "translations": {}
+    },
     "Bottom sheet": {
       "source": "Bottom sheet",
+      "translations": {}
+    },
+    "Bottom trailing": {
+      "source": "Bottom trailing",
       "translations": {}
     },
     "BottomSheet": {
@@ -147,12 +311,20 @@
       "source": "Button role",
       "translations": {}
     },
+    "Button role row": {
+      "source": "Button role row",
+      "translations": {}
+    },
     "Button role sample": {
       "source": "Button role sample",
       "translations": {}
     },
     "Button styles and states": {
       "source": "Button styles and states",
+      "translations": {}
+    },
+    "Callout": {
+      "source": "Callout",
       "translations": {}
     },
     "Cancel": {
@@ -163,6 +335,27 @@
       "source": "Capsule",
       "translations": {}
     },
+    "Capsule surface": {
+      "source": "Capsule surface",
+      "translations": {}
+    },
+    "Caption": {
+      "source": "Caption",
+      "translations": {}
+    },
+    "Caption font style": {
+      "source": "Caption font style",
+      "translations": {}
+    },
+    "Caption2": {
+      "source": "Caption2",
+      "translations": {}
+    },
+    "Category": {
+      "source": "Category",
+      "comment": "Choose a category",
+      "translations": {}
+    },
     "Center": {
       "source": "Center",
       "translations": {}
@@ -171,16 +364,24 @@
       "source": "Center · spacing 8",
       "translations": {}
     },
-    "Centered": {
-      "source": "Centered",
+    "Centered alignment\nshort": {
+      "source": "Centered alignment\nshort",
       "translations": {}
     },
     "Circle": {
       "source": "Circle",
       "translations": {}
     },
+    "Clip": {
+      "source": "Clip",
+      "translations": {}
+    },
     "Clipped": {
       "source": "Clipped",
+      "translations": {}
+    },
+    "Clipped overflow": {
+      "source": "Clipped overflow",
       "translations": {}
     },
     "Column": {
@@ -197,6 +398,18 @@
     },
     "Combined emphasis": {
       "source": "Combined emphasis",
+      "translations": {}
+    },
+    "Compact custom range": {
+      "source": "Compact custom range",
+      "translations": {}
+    },
+    "Compact date": {
+      "source": "Compact date",
+      "translations": {}
+    },
+    "Compact travel dates": {
+      "source": "Compact travel dates",
       "translations": {}
     },
     "Compare status-bar foreground, background, and safe-area handling.": {
@@ -257,28 +470,99 @@
       ],
       "translations": {}
     },
+    "Custom spring motion": {
+      "source": "Custom spring motion",
+      "translations": {}
+    },
+    "Custom track background range": {
+      "source": "Custom track background range",
+      "translations": {}
+    },
+    "Custom tween motion": {
+      "source": "Custom tween motion",
+      "translations": {}
+    },
+    "Customized date picker": {
+      "source": "Customized date picker",
+      "translations": {}
+    },
     "Dark appearance surface": {
       "source": "Dark appearance surface",
       "translations": {}
     },
-    "Date and time": {
-      "source": "Date and time",
+    "Date and time input": {
+      "source": "Date and time input",
       "translations": {}
     },
-    "Date only": {
-      "source": "Date only",
+    "Date and time picker": {
+      "source": "Date and time picker",
       "translations": {}
     },
-    "Date picker modes": {
-      "source": "Date picker modes",
+    "Date and time · compact presentation": {
+      "source": "Date and time · compact presentation",
       "translations": {}
     },
-    "DatePicker": {
-      "source": "DatePicker",
+    "Date input": {
+      "source": "Date input",
+      "translations": {}
+    },
+    "Date range": {
+      "source": "Date range",
+      "translations": {}
+    },
+    "Date styles": {
+      "source": "Date styles",
+      "translations": {}
+    },
+    "Date · compact presentation": {
+      "source": "Date · compact presentation",
+      "translations": {}
+    },
+    "Day": {
+      "source": "Day",
+      "comment": "Switch the visible date range",
+      "translations": {}
+    },
+    "Default arrangement remains start aligned": {
+      "source": "Default arrangement remains start aligned",
+      "translations": {}
+    },
+    "Default center": {
+      "source": "Default center",
+      "translations": {}
+    },
+    "Default design": {
+      "source": "Default design",
+      "translations": {}
+    },
+    "Default platform motion": {
+      "source": "Default platform motion",
+      "translations": {}
+    },
+    "Default start": {
+      "source": "Default start",
       "translations": {}
     },
     "Default text padding": {
       "source": "Default text padding",
+      "translations": {}
+    },
+    "Default time range": {
+      "source": "Default time range",
+      "translations": {}
+    },
+    "Default · inline graphical calendar": {
+      "source": "Default · inline graphical calendar",
+      "translations": {}
+    },
+    "Default: {defaultSegment}": {
+      "source": "Default: {defaultSegment}",
+      "arguments": [
+        "defaultSegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
       "translations": {}
     },
     "Delete": {
@@ -292,6 +576,14 @@
     },
     "Demonstrates Column semantics": {
       "source": "Demonstrates Column semantics",
+      "translations": {}
+    },
+    "Demonstrates Stack semantics": {
+      "source": "Demonstrates Stack semantics",
+      "translations": {}
+    },
+    "Demonstrates row semantics": {
+      "source": "Demonstrates row semantics",
       "translations": {}
     },
     "Departures: {departures}": {
@@ -318,6 +610,14 @@
     },
     "Disabled": {
       "source": "Disabled",
+      "translations": {}
+    },
+    "Disabled date picker": {
+      "source": "Disabled date picker",
+      "translations": {}
+    },
+    "Disabled picker": {
+      "source": "Disabled picker",
       "translations": {}
     },
     "Disabled taps: {disabledTaps}": {
@@ -362,8 +662,32 @@
       ],
       "translations": {}
     },
+    "Due date": {
+      "source": "Due date",
+      "translations": {}
+    },
+    "Dynamic disabled": {
+      "source": "Dynamic disabled",
+      "translations": {}
+    },
+    "Dynamic loading": {
+      "source": "Dynamic loading",
+      "translations": {}
+    },
     "EaseIn": {
       "source": "EaseIn",
+      "translations": {}
+    },
+    "EaseIn content": {
+      "source": "EaseIn content",
+      "translations": {}
+    },
+    "EaseInOut": {
+      "source": "EaseInOut",
+      "translations": {}
+    },
+    "EaseInOut content": {
+      "source": "EaseInOut content",
       "translations": {}
     },
     "EaseInOut · expanded: {columnAnimationExpanded}": {
@@ -380,6 +704,10 @@
       "source": "EaseOut",
       "translations": {}
     },
+    "EaseOut content": {
+      "source": "EaseOut content",
+      "translations": {}
+    },
     "Effects": {
       "source": "Effects",
       "translations": {}
@@ -393,22 +721,26 @@
       "comment": "Searchable autofill input",
       "translations": {}
     },
-    "Enabled taps: {taps}": {
-      "source": "Enabled taps: {taps}",
+    "Empty options": {
+      "source": "Empty options",
+      "translations": {}
+    },
+    "Empty selection: {emptySegment}": {
+      "source": "Empty selection: {emptySegment}",
       "arguments": [
-        "taps"
+        "emptySegment"
       ],
       "argument_types": [
-        "Int32"
+        "String"
       ],
+      "translations": {}
+    },
+    "Enabled action": {
+      "source": "Enabled action",
       "translations": {}
     },
     "End": {
       "source": "End",
-      "translations": {}
-    },
-    "End aligned": {
-      "source": "End aligned",
       "translations": {}
     },
     "End · spacing 20": {
@@ -427,6 +759,18 @@
       "source": "Explicit 12 dp padding",
       "translations": {}
     },
+    "Explicit center": {
+      "source": "Explicit center",
+      "translations": {}
+    },
+    "Explicit line height\nkeeps both lines readable": {
+      "source": "Explicit line height\nkeeps both lines readable",
+      "translations": {}
+    },
+    "Explicit start": {
+      "source": "Explicit start",
+      "translations": {}
+    },
     "Explicit zero padding": {
       "source": "Explicit zero padding",
       "translations": {}
@@ -435,12 +779,48 @@
       "source": "External link",
       "translations": {}
     },
-    "FastList": {
-      "source": "FastList",
+    "Extra content": {
+      "source": "Extra content",
+      "translations": {}
+    },
+    "FastList cases": {
+      "source": "FastList cases",
       "translations": {}
     },
     "FastList row sizing": {
       "source": "FastList row sizing",
+      "translations": {}
+    },
+    "FastList · fixed grid": {
+      "source": "FastList · fixed grid",
+      "translations": {}
+    },
+    "FastList · horizontal": {
+      "source": "FastList · horizontal",
+      "translations": {}
+    },
+    "FastList · native": {
+      "source": "FastList · native",
+      "translations": {}
+    },
+    "FastList · page snap": {
+      "source": "FastList · page snap",
+      "translations": {}
+    },
+    "FastList · responsive grid": {
+      "source": "FastList · responsive grid",
+      "translations": {}
+    },
+    "FastList · reverse and position": {
+      "source": "FastList · reverse and position",
+      "translations": {}
+    },
+    "FastList · vertical": {
+      "source": "FastList · vertical",
+      "translations": {}
+    },
+    "Featured": {
+      "source": "Featured",
       "translations": {}
     },
     "First child · zIndex 2": {
@@ -452,6 +832,10 @@
       "comment": "Grouped rows with explanatory footer",
       "translations": {}
     },
+    "First layer · blue": {
+      "source": "First layer · blue",
+      "translations": {}
+    },
     "First page": {
       "source": "First page",
       "translations": {}
@@ -460,9 +844,17 @@
       "source": "First row",
       "translations": {}
     },
+    "First row without dividers": {
+      "source": "First row without dividers",
+      "translations": {}
+    },
     "First section footer": {
       "source": "First section footer",
       "comment": "Grouped rows with explanatory footer",
+      "translations": {}
+    },
+    "Fixed 180 × 56": {
+      "source": "Fixed 180 × 56",
       "translations": {}
     },
     "Fixed 240 × 72 inside 220–260 × 64–80": {
@@ -483,8 +875,12 @@
       "source": "Fixed height: 56",
       "translations": {}
     },
-    "Fixed row height: 56 dp": {
-      "source": "Fixed row height: 56 dp",
+    "Fixed row height 56 dp · spacing 8 dp · 12 rows": {
+      "source": "Fixed row height 56 dp · spacing 8 dp · 12 rows",
+      "translations": {}
+    },
+    "Fixed size within 220–260 × 64–80 bounds": {
+      "source": "Fixed size within 220–260 × 64–80 bounds",
       "translations": {}
     },
     "Fixed two-column grid": {
@@ -503,6 +899,18 @@
       "source": "Flow and alignment tests",
       "translations": {}
     },
+    "Font 13 · Semibold · height 34 · radius 10 · border 2": {
+      "source": "Font 13 · Semibold · height 34 · radius 10 · border 2",
+      "translations": {}
+    },
+    "Font styles": {
+      "source": "Font styles",
+      "translations": {}
+    },
+    "Footnote": {
+      "source": "Footnote",
+      "translations": {}
+    },
     "Form and Section": {
       "source": "Form and Section",
       "translations": {}
@@ -511,8 +919,8 @@
       "source": "Form and section",
       "translations": {}
     },
-    "Four dp": {
-      "source": "Four dp",
+    "Four 96 dp items with 12 dp spacing": {
+      "source": "Four 96 dp items with 12 dp spacing",
       "translations": {}
     },
     "Fourth line": {
@@ -523,17 +931,41 @@
       "source": "Full-size pressable",
       "translations": {}
     },
-    "Gap": {
-      "source": "Gap",
+    "Glass": {
+      "source": "Glass",
       "translations": {}
     },
-    "Glass capsule row": {
-      "source": "Glass capsule row",
+    "Glass capsule with padding": {
+      "source": "Glass capsule with padding",
       "translations": {}
     },
     "Glass icon": {
       "source": "Glass icon",
       "comment": "Icon and glass style parity",
+      "translations": {}
+    },
+    "Glass rounded corners": {
+      "source": "Glass rounded corners",
+      "translations": {}
+    },
+    "Graphical due date": {
+      "source": "Graphical due date",
+      "translations": {}
+    },
+    "Graphical · inline calendar": {
+      "source": "Graphical · inline calendar",
+      "translations": {}
+    },
+    "Gray · 1 dp": {
+      "source": "Gray · 1 dp",
+      "translations": {}
+    },
+    "Headline": {
+      "source": "Headline",
+      "translations": {}
+    },
+    "Headline at 24": {
+      "source": "Headline at 24",
       "translations": {}
     },
     "Horizontal row {index}": {
@@ -570,6 +1002,10 @@
       "source": "Image role",
       "translations": {}
     },
+    "Image role row": {
+      "source": "Image role row",
+      "translations": {}
+    },
     "Image role sample": {
       "source": "Image role sample",
       "translations": {}
@@ -594,6 +1030,18 @@
       "source": "Inner spacing: 18",
       "translations": {}
     },
+    "Input · date and time input style": {
+      "source": "Input · date and time input style",
+      "translations": {}
+    },
+    "Input · date input style": {
+      "source": "Input · date input style",
+      "translations": {}
+    },
+    "Input · time input style": {
+      "source": "Input · time input style",
+      "translations": {}
+    },
     "Introduces the controls below": {
       "source": "Introduces the controls below",
       "translations": {}
@@ -614,8 +1062,8 @@
       "source": "KeyboardAware",
       "translations": {}
     },
-    "Large capsule": {
-      "source": "Large capsule",
+    "Large": {
+      "source": "Large",
       "translations": {}
     },
     "Large-only parity sheet": {
@@ -626,12 +1074,20 @@
       "source": "Large-only sheet content",
       "translations": {}
     },
+    "LargeTitle": {
+      "source": "LargeTitle",
+      "translations": {}
+    },
     "Later child · zIndex 1": {
       "source": "Later child · zIndex 1",
       "translations": {}
     },
     "Layout": {
       "source": "Layout",
+      "translations": {}
+    },
+    "Layout + effects": {
+      "source": "Layout + effects",
       "translations": {}
     },
     "Layout direction baseline": {
@@ -642,12 +1098,36 @@
       "source": "Leading",
       "translations": {}
     },
+    "Leading alignment\nshort": {
+      "source": "Leading alignment\nshort",
+      "translations": {}
+    },
+    "Leading and trailing adapt to the app's layout direction.": {
+      "source": "Leading and trailing adapt to the app's layout direction.",
+      "translations": {}
+    },
+    "Leading toolbar item": {
+      "source": "Leading toolbar item",
+      "translations": {}
+    },
+    "Letter spacing": {
+      "source": "Letter spacing",
+      "translations": {}
+    },
     "Light appearance surface": {
       "source": "Light appearance surface",
       "translations": {}
     },
+    "Line limit\nhides the next line": {
+      "source": "Line limit\nhides the next line",
+      "translations": {}
+    },
     "Linear": {
       "source": "Linear",
+      "translations": {}
+    },
+    "Linear content": {
+      "source": "Linear content",
       "translations": {}
     },
     "Linear gradient": {
@@ -664,6 +1144,10 @@
     },
     "Link role": {
       "source": "Link role",
+      "translations": {}
+    },
+    "Link role row": {
+      "source": "Link role row",
       "translations": {}
     },
     "Link role sample": {
@@ -698,8 +1182,16 @@
       ],
       "translations": {}
     },
+    "Maximum height: 64": {
+      "source": "Maximum height: 64",
+      "translations": {}
+    },
     "Maximum height: 68": {
       "source": "Maximum height: 68",
+      "translations": {}
+    },
+    "Maximum width wraps this longer Stack label onto several lines": {
+      "source": "Maximum width wraps this longer Stack label onto several lines",
       "translations": {}
     },
     "Maximum width wraps this longer label onto multiple lines": {
@@ -712,6 +1204,10 @@
     },
     "Medium 18": {
       "source": "Medium 18",
+      "translations": {}
+    },
+    "Mid": {
+      "source": "Mid",
       "translations": {}
     },
     "Middle: {sliderMiddle}": {
@@ -734,12 +1230,47 @@
       ],
       "translations": {}
     },
+    "Minimum cell width 160 dp · 92 dp cell height": {
+      "source": "Minimum cell width 160 dp · 92 dp cell height",
+      "translations": {}
+    },
     "Minimum expands this short content": {
       "source": "Minimum expands this short content",
       "translations": {}
     },
+    "Minimum height: 72": {
+      "source": "Minimum height: 72",
+      "translations": {}
+    },
+    "Minimum width: 180": {
+      "source": "Minimum width: 180",
+      "translations": {}
+    },
+    "Missing selection": {
+      "source": "Missing selection",
+      "translations": {}
+    },
+    "Missing selection: {invalidSegment}": {
+      "source": "Missing selection: {invalidSegment}",
+      "arguments": [
+        "invalidSegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
     "Monospaced design": {
       "source": "Monospaced design",
+      "translations": {}
+    },
+    "Month": {
+      "source": "Month",
+      "comment": "Switch the visible date range",
+      "translations": {}
+    },
+    "Native default range": {
+      "source": "Native default range",
       "translations": {}
     },
     "Native row {index}": {
@@ -756,8 +1287,16 @@
       "source": "Native rows",
       "translations": {}
     },
+    "Native title behavior": {
+      "source": "Native title behavior",
+      "translations": {}
+    },
     "Navigate away and back to compare lifecycle delivery.": {
       "source": "Navigate away and back to compare lifecycle delivery.",
+      "translations": {}
+    },
+    "Navigation title system": {
+      "source": "Navigation title system",
       "translations": {}
     },
     "NavigationBack": {
@@ -772,21 +1311,45 @@
       "source": "Next",
       "translations": {}
     },
+    "No drag handle": {
+      "source": "No drag handle",
+      "translations": {}
+    },
+    "No fill · transparent": {
+      "source": "No fill · transparent",
+      "translations": {}
+    },
+    "No inset": {
+      "source": "No inset",
+      "translations": {}
+    },
+    "No items": {
+      "source": "No items",
+      "translations": {}
+    },
     "No progress": {
       "source": "No progress",
       "translations": {}
     },
     "No saved tasks": {
       "source": "No saved tasks",
-      "comment": "Empty state with supporting detail",
+      "comment": "Custom empty-state colors",
       "translations": {}
     },
-    "No search results": {
-      "source": "No search results",
+    "No toolbar actions": {
+      "source": "No toolbar actions",
+      "translations": {}
+    },
+    "No visual overrides · native platform styling": {
+      "source": "No visual overrides · native platform styling",
       "translations": {}
     },
     "None role": {
       "source": "None role",
+      "translations": {}
+    },
+    "None role row": {
+      "source": "None role row",
       "translations": {}
     },
     "None role sample": {
@@ -805,12 +1368,16 @@
       "source": "Notifications",
       "translations": {}
     },
-    "One dp": {
-      "source": "One dp",
+    "One item": {
+      "source": "One item",
       "translations": {}
     },
-    "One row": {
-      "source": "One row",
+    "Opacity": {
+      "source": "Opacity",
+      "translations": {}
+    },
+    "Opacity 0 · transparent": {
+      "source": "Opacity 0 · transparent",
       "translations": {}
     },
     "Opacity 0.0 · transparent": {
@@ -846,8 +1413,20 @@
       "comment": "Switch with supporting detail",
       "translations": {}
     },
+    "Open nested navigation level": {
+      "source": "Open nested navigation level",
+      "translations": {}
+    },
     "Open partial sheet": {
       "source": "Open partial sheet",
+      "translations": {}
+    },
+    "Open sheet without drag handle": {
+      "source": "Open sheet without drag handle",
+      "translations": {}
+    },
+    "Outer 4": {
+      "source": "Outer 4",
       "translations": {}
     },
     "Outer spacing resumes": {
@@ -856,6 +1435,10 @@
     },
     "Outer spacing: 4": {
       "source": "Outer spacing: 4",
+      "translations": {}
+    },
+    "Overflow clamps to complete": {
+      "source": "Overflow clamps to complete",
       "translations": {}
     },
     "Page pager": {
@@ -933,6 +1516,10 @@
       "source": "Plain",
       "translations": {}
     },
+    "Platform-native vertical list rows": {
+      "source": "Platform-native vertical list rows",
+      "translations": {}
+    },
     "Presentation and environment": {
       "source": "Presentation and environment",
       "translations": {}
@@ -947,6 +1534,10 @@
     },
     "Previous": {
       "source": "Previous",
+      "translations": {}
+    },
+    "Priority": {
+      "source": "Priority",
       "translations": {}
     },
     "Progress bar values": {
@@ -977,8 +1568,20 @@
       "source": "Pull to refresh",
       "translations": {}
     },
+    "Range selection · one native calendar": {
+      "source": "Range selection · one native calendar",
+      "translations": {}
+    },
+    "Read the text metadata": {
+      "source": "Read the text metadata",
+      "translations": {}
+    },
     "Ready": {
       "source": "Ready",
+      "translations": {}
+    },
+    "Red · 2 dp": {
+      "source": "Red · 2 dp",
       "translations": {}
     },
     "RefreshControl": {
@@ -995,13 +1598,21 @@
       ],
       "translations": {}
     },
-    "Responsive grid with 160 dp minimum cells": {
-      "source": "Responsive grid with 160 dp minimum cells",
+    "Regular": {
+      "source": "Regular",
+      "translations": {}
+    },
+    "Regular override": {
+      "source": "Regular override",
       "translations": {}
     },
     "Return to component index": {
       "source": "Return to component index",
       "comment": "Explicit back label parity sample",
+      "translations": {}
+    },
+    "Return to toolbar title cases": {
+      "source": "Return to toolbar title cases",
       "translations": {}
     },
     "Reverse row {index}": {
@@ -1022,8 +1633,16 @@
       "source": "Rotate",
       "translations": {}
     },
+    "Rotate 12°": {
+      "source": "Rotate 12°",
+      "translations": {}
+    },
     "Rounded": {
       "source": "Rounded",
+      "translations": {}
+    },
+    "Rounded clip": {
+      "source": "Rounded clip",
       "translations": {}
     },
     "Rounded design": {
@@ -1034,29 +1653,76 @@
       "source": "Row",
       "translations": {}
     },
-    "Row sizing and visual parameters": {
-      "source": "Row sizing and visual parameters",
+    "Row animation and accessibility tests": {
+      "source": "Row animation and accessibility tests",
+      "translations": {}
+    },
+    "Row effects tests": {
+      "source": "Row effects tests",
+      "translations": {}
+    },
+    "Row flow parameter tests": {
+      "source": "Row flow parameter tests",
+      "translations": {}
+    },
+    "Row horizontal arrangement tests": {
+      "source": "Row horizontal arrangement tests",
+      "translations": {}
+    },
+    "Row size and bounds tests": {
+      "source": "Row size and bounds tests",
       "translations": {}
     },
     "Row spacing and alignment": {
       "source": "Row spacing and alignment",
       "translations": {}
     },
+    "Row surface and padding tests": {
+      "source": "Row surface and padding tests",
+      "translations": {}
+    },
     "Save draft": {
       "source": "Save draft",
       "translations": {}
     },
-    "Saved tasks will appear here.": {
-      "source": "Saved tasks will appear here.",
-      "comment": "Empty state with supporting detail",
+    "Save {titleActions}": {
+      "source": "Save {titleActions}",
+      "arguments": [
+        "titleActions"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
       "translations": {}
     },
     "Scale": {
       "source": "Scale",
       "translations": {}
     },
+    "Scale .75": {
+      "source": "Scale .75",
+      "translations": {}
+    },
+    "Scale 1.2": {
+      "source": "Scale 1.2",
+      "translations": {}
+    },
     "Screen lifecycle": {
       "source": "Screen lifecycle",
+      "translations": {}
+    },
+    "Scroll position: {listPosition}": {
+      "source": "Scroll position: {listPosition}",
+      "arguments": [
+        "listPosition"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Scroll to collapse": {
+      "source": "Scroll to collapse",
       "translations": {}
     },
     "Search": {
@@ -1065,6 +1731,10 @@
     },
     "Search tab content": {
       "source": "Search tab content",
+      "translations": {}
+    },
+    "Second": {
+      "source": "Second",
       "translations": {}
     },
     "Second child": {
@@ -1087,6 +1757,14 @@
       "source": "Second row",
       "translations": {}
     },
+    "Second row inherits hidden dividers": {
+      "source": "Second row inherits hidden dividers",
+      "translations": {}
+    },
+    "Second · red": {
+      "source": "Second · red",
+      "translations": {}
+    },
     "Section title": {
       "source": "Section title",
       "translations": {}
@@ -1099,14 +1777,98 @@
       "source": "SegmentedControl",
       "translations": {}
     },
+    "Select a bounded date range": {
+      "source": "Select a bounded date range",
+      "translations": {}
+    },
+    "Selectable text": {
+      "source": "Selectable text",
+      "translations": {}
+    },
+    "Selected default: {defaultSort}": {
+      "source": "Selected default: {defaultSort}",
+      "arguments": [
+        "defaultSort"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Selected icon-only: {iconOnlySort}": {
+      "source": "Selected icon-only: {iconOnlySort}",
+      "arguments": [
+        "iconOnlySort"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Selected label-only: {labelOnlySort}": {
+      "source": "Selected label-only: {labelOnlySort}",
+      "arguments": [
+        "labelOnlySort"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Selected pill #2563EB · no other overrides": {
+      "source": "Selected pill #2563EB · no other overrides",
+      "translations": {}
+    },
+    "Selected row icon: {rowIconSort}": {
+      "source": "Selected row icon: {rowIconSort}",
+      "arguments": [
+        "rowIconSort"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
     "Selected state": {
       "source": "Selected state",
       "translations": {}
     },
-    "Selected: {segment}": {
-      "source": "Selected: {segment}",
+    "Selected text #111827 · other text #475569": {
+      "source": "Selected text #111827 · other text #475569",
+      "translations": {}
+    },
+    "Selected text #FFFFFF · other text #475569": {
+      "source": "Selected text #FFFFFF · other text #475569",
+      "translations": {}
+    },
+    "Selected value absent from items": {
+      "source": "Selected value absent from items",
+      "translations": {}
+    },
+    "Selected: {compactSegment}": {
+      "source": "Selected: {compactSegment}",
       "arguments": [
-        "segment"
+        "compactSegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Selected: {defaultSegment}": {
+      "source": "Selected: {defaultSegment}",
+      "arguments": [
+        "defaultSegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Selected: {paletteSegment}": {
+      "source": "Selected: {paletteSegment}",
+      "arguments": [
+        "paletteSegment"
       ],
       "argument_types": [
         "String"
@@ -1133,6 +1895,26 @@
       ],
       "translations": {}
     },
+    "Selected: {tintOnlySegment}": {
+      "source": "Selected: {tintOnlySegment}",
+      "arguments": [
+        "tintOnlySegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Selected: {trackBackgroundSegment}": {
+      "source": "Selected: {trackBackgroundSegment}",
+      "arguments": [
+        "trackBackgroundSegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
     "Selection": {
       "source": "Selection",
       "translations": {}
@@ -1141,8 +1923,17 @@
       "source": "Semibold 22",
       "translations": {}
     },
+    "Serif 18": {
+      "source": "Serif 18",
+      "comment": "Serif typeface at a custom size",
+      "translations": {}
+    },
     "Serif design": {
       "source": "Serif design",
+      "translations": {}
+    },
+    "Shadow": {
+      "source": "Shadow",
       "translations": {}
     },
     "Shadow radius 8, offset 4 × 6": {
@@ -1151,6 +1942,10 @@
     },
     "Sheet content": {
       "source": "Sheet content",
+      "translations": {}
+    },
+    "Short": {
+      "source": "Short",
       "translations": {}
     },
     "Show detail": {
@@ -1165,6 +1960,20 @@
       "source": "Sidebar",
       "translations": {}
     },
+    "Single option": {
+      "source": "Single option",
+      "translations": {}
+    },
+    "Single selection: {singleSegment}": {
+      "source": "Single selection: {singleSegment}",
+      "arguments": [
+        "singleSegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
     "Size and bounds tests": {
       "source": "Size and bounds tests",
       "translations": {}
@@ -1175,6 +1984,15 @@
     },
     "Slider values": {
       "source": "Slider values",
+      "translations": {}
+    },
+    "Small": {
+      "source": "Small",
+      "translations": {}
+    },
+    "Sort by": {
+      "source": "Sort by",
+      "comment": "Choose an option with its own icon",
       "translations": {}
     },
     "Sort tasks": {
@@ -1194,16 +2012,54 @@
       "source": "Spring",
       "translations": {}
     },
+    "Spring content": {
+      "source": "Spring content",
+      "translations": {}
+    },
+    "Spring time range": {
+      "source": "Spring time range",
+      "translations": {}
+    },
+    "Spring: {springSegment}": {
+      "source": "Spring: {springSegment}",
+      "arguments": [
+        "springSegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
     "Stack": {
       "source": "Stack",
+      "translations": {}
+    },
+    "Stack alignment tests": {
+      "source": "Stack alignment tests",
+      "translations": {}
+    },
+    "Stack animation and accessibility tests": {
+      "source": "Stack animation and accessibility tests",
+      "translations": {}
+    },
+    "Stack effects tests": {
+      "source": "Stack effects tests",
+      "translations": {}
+    },
+    "Stack glass shape tests": {
+      "source": "Stack glass shape tests",
       "translations": {}
     },
     "Stack overlay and alignment": {
       "source": "Stack overlay and alignment",
       "translations": {}
     },
-    "Stack sizing and visual parameters": {
-      "source": "Stack sizing and visual parameters",
+    "Stack size and bounds tests": {
+      "source": "Stack size and bounds tests",
+      "translations": {}
+    },
+    "Stack surface and padding tests": {
+      "source": "Stack surface and padding tests",
       "translations": {}
     },
     "Start · spacing 0": {
@@ -1218,6 +2074,10 @@
       "source": "StatusBar",
       "translations": {}
     },
+    "Subheadline": {
+      "source": "Subheadline",
+      "translations": {}
+    },
     "Surface": {
       "source": "Surface",
       "translations": {}
@@ -1226,12 +2086,20 @@
       "source": "Surface and padding tests",
       "translations": {}
     },
+    "Swipe vertically to move one full viewport per page": {
+      "source": "Swipe vertically to move one full viewport per page",
+      "translations": {}
+    },
     "Switch": {
       "source": "Switch",
       "translations": {}
     },
     "Switch states": {
       "source": "Switch states",
+      "translations": {}
+    },
+    "Tall": {
+      "source": "Tall",
       "translations": {}
     },
     "Tap count: {pressableTaps}": {
@@ -1258,6 +2126,16 @@
       "source": "Tap the trailing action and compare title placement.",
       "translations": {}
     },
+    "Taps: {taps}": {
+      "source": "Taps: {taps}",
+      "arguments": [
+        "taps"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "Task actions": {
       "source": "Task actions",
       "comment": "Context actions for a task",
@@ -1279,16 +2157,41 @@
       "source": "Text input variants",
       "translations": {}
     },
+    "Text layout and effects tests": {
+      "source": "Text layout and effects tests",
+      "translations": {}
+    },
+    "Text semantic font styles": {
+      "source": "Text semantic font styles",
+      "translations": {}
+    },
     "Text styles and sizing": {
       "source": "Text styles and sizing",
+      "translations": {}
+    },
+    "Text typography tests": {
+      "source": "Text typography tests",
       "translations": {}
     },
     "TextInput": {
       "source": "TextInput",
       "translations": {}
     },
-    "The app pins LTR to make paired layout screenshots deterministic.": {
-      "source": "The app pins LTR to make paired layout screenshots deterministic.",
+    "The inline title uses the platform's native centered placement beside a trailing button and menu. Long press More actions for its menu.": {
+      "source": "The inline title uses the platform's native centered placement beside a trailing button and menu. Long press More actions for its menu.",
+      "comment": "Native title, toolbar action, and context menu behavior",
+      "translations": {}
+    },
+    "The native drag handle is hidden": {
+      "source": "The native drag handle is hidden",
+      "translations": {}
+    },
+    "The title centers when no toolbar actions are present.": {
+      "source": "The title centers when no toolbar actions are present.",
+      "translations": {}
+    },
+    "The title stays next to Back, before the leading toolbar button.": {
+      "source": "The title stays next to Back, before the leading toolbar button.",
       "translations": {}
     },
     "Third line": {
@@ -1304,12 +2207,132 @@
       "source": "This changes the Column size",
       "translations": {}
     },
-    "Time range": {
-      "source": "Time range",
+    "This fixed-width text must truncate with an ellipsis": {
+      "source": "This fixed-width text must truncate with an ellipsis",
+      "translations": {}
+    },
+    "Time and date-time": {
+      "source": "Time and date-time",
+      "translations": {}
+    },
+    "Time input": {
+      "source": "Time input",
+      "translations": {}
+    },
+    "Time · 24-hour display": {
+      "source": "Time · 24-hour display",
+      "translations": {}
+    },
+    "Tint-only range": {
+      "source": "Tint-only range",
       "translations": {}
     },
     "Tinted capsule": {
       "source": "Tinted capsule",
+      "translations": {}
+    },
+    "Tinted plain": {
+      "source": "Tinted plain",
+      "translations": {}
+    },
+    "Title": {
+      "source": "Title",
+      "translations": {}
+    },
+    "Title row eight": {
+      "source": "Title row eight",
+      "translations": {}
+    },
+    "Title row eighteen": {
+      "source": "Title row eighteen",
+      "translations": {}
+    },
+    "Title row eleven": {
+      "source": "Title row eleven",
+      "translations": {}
+    },
+    "Title row fifteen": {
+      "source": "Title row fifteen",
+      "translations": {}
+    },
+    "Title row five": {
+      "source": "Title row five",
+      "translations": {}
+    },
+    "Title row four": {
+      "source": "Title row four",
+      "translations": {}
+    },
+    "Title row fourteen": {
+      "source": "Title row fourteen",
+      "translations": {}
+    },
+    "Title row nine": {
+      "source": "Title row nine",
+      "translations": {}
+    },
+    "Title row nineteen": {
+      "source": "Title row nineteen",
+      "translations": {}
+    },
+    "Title row one": {
+      "source": "Title row one",
+      "translations": {}
+    },
+    "Title row seven": {
+      "source": "Title row seven",
+      "translations": {}
+    },
+    "Title row seventeen": {
+      "source": "Title row seventeen",
+      "translations": {}
+    },
+    "Title row six": {
+      "source": "Title row six",
+      "translations": {}
+    },
+    "Title row sixteen": {
+      "source": "Title row sixteen",
+      "translations": {}
+    },
+    "Title row ten": {
+      "source": "Title row ten",
+      "translations": {}
+    },
+    "Title row thirteen": {
+      "source": "Title row thirteen",
+      "translations": {}
+    },
+    "Title row three": {
+      "source": "Title row three",
+      "translations": {}
+    },
+    "Title row twelve": {
+      "source": "Title row twelve",
+      "translations": {}
+    },
+    "Title row twenty": {
+      "source": "Title row twenty",
+      "translations": {}
+    },
+    "Title row two": {
+      "source": "Title row two",
+      "translations": {}
+    },
+    "Title with a leading toolbar item": {
+      "source": "Title with a leading toolbar item",
+      "translations": {}
+    },
+    "Title without toolbar items": {
+      "source": "Title without toolbar items",
+      "translations": {}
+    },
+    "Title2": {
+      "source": "Title2",
+      "translations": {}
+    },
+    "Title3": {
+      "source": "Title3",
       "translations": {}
     },
     "Today": {
@@ -1320,12 +2343,32 @@
       "source": "Today tab content",
       "translations": {}
     },
+    "Toggle animated Stack content": {
+      "source": "Toggle animated Stack content",
+      "translations": {}
+    },
     "Toggle animated content": {
       "source": "Toggle animated content",
       "translations": {}
     },
+    "Toggle animated row content": {
+      "source": "Toggle animated row content",
+      "translations": {}
+    },
+    "Toggle empty-state copy": {
+      "source": "Toggle empty-state copy",
+      "translations": {}
+    },
     "Toggle selection": {
       "source": "Toggle selection",
+      "translations": {}
+    },
+    "Toggle states": {
+      "source": "Toggle states",
+      "translations": {}
+    },
+    "Tool": {
+      "source": "Tool",
       "translations": {}
     },
     "Toolbar": {
@@ -1340,44 +2383,99 @@
       "source": "Toolbar placement",
       "translations": {}
     },
+    "Top": {
+      "source": "Top",
+      "translations": {}
+    },
+    "Top leading": {
+      "source": "Top leading",
+      "translations": {}
+    },
+    "Track #E8EDF5 · selected #2563EB": {
+      "source": "Track #E8EDF5 · selected #2563EB",
+      "translations": {}
+    },
+    "Track #F2F4F7 · selected #FDE68A · border #CBD5E1": {
+      "source": "Track #F2F4F7 · selected #FDE68A · border #CBD5E1",
+      "translations": {}
+    },
+    "Track color #E8EDF5": {
+      "source": "Track color #E8EDF5",
+      "translations": {}
+    },
     "Trailing": {
       "source": "Trailing",
       "translations": {}
     },
-    "Try a different keyword.": {
-      "source": "Try a different keyword.",
+    "Trailing alignment\nshort": {
+      "source": "Trailing alignment\nshort",
       "translations": {}
     },
-    "Twelve": {
-      "source": "Twelve",
+    "Travel dates": {
+      "source": "Travel dates",
       "translations": {}
     },
-    "Twenty-four": {
-      "source": "Twenty-four",
+    "Tween time range": {
+      "source": "Tween time range",
       "translations": {}
     },
-    "Two dp": {
-      "source": "Two dp",
+    "Tween: {tweenSegment}": {
+      "source": "Tween: {tweenSegment}",
+      "arguments": [
+        "tweenSegment"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
+    "Two columns · 92 dp cells · 4 dp spacing": {
+      "source": "Two columns · 92 dp cells · 4 dp spacing",
       "translations": {}
     },
     "Two spacers": {
       "source": "Two spacers",
       "translations": {}
     },
-    "Two-line text checks line height and wrapping across both platforms.": {
-      "source": "Two-line text checks line height and wrapping across both platforms.",
+    "Typography": {
+      "source": "Typography",
+      "translations": {}
+    },
+    "Unbound picker uses its local selection": {
+      "source": "Unbound picker uses its local selection",
+      "translations": {}
+    },
+    "Underflow clamps to zero": {
+      "source": "Underflow clamps to zero",
       "translations": {}
     },
     "Underlined text": {
       "source": "Underlined text",
       "translations": {}
     },
-    "With padding": {
-      "source": "With padding",
+    "Visual parameters and disabled state": {
+      "source": "Visual parameters and disabled state",
       "translations": {}
     },
-    "Zero": {
-      "source": "Zero",
+    "Week": {
+      "source": "Week",
+      "comment": "Switch the visible date range",
+      "translations": {}
+    },
+    "Wheel date": {
+      "source": "Wheel date",
+      "translations": {}
+    },
+    "Wheel · native wheel on iOS, Material input on Android": {
+      "source": "Wheel · native wheel on iOS, Material input on Android",
+      "translations": {}
+    },
+    "Zero padding": {
+      "source": "Zero padding",
+      "translations": {}
+    },
+    "●": {
+      "source": "●",
       "translations": {}
     }
   }

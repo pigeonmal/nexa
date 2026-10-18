@@ -7,10 +7,10 @@ use nexa_ir::{
     Capitalization, CollectionMutation, ColorExpression, ColorValue, DirectionConfig,
     DirectionStyle, Expr, FastListMove, FastListRefresh, FontWeight, GradientDirection,
     HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis,
-    ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType, ReturnKeyType, ScreenId,
-    SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
-    TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle, TextInputFont, TextStyle,
-    ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
+    ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType, PickerDateSelection,
+    PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId, SectionedListCommon, StatusBarConfig,
+    StatusBarStyle, SystemIcon, TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle,
+    TextInputFont, TextStyle, ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -99,6 +99,17 @@ fn take_required_arg(
                         .map(|arg| catalog::required_message(schema, arg))
                 })
                 .unwrap_or_else(|| format!("{component} requires `{name}`")),
+        )),
+    }
+}
+
+fn enum_argument(value: &ast::Expr, context: &str) -> Result<String, CompileError> {
+    match value {
+        ast::Expr::Name(name, _) | ast::Expr::String(name, _) => Ok(name.clone()),
+        ast::Expr::EnumCase { case_name, .. } => Ok(case_name.clone()),
+        _ => Err(CompileError::new(
+            value.span(),
+            format!("{context} must be a named enum value or string"),
         )),
     }
 }
@@ -230,7 +241,8 @@ fn lower_color_expression(
     ) {
         return parse_color(value, cx.themes, role).map(ColorExpression::Static);
     }
-    lower_expr(&value, Some(&Type::String), &cx.exprs(false)).map(ColorExpression::Dynamic)
+    lower_expr(&value, Some(&Type::String), &cx.exprs(false))
+        .map(|expression| ColorExpression::Dynamic(Box::new(expression)))
 }
 
 /// Validated FastList source bindings collected during lowering, before the
@@ -534,6 +546,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let spacing = args.remove("spacing");
             let style = ast::LayoutStyle {
                 alignment: args.remove("alignment"),
+                horizontal_arrangement: args.remove("horizontalArrangement"),
                 padding: args.remove("padding"),
                 width: args.remove("width"),
                 height: args.remove("height"),
@@ -583,11 +596,20 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Form" => {
             let span = inv.span;
+            let mut args = inv.arguments;
+            let show_dividers =
+                optional_bool(args.remove("showDividers"), true, "Form showDividers")?;
+            let background = args
+                .remove("background")
+                .map(|value| parse_color(value, cx.themes, "Form background"))
+                .transpose()?;
             let children = match inv.children {
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
             };
             Ok(Node::Form {
+                show_dividers,
+                background,
                 children: lower_nodes(children, &child_cx)?,
             })
         }
@@ -595,6 +617,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let span = inv.span;
             let mut args = inv.arguments;
             let comment = take_translator_comment(&mut args, "Section")?;
+            let show_dividers =
+                optional_bool_override(args.remove("showDividers"), "Section showDividers")?;
+            let background = args
+                .remove("background")
+                .map(|value| parse_color(value, cx.themes, "Section background"))
+                .transpose()?;
             let title = args
                 .remove("title")
                 .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
@@ -612,6 +640,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             Ok(Node::FormSection {
                 title,
                 footer,
+                show_dividers,
+                background,
                 children: lower_nodes(children, &child_cx)?,
             })
         }
@@ -636,15 +666,39 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     ),
                 )
             })?;
-            let description = lower_expr(
-                &take_required_arg(&mut args, &inv.name, "description", span)?,
-                Some(&Type::String),
-                &cx.exprs(false),
-            )?;
+            let description = args
+                .remove("description")
+                .map(|description| {
+                    lower_expr(&description, Some(&Type::String), &cx.exprs(false))
+                        .map(|description| localize_ui_text(description, comment.clone()))
+                })
+                .transpose()?;
+            let title_color = args
+                .remove("titleColor")
+                .map(|value| lower_color_expression(value, "ContentUnavailable titleColor", cx))
+                .transpose()?;
+            let description_color = args
+                .remove("descriptionColor")
+                .map(|value| {
+                    lower_color_expression(value, "ContentUnavailable descriptionColor", cx)
+                })
+                .transpose()?;
+            let icon_tint = args
+                .remove("iconTint")
+                .map(|value| lower_color_expression(value, "ContentUnavailable iconTint", cx))
+                .transpose()?;
+            let background = args
+                .remove("background")
+                .map(|value| lower_color_expression(value, "ContentUnavailable background", cx))
+                .transpose()?;
             Ok(Node::ContentUnavailable {
                 title: localize_ui_text(title, comment.clone()),
                 icon,
-                description: localize_ui_text(description, comment),
+                description,
+                title_color,
+                description_color,
+                icon_tint,
+                background,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Text" => {
@@ -818,6 +872,41 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let span = inv.span;
             let mut args = inv.arguments;
             let comment = take_translator_comment(&mut args, "SegmentedControl")?;
+            let animation = args.remove("animation").map(parse_animation).transpose()?;
+            let tint = args
+                .remove("tint")
+                .map(|value| lower_color_expression(value, "SegmentedControl tint", cx))
+                .transpose()?;
+            let background = args
+                .remove("background")
+                .map(|value| lower_color_expression(value, "SegmentedControl background", cx))
+                .transpose()?;
+            let selected_text_color = args
+                .remove("selectedTextColor")
+                .map(|value| {
+                    lower_color_expression(value, "SegmentedControl selectedTextColor", cx)
+                })
+                .transpose()?;
+            let text_color = args
+                .remove("textColor")
+                .map(|value| lower_color_expression(value, "SegmentedControl textColor", cx))
+                .transpose()?;
+            let font_size = optional_dimension(
+                args.remove("fontSize"),
+                "fontSize",
+                Some(ast::ThemeTokenKind::FontSize),
+                cx.themes,
+            )?;
+            let font_weight = lower_font_weight(args.remove("fontWeight"))?;
+            let height = optional_dimension(args.remove("height"), "height", None, cx.themes)?;
+            let corner_radius =
+                optional_dimension(args.remove("cornerRadius"), "cornerRadius", None, cx.themes)?;
+            let border_color = args
+                .remove("borderColor")
+                .map(|value| lower_color_expression(value, "SegmentedControl borderColor", cx))
+                .transpose()?;
+            let border_width =
+                optional_dimension(args.remove("borderWidth"), "borderWidth", None, cx.themes)?;
             let items = take_required_arg(&mut args, &inv.name, "items", span)?;
             let selected = take_required_arg(&mut args, &inv.name, "selected", span)?;
             let state = require_mutable_binding(
@@ -835,7 +924,21 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 )?,
                 comment.clone(),
             );
-            Ok(Node::SegmentedControl { items, state })
+            Ok(Node::SegmentedControl {
+                items,
+                state,
+                animation,
+                tint,
+                background,
+                text_color,
+                selected_text_color,
+                font_size,
+                font_weight,
+                height,
+                corner_radius,
+                border_color,
+                border_width,
+            })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Picker" => {
             let span = inv.span;
@@ -855,6 +958,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     })
                 })
                 .transpose()?;
+            let item_icons = args
+                .remove("itemIcons")
+                .map(lower_picker_item_icons)
+                .transpose()?
+                .unwrap_or_default();
             let state = require_mutable_binding(&selected, &Type::String, symbols, span, "Picker")?;
             let items = localize_ui_text(
                 lower_expr(
@@ -877,32 +985,218 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 items,
                 state,
                 icon,
+                item_icons,
                 label,
                 tint,
             })
         }
-        ast::Node::ComponentInvocation(inv) if inv.name == "DatePicker" => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "PickerDate" => {
             let span = inv.span;
             let mut args = inv.arguments;
-            let timestamp = take_required_arg(&mut args, &inv.name, "timestamp", span)?;
-            let has_time = take_required_arg(&mut args, &inv.name, "hasTime", span)?;
-            let timestamp_state = require_mutable_binding(
-                &timestamp,
-                &Type::Numeric(NumericType::Int64),
-                symbols,
-                span,
-                "DatePicker timestamp",
-            )?;
-            let has_time_state = require_mutable_binding(
-                &has_time,
-                &Type::Bool,
-                symbols,
-                span,
-                "DatePicker hasTime",
-            )?;
-            Ok(Node::DatePicker {
-                timestamp_state,
-                has_time_state,
+            let required = take_required_arg(&mut args, &inv.name, "type", span)?;
+            let picker_type = match enum_argument(&required, "PickerDate type")?.as_str() {
+                "Date" => PickerDateType::Date,
+                "Time" => PickerDateType::Time,
+                "DateTime" => PickerDateType::DateTime,
+                value => {
+                    return Err(CompileError::new(
+                        required.span(),
+                        format!(
+                            "unknown PickerDate type `{value}`; expected Date, Time, or DateTime"
+                        ),
+                    ));
+                }
+            };
+            let style = args
+                .remove("style")
+                .map(|value| match enum_argument(&value, "PickerDate style")?.as_str() {
+                    "Automatic" => Ok(PickerDateStyle::Automatic),
+                    "Graphical" => Ok(PickerDateStyle::Graphical),
+                    "Compact" => Ok(PickerDateStyle::Compact),
+                    "Input" => Ok(PickerDateStyle::Input),
+                    "Wheel" => Ok(PickerDateStyle::Wheel),
+                    other => Err(CompileError::new(value.span(), format!("unknown PickerDate style `{other}`; expected Automatic, Graphical, Compact, Input, or Wheel"))),
+                })
+                .transpose()?
+                .unwrap_or(PickerDateStyle::Graphical);
+            let selection = args
+                .remove("selection")
+                .map(
+                    |value| match enum_argument(&value, "PickerDate selection")?.as_str() {
+                        "Single" => Ok(PickerDateSelection::Single),
+                        "Range" => Ok(PickerDateSelection::Range),
+                        other => Err(CompileError::new(
+                            value.span(),
+                            format!(
+                                "unknown PickerDate selection `{other}`; expected Single or Range"
+                            ),
+                        )),
+                    },
+                )
+                .transpose()?
+                .unwrap_or(PickerDateSelection::Single);
+
+            let timestamp = args.remove("timestamp");
+            let start_timestamp = args.remove("startTimestamp");
+            let end_timestamp = args.remove("endTimestamp");
+            match selection {
+                PickerDateSelection::Single
+                    if start_timestamp.is_some() || end_timestamp.is_some() =>
+                {
+                    return Err(CompileError::new(
+                        span,
+                        "PickerDate `startTimestamp` and `endTimestamp` require `selection: Range`",
+                    ));
+                }
+                PickerDateSelection::Range if picker_type != PickerDateType::Date => {
+                    return Err(CompileError::new(
+                        span,
+                        "PickerDate `selection: Range` is only supported with `type: Date`",
+                    ));
+                }
+                PickerDateSelection::Range if timestamp.is_some() => {
+                    return Err(CompileError::new(
+                        span,
+                        "PickerDate `timestamp` cannot be combined with `selection: Range`; use `startTimestamp` and `endTimestamp`",
+                    ));
+                }
+                _ => {}
+            }
+            if start_timestamp.is_some() != end_timestamp.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "PickerDate range binding requires both `startTimestamp` and `endTimestamp`, or neither",
+                ));
+            }
+            let timestamp_state = timestamp
+                .as_ref()
+                .map(|value| {
+                    require_mutable_binding(
+                        value,
+                        &Type::Numeric(NumericType::Int64),
+                        symbols,
+                        span,
+                        "PickerDate `timestamp`",
+                    )
+                })
+                .transpose()?;
+            let start_timestamp_state = start_timestamp
+                .as_ref()
+                .map(|value| {
+                    require_mutable_binding(
+                        value,
+                        &Type::Numeric(NumericType::Int64),
+                        symbols,
+                        span,
+                        "PickerDate `startTimestamp`",
+                    )
+                })
+                .transpose()?;
+            let end_timestamp_state = end_timestamp
+                .as_ref()
+                .map(|value| {
+                    require_mutable_binding(
+                        value,
+                        &Type::Numeric(NumericType::Int64),
+                        symbols,
+                        span,
+                        "PickerDate `endTimestamp`",
+                    )
+                })
+                .transpose()?;
+            let minimum = args
+                .remove("minimum")
+                .map(|value| {
+                    lower_expr(
+                        &value,
+                        Some(&Type::Numeric(NumericType::Int64)),
+                        &cx.exprs(false),
+                    )
+                })
+                .transpose()?;
+            let maximum = args
+                .remove("maximum")
+                .map(|value| {
+                    lower_expr(
+                        &value,
+                        Some(&Type::Numeric(NumericType::Int64)),
+                        &cx.exprs(false),
+                    )
+                })
+                .transpose()?;
+            let tint = args
+                .remove("tint")
+                .map(|value| lower_color_expression(value, "PickerDate tint", cx))
+                .transpose()?;
+            let text_color = args
+                .remove("textColor")
+                .map(|value| lower_color_expression(value, "PickerDate textColor", cx))
+                .transpose()?;
+            let background_color = args
+                .remove("backgroundColor")
+                .map(|value| lower_color_expression(value, "PickerDate backgroundColor", cx))
+                .transpose()?;
+            let picker_background_color = args
+                .remove("pickerBackgroundColor")
+                .map(|value| lower_color_expression(value, "PickerDate pickerBackgroundColor", cx))
+                .transpose()?;
+            let border_color = args
+                .remove("borderColor")
+                .map(|value| lower_color_expression(value, "PickerDate borderColor", cx))
+                .transpose()?;
+            let border_width = args
+                .remove("borderWidth")
+                .map(|value| number_value(&value, "PickerDate borderWidth"))
+                .transpose()?;
+            let corner_radius = args
+                .remove("cornerRadius")
+                .map(|value| number_value(&value, "PickerDate cornerRadius"))
+                .transpose()?;
+            let locale = args
+                .remove("locale")
+                .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
+                .transpose()?;
+            let time_zone = args
+                .remove("timeZone")
+                .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
+                .transpose()?;
+            let is_24_hour = args
+                .remove("is24Hour")
+                .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
+                .transpose()?;
+            let enabled = args
+                .remove("enabled")
+                .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
+                .transpose()?;
+            let accessibility_label = args
+                .remove("accessibilityLabel")
+                .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
+                .transpose()?
+                .map(|value| localize_ui_text(value, None));
+
+            Ok(Node::PickerDate {
+                props: Box::new(nexa_ir::PickerDateProps {
+                    picker_type,
+                    style,
+                    selection,
+                    timestamp_state,
+                    start_timestamp_state,
+                    end_timestamp_state,
+                    minimum,
+                    maximum,
+                    tint,
+                    text_color,
+                    background_color,
+                    picker_background_color,
+                    border_color,
+                    border_width,
+                    corner_radius,
+                    locale,
+                    time_zone,
+                    is_24_hour,
+                    enabled,
+                    accessibility_label,
+                }),
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Button" => {
@@ -1819,6 +2113,39 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let span = inv.span;
             let mut args = inv.arguments;
             let root = take_required_arg(&mut args, &inv.name, "root", span)?;
+            let title_mode = match args.remove("titleMode") {
+                Some(ast::Expr::Name(name, _)) if name == "Inline" => {
+                    nexa_ir::NavigationTitleMode::Inline
+                }
+                Some(ast::Expr::Name(name, _)) if name == "Large" => {
+                    nexa_ir::NavigationTitleMode::Large
+                }
+                Some(value) => {
+                    return Err(CompileError::new(
+                        value.span(),
+                        "NavigationStack titleMode must be `Inline` or `Large`",
+                    ));
+                }
+                None => nexa_ir::NavigationTitleMode::default(),
+            };
+            let title_alignment = match args.remove("titleAlignment") {
+                Some(ast::Expr::Name(name, _)) if name == "Automatic" => {
+                    nexa_ir::NavigationTitleAlignment::Automatic
+                }
+                Some(ast::Expr::Name(name, _)) if name == "Leading" => {
+                    nexa_ir::NavigationTitleAlignment::Leading
+                }
+                Some(ast::Expr::Name(name, _)) if name == "Center" => {
+                    nexa_ir::NavigationTitleAlignment::Center
+                }
+                Some(value) => {
+                    return Err(CompileError::new(
+                        value.span(),
+                        "NavigationStack titleAlignment must be `Automatic`, `Leading`, or `Center`",
+                    ));
+                }
+                None => nexa_ir::NavigationTitleAlignment::default(),
+            };
             let (root, arguments) = ast::split_navigation_target(root);
             if !allow_navigation_stack {
                 return Err(CompileError::new(
@@ -1838,6 +2165,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             Ok(Node::NavigationStack {
                 root: root.0,
                 arguments: root.1,
+                title_mode,
+                title_alignment,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "NavigationSplitView" => {
@@ -1958,6 +2287,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let is_presented = take_required_arg(&mut args, &inv.name, "isPresented", span)?;
             let partial = args.remove("partial");
             let large_only = args.remove("largeOnly");
+            let show_drag_handle = args.remove("showDragHandle");
             let title = args
                 .remove("title")
                 .map(|title| {
@@ -1976,6 +2306,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 state,
                 partial: optional_bool(partial, false, "BottomSheet partial")?,
                 large_only: optional_bool(large_only, false, "BottomSheet largeOnly")?,
+                show_drag_handle: optional_bool(
+                    show_drag_handle,
+                    true,
+                    "BottomSheet showDragHandle",
+                )?,
                 title,
                 children: lowered_children,
             })
@@ -2306,6 +2641,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             )?;
             let page_snap = optional_bool(args.remove("pageSnap"), false, "FastList pageSnap")?;
             let native = optional_bool(args.remove("native"), false, "FastList native")?;
+            let show_dividers =
+                optional_bool(args.remove("showDividers"), true, "FastList showDividers")?;
             let mut modifiers = inv.modifiers;
             let on_end_reached = take_modifier_actions(&mut modifiers, span, "onEndReached")?;
             let on_scroll = take_modifier_actions(&mut modifiers, span, "onScroll")?;
@@ -2859,6 +3196,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         common: ListCommon {
                             axis,
                             native,
+                            show_dividers,
                             reverse_layout,
                             page_snap,
                             item_extent,
@@ -2887,6 +3225,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         common: ListCommon {
                             axis,
                             native,
+                            show_dividers,
                             reverse_layout,
                             page_snap,
                             item_extent,
@@ -2926,6 +3265,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             item,
                             common: SectionedListCommon {
                                 native,
+                                show_dividers,
                                 item_extent,
                                 spacing,
                                 scroll_enabled,
@@ -2950,6 +3290,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             then_body,
             else_body,
             transition,
+            transition_animation,
             ..
         } => {
             let condition = lower_expr(&condition, Some(&Type::Bool), &cx.exprs(false))?;
@@ -2968,6 +3309,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     ast::ViewTransition::SlideFromRight => IrViewTransition::SlideFromRight,
                     ast::ViewTransition::Scale => IrViewTransition::Scale,
                 }),
+                transition_animation: transition_animation.map(parse_animation).transpose()?,
             })
         }
         ast::Node::When {
@@ -2975,6 +3317,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             cases,
             else_body,
             transition,
+            transition_animation,
             span,
         } => {
             let value_type = infer_expr_type(&value, symbols, functions)
@@ -3030,6 +3373,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     ast::ViewTransition::SlideFromRight => IrViewTransition::SlideFromRight,
                     ast::ViewTransition::Scale => IrViewTransition::Scale,
                 }),
+                transition_animation: transition_animation.map(parse_animation).transpose()?,
             })
         }
         ast::Node::ComponentCall {
@@ -4613,12 +4957,11 @@ fn collect_animation_targets(
                         ty,
                         Type::Numeric(NumericType::Float32 | NumericType::Float64)
                     );
-                    let is_array = matches!(ty, Type::Array(_));
-                    if !mutable || (!is_float && !is_array) {
+                    if !mutable || !is_float {
                         return Err(CompileError::new(
                             span,
                             format!(
-                                "`withAnimation` supports mutable Float32, Float64, or Array state; `{name}` has type `{}`",
+                                "`withAnimation` supports mutable Float32 or Float64 state; use a layout animation or view transition for collection changes. `{name}` has type `{}`",
                                 type_name(ty)
                             ),
                         ));
@@ -4693,26 +5036,23 @@ fn collect_animation_targets(
                 | Action::NetworkStatusSubscribe { .. } => {
                     return Err(CompileError::new(
                         span,
-                        "`withAnimation` only supports mutable Float32, Float64, or Array state assignments and control flow around them",
+                        "`withAnimation` only supports mutable Float32 or Float64 state assignments and control flow around them; use a layout animation or view transition for collection changes",
                     ));
                 }
                 Action::CollectionMutation { name, .. } => {
-                    let Some((ty, mutable)) = symbols.get(name) else {
+                    let Some((ty, _)) = symbols.get(name) else {
                         return Err(CompileError::new(
                             span,
                             format!("unknown state `{name}` in `withAnimation`"),
                         ));
                     };
-                    if !mutable || !matches!(ty, Type::Array(_)) {
-                        return Err(CompileError::new(
-                            span,
-                            format!(
-                                "`withAnimation` only supports mutations of mutable Array state; `{name}` has type `{}`",
-                                type_name(ty)
-                            ),
-                        ));
-                    }
-                    *has_state_assignment = true;
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "`withAnimation` cannot animate collection mutations of `{name}` ({}); use a layout animation or view transition",
+                            type_name(ty)
+                        ),
+                    ));
                 }
                 Action::Expression(_)
                 | Action::Let { .. }
@@ -4720,7 +5060,7 @@ fn collect_animation_targets(
                 | Action::NativePropertyAssign { .. } => {
                     return Err(CompileError::new(
                         span,
-                        "`withAnimation` only supports mutable Float32, Float64, or Array state assignments and control flow around them",
+                        "`withAnimation` only supports mutable Float32 or Float64 state assignments and control flow around them; use a layout animation or view transition for collection changes",
                     ));
                 }
                 Action::Break | Action::Continue => {}
@@ -5077,6 +5417,27 @@ fn require_string_literal(expr: &ast::Expr, field: &str) -> Result<String, Compi
             format!("{field} must be a string literal"),
         )),
     }
+}
+
+fn lower_picker_item_icons(expr: ast::Expr) -> Result<Vec<SystemIcon>, CompileError> {
+    let ast::Expr::Array(items, _) = expr else {
+        return Err(CompileError::new(
+            expr.span(),
+            "Picker `itemIcons` must be an array literal of shared system icon names",
+        ));
+    };
+    items
+        .iter()
+        .map(|item| {
+            let name = require_string_literal(item, "Picker `itemIcons` entry")?;
+            SystemIcon::shared(&name).ok_or_else(|| {
+                CompileError::new(
+                    item.span(),
+                    format!("unknown shared system icon `{name}` in Picker `itemIcons`"),
+                )
+            })
+        })
+        .collect()
 }
 
 fn require_f64_literal(expr: &ast::Expr, field: &str) -> Result<f64, CompileError> {

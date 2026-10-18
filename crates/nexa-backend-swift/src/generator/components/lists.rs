@@ -13,6 +13,7 @@ struct SectionedPieces<'a> {
     collection: &'a Expr,
     element_type: &'a nexa_ir::Type,
     native: bool,
+    show_dividers: bool,
     item_extent: Option<f32>,
     spacing: f32,
     scroll_enabled: Option<&'a Expr>,
@@ -29,6 +30,7 @@ struct SectionedPieces<'a> {
 struct OpenListConfig<'a> {
     axis: ListAxis,
     native: bool,
+    show_dividers: bool,
     row_count: String,
     row_key: Option<String>,
     item_extent: Option<f32>,
@@ -50,6 +52,7 @@ struct ListConstructorConfig<'a> {
     item_extent: Option<f32>,
     spacing: f32,
     scroll_enabled: &'a str,
+    show_dividers: bool,
     reverse_layout: bool,
     page_snap: bool,
 }
@@ -74,6 +77,7 @@ pub(crate) fn render_virtualized_list(
                     collection,
                     element_type,
                     native: common.native,
+                    show_dividers: common.show_dividers,
                     item_extent: common.item_extent,
                     spacing: common.spacing,
                     scroll_enabled: common.scroll_enabled.as_ref(),
@@ -103,6 +107,7 @@ pub(crate) fn render_virtualized_list(
                 OpenListConfig {
                     axis: common.axis,
                     native: common.native,
+                    show_dividers: common.show_dividers,
                     row_count: format!("max(0, Int({}))", expression(count)),
                     row_key,
                     item_extent: common.item_extent,
@@ -161,6 +166,7 @@ pub(crate) fn render_virtualized_list(
                 OpenListConfig {
                     axis: common.axis,
                     native: common.native,
+                    show_dividers: common.show_dividers,
                     row_count: format!("{collection}.count"),
                     row_key,
                     item_extent: common.item_extent,
@@ -201,8 +207,15 @@ pub(crate) fn render_virtualized_list(
         ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.native,
         ListPlan::Sections { .. } => false,
     };
+    let show_dividers = match plan {
+        ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.show_dividers,
+        ListPlan::Sections { .. } => true,
+    };
     if native {
-        out.line_at(depth + 2, format_args!("NexaNativeListRowPrimitive {{"));
+        out.line_at(
+            depth + 2,
+            format_args!("NexaNativeListRowPrimitive(showDividers: {show_dividers}) {{"),
+        );
     }
     render_children(
         plan.children(),
@@ -284,6 +297,7 @@ fn render_sectioned_list(
         collection,
         element_type,
         native,
+        show_dividers,
         item_extent,
         spacing,
         scroll_enabled,
@@ -394,7 +408,10 @@ fn render_sectioned_list(
                 state_name("sectionItems")
             ),
         );
-        out.line_at(depth + 4, format_args!("NexaNativeListRowPrimitive {{"));
+        out.line_at(
+            depth + 4,
+            format_args!("NexaNativeListRowPrimitive(showDividers: {show_dividers}) {{"),
+        );
         out.line_at(depth + 5, format_args!("VStack(spacing: 0) {{"));
         render_children(children, scope.module, scope.features, depth + 6, out);
         out.push('\n');
@@ -465,6 +482,7 @@ fn render_sectioned_list(
         depth + 1,
         format_args!("sectionCounts: {collection}.map(\\.count),"),
     );
+    out.line_at(depth + 1, format_args!("showDividers: {show_dividers},"));
     if let Some(item_extent) = item_extent {
         out.line_at(
             depth + 1,
@@ -515,7 +533,7 @@ fn render_sectioned_list(
             ),
         );
         indent(out, depth + 2);
-        out.push_str("VStack(spacing: 0) {\n");
+        out.push_str("return VStack(spacing: 0) {\n");
         out.line_at(
             depth + 3,
             format_args!(
@@ -570,6 +588,7 @@ fn list_constructor(config: ListConstructorConfig<'_>) -> String {
         item_extent,
         spacing,
         scroll_enabled,
+        show_dividers,
         reverse_layout,
         page_snap,
     } = config;
@@ -594,7 +613,7 @@ fn list_constructor(config: ListConstructorConfig<'_>) -> String {
             };
             let page_snap = if page_snap { ", pageSnap: true" } else { "" };
             format!(
-                "NexaFastListPrimitive(rowCount: {row_count}, rowHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key}{reverse}{page_snap})"
+                "NexaFastListPrimitive(rowCount: {row_count}, rowHeight: {extent}{spacing_argument}, showDividers: {show_dividers}{scroll_enabled_argument}{key}{reverse}{page_snap})"
             )
         }
         ListAxis::Horizontal => {
@@ -624,6 +643,7 @@ fn open_list(
     let OpenListConfig {
         axis,
         native,
+        show_dividers,
         row_count,
         row_key,
         item_extent,
@@ -696,6 +716,7 @@ fn open_list(
             item_extent,
             spacing,
             scroll_enabled: &scroll_enabled,
+            show_dividers,
             reverse_layout,
             page_snap,
         });
@@ -753,6 +774,7 @@ fn open_list(
             item_extent,
             spacing,
             scroll_enabled: &scroll_enabled,
+            show_dividers,
             reverse_layout,
             page_snap,
         }));

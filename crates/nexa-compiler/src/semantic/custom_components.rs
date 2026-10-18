@@ -524,7 +524,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         }
         Node::Content | Node::Spacer | Node::Divider { .. } | Node::ContentUnavailable { .. } => {}
         Node::Layout { children, .. }
-        | Node::Form { children }
+        | Node::Form { children, .. }
         | Node::FormSection { children, .. }
         | Node::Toolbar { children, .. }
         | Node::Pressable { children, .. }
@@ -619,7 +619,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::ProgressRing { .. }
         | Node::SegmentedControl { .. }
         | Node::Picker { .. }
-        | Node::DatePicker { .. }
+        | Node::PickerDate { .. }
         | Node::Image { .. }
         | Node::SystemIcon { .. }
         | Node::LinearGradient { .. }

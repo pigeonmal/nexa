@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use nexa_codegen::SourceWriter;
 use nexa_ir::Expr;
-use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{Alignment, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{AnimationEasing, AnimationSpec};
 
 use crate::generator::{
     colors,
@@ -75,6 +76,16 @@ pub(crate) fn render_layout(
     } else if matches!(kind, LayoutKind::Column) {
         out.push_str(&format!(
             "{layout}(alignment: {alignment}, textAlignment: {text_alignment}, spacing: {}) {{\n",
+            number(spacing)
+        ));
+    } else if let Some(horizontal_arrangement) = style.horizontal_arrangement {
+        let arrangement = match horizontal_arrangement {
+            nexa_ir::HorizontalArrangement::Start => ".start",
+            nexa_ir::HorizontalArrangement::Center => ".center",
+            nexa_ir::HorizontalArrangement::End => ".end",
+        };
+        out.push_str(&format!(
+            "{layout}(alignment: {alignment}, spacing: {}, horizontalArrangement: {arrangement}) {{\n",
             number(spacing)
         ));
     } else {
@@ -220,31 +231,47 @@ fn node_list_contains_fast_list(
     found
 }
 
+pub(crate) struct FormSectionRenderOptions<'a> {
+    pub(crate) title: Option<&'a Expr>,
+    pub(crate) footer: Option<&'a Expr>,
+    pub(crate) comment: Option<&'a str>,
+    pub(crate) show_dividers: bool,
+    pub(crate) background: Option<nexa_ir::ColorValue>,
+}
+
 pub(crate) fn render_form_section(
-    title: Option<&Expr>,
-    footer: Option<&Expr>,
-    comment: Option<&str>,
+    options: FormSectionRenderOptions<'_>,
     children: &[Node],
     scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     out.line_at(depth, format_args!("NexaFormSectionPrimitive("));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "background: {},",
+            options
+                .background
+                .map(crate::generator::engine::colors::expression)
+                .unwrap_or_else(|| "nil".to_owned())
+        ),
+    );
     out.line_at(depth + 1, format_args!("content: {{"));
     for (index, child) in children.iter().enumerate() {
-        render_form_row(child, scope, depth + 2, out);
+        render_form_row(child, options.show_dividers, scope, depth + 2, out);
         if index + 1 < children.len() {
             out.push('\n');
         }
     }
     out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth + 1, format_args!("header: {{"));
-    if let Some(title) = title {
+    if let Some(title) = options.title {
         out.line_at(
             depth + 2,
             format_args!(
                 "{}",
-                crate::generator::expressions::localized_text_view(title, comment)
+                crate::generator::expressions::localized_text_view(title, options.comment)
             ),
         );
     } else {
@@ -252,12 +279,12 @@ pub(crate) fn render_form_section(
     }
     out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth + 1, format_args!("footer: {{"));
-    if let Some(footer) = footer {
+    if let Some(footer) = options.footer {
         out.line_at(
             depth + 2,
             format_args!(
                 "{}",
-                crate::generator::expressions::localized_text_view(footer, comment)
+                crate::generator::expressions::localized_text_view(footer, options.comment)
             ),
         );
     } else {
@@ -269,6 +296,7 @@ pub(crate) fn render_form_section(
 
 pub(crate) fn render_form_row(
     node: &Node,
+    show_dividers: bool,
     scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
@@ -276,9 +304,10 @@ pub(crate) fn render_form_row(
     out.line_at(
         depth,
         format_args!(
-            "NexaFormRowPrimitive(minHeight: {}, horizontalInset: {}) {{",
+            "NexaFormRowPrimitive(minHeight: {}, horizontalInset: {}, showDividers: {}) {{",
             nexa_codegen::design_system::FORM_ROW_MIN_HEIGHT,
             nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+            show_dividers,
         ),
     );
     render_node(node, scope.module, scope.features, depth + 1, out);
@@ -294,6 +323,38 @@ fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle, frame_a
     }
     if let Some(padding) = style.padding {
         append_modifier(out, depth, &format!("padding({})", number(padding)));
+    }
+    // Keep the animated measurement inside the fill and border modifiers.
+    // This makes the visible surface follow the interpolated size, matching
+    // Compose's animateContentSize modifier order.
+    if let Some(animation) = style.animation {
+        let value = match animation {
+            AnimationSpec::Spring { response, damping } => {
+                let physics = nexa_codegen::animation::spring_physics(response, damping);
+                format!(
+                    ".interpolatingSpring(mass: 1, stiffness: {}, damping: {}, initialVelocity: 0)",
+                    number(physics.stiffness),
+                    number(physics.damping_coefficient),
+                )
+            }
+            AnimationSpec::Tween {
+                duration,
+                delay,
+                easing,
+            } => swift_tween(duration, easing, delay),
+            // Keep SwiftUI's layout animation at Compose's shared 300 ms default.
+            // Match Compose's Material easing curves rather than SwiftUI's
+            // similarly named but different default curves.
+            AnimationSpec::EaseIn => swift_tween(0.3, AnimationEasing::EaseIn, 0.0),
+            AnimationSpec::EaseOut => swift_tween(0.3, AnimationEasing::EaseOut, 0.0),
+            AnimationSpec::EaseInOut => swift_tween(0.3, AnimationEasing::EaseInOut, 0.0),
+            AnimationSpec::Linear => swift_tween(0.3, AnimationEasing::Linear, 0.0),
+        };
+        append_modifier(
+            out,
+            depth,
+            &format!("modifier(NexaAnimateContentSizeModifier(animation: {value}))"),
+        );
     }
     if let Some(color) = style.background {
         append_modifier(
@@ -326,18 +387,28 @@ fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle, frame_a
         );
     }
     append_visual_effects(out, depth, style.opacity, &style.effects);
-    if let Some(animation) = style.animation {
-        let value = match animation {
-            AnimationSpec::Spring { response, damping } => {
-                format!(".spring(response: {response}, dampingFraction: {damping})")
-            }
-            AnimationSpec::EaseIn => ".easeIn".to_owned(),
-            AnimationSpec::EaseOut => ".easeOut".to_owned(),
-            AnimationSpec::EaseInOut => ".easeInOut".to_owned(),
-            AnimationSpec::Linear => ".linear".to_owned(),
-        };
-        append_modifier(out, depth, &format!("animation({value})"));
+}
+
+fn swift_tween(duration: f64, easing: AnimationEasing, delay: f64) -> String {
+    let mut animation = match easing {
+        AnimationEasing::Linear => format!(".linear(duration: {duration})"),
+        AnimationEasing::EaseIn => {
+            format!(".timingCurve(0.4, 0.0, 1.0, 1.0, duration: {duration})")
+        }
+        AnimationEasing::EaseOut => {
+            format!(".timingCurve(0.0, 0.0, 0.2, 1.0, duration: {duration})")
+        }
+        AnimationEasing::EaseInOut => {
+            format!(".timingCurve(0.4, 0.0, 0.2, 1.0, duration: {duration})")
+        }
+        AnimationEasing::CubicBezier { x1, y1, x2, y2 } => {
+            format!(".timingCurve({x1}, {y1}, {x2}, {y2}, duration: {duration})")
+        }
+    };
+    if delay > 0.0 {
+        animation.push_str(&format!(".delay({delay})"));
     }
+    animation
 }
 
 /// Keep explicit dimensions outside flexible frames so SwiftUI does not expand
@@ -482,10 +553,15 @@ fn append_modifier(out: &mut SourceWriter, depth: usize, modifier: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_size_modifiers, append_visual_effects, render_form_section, render_layout};
+    use super::{
+        FormSectionRenderOptions, append_size_modifiers, append_visual_effects,
+        render_form_section, render_layout,
+    };
     use crate::generator::{components::RenderScope, features::Features};
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Expr, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle};
+    use nexa_ir::{
+        AnimationSpec, Expr, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle,
+    };
 
     #[test]
     fn fixed_dimensions_are_not_expanded_by_flexible_bounds() {
@@ -553,6 +629,52 @@ mod tests {
             .find(".padding(6)")
             .expect("preserve outer padding");
         assert!(frame < clip && clip < padding);
+    }
+
+    #[test]
+    fn content_size_animation_wraps_padding_before_background() {
+        let style = ViewStyle {
+            min_height: Some(36.0),
+            padding: Some(4.0),
+            background: Some(nexa_ir::ColorValue::Static(nexa_ir::Color {
+                red: 242,
+                green: 242,
+                blue: 247,
+                alpha: 255,
+            })),
+            animation: Some(nexa_ir::AnimationSpec::EaseInOut),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        super::append_style(&mut output, 0, &style, ".center");
+
+        let generated = output.finish();
+        let minimum = generated.find(".frame(minHeight: 36").unwrap();
+        let padding = generated.find(".padding(4)").unwrap();
+        let animation = generated
+            .find(".modifier(NexaAnimateContentSizeModifier(animation: .timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.3)))")
+            .unwrap();
+        let background = generated.find(".background(").unwrap();
+        assert!(minimum < padding && padding < animation && animation < background);
+    }
+
+    #[test]
+    fn spring_content_animation_uses_shared_compose_physics() {
+        let style = ViewStyle {
+            animation: Some(AnimationSpec::Spring {
+                response: 0.35,
+                damping: 0.8,
+            }),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        super::append_style(&mut output, 0, &style, ".center");
+
+        assert!(output.finish().contains(
+            ".interpolatingSpring(mass: 1, stiffness: 816.32654, damping: 45.714287, initialVelocity: 0)"
+        ));
     }
 
     #[test]
@@ -732,12 +854,26 @@ mod tests {
         ];
         let mut output = SourceWriter::new();
 
-        render_form_section(None, None, None, &children, &scope, 0, &mut output);
+        render_form_section(
+            FormSectionRenderOptions {
+                title: None,
+                footer: None,
+                comment: None,
+                show_dividers: true,
+                background: None,
+            },
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
 
         let generated = output.finish();
         assert_eq!(
             generated
-                .matches("NexaFormRowPrimitive(minHeight: 56, horizontalInset: 16) {")
+                .matches(
+                    "NexaFormRowPrimitive(minHeight: 56, horizontalInset: 16, showDividers: true) {",
+                )
                 .count(),
             children.len()
         );

@@ -1,7 +1,10 @@
-import "screens/VideoFeed.nx"
+import "screens/TikTokShell.nx"
 
-app TikTokArchetype {
+app TikTokClone {
+    state selectedTab: Int32 = 0
+
     body {
-        NavigationStack(root: VideoFeed)
+        StatusBar(style: Light, hidden: false, background: "#050505")
+        NavigationStack(root: TikTokShell)
     }
 }

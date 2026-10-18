@@ -1,5 +1,7 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Node, ToolbarPlacement, ViewStyle};
+use nexa_ir::{
+    Alignment, AnimationEasing, AnimationSpec, Expr, LayoutKind, Node, ToolbarPlacement, ViewStyle,
+};
 
 use crate::generator::{
     colors,
@@ -238,6 +240,19 @@ pub(crate) fn render_layout(
         indent(out, depth + 1);
         out.push_str(&format!("spacing = {}f,\n", number(spacing)));
     }
+    if matches!(kind, LayoutKind::Row)
+        && let Some(arrangement) = style.horizontal_arrangement
+    {
+        let arrangement = match arrangement {
+            nexa_ir::HorizontalArrangement::Start => "Start",
+            nexa_ir::HorizontalArrangement::Center => "Center",
+            nexa_ir::HorizontalArrangement::End => "End",
+        };
+        indent(out, depth + 1);
+        out.push_str(&format!(
+            "horizontalArrangement = androidx.compose.foundation.layout.Arrangement.{arrangement},\n"
+        ));
+    }
     let alignment = match (kind, style.alignment.unwrap_or(Alignment::Center)) {
         (LayoutKind::Row, Alignment::Start) => ("verticalAlignment", "Top"),
         (LayoutKind::Row, Alignment::Center) => ("verticalAlignment", "CenterVertically"),
@@ -272,6 +287,15 @@ pub(crate) fn render_layout(
                 depth + 1,
                 out,
             );
+        } else if matches!(kind, LayoutKind::Column)
+            && matches!(child, Node::ContentUnavailable { .. })
+        {
+            out.line_at(
+                depth + 1,
+                format_args!("Box(modifier = Modifier.weight(1f).fillMaxWidth()) {{"),
+            );
+            render_node(child, scope.module, scope.features, depth + 2, out);
+            out.line_at(depth + 1, format_args!("}}"));
         } else {
             render_node(child, scope.module, scope.features, depth + 1, out);
         }
@@ -347,40 +371,69 @@ fn render_toolbar_row(
     out.line_at(depth, format_args!("}}"));
 }
 
+pub(crate) struct FormSectionRenderOptions<'a> {
+    pub(crate) title: Option<&'a Expr>,
+    pub(crate) footer: Option<&'a Expr>,
+    pub(crate) show_dividers: bool,
+    pub(crate) first_section: bool,
+    pub(crate) background: Option<nexa_ir::ColorValue>,
+}
+
 pub(crate) fn render_form_section(
-    title: Option<&nexa_ir::Expr>,
-    footer: Option<&nexa_ir::Expr>,
+    options: FormSectionRenderOptions<'_>,
     children: &[Node],
     scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let title = title
+    let title = options
+        .title
         .map(crate::generator::engine::expressions::text_expression)
         .unwrap_or_else(|| "null".to_owned());
-    let footer = footer
+    let footer = options
+        .footer
         .map(crate::generator::engine::expressions::text_expression)
         .unwrap_or_else(|| "null".to_owned());
     out.line_at(depth, format_args!("NexaFormSectionPrimitive("));
     out.line_at(depth + 1, format_args!("title = {title},"));
     out.line_at(depth + 1, format_args!("footer = {footer},"));
+    out.line_at(
+        depth + 1,
+        format_args!("firstSection = {},", options.first_section),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "background = {},",
+            options
+                .background
+                .map(crate::generator::engine::colors::expression)
+                .unwrap_or_else(|| "null".to_owned())
+        ),
+    );
     out.line_at(depth, format_args!(") {{"));
     for (index, child) in children.iter().enumerate() {
-        render_form_row(child, scope, depth + 1, out);
-        if index + 1 < children.len() {
+        render_form_row(child, 0, scope, depth + 1, out);
+        if options.show_dividers && index + 1 < children.len() {
             out.line_at(depth + 1, format_args!("NexaFormDividerPrimitive()"));
         }
     }
     out.line_at(depth, format_args!("}}"));
 }
 
-fn render_form_row(node: &Node, scope: &RenderScope<'_>, depth: usize, out: &mut SourceWriter) {
+fn render_form_row(
+    node: &Node,
+    horizontal_inset: u8,
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     out.line_at(
         depth,
         format_args!(
             "NexaFormRowPrimitive(minHeight = {}f, horizontalInset = {}f) {{",
             nexa_codegen::design_system::ANDROID_FORM_ROW_MIN_HEIGHT,
-            nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+            horizontal_inset,
         ),
     );
     render_node_in_form_row(node, scope.module, scope.features, depth + 1, out);
@@ -388,17 +441,58 @@ fn render_form_row(node: &Node, scope: &RenderScope<'_>, depth: usize, out: &mut
 }
 
 pub(crate) fn render_form(
+    show_dividers: bool,
+    background: Option<nexa_ir::ColorValue>,
     children: &[Node],
     scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    out.line_at(depth, format_args!("NexaFormPrimitive {{"));
+    let background = background
+        .map(crate::generator::engine::colors::expression)
+        .unwrap_or_else(|| "null".to_owned());
+    out.line_at(
+        depth,
+        format_args!("NexaFormPrimitive(background = {background}) {{"),
+    );
+    let mut first_section = true;
     for (index, child) in children.iter().enumerate() {
-        if matches!(child, Node::FormSection { .. }) {
-            render_node(child, scope.module, scope.features, depth + 1, out);
+        if let Node::FormSection {
+            title,
+            footer,
+            show_dividers: section_show_dividers,
+            background: section_background,
+            children,
+        } = child
+        {
+            render_form_section(
+                FormSectionRenderOptions {
+                    title: title.as_ref(),
+                    footer: footer.as_ref(),
+                    show_dividers: section_show_dividers.unwrap_or(show_dividers),
+                    first_section,
+                    background: *section_background,
+                },
+                children,
+                scope,
+                depth + 1,
+                out,
+            );
+            first_section = false;
         } else {
-            render_form_row(child, scope, depth + 1, out);
+            render_form_row(
+                child,
+                nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+                scope,
+                depth + 1,
+                out,
+            );
+            let next_is_section = children
+                .get(index + 1)
+                .is_some_and(|next| matches!(next, Node::FormSection { .. }));
+            if show_dividers && index + 1 < children.len() && !next_is_section {
+                out.line_at(depth + 1, format_args!("NexaFormDividerPrimitive()"));
+            }
         }
         if index + 1 < children.len() {
             out.push('\n');
@@ -469,16 +563,65 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             number(radius)
         ));
     }
+    if let Some(glass) = &effects.glass {
+        // Android represents glass with a solid Material 3 surface. Place it
+        // outside padding and sizing so it covers the full layout, like SwiftUI.
+        let shape = match glass.shape {
+            nexa_ir::GlassShape::Circle => "CircleShape".to_owned(),
+            nexa_ir::GlassShape::Capsule => "RoundedCornerShape(percent = 50)".to_owned(),
+            nexa_ir::GlassShape::Rounded(radius) => {
+                format!("RoundedCornerShape({}.dp)", number(radius))
+            }
+        };
+        let tint = glass
+            .tint
+            .map(colors::expression)
+            .map(|tint| format!("{tint}.copy(alpha = 1f)"))
+            .or_else(|| style.background.map(colors::expression))
+            .unwrap_or_else(|| "MaterialTheme.colorScheme.surface".to_owned());
+        out.push_str(&format!(
+            "\n{}.let {{ val surfaceShape: Shape = {shape}; val surfaceColor = {tint}; it.clip(surfaceShape).background(surfaceColor, surfaceShape) }}",
+            spaces(depth),
+        ));
+    }
     if let Some(animation) = style.animation {
         let spec = match animation {
             AnimationSpec::Spring { response, damping } => {
-                let stiffness = (100.0 / f64::from(response).powi(2)) as f32;
-                format!("spring(dampingRatio = {damping}f, stiffness = {stiffness}f)")
+                let physics = nexa_codegen::animation::spring_physics(response, damping);
+                format!(
+                    "spring(dampingRatio = {damping}f, stiffness = {}f)",
+                    physics.stiffness
+                )
             }
-            AnimationSpec::EaseIn => "tween(easing = FastOutLinearInEasing)".to_owned(),
-            AnimationSpec::EaseOut => "tween(easing = LinearOutSlowInEasing)".to_owned(),
-            AnimationSpec::EaseInOut => "tween(easing = FastOutSlowInEasing)".to_owned(),
-            AnimationSpec::Linear => "tween(easing = LinearEasing)".to_owned(),
+            AnimationSpec::Tween {
+                duration,
+                delay,
+                easing,
+            } => {
+                let duration_millis = (duration * 1000.0).round() as u32;
+                let delay_millis = (delay * 1000.0).round() as u32;
+                let delay_parameter = if delay_millis > 0 {
+                    format!(", delayMillis = {delay_millis}")
+                } else {
+                    String::new()
+                };
+                format!(
+                    "tween(durationMillis = {duration_millis}{delay_parameter}, easing = {})",
+                    easing_name(easing)
+                )
+            }
+            AnimationSpec::EaseIn => {
+                "tween(durationMillis = 300, easing = FastOutLinearInEasing)".to_owned()
+            }
+            AnimationSpec::EaseOut => {
+                "tween(durationMillis = 300, easing = LinearOutSlowInEasing)".to_owned()
+            }
+            AnimationSpec::EaseInOut => {
+                "tween(durationMillis = 300, easing = FastOutSlowInEasing)".to_owned()
+            }
+            AnimationSpec::Linear => {
+                "tween(durationMillis = 300, easing = LinearEasing)".to_owned()
+            }
         };
         out.push_str(&format!(
             "\n{}.animateContentSize(animationSpec = {spec})",
@@ -533,26 +676,17 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
     if let Some(z_index) = effects.z_index {
         out.push_str(&format!("\n{}.zIndex({}f)", spaces(depth), z_index));
     }
-    if let Some(glass) = &effects.glass {
-        // Android maps the cross-platform glass effect to a solid Material 3
-        // surface because Compose has no native backdrop-material equivalent.
-        let shape = match glass.shape {
-            nexa_ir::GlassShape::Circle => "CircleShape".to_owned(),
-            nexa_ir::GlassShape::Capsule => "RoundedCornerShape(percent = 50)".to_owned(),
-            nexa_ir::GlassShape::Rounded(radius) => {
-                format!("RoundedCornerShape({}.dp)", number(radius))
-            }
-        };
-        let tint = glass
-            .tint
-            .map(colors::expression)
-            .map(|tint| format!("{tint}.copy(alpha = 1f)"))
-            .or_else(|| style.background.map(colors::expression))
-            .unwrap_or_else(|| "MaterialTheme.colorScheme.surface".to_owned());
-        out.push_str(&format!(
-            "\n{}.let {{ val surfaceShape: Shape = {shape}; val surfaceColor = {tint}; it.clip(surfaceShape).background(surfaceColor, surfaceShape) }}",
-            spaces(depth),
-        ));
+}
+
+fn easing_name(easing: AnimationEasing) -> String {
+    match easing {
+        AnimationEasing::Linear => "LinearEasing".to_owned(),
+        AnimationEasing::EaseIn => "FastOutLinearInEasing".to_owned(),
+        AnimationEasing::EaseOut => "LinearOutSlowInEasing".to_owned(),
+        AnimationEasing::EaseInOut => "FastOutSlowInEasing".to_owned(),
+        AnimationEasing::CubicBezier { x1, y1, x2, y2 } => {
+            format!("androidx.compose.animation.core.CubicBezierEasing({x1}f, {y1}f, {x2}f, {y2}f)")
+        }
     }
 }
 
@@ -566,7 +700,9 @@ mod tests {
 
     use crate::generator::features::Features;
 
-    use super::{RenderScope, render_form_section, render_layout, render_modifiers};
+    use super::{
+        FormSectionRenderOptions, RenderScope, render_form_section, render_layout, render_modifiers,
+    };
 
     #[test]
     fn content_size_animation_wraps_padding_and_size_constraints() {
@@ -594,12 +730,38 @@ mod tests {
     }
 
     #[test]
+    fn spring_content_animation_uses_shared_physics() {
+        let style = ViewStyle {
+            animation: Some(nexa_ir::AnimationSpec::Spring {
+                response: 0.35,
+                damping: 0.8,
+            }),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        assert!(output
+            .finish()
+            .contains(".animateContentSize(animationSpec = spring(dampingRatio = 0.8f, stiffness = 816.32654f))"));
+    }
+
+    #[test]
     fn glass_maps_to_a_borderless_material_surface_on_android() {
         let style = ViewStyle {
+            padding: Some(8.0),
+            width: Some(220.0),
+            height: Some(48.0),
             effects: nexa_ir::ViewEffects {
                 glass: Some(ViewGlass {
-                    tint: None,
-                    shape: GlassShape::Circle,
+                    tint: Some(ColorValue::Static(Color {
+                        red: 221,
+                        green: 235,
+                        blue: 255,
+                        alpha: 255,
+                    })),
+                    shape: GlassShape::Capsule,
                 }),
                 ..nexa_ir::ViewEffects::default()
             },
@@ -610,9 +772,16 @@ mod tests {
         render_modifiers(&style, 0, &mut output);
 
         let generated = output.finish();
-        assert!(generated.contains("val surfaceShape: Shape = CircleShape"));
-        assert!(generated.contains("MaterialTheme.colorScheme.surface"));
+        assert!(generated.contains("val surfaceShape: Shape = RoundedCornerShape(percent = 50)"));
+        assert!(generated.contains("Color(0xFFDDEBFF).copy(alpha = 1f)"));
         assert!(generated.contains("it.clip(surfaceShape).background(surfaceColor, surfaceShape)"));
+        let glass = generated
+            .find("val surfaceShape")
+            .expect("emit glass surface");
+        let padding = generated.find(".padding(8.dp)").expect("emit row padding");
+        let width = generated.find(".width(220.dp)").expect("emit row width");
+        let height = generated.find(".height(48.dp)").expect("emit row height");
+        assert!(glass < padding && padding < width && width < height);
         assert!(!generated.contains(".shadow("));
         assert!(!generated.contains(".border("));
         assert!(!generated.contains("copy(alpha = 0.05f)"));
@@ -928,6 +1097,7 @@ mod tests {
                 items: Expr::Array(vec![Expr::String("10 minutes before".to_owned())]),
                 state: "reminderChoice".to_owned(),
                 icon: Some(SystemIcon::Shared("notifications".to_owned())),
+                item_icons: Vec::new(),
                 label: Some(Expr::String("Automatic\nReminders".to_owned())),
                 tint: None,
             },
@@ -935,12 +1105,24 @@ mod tests {
         let mut output = SourceWriter::new();
         let footer = Expr::String("ToDoList v1.0.0 (1)".to_owned());
 
-        render_form_section(None, Some(&footer), &children, &scope, 0, &mut output);
+        render_form_section(
+            FormSectionRenderOptions {
+                title: None,
+                footer: Some(&footer),
+                show_dividers: true,
+                first_section: false,
+                background: None,
+            },
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
 
         assert!(output.contains("NexaFormSectionPrimitive("));
         assert!(output.contains("title = null,"));
         assert!(output.contains("footer = \"ToDoList v1.0.0 (1)\","));
-        assert!(output.contains("NexaFormRowPrimitive(minHeight = 52f, horizontalInset = 16f) {"));
+        assert!(output.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 0f) {"));
         assert!(output.contains("fullWidth = true,"));
         assert!(output.contains("leadingContent = true,"));
         assert_eq!(
@@ -953,7 +1135,7 @@ mod tests {
         assert_eq!(
             output
                 .as_str()
-                .matches("NexaFormRowPrimitive(minHeight = 52f")
+                .matches("NexaFormRowPrimitive(minHeight = 56f")
                 .count(),
             children.len()
         );

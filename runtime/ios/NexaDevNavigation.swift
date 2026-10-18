@@ -10,6 +10,7 @@ struct NexaDevRoute: Hashable {
 struct NexaDevBottomSheet {
     let state: String
     let partial: Bool
+    let showDragHandle: Bool
     let children: [Any]
     let scope: String
 }
@@ -25,6 +26,7 @@ func devBottomSheet(in nodes: [Any], scope: String = "app") -> NexaDevBottomShee
             return NexaDevBottomSheet(
                 state: fields["state"] as? String ?? "",
                 partial: fields["partial"] as? Bool ?? false,
+                showDragHandle: fields["show_drag_handle"] as? Bool ?? true,
                 children: fields["children"] as? [Any] ?? [],
                 scope: scope
             )

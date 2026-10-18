@@ -2,11 +2,17 @@ app PickerSmoke {
     state sizes: Array<String> = ["Small", "Medium", "Large"]
     state selectedSize: String = "Medium"
     state dueAt: Int64 = 1791446400000
-    state includeTime: Bool = true
+    state rangeStart: Int64 = 1791244800000
+    state rangeEnd: Int64 = 1791590400000
+    state lowerBound: Int64 = 1788134400000
+    state upperBound: Int64 = 1796083200000
+    state pickerLocale: String = "fr-FR"
+    state pickerTimeZone: String = "America/Los_Angeles"
 
     body {
         Picker(items: sizes, selected: selectedSize, icon: "flag_filled", tint: "#6750A4")
         Text(selectedSize)
-        DatePicker(timestamp: dueAt, hasTime: includeTime)
+        Text("Unbound date")
+        Text("Unbound time")
     }
 }

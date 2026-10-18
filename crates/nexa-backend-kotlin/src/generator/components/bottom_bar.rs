@@ -409,11 +409,12 @@ pub(crate) fn render_app_bottom_bar(
             out.line_at(content_depth + 3, format_args!("}}"));
         }
         let toolbars = tab_toolbars(&tab.children);
-        if tab.large_title && tab.navigation_title.is_some() {
-            let has_form = tab_contains_form(&tab.children);
-            let has_native_list = tab_contains_native_list(&tab.children);
-            let has_grouped_surface = has_form || has_native_list;
-            let has_keyboard_inset = tab.search_state.is_some();
+        let has_title_bar = tab.navigation_title.is_some() || !toolbars.is_empty();
+        let has_search = tab.search_state.is_some();
+        if has_title_bar {
+            let has_grouped_surface =
+                tab_contains_form(&tab.children) || tab_contains_native_list(&tab.children);
+            let has_keyboard_inset = has_search;
             let content_background = if has_grouped_surface {
                 "if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant"
             } else {
@@ -426,20 +427,33 @@ pub(crate) fn render_app_bottom_bar(
             } else {
                 "Modifier.fillMaxSize()".to_owned()
             };
-            let title = tab.navigation_title.as_deref().unwrap_or_default();
-            let title_resource = nexa_codegen::names::localization_resource_name(title);
-            out.line_at(content_depth + 3, format_args!("NexaLargeTitlePrimitive("));
+            let title = if let Some(title) = &tab.navigation_title {
+                let resource = nexa_codegen::names::localization_resource_name(title);
+                format!("stringResource(R.string.{resource})")
+            } else {
+                "\"\"".to_owned()
+            };
+            out.line_at(content_depth + 3, format_args!("NexaNavigationChrome("));
             out.line_at(
                 content_depth + 4,
                 format_args!("identity = \"nexa-tab-title-{}\",", tab.index),
             );
+            out.line_at(content_depth + 4, format_args!("title = {title},"));
             out.line_at(
                 content_depth + 4,
-                format_args!("title = stringResource(R.string.{title_resource}),"),
+                format_args!(
+                    "largeTitle = {},",
+                    tab.large_title && tab.navigation_title.is_some()
+                ),
             );
             out.line_at(
                 content_depth + 4,
-                format_args!("centerCollapsedTitle = {},", toolbars.is_empty()),
+                format_args!(
+                    "centerTitle = {},",
+                    !toolbars
+                        .iter()
+                        .any(|(placement, _)| *placement == ToolbarPlacement::Leading)
+                ),
             );
             out.line_at(
                 content_depth + 4,
@@ -513,130 +527,48 @@ pub(crate) fn render_app_bottom_bar(
             out.push('\n');
             indent(out, content_depth + 3);
             out.push_str("}\n");
-        } else if tab.navigation_title.is_some()
-            || tab.search_state.is_some()
-            || !toolbars.is_empty()
-        {
-            let keyboard_inset = if tab.search_state.is_some() {
-                ".imePadding()"
+        } else if has_search {
+            let grouped_surface =
+                tab_contains_form(&tab.children) || tab_contains_native_list(&tab.children);
+            let keyboard_inset = ".imePadding()";
+            let background = if grouped_surface {
+                ".background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)"
             } else {
                 ""
             };
-            let content_modifier = if tab_contains_form(&tab.children)
-                || tab_contains_native_list(&tab.children)
-            {
-                format!(
-                    "Modifier.fillMaxSize(){keyboard_inset}.background(if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant)"
-                )
-            } else {
-                format!("Modifier.fillMaxSize(){keyboard_inset}")
-            };
-            let title_bottom_padding = if tab.large_title && tab.navigation_title.is_some() {
-                28
-            } else {
-                8
-            };
-            let title_top_padding = if tab.large_title && tab.navigation_title.is_some() {
-                nexa_codegen::design_system::FORM_LARGE_TITLE_TOP_PADDING
-            } else {
-                8
-            };
             out.line_at(
                 content_depth + 3,
-                format_args!("Column(modifier = {content_modifier}) {{"),
+                format_args!(
+                    "Column(modifier = Modifier.fillMaxSize(){keyboard_inset}{background}) {{"
+                ),
             );
-            if tab.navigation_title.is_some() || !toolbars.is_empty() {
-                out.line_at(
-                    content_depth + 4,
-                    format_args!("Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = {title_top_padding}.dp, end = 16.dp, bottom = {title_bottom_padding}.dp), verticalAlignment = Alignment.CenterVertically) {{"),
-                );
-                if toolbars
-                    .iter()
-                    .any(|(placement, _)| *placement == ToolbarPlacement::Leading)
-                {
-                    render_tab_toolbar_items(
-                        &toolbars,
-                        ToolbarPlacement::Leading,
-                        module,
-                        features,
-                        content_depth + 5,
-                        out,
-                    );
-                    out.line_at(
-                        content_depth + 5,
-                        format_args!("Spacer(modifier = Modifier.size(8.dp))"),
-                    );
-                }
-                if let Some(title) = &tab.navigation_title {
-                    let resource = nexa_codegen::names::localization_resource_name(title);
-                    let style = if tab.large_title {
-                        format!(
-                            "MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold, fontSize = {}.sp)",
-                            nexa_codegen::design_system::APP_TAB_LARGE_TITLE_FONT_SIZE
-                        )
-                    } else {
-                        "MaterialTheme.typography.titleLarge".to_owned()
-                    };
-                    out.line_at(
-                        content_depth + 5,
-                        format_args!("Text(stringResource(R.string.{resource}), style = {style})"),
-                    );
-                }
-                if toolbars
-                    .iter()
-                    .any(|(placement, _)| *placement == ToolbarPlacement::Trailing)
-                {
-                    if tab.navigation_title.is_some()
-                        || toolbars
-                            .iter()
-                            .any(|(placement, _)| *placement == ToolbarPlacement::Leading)
-                    {
-                        out.line_at(
-                            content_depth + 5,
-                            format_args!("Spacer(modifier = Modifier.weight(1f))"),
-                        );
-                    }
-                    render_tab_toolbar_items(
-                        &toolbars,
-                        ToolbarPlacement::Trailing,
-                        module,
-                        features,
-                        content_depth + 5,
-                        out,
-                    );
-                }
-                out.line_at(content_depth + 4, format_args!("}}"));
-            }
-            if let Some(search_state) = &tab.search_state {
-                input::render_text_input(
-                    TextInputProps {
-                        state: search_state,
-                        placeholder: tab.search_prompt.as_deref().unwrap_or("Search"),
-                        keyboard: KeyboardType::Text,
-                        secure: false,
-                        multiline: false,
-                        autofill: None,
-                        return_key: Some(ReturnKeyType::Search),
-                        autocorrect: Some(false),
-                        capitalization: Some(Capitalization::None),
-                        focused: None,
-                        max_length: None,
-                        font: None,
-                        min_lines: None,
-                        max_lines: Some(1),
-                        searchable: true,
-                        horizontal_padding: Some(16),
-                        weight_in_row: false,
-                        actions: &[],
-                        on_change: None,
-                    },
-                    content_depth + 4,
-                    out,
-                );
-                out.push('\n');
-            }
-            let content_children = without_tab_toolbars(&tab.children);
-            render_children(&content_children, module, features, content_depth + 4, out);
+            input::render_text_input(
+                TextInputProps {
+                    state: tab.search_state.as_deref().unwrap_or_default(),
+                    placeholder: tab.search_prompt.as_deref().unwrap_or("Search"),
+                    keyboard: KeyboardType::Text,
+                    secure: false,
+                    multiline: false,
+                    autofill: None,
+                    return_key: Some(ReturnKeyType::Search),
+                    autocorrect: Some(false),
+                    capitalization: Some(Capitalization::None),
+                    focused: None,
+                    max_length: None,
+                    font: None,
+                    min_lines: None,
+                    max_lines: Some(1),
+                    searchable: true,
+                    horizontal_padding: Some(16),
+                    weight_in_row: false,
+                    actions: &[],
+                    on_change: None,
+                },
+                content_depth + 4,
+                out,
+            );
+            out.push('\n');
+            render_children(&tab.children, module, features, content_depth + 4, out);
             out.push('\n');
             indent(out, content_depth + 3);
             out.push_str("}\n");
@@ -683,7 +615,7 @@ fn tab_contains_native_list(children: &[Node]) -> bool {
     found
 }
 
-fn tab_toolbars(children: &[Node]) -> Vec<(ToolbarPlacement, &[Node])> {
+pub(crate) fn tab_toolbars(children: &[Node]) -> Vec<(ToolbarPlacement, &[Node])> {
     let mut toolbars = Vec::new();
     for child in children {
         match child {
@@ -698,7 +630,7 @@ fn tab_toolbars(children: &[Node]) -> Vec<(ToolbarPlacement, &[Node])> {
     toolbars
 }
 
-fn render_tab_toolbar_items(
+pub(crate) fn render_tab_toolbar_items(
     toolbars: &[(ToolbarPlacement, &[Node])],
     placement: ToolbarPlacement,
     module: &Module,
@@ -743,10 +675,12 @@ fn render_tab_toolbar_item(
             items,
             state,
             icon,
+            item_icons,
             label,
             tint,
         } => controls::render_picker(
             items,
+            item_icons,
             state,
             icon.as_ref(),
             label.as_ref(),
@@ -780,7 +714,7 @@ fn render_tab_toolbar_item(
     }
 }
 
-fn without_tab_toolbars(children: &[Node]) -> Vec<Node> {
+pub(crate) fn without_tab_toolbars(children: &[Node]) -> Vec<Node> {
     children
         .iter()
         .filter_map(|child| match child {
@@ -842,7 +776,7 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth + 1,
         format_args!(
-            "HorizontalPager(state = {page_state}, modifier = Modifier.weight(1f)) {{ page ->"
+            "HorizontalPager(state = {page_state}, modifier = Modifier.weight(1f), pageNestedScrollConnection = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {{}}) {{ page ->"
         ),
     );
     out.line_at(
@@ -944,7 +878,8 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("NexaLargeTitlePrimitive("));
+        assert!(output.contains("NexaNavigationChrome("));
+        assert!(output.contains("largeTitle = true,"));
         assert!(output.contains("identity = \"nexa-tab-title-0\""));
         let title_resource = nexa_codegen::names::localization_resource_name("Today");
         assert!(output.contains(&format!(
@@ -952,6 +887,77 @@ mod tests {
         )));
         assert!(output.contains("containerColor = MaterialTheme.colorScheme.background"));
         assert!(output.contains("modifier = Modifier.fillMaxSize()"));
+    }
+
+    #[test]
+    fn inline_navigation_title_uses_the_shared_material_title_system() {
+        let tab = BottomBarTab {
+            index: 2,
+            label: "Inbox".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: None,
+            navigation_title: Some("Inbox".to_owned()),
+            large_title: false,
+            search_state: None,
+            search_prompt: None,
+            children: Vec::new(),
+        };
+        let mut output = SourceWriter::new();
+
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            &[tab],
+            None,
+            &empty_module(),
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(generated.contains("NexaNavigationChrome("));
+        assert!(generated.contains("largeTitle = false,"));
+        assert!(generated.contains("centerTitle = true,"));
+        assert!(!generated.contains("title_top_padding"));
+    }
+
+    #[test]
+    fn trailing_tab_actions_keep_the_native_centered_title_alignment() {
+        let tab = BottomBarTab {
+            index: 0,
+            label: "Inbox".to_owned(),
+            comment: None,
+            icon: None,
+            badge: None,
+            role: None,
+            navigation_title: Some("Inbox".to_owned()),
+            large_title: false,
+            search_state: None,
+            search_prompt: None,
+            children: vec![Node::Toolbar {
+                placement: ToolbarPlacement::Trailing,
+                children: vec![Node::Text {
+                    value: Expr::String("Sort".to_owned()),
+                    style: nexa_ir::TextStyle::default(),
+                }],
+            }],
+        };
+        let mut output = SourceWriter::new();
+        render_app_bottom_bar(
+            "selectedTab",
+            None,
+            &[tab],
+            None,
+            &empty_module(),
+            &Features::default(),
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("centerTitle = true,"));
     }
 
     #[test]
@@ -1036,6 +1042,7 @@ mod tests {
                         ),
                         state: "sortSelection".to_owned(),
                         icon: Some(SystemIcon::Shared("sort".to_owned())),
+                        item_icons: Vec::new(),
                         label: None,
                         tint: None,
                     }],
@@ -1056,7 +1063,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "NexaPickerPrimitive(items = nexa_sortOptions, selected = nexa_sortSelection, icon = Icons.AutoMirrored.Filled.Sort, label = null, tint = null, fillMaxWidth = false)"
+            "NexaPickerPrimitive(items = nexa_sortOptions, itemIcons = emptyList(), selected = nexa_sortSelection, icon = Icons.AutoMirrored.Filled.Sort, label = null, tint = null, fillMaxWidth = false)"
         ));
     }
 
@@ -1074,6 +1081,8 @@ mod tests {
             search_state: None,
             search_prompt: None,
             children: vec![Node::Form {
+                show_dividers: true,
+                background: None,
                 children: Vec::new(),
             }],
         };
@@ -1092,7 +1101,7 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("NexaLargeTitlePrimitive("));
+        assert!(output.contains("NexaNavigationChrome("));
         assert!(output.contains(
             "containerColor = if (MaterialTheme.colorScheme.background == Color.Black) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surfaceVariant,"
         ));
@@ -1177,6 +1186,9 @@ mod tests {
             "NexaPageIndicatorRow(pageCount = 1, currentPage = nexa_currentPagePager.currentPage) { page ->"
         ));
         assert!(output.contains("rememberPagerState(initialPage = nexa_currentPage,"));
+        assert!(output.contains(
+            "pageNestedScrollConnection = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {}"
+        ));
         assert!(!output.contains(".toInt()"));
     }
 

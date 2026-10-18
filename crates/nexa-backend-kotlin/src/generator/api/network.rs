@@ -659,7 +659,15 @@ public object NexaNetwork {
     public suspend fun write(data: ByteArray, path: String) = withContext(Dispatchers.IO) {
         val file = File(path)
         file.parentFile?.mkdirs()
-        file.writeBytes(data)
+        val atomicFile = android.util.AtomicFile(file)
+        val output = atomicFile.startWrite()
+        try {
+            output.write(data)
+            atomicFile.finishWrite(output)
+        } catch (failure: Throwable) {
+            atomicFile.failWrite(output)
+            throw failure
+        }
     }
 
     public suspend fun readText(path: String): String = read(path).toString(Charsets.UTF_8)
@@ -669,7 +677,18 @@ public object NexaNetwork {
         return true
     }
 
-    public suspend fun delete(path: String): Boolean = withContext(Dispatchers.IO) { File(path).delete() }
+    public suspend fun delete(path: String): Boolean = withContext(Dispatchers.IO) {
+        val file = File(path)
+        if (!file.exists()) {
+            false
+        } else if (file.delete()) {
+            true
+        } else if (!file.exists()) {
+            false
+        } else {
+            throw java.io.IOException("could not delete file")
+        }
+    }
 
 "#,
             );
@@ -793,5 +812,19 @@ mod tests {
         assert!(output.contains("uploadDataSink.onReadSucceeded(phase == 4)"));
         assert!(!output.contains("writeMultipartBody"));
         assert!(!output.contains("nexa-upload-"));
+    }
+
+    #[test]
+    fn file_writes_are_atomic_and_delete_missing_paths_returns_false() {
+        let mut output = SourceWriter::new();
+        render(&mut output, false, false, false, true, true, false);
+
+        assert!(output.contains("android.util.AtomicFile(file)"));
+        assert!(output.contains("val output = atomicFile.startWrite()"));
+        assert!(output.contains("atomicFile.finishWrite(output)"));
+        assert!(output.contains("atomicFile.failWrite(output)"));
+        assert!(!output.contains("file.writeBytes(data)"));
+        assert!(output.contains("if (!file.exists()) {\n            false"));
+        assert!(output.contains("throw java.io.IOException(\"could not delete file\")"));
     }
 }

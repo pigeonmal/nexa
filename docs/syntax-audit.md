@@ -69,11 +69,11 @@ Reference: components.md#column
 
 Shows a native empty or unavailable content state
 
-Signature: `ContentUnavailable(title, icon, description, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `title`, `icon`, `description`
+Required options: `title`, `icon`
 
-Optional options: `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -113,11 +113,11 @@ Reference: components.md#divider
 
 ### `Form`
 
-Native grouped settings form
+Native settings form with optional background and configurable row dividers
 
-Signature: `Form(accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Form(showDividers:, background:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `showDividers`, `background`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -141,11 +141,11 @@ Reference: components.md#keyboardaware
 
 ### `Row`
 
-Horizontal layout container with optional spacing
+Horizontal layout container with spacing and main-axis arrangement
 
-Signature: `Row(spacing:, alignment:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, borderColor:, borderWidth:, opacity:, scale:, rotation:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Row(spacing:, alignment:, horizontalArrangement:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, borderColor:, borderWidth:, opacity:, scale:, rotation:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `spacing`, `alignment`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `borderColor`, `borderWidth`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `spacing`, `alignment`, `horizontalArrangement`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `borderColor`, `borderWidth`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -155,11 +155,11 @@ Reference: components.md#row
 
 ### `Section`
 
-A titled or footnoted group inside a Form
+A titled or footnoted group with optional background and divider override
 
-Signature: `Section(title:, footer:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Section(title:, footer:, comment:, showDividers:, background:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `title`, `footer`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `title`, `footer`, `comment`, `showDividers`, `background`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -201,11 +201,11 @@ Reference: components.md#stack
 
 Shows a native empty or unavailable content state
 
-Signature: `ContentUnavailable(title, icon, description, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `title`, `icon`, `description`
+Required options: `title`, `icon`
 
-Optional options: `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -243,37 +243,37 @@ Modifiers: none
 
 Reference: components.md#button
 
-### `DatePicker`
-
-Presents the native date and optional time picker
-
-Signature: `DatePicker(timestamp, hasTime, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
-
-Required options: `timestamp`, `hasTime`
-
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
-
-Children: none
-
-Modifiers: none
-
-Reference: components.md#datepicker
-
 ### `Picker`
 
 Selects one string option from a native menu
 
-Signature: `Picker(items, selected, icon:, label:, tint:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Picker(items, selected, itemIcons:, icon:, label:, tint:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `items`, `selected`
 
-Optional options: `icon`, `label`, `tint`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `itemIcons`, `icon`, `label`, `tint`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
 Modifiers: none
 
 Reference: components.md#picker
+
+### `PickerDate`
+
+Selects a date, time, date-time, or date range
+
+Signature: `PickerDate(type, style:, selection:, timestamp:, startTimestamp:, endTimestamp:, minimum:, maximum:, tint:, textColor:, backgroundColor:, pickerBackgroundColor:, borderColor:, borderWidth:, cornerRadius:, locale:, timeZone:, is24Hour:, enabled:, accessibilityLabel:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+
+Required options: `type`
+
+Optional options: `style`, `selection`, `timestamp`, `startTimestamp`, `endTimestamp`, `minimum`, `maximum`, `tint`, `textColor`, `backgroundColor`, `pickerBackgroundColor`, `borderColor`, `borderWidth`, `cornerRadius`, `locale`, `timeZone`, `is24Hour`, `enabled`, `accessibilityLabel`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#pickerdate
 
 ### `ProgressBar`
 
@@ -309,13 +309,13 @@ Reference: components.md#progressring
 
 ### `SegmentedControl`
 
-Selects one string option from a compact segmented control
+Selects one string option with customizable color and shape
 
-Signature: `SegmentedControl(items, selected, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `SegmentedControl(items, selected, animation:, comment:, tint:, background:, selectedTextColor:, textColor:, fontSize:, fontWeight:, height:, cornerRadius:, borderColor:, borderWidth:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `items`, `selected`
 
-Optional options: `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `animation`, `comment`, `tint`, `background`, `selectedTextColor`, `textColor`, `fontSize`, `fontWeight`, `height`, `cornerRadius`, `borderColor`, `borderWidth`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -402,11 +402,11 @@ Reference: components.md#pressable
 
 Shows a native empty or unavailable content state
 
-Signature: `ContentUnavailable(title, icon, description, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `title`, `icon`, `description`
+Required options: `title`, `icon`
 
-Optional options: `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -536,11 +536,11 @@ Reference: components.md#navigationsplitview
 
 Navigation host rooted at a declared screen
 
-Signature: `NavigationStack(root, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `NavigationStack(root, titleMode:, titleAlignment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `root`
 
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `titleMode`, `titleAlignment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -632,11 +632,11 @@ Reference: state-and-navigation.md#4-lifecycle-hooks
 
 ### `FastList`
 
-High-performance virtualized list view with fixed or width-adaptive grids
+High-performance virtualized list with configurable dividers and responsive grids
 
 Signature: `FastList(collection | count: | sections:, axis:, ...)` with `{ bindings in ... }` rows
 
-Optional options: `axis`, `rowHeight`, `spacing`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `native`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `axis`, `rowHeight`, `spacing`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `native`, `showDividers`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Source forms: positional collection, `count`:, or `sections:` (exactly one); row-key option `key`.
 
@@ -755,11 +755,11 @@ Reference: components.md#accessibility-options
 
 Modal bottom sheet bound to a boolean binding
 
-Signature: `BottomSheet(isPresented, partial:, largeOnly:, title:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `BottomSheet(isPresented, partial:, largeOnly:, showDragHandle:, title:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
 Required options: `isPresented`
 
-Optional options: `partial`, `largeOnly`, `title`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `partial`, `largeOnly`, `showDragHandle`, `title`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 

@@ -1,0 +1,32 @@
+app FileApiExample {
+    state task: TaskHandle? = null
+    state status: String = "Ready to test local files"
+    state contents: String = "A saved reading note"
+
+    body {
+        Column(spacing: 12, padding: 16) {
+            Text("Local file API", fontSize: 24, fontWeight: Bold)
+            Text(status)
+            Text(contents)
+            Button("Run file round trip") {
+                Task.launch(handle: task, executor: TaskExecutor.Main) {
+                    try {
+                        let path = Path.join(Path.documents(), "nexa-file-api-example.txt")
+                        let wrote = await File.writeText(path: path, contents: contents)
+                        let saved = await File.readText(path: path)
+                        let existed = File.exists(path: path)
+                        let deleted = await File.delete(path: path)
+                        let deletedAgain = await File.delete(path: path)
+
+                        status = wrote && existed && deleted && !deletedAgain
+                            ? "Read/write/delete parity passed"
+                            : "Unexpected file API result"
+                        contents = saved
+                    } catch {
+                        status = "Local file operation failed"
+                    }
+                }
+            }
+        }
+    }
+}

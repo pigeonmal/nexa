@@ -16,6 +16,7 @@ pub(crate) fn render_bottom_sheet(
     state: &str,
     partial: bool,
     large_only: bool,
+    show_drag_handle: bool,
     title: Option<&Expr>,
     children: &[Node],
     module: &Module,
@@ -29,6 +30,10 @@ pub(crate) fn render_bottom_sheet(
     out.line_at(depth + 1, format_args!("isPresented = {state},"));
     out.line_at(depth + 1, format_args!("partial = {partial},"));
     out.line_at(depth + 1, format_args!("largeOnly = {large_only},"));
+    out.line_at(
+        depth + 1,
+        format_args!("showDragHandle = {show_drag_handle},"),
+    );
     out.line_at(
         depth + 1,
         format_args!(
@@ -100,12 +105,14 @@ fn render_sheet_toolbar_children(
             items,
             state,
             icon,
+            item_icons,
             label,
             tint,
         } = node
         {
             controls::render_picker(
                 items,
+                item_icons,
                 state,
                 icon.as_ref(),
                 label.as_ref(),
@@ -290,6 +297,7 @@ mod tests {
             "commentsPresented",
             true,
             false,
+            false,
             Some(&Expr::String("Comments".to_owned())),
             &children,
             &module,
@@ -300,6 +308,7 @@ mod tests {
 
         assert!(output.contains("NexaBottomSheetPrimitive("));
         assert!(output.contains("partial = true"));
+        assert!(output.contains("showDragHandle = false"));
         assert!(output.contains("title = \"Comments\","));
         assert!(output.contains("navigationIcon = {"));
         assert!(output.contains("actions = {"));
@@ -354,6 +363,7 @@ mod tests {
                 text("Reminder list"),
             ])]),
             transition: None,
+            transition_animation: None,
         }];
         let mut output = SourceWriter::new();
 
@@ -361,6 +371,7 @@ mod tests {
             "showingReminders",
             true,
             false,
+            true,
             Some(&Expr::String("Reminders".to_owned())),
             &children,
             &module,
@@ -413,6 +424,7 @@ mod tests {
                 ],
             }]),
             transition: None,
+            transition_animation: None,
         }];
         let mut output = SourceWriter::new();
 
@@ -420,6 +432,7 @@ mod tests {
             "showingTaskEditor",
             true,
             false,
+            true,
             Some(&Expr::Conditional {
                 condition: Box::new(Expr::State("showingDatePicker".to_owned(), Type::Bool)),
                 then_value: Box::new(Expr::String("Pick Date".to_owned())),

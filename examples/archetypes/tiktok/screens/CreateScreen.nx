@@ -1,0 +1,134 @@
+import "../components/TopInset.nx"
+plugin "../../../../plugins/media-picker" as MediaPicker
+plugin "../../../../plugins/video-player" as VideoPlayer
+
+component CreateScreen() {
+    let player = VideoPlayer()
+    state selectedUri: String = ""
+    state caption: String = ""
+    state privacy: String = "Everyone"
+    state allowComments: Bool = true
+    state isLoading: Bool = false
+    state message: String = ""
+    state prepareTask: TaskHandle? = null
+
+    body {
+        OnDisappear {
+            Task.cancel(handle: prepareTask)
+            player.pause()
+            player.dispose()
+        }
+
+        Column(spacing: 15, padding: 16, background: "#08080A") {
+            TopInset()
+            Row(alignment: Center) {
+                Pressable(accessibilityLabel: "Discard draft", accessibilityRole: Button) {
+                    Icon(system: "close", description: "Close", size: 21, tint: "#FFFFFF")
+                }.onTap {
+                    selectedUri = ""
+                    caption = ""
+                    message = "Draft cleared"
+                }
+                Spacer()
+                Text("New post", color: "#FFFFFF", fontSize: 21, fontWeight: Bold)
+                Spacer()
+                Pressable(accessibilityLabel: "Save draft", accessibilityRole: Button) {
+                    Text("Drafts", color: "#E3E3E5", fontSize: 12, fontWeight: Semibold)
+                }.onTap { message = "Draft saved on this device" }
+            }
+
+            if selectedUri == "" {
+                Stack(alignment: Center, height: 380, background: "#202024", cornerRadius: 10, clip: Rounded(10)) {
+                    Image(asset: "poster_city_pexels_20131950", description: "Video upload preview", scale: Fill, fillMaxSize: true)
+                    LinearGradient(startColor: "#00000020", endColor: "#000000D9", direction: TopToBottom, height: 380)
+                    Column(spacing: 10, alignment: Center, padding: 22) {
+                        Icon(system: "movie", description: "Video upload", size: 38, tint: "#FFFFFF")
+                        Text("Create your next video", color: "#FFFFFF", fontSize: 19, fontWeight: Bold, alignment: Center)
+                        Text("Choose a clip from your library to start.", color: "#EEEEF0", fontSize: 12, alignment: Center)
+                    }
+                }
+            } else {
+                Stack(alignment: Center, height: 380, background: "#151518", cornerRadius: 10, clip: Rounded(10)) {
+                    VideoPlayer.VideoView(player: player, controls: true, softwareDecodingEnabled: false) {
+                        Text("Preview", color: "#FFFFFF", fontSize: 13)
+                    }
+                    if isLoading {
+                        Text("Preparing video…", color: "#FFFFFF", fontSize: 13, fontWeight: Semibold)
+                    }
+                }
+            }
+
+            Row(spacing: 9, alignment: Center) {
+                MediaPicker.MediaPickerControl(isVideo: true) {
+                    Row(spacing: 8, alignment: Center, padding: 12, background: "#FE2C55", cornerRadius: 6) {
+                        Icon(system: "upload", description: "Choose video", size: 17, tint: "#FFFFFF")
+                        Text(if selectedUri == "" { "Select video" } else { "Change video" }, color: "#FFFFFF", fontSize: 13, fontWeight: Bold)
+                    }
+                }.onPicked { uris ->
+                    if uris.count > 0 {
+                        selectedUri = uris[0]
+                        isLoading = true
+                        message = ""
+                        Task.cancel(handle: prepareTask)
+                        Task.launch(handle: prepareTask, executor: TaskExecutor.Main) {
+                            try {
+                                await player.prepare(uris[0])
+                                player.play()
+                                isLoading = false
+                            } catch {
+                                case VideoPlayer.PlayerError.invalidUrl {
+                                    isLoading = false
+                                    message = "The selected video could not be opened."
+                                }
+                                case VideoPlayer.PlayerError.decodingFailed(error) {
+                                    isLoading = false
+                                    message = error
+                                }
+                            }
+                        }
+                    }
+                }.onFailed { error ->
+                    message = error
+                }
+                Pressable(accessibilityLabel: "Add a sound", accessibilityRole: Button) {
+                    Row(spacing: 7, alignment: Center, padding: 12, background: "#26262A", cornerRadius: 6) {
+                        Icon(system: "music", description: "Add sound", size: 16, tint: "#FFFFFF")
+                        Text("Add sound", color: "#FFFFFF", fontSize: 12, fontWeight: Semibold)
+                    }
+                }.onTap { message = "Choose a sound after selecting a video" }
+            }
+
+            TextInput(value: caption, placeholder: "Write a caption…", multiline: true, minLines: 2, maxLines: 4, maxLength: 2200)
+            Row(alignment: Center, padding: 12, background: "#202024", cornerRadius: 7) {
+                Icon(system: "person", description: "Who can watch", size: 18, tint: "#FFFFFF")
+                Text("Who can watch this video", color: "#FFFFFF", fontSize: 12)
+                Spacer()
+                Pressable(accessibilityLabel: "Change audience", accessibilityRole: Button) {
+                    Text(privacy, color: "#D2D2D5", fontSize: 12, fontWeight: Semibold)
+                }.onTap { privacy = if privacy == "Everyone" { "Friends" } else { if privacy == "Friends" { "Only you" } else { "Everyone" } } }
+            }
+            Row(alignment: Center) {
+                Text("Allow comments", color: "#FFFFFF", fontSize: 13)
+                Spacer()
+                Switch(value: allowComments, label: "Allow comments")
+            }
+            Pressable(accessibilityLabel: "Publish video", accessibilityRole: Button) {
+                Row(alignment: Center, padding: 13, background: "#FE2C55", cornerRadius: 7) {
+                    Spacer()
+                    Text("Post", color: "#FFFFFF", fontSize: 14, fontWeight: Bold)
+                    Spacer()
+                }
+            }.onTap {
+                if selectedUri == "" {
+                    message = "Select a video before posting."
+                } else if caption == "" {
+                    message = "Add a caption to your video."
+                } else {
+                    message = "Your post is ready to publish."
+                }
+            }
+            if message != "" { Text(message, color: "#BDBDC0", fontSize: 11) }
+            Column(height: 64) {}
+        }
+    }
+}

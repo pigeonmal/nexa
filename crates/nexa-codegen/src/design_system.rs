@@ -32,6 +32,7 @@ pub const MATERIAL_ICON_SIZE_SCALE: f32 = 1.2;
 pub const DEFAULT_LINE_HEIGHT_MULTIPLIER: f32 = 1.2;
 pub const BUTTON_MIN_TAP_TARGET: u8 = 48;
 pub const BUTTON_MIN_WIDTH: u8 = 64;
+pub const BUTTON_LOADING_INDICATOR_SIZE: u8 = 20;
 pub const DEFAULT_BUTTON_SHAPE: ButtonShape = ButtonShape::Capsule;
 pub const BUTTON_DEFAULT_HORIZONTAL_PADDING: u8 = 8;
 pub const BUTTON_DEFAULT_VERTICAL_PADDING: u8 = 8;
@@ -44,34 +45,76 @@ pub const BUTTON_LARGE_VERTICAL_PADDING: u8 = 12;
 pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 16;
 pub const FORM_SECTION_TOP_PADDING: u8 = 8;
 pub const FORM_SECTION_BOTTOM_PADDING: u8 = 20;
-/// Android Form content inset that matches SwiftUI's native Form top margin.
+/// Standalone Android Form inset that matches SwiftUI's native Form top margin.
+/// Navigation destinations suppress it because Scaffold already places content below the app bar.
 pub const ANDROID_FORM_CONTENT_TOP_INSET: u8 = 24;
 pub const FORM_ROW_HORIZONTAL_INSET: u8 = 16;
 /// Shared baseline row size; content and explicit padding may expand it.
 pub const FORM_ROW_MIN_HEIGHT: u8 = 56;
-/// Android Form rows need a slightly tighter baseline to match SwiftUI's grouped-list density.
-pub const ANDROID_FORM_ROW_MIN_HEIGHT: u8 = 52;
-pub const FORM_DIVIDER_START_INSET: u8 = 48;
+/// Both native Form renderers use the same minimum row height.
+pub const ANDROID_FORM_ROW_MIN_HEIGHT: u8 = FORM_ROW_MIN_HEIGHT;
+/// Compose draws separators inside the rounded section surface, so this inset is local to a row.
+pub const FORM_DIVIDER_START_INSET: u8 = FORM_ROW_HORIZONTAL_INSET;
 pub const FORM_DIVIDER_END_INSET: u8 = 16;
 pub const FORM_FOOTER_START_INSET: u8 = 16;
 pub const FORM_FOOTER_FONT_SIZE: u8 = 13;
 pub const FORM_LARGE_TITLE_TOP_PADDING: u8 = 20;
-/// Large app-tab title size shared by SwiftUI and Compose.
-pub const APP_TAB_LARGE_TITLE_FONT_SIZE: u8 = 28;
-/// Android's compact navigation titles share the native inline-title metric.
-pub const ANDROID_NAVIGATION_TITLE_FONT_SIZE: u8 = 17;
-/// Kept as a named alias for the app-tab large-title interpolation.
-pub const ANDROID_APP_TAB_COLLAPSED_TITLE_FONT_SIZE: u8 = ANDROID_NAVIGATION_TITLE_FONT_SIZE;
-/// Shared Android large-title height, matching the Settings screen layout.
-pub const ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_HEIGHT: u8 = 80;
-pub const ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_HEIGHT: u8 = 64;
-/// Keeps Android expanded-title controls below the edge-to-edge status icons.
-pub const ANDROID_LARGE_TITLE_APP_BAR_EXPANDED_TITLE_TOP_PADDING: u8 = 28;
-/// The collapsed row fills the app bar and centers its title with its actions.
-pub const ANDROID_LARGE_TITLE_APP_BAR_COLLAPSED_TITLE_TOP_PADDING: u8 = 0;
-pub const ANDROID_LARGE_TITLE_HORIZONTAL_INSET: u8 = 16;
+/// Android Material 3 app bars need this trailing action inset to match SwiftUI's native toolbar.
+pub const NAVIGATION_TRAILING_ACTION_INSET: u8 = 16;
+
+/// Shared geometry and type scale for Nexa's fixed-height navigation header.
+///
+/// The header never changes its height while scrolling. Scrolling only changes
+/// the title font size over `collapse_distance`; Android applies its status-bar
+/// inset separately, and iOS uses the safe area.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TitleBarMetrics {
+    pub header_height: u8,
+    pub collapse_distance: u8,
+    pub expanded_font_size: u8,
+    pub collapsed_font_size: u8,
+    pub horizontal_inset: u8,
+}
+
+impl TitleBarMetrics {
+    /// Clamp a native scroll offset, expressed in points or density-independent pixels, to the
+    /// shared title-collapse interval.
+    pub fn collapse_progress(self, scroll_offset: f32) -> f32 {
+        if !scroll_offset.is_finite() || scroll_offset <= 0.0 {
+            return 0.0;
+        }
+
+        let distance = f32::from(self.collapse_distance);
+        if scroll_offset >= distance {
+            1.0
+        } else {
+            scroll_offset / distance
+        }
+    }
+
+    /// Interpolate the title's point/sp size without changing the fixed header geometry.
+    pub fn title_font_size(self, scroll_offset: f32) -> f32 {
+        let expanded = f32::from(self.expanded_font_size);
+        let collapsed = f32::from(self.collapsed_font_size);
+        expanded + (collapsed - expanded) * self.collapse_progress(scroll_offset)
+    }
+}
+
+pub const TITLE_BAR_METRICS: TitleBarMetrics = TitleBarMetrics {
+    header_height: 64,
+    collapse_distance: 88,
+    expanded_font_size: 28,
+    collapsed_font_size: 17,
+    horizontal_inset: 16,
+};
 pub const ANDROID_NATIVE_LIST_ROW_VERTICAL_INSET: u8 = 2;
-pub const ANDROID_NATIVE_LIST_DIVIDER_START_INSET: u8 = 54;
+/// Match the standard horizontal content inset of an iOS grouped-list row.
+pub const ANDROID_NATIVE_LIST_ROW_HORIZONTAL_INSET: u8 = 16;
+/// Match the measured minimum row height of an iOS inset-grouped SwiftUI List.
+pub const ANDROID_NATIVE_LIST_ROW_MIN_HEIGHT: u8 = 52;
+/// Row content padding already provides the grouped-list divider inset.
+pub const ANDROID_NATIVE_LIST_DIVIDER_START_INSET: u8 = 0;
+pub const ANDROID_NATIVE_LIST_DIVIDER_END_INSET: u8 = 0;
 /// Android's native-list approximation follows the inset section spacing of iOS `List`.
 pub const ANDROID_NATIVE_LIST_CONTENT_HORIZONTAL_INSET: u8 = 16;
 pub const ANDROID_NATIVE_LIST_CONTENT_VERTICAL_INSET: u8 = 12;
@@ -161,4 +204,39 @@ pub fn kotlin_color_scheme(dark: bool) -> String {
         muted = MUTED_TEXT_ARGB,
         error = DEFAULT_ERROR_ARGB,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_bar_defaults_are_one_shared_cross_platform_contract() {
+        assert_eq!(
+            TITLE_BAR_METRICS,
+            TitleBarMetrics {
+                header_height: 64,
+                collapse_distance: 88,
+                expanded_font_size: 28,
+                collapsed_font_size: 17,
+                horizontal_inset: 16,
+            }
+        );
+        assert_eq!(NAVIGATION_TRAILING_ACTION_INSET, 16);
+    }
+
+    #[test]
+    fn title_bar_collapse_clamps_scroll_and_interpolates_only_font_size() {
+        assert_eq!(TITLE_BAR_METRICS.collapse_progress(-12.0), 0.0);
+        assert_eq!(TITLE_BAR_METRICS.collapse_progress(0.0), 0.0);
+        assert_eq!(TITLE_BAR_METRICS.collapse_progress(44.0), 0.5);
+        assert_eq!(TITLE_BAR_METRICS.collapse_progress(88.0), 1.0);
+        assert_eq!(TITLE_BAR_METRICS.collapse_progress(144.0), 1.0);
+        assert_eq!(TITLE_BAR_METRICS.collapse_progress(f32::NAN), 0.0);
+
+        assert_eq!(TITLE_BAR_METRICS.title_font_size(0.0), 28.0);
+        assert_eq!(TITLE_BAR_METRICS.title_font_size(44.0), 22.5);
+        assert_eq!(TITLE_BAR_METRICS.title_font_size(88.0), 17.0);
+        assert_eq!(TITLE_BAR_METRICS.title_font_size(144.0), 17.0);
+    }
 }

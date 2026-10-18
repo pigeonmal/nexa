@@ -513,6 +513,10 @@ fn xml_escape(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "\\\"")
         .replace('\'', "\\'")
+        // Android's string-resource parser collapses literal XML line breaks to spaces.
+        // Use its escaped newline syntax so multiline Nexa text survives AOT localization.
+        .replace("\r\n", "\\n")
+        .replace(['\n', '\r'], "\\n")
 }
 
 pub(super) fn synchronize(source_root: &Path, module: &Module) -> Result<Catalog, String> {
@@ -529,6 +533,35 @@ pub(super) fn synchronize_modules(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn android_localized_resources_preserve_explicit_line_breaks() {
+        let entry = CatalogEntry {
+            source: "Leading alignment\nshort".to_owned(),
+            comment: None,
+            arguments: Vec::new(),
+            argument_types: Vec::new(),
+            apple_key: "Leading alignment\\nshort".to_owned(),
+            translations: BTreeMap::new(),
+            apple_value: "Leading alignment\\nshort".to_owned(),
+            android_value: "Leading alignment\nshort".to_owned(),
+        };
+        let catalog = Catalog {
+            format: FORMAT_VERSION,
+            source_language: "en".to_owned(),
+            strings: BTreeMap::from([(entry.source.clone(), entry)]),
+        };
+
+        let android = catalog.android_string_files().expect("Android resources");
+        let source_strings = android
+            .iter()
+            .find(|(path, _)| path == "values/strings.xml")
+            .map(|(_, contents)| contents)
+            .expect("source strings resource file");
+
+        assert!(source_strings.contains(">Leading alignment\\nshort</string>"));
+        assert!(!source_strings.contains(">Leading alignment\nshort</string>"));
+    }
 
     #[test]
     fn translation_values_render_to_platform_resources_with_context_and_plurals() {

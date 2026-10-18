@@ -11,13 +11,14 @@ pub(crate) fn render_bottom_sheet(
     state: &str,
     partial: bool,
     large_only: bool,
+    show_drag_handle: bool,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     out.line_at(
         depth,
         format_args!(
-            "NexaBottomSheetPrimitive(isPresented: ${}, partial: {partial}, largeOnly: {large_only}) {{",
+            "NexaBottomSheetPrimitive(isPresented: ${}, partial: {partial}, largeOnly: {large_only}, showDragHandle: {show_drag_handle}) {{",
             nexa_codegen::names::state_name(state)
         ),
     );
@@ -217,7 +218,7 @@ mod tests {
     fn full_screen_sheet_uses_its_typed_content_helper_once() {
         let mut output = SourceWriter::new();
 
-        render_bottom_sheet("editorVisible", false, false, 0, &mut output);
+        render_bottom_sheet("editorVisible", false, false, true, 0, &mut output);
 
         assert_eq!(
             output
@@ -227,7 +228,7 @@ mod tests {
             1
         );
         assert!(output.contains(
-            "NexaBottomSheetPrimitive(isPresented: $nexa_editorVisible, partial: false, largeOnly: false) {"
+            "NexaBottomSheetPrimitive(isPresented: $nexa_editorVisible, partial: false, largeOnly: false, showDragHandle: true) {"
         ));
         assert!(!output.contains("AnyView"));
     }
@@ -236,10 +237,10 @@ mod tests {
     fn partial_sheet_keeps_its_native_detents_and_typed_content() {
         let mut output = SourceWriter::new();
 
-        render_bottom_sheet("editorVisible", true, false, 0, &mut output);
+        render_bottom_sheet("editorVisible", true, false, false, 0, &mut output);
 
         assert!(output.contains(
-            "NexaBottomSheetPrimitive(isPresented: $nexa_editorVisible, partial: true, largeOnly: false) {"
+            "NexaBottomSheetPrimitive(isPresented: $nexa_editorVisible, partial: true, largeOnly: false, showDragHandle: false) {"
         ));
         assert!(!output.contains("AnyView"));
     }
@@ -250,6 +251,7 @@ mod tests {
             state: "sheetPresented".to_owned(),
             partial: true,
             large_only: false,
+            show_drag_handle: true,
             title: Some(Expr::String("Parity sheet".to_owned())),
             children: vec![Node::Layout {
                 kind: LayoutKind::Column,
@@ -295,6 +297,7 @@ mod tests {
             state: "sheetPresented".to_owned(),
             partial: true,
             large_only: false,
+            show_drag_handle: true,
             title: Some(Expr::String("Editor".to_owned())),
             children: vec![Node::If {
                 condition: Expr::State("showingDatePicker".to_owned(), Type::Bool),
@@ -323,6 +326,7 @@ mod tests {
                     ],
                 }]),
                 transition: None,
+                transition_animation: None,
             }],
         };
         let module = empty_module(vec![sheet]);

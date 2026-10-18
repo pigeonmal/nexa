@@ -138,9 +138,31 @@
         "android": "covered"
       }
     ],
+    "HorizontalArrangement": [
+      {
+        "name": "Start",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Center",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "End",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "AnimationSpec": [
       {
         "name": "Spring",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Tween",
         "ios": "covered",
         "android": "covered"
       },
@@ -161,6 +183,33 @@
       },
       {
         "name": "Linear",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "AnimationEasing": [
+      {
+        "name": "Linear",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "EaseIn",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "EaseOut",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "EaseInOut",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CubicBezier",
         "ios": "covered",
         "android": "covered"
       }
@@ -1066,6 +1115,35 @@
         "android": "covered"
       }
     ],
+    "NavigationTitleAlignment": [
+      {
+        "name": "Automatic",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Leading",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Center",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "NavigationTitleMode": [
+      {
+        "name": "Inline",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Large",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "Node": [
       {
         "name": "Appearance",
@@ -1073,7 +1151,7 @@
         "android": "covered"
       },
       {
-        "name": "DatePicker",
+        "name": "PickerDate",
         "ios": "covered",
         "android": "covered"
       },
@@ -1415,6 +1493,62 @@
       },
       {
         "name": "Request",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "PickerDateType": [
+      {
+        "name": "Date",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Time",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "DateTime",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "PickerDateStyle": [
+      {
+        "name": "Automatic",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Graphical",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Wheel",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Input",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Compact",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "PickerDateSelection": [
+      {
+        "name": "Single",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Range",
         "ios": "covered",
         "android": "covered"
       }

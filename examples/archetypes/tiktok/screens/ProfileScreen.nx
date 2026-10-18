@@ -1,0 +1,97 @@
+import "../models/ShortVideo.nx"
+import "../components/TopInset.nx"
+import "../components/CreatorAvatar.nx"
+import "../components/VideoThumbnail.nx"
+
+component ProfileScreen() {
+    let posts: Array<ShortVideo> = [
+        ShortVideo("profile-city", "@alex.morgan", "Evening laps downtown", "City Lights", "", "city", "alex", "12K", "330", "248K"),
+        ShortVideo("profile-coast", "@alex.morgan", "A little time by the water", "Blue Hour", "", "coast", "alex", "8.1K", "180", "91K"),
+        ShortVideo("profile-design", "@alex.morgan", "Studio refresh, part two", "Soft Focus", "", "design", "alex", "6.4K", "102", "54K"),
+        ShortVideo("profile-trail", "@alex.morgan", "Worth the early start", "First Light", "", "trail", "alex", "19K", "290", "310K"),
+        ShortVideo("profile-food", "@alex.morgan", "Sunday lunch with friends", "Sunday Kitchen", "", "food", "alex", "11K", "244", "102K"),
+        ShortVideo("profile-court", "@alex.morgan", "One more game", "Side Out", "", "court", "alex", "9K", "121", "83K"),
+    ]
+    state section: String = "Videos"
+    state isFollowing: Bool = false
+    state profileNotice: String = ""
+    let visiblePosts: Array<ShortVideo> = if section == "Liked" { [posts[1], posts[3], posts[5]] } else { if section == "Saved" { [posts[0], posts[2], posts[4]] } else { posts } }
+
+    body {
+        Column(spacing: 13, padding: 14, background: "#08080A") {
+            TopInset()
+            Row(alignment: Center) {
+                Spacer()
+                Text("@alex.morgan", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
+                Spacer()
+                Pressable(accessibilityLabel: "Profile options", accessibilityRole: Button) {
+                    Icon(system: "more", description: "More", size: 22, tint: "#FFFFFF")
+                }.onTap { profileNotice = "Profile settings" }
+            }
+            Row(spacing: 13, alignment: Center) {
+                CreatorAvatar(assetName: "alex", scale: "large")
+                Spacer()
+                Column(spacing: 4, alignment: Center) {
+                    Text("128", color: "#FFFFFF", fontSize: 17, fontWeight: Bold)
+                    Text("Following", color: "#A7A7AA", fontSize: 10)
+                }
+                Column(spacing: 4, alignment: Center) {
+                    Text("24.6K", color: "#FFFFFF", fontSize: 17, fontWeight: Bold)
+                    Text("Followers", color: "#A7A7AA", fontSize: 10)
+                }
+                Column(spacing: 4, alignment: Center) {
+                    Text("612K", color: "#FFFFFF", fontSize: 17, fontWeight: Bold)
+                    Text("Likes", color: "#A7A7AA", fontSize: 10)
+                }
+            }
+            Column(spacing: 4, alignment: Center) {
+                Text("Alex Morgan", color: "#FFFFFF", fontSize: 15, fontWeight: Bold)
+                Text("Making small things worth remembering ✨\nPortland · video maker", color: "#D5D5D8", fontSize: 12, alignment: Center, lineLimit: 2)
+            }
+            Row(spacing: 8, alignment: Center) {
+                Pressable(accessibilityLabel: "Follow Alex", accessibilityRole: Button) {
+                    if isFollowing { Row(alignment: Center, padding: 10, background: "#29292D", cornerRadius: 5) { Text("Following", color: "#FFFFFF", fontSize: 12, fontWeight: Bold) } } else { Row(alignment: Center, padding: 10, background: "#FE2C55", cornerRadius: 5) { Text("Follow", color: "#FFFFFF", fontSize: 12, fontWeight: Bold) } }
+                }.onTap { isFollowing = !isFollowing }
+                Pressable(accessibilityLabel: "Send a message", accessibilityRole: Button) {
+                    Row(alignment: Center, padding: 10, background: "#29292D", cornerRadius: 5) {
+                        Text("Message", color: "#FFFFFF", fontSize: 12, fontWeight: Semibold)
+                    }
+                }.onTap { profileNotice = "Message Alex from Inbox" }
+                Pressable(accessibilityLabel: "Share profile", accessibilityRole: Button) {
+                    Row(alignment: Center, padding: 10, background: "#29292D", cornerRadius: 5) {
+                        Icon(system: "share", description: "Share profile", size: 15, tint: "#FFFFFF")
+                    }
+                }.onTap { profileNotice = "Profile link copied" }
+            }
+            Row(spacing: 0, alignment: Center, height: 40) {
+                Pressable(accessibilityLabel: "Show videos", accessibilityRole: Button) {
+                    Column(spacing: 6, alignment: Center) {
+                        if section == "Videos" { Icon(system: "grid", description: "Videos", size: 19, tint: "#FFFFFF") } else { Icon(system: "grid", description: "Videos", size: 19, tint: "#848489") }
+                        if section == "Videos" { Stack(width: 42, height: 2, background: "#FFFFFF") {} }
+                    }
+                }.onTap { section = "Videos" }
+                Spacer()
+                Pressable(accessibilityLabel: "Show liked videos", accessibilityRole: Button) {
+                    Column(spacing: 6, alignment: Center) {
+                        if section == "Liked" { Icon(system: "favorite", description: "Liked videos", size: 19, tint: "#FFFFFF") } else { Icon(system: "favorite", description: "Liked videos", size: 19, tint: "#848489") }
+                        if section == "Liked" { Stack(width: 42, height: 2, background: "#FFFFFF") {} }
+                    }
+                }.onTap { section = "Liked" }
+                Spacer()
+                Pressable(accessibilityLabel: "Show saved videos", accessibilityRole: Button) {
+                    Column(spacing: 6, alignment: Center) {
+                        if section == "Saved" { Icon(system: "bookmark", description: "Saved videos", size: 19, tint: "#FFFFFF") } else { Icon(system: "bookmark", description: "Saved videos", size: 19, tint: "#848489") }
+                        if section == "Saved" { Stack(width: 42, height: 2, background: "#FFFFFF") {} }
+                    }
+                }.onTap { section = "Saved" }
+            }
+            FastList(visiblePosts, key: .id, axis: AutoGrid(118), rowHeight: 224, spacing: 2, accessibilityLabel: "Responsive profile video grid") { video, index in
+                Pressable(fillMaxSize: true, accessibilityLabel: "Play video \(index + 1)", accessibilityRole: Button) {
+                    VideoThumbnail(artwork: video.artwork, views: video.viewCount)
+                }.onTap { profileNotice = "Video selected" }
+            }
+            if profileNotice != "" { Text(profileNotice, color: "#A7A7AA", fontSize: 11) }
+            Column(height: 62) {}
+        }
+    }
+}

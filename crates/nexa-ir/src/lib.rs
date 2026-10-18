@@ -1,6 +1,10 @@
 use nexa_diagnostics::Span;
 use serde::{Deserialize, Serialize};
 
+fn default_true() -> bool {
+    true
+}
+
 pub mod bottom_sheet;
 pub mod capabilities;
 pub mod facts;
@@ -731,11 +735,19 @@ pub enum Node {
     /// Native settings-style container. Child sections map to SwiftUI Form
     /// sections and to Material settings groups on Android.
     Form {
+        #[serde(default = "default_true")]
+        show_dividers: bool,
+        #[serde(default)]
+        background: Option<ColorValue>,
         children: Vec<Node>,
     },
     FormSection {
         title: Option<Expr>,
         footer: Option<Expr>,
+        #[serde(default)]
+        show_dividers: Option<bool>,
+        #[serde(default)]
+        background: Option<ColorValue>,
         children: Vec<Node>,
     },
     Text {
@@ -746,7 +758,15 @@ pub enum Node {
     ContentUnavailable {
         title: Expr,
         icon: SystemIcon,
-        description: Expr,
+        description: Option<Expr>,
+        #[serde(default)]
+        title_color: Option<ColorExpression>,
+        #[serde(default)]
+        description_color: Option<ColorExpression>,
+        #[serde(default)]
+        icon_tint: Option<ColorExpression>,
+        #[serde(default)]
+        background: Option<ColorExpression>,
     },
     Spacer,
     Divider {
@@ -810,18 +830,41 @@ pub enum Node {
     SegmentedControl {
         items: Expr,
         state: String,
+        animation: Option<AnimationSpec>,
+        #[serde(default)]
+        tint: Option<ColorExpression>,
+        #[serde(default)]
+        background: Option<ColorExpression>,
+        #[serde(default)]
+        text_color: Option<ColorExpression>,
+        #[serde(default)]
+        selected_text_color: Option<ColorExpression>,
+        #[serde(default)]
+        font_size: Option<f32>,
+        #[serde(default)]
+        font_weight: Option<FontWeight>,
+        #[serde(default)]
+        height: Option<f32>,
+        #[serde(default)]
+        corner_radius: Option<f32>,
+        #[serde(default)]
+        border_color: Option<ColorExpression>,
+        #[serde(default)]
+        border_width: Option<f32>,
     },
     Picker {
         items: Expr,
         state: String,
         icon: Option<SystemIcon>,
+        /// Compile-time shared system icons displayed beside the matching menu options.
+        #[serde(default)]
+        item_icons: Vec<SystemIcon>,
         label: Option<Expr>,
         #[serde(default)]
         tint: Option<ColorExpression>,
     },
-    DatePicker {
-        timestamp_state: String,
-        has_time_state: String,
+    PickerDate {
+        props: Box<PickerDateProps>,
     },
     Image {
         source: ImageSource,
@@ -866,6 +909,14 @@ pub enum Node {
     NavigationStack {
         root: ScreenId,
         arguments: Vec<Expr>,
+        /// Compact single-row title by default; `Large` opts into the native
+        /// expanding title presentation on both platforms.
+        #[serde(default)]
+        title_mode: NavigationTitleMode,
+        /// Leading puts an inline title beside the back arrow; Center keeps
+        /// the platform's centered inline title treatment.
+        #[serde(default)]
+        title_alignment: NavigationTitleAlignment,
     },
     NavigationSplitView {
         detail_visible: String,
@@ -904,6 +955,10 @@ pub enum Node {
         partial: bool,
         #[serde(default)]
         large_only: bool,
+        /// Whether the native drag affordance is visible. Defaults to true for
+        /// older serialized modules and for source that omits the argument.
+        #[serde(default = "default_true")]
+        show_drag_handle: bool,
         #[serde(default)]
         title: Option<Expr>,
         children: Vec<Node>,
@@ -947,12 +1002,16 @@ pub enum Node {
         then_body: Vec<Node>,
         else_body: Option<Vec<Node>>,
         transition: Option<ViewTransition>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transition_animation: Option<AnimationSpec>,
     },
     When {
         value: Expr,
         cases: Vec<WhenCase>,
         else_body: Vec<Node>,
         transition: Option<ViewTransition>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transition_animation: Option<AnimationSpec>,
     },
     Content,
     ComponentCall {
@@ -1030,6 +1089,9 @@ pub struct ListCommon {
     /// On iOS this emits SwiftUI `List`; Android keeps the Compose lazy list.
     #[serde(default)]
     pub native: bool,
+    /// Whether rows are separated visually. Defaults to true for existing IR.
+    #[serde(default = "default_true")]
+    pub show_dividers: bool,
     /// Invert a flat vertical list so logical rows appear bottom-to-top.
     #[serde(default)]
     pub reverse_layout: bool,
@@ -1081,6 +1143,9 @@ pub struct SectionedListCommon {
     /// Use the platform's standard list container where the backend supports it.
     #[serde(default)]
     pub native: bool,
+    /// Whether rows are separated visually. Defaults to true for existing IR.
+    #[serde(default = "default_true")]
+    pub show_dividers: bool,
     pub item_extent: Option<f32>,
     /// Vertical distance between adjacent rows, in logical points/dp.
     #[serde(default)]
@@ -1510,8 +1575,10 @@ pub enum ImageSource {
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ViewStyle {
     pub alignment: Option<Alignment>,
+    pub horizontal_arrangement: Option<HorizontalArrangement>,
     pub padding: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -1607,6 +1674,54 @@ pub enum ButtonShape {
     Rounded(f32),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PickerDateType {
+    Date,
+    Time,
+    DateTime,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PickerDateStyle {
+    Automatic,
+    Graphical,
+    Compact,
+    Input,
+    Wheel,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PickerDateSelection {
+    Single,
+    Range,
+}
+
+/// Typed date/time picker options, kept behind one pointer in the node enum to
+/// avoid inflating every IR node with picker-specific state.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PickerDateProps {
+    pub picker_type: PickerDateType,
+    pub style: PickerDateStyle,
+    pub selection: PickerDateSelection,
+    pub timestamp_state: Option<String>,
+    pub start_timestamp_state: Option<String>,
+    pub end_timestamp_state: Option<String>,
+    pub minimum: Option<Expr>,
+    pub maximum: Option<Expr>,
+    pub tint: Option<ColorExpression>,
+    pub text_color: Option<ColorExpression>,
+    pub background_color: Option<ColorExpression>,
+    pub picker_background_color: Option<ColorExpression>,
+    pub border_color: Option<ColorExpression>,
+    pub border_width: Option<f32>,
+    pub corner_radius: Option<f32>,
+    pub locale: Option<Expr>,
+    pub time_zone: Option<Expr>,
+    pub is_24_hour: Option<Expr>,
+    pub enabled: Option<Expr>,
+    pub accessibility_label: Option<Expr>,
+}
+
 /// Static rounded-rectangle shadow parameters shared by SwiftUI and Compose.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ViewShadow {
@@ -1618,11 +1733,29 @@ pub struct ViewShadow {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AnimationSpec {
-    Spring { response: f32, damping: f32 },
+    Spring {
+        response: f32,
+        damping: f32,
+    },
+    Tween {
+        duration: f64,
+        delay: f64,
+        easing: AnimationEasing,
+    },
     EaseIn,
     EaseOut,
     EaseInOut,
     Linear,
+}
+
+/// Timing curve used by a fixed-duration native tween.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum AnimationEasing {
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    CubicBezier { x1: f32, y1: f32, x2: f32, y2: f32 },
 }
 
 /// Native appearance/removal effect for a conditional view block.
@@ -1643,10 +1776,40 @@ pub enum Alignment {
     End,
 }
 
+/// Main-axis placement for children in a horizontal `Row`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HorizontalArrangement {
+    Start,
+    Center,
+    End,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolbarPlacement {
     Leading,
     Trailing,
+}
+
+/// Native navigation title presentation shared by SwiftUI and Material 3.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NavigationTitleMode {
+    /// Keep the title on the same row as the back control.
+    #[default]
+    Inline,
+    /// Use a large title that collapses as the screen scrolls.
+    Large,
+}
+
+/// Horizontal placement for an inline navigation title.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NavigationTitleAlignment {
+    /// Use the platform's native inline title placement.
+    #[default]
+    Automatic,
+    /// Start the title immediately after the native back control.
+    Leading,
+    /// Use the platform's centered inline-title layout.
+    Center,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1668,7 +1831,8 @@ pub enum ColorValue {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ColorExpression {
     Static(ColorValue),
-    Dynamic(Expr),
+    /// Heap-backed so optional dynamic colors do not inflate every IR `Node`.
+    Dynamic(Box<Expr>),
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]

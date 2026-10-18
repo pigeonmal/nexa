@@ -12,6 +12,7 @@ const EXAMPLES: &[&str] = &[
     "clipboard",
     "haptics",
     "network_status",
+    "file_api",
     "currency_formatting",
     "keyboard_ergonomics",
     "pressable_double_tap",
@@ -76,6 +77,43 @@ fn generated_android_activity_binds_runtime_before_compose_starts() {
         runtime_bind < set_content,
         "runtime lifecycle callbacks must be registered before the Activity enters STARTED"
     );
+}
+
+#[test]
+fn android_keyboard_aware_scroll_preserves_drag_focus_guard_in_aot_output() {
+    let project = TestProject::new("nexa-android-keyboard-aware-drag");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app KeyboardScroll {
+    state task: String = ""
+    body {
+        KeyboardAware {
+            Column {
+                TextInput(value: task, placeholder: "Task")
+                Text("Swipe to scroll")
+            }
+        }
+    }
+}"#,
+    )
+    .expect("write keyboard-aware fixture");
+    let output = project.join("android");
+    nexa_cli::generate_project(&entry, "android", &output, "KeyboardScroll")
+        .expect("generate Android keyboard-aware app");
+    let kotlin = kotlin_sources(&output)
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Kotlin"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(kotlin.contains("NexaKeyboardAwareColumnPrimitive(interactiveDismiss = true)"));
+    assert!(kotlin.contains("internal fun NexaKeyboardAwareColumnPrimitive("));
+    assert!(kotlin.contains("val keyboardWasVisible = imeVisible.value"));
+    assert!(kotlin.contains(
+        "if (interactiveDismiss && imeVisible.value) modifier = modifier.imeNestedScroll()"
+    ));
+    assert!(kotlin.contains("focusManager.clearFocus()"));
 }
 
 #[test]
@@ -201,20 +239,47 @@ fn build_android_debug_if_available(android_project: &Path, host: &str) {
 }
 
 #[test]
-fn imperative_animation_aot_hosts_compile_when_native_toolchains_are_available() {
+fn animations_and_segmented_control_aot_hosts_compile_when_native_toolchains_are_available() {
     let temp = TestProject::new("nexa-imperative-animation-aot");
     let entry = temp.join("AnimatedProgress.nx");
     fs::write(
         &entry,
         r#"app AnimatedProgress {
     state progress: Float64 = 0.0
+    state expanded: Bool = false
+    state selection: String = "Week"
+    state localizedSelection: String = "Morning"
+    state emptySelection: String = "Missing"
+    let choices: Array<String> = ["Day", "Week", "Month"]
+    let localizedChoices: Array<String> = [Locale.localized("Morning"), Locale.localized("Evening")]
+    let emptyChoices: Array<String> = []
     body {
         Button("Complete") {
-            withAnimation(Spring(response: 0.35, damping: 0.8)) {
+            withAnimation(Tween(
+                duration: 0.24,
+                delay: 0.04,
+                easing: CubicBezier(0.2, 0.0, 0.2, 1.0)
+            )) {
                 progress = 1.0
             }
         }
         ProgressBar(progress: progress)
+        Button("Toggle details") { expanded = !expanded }
+        if expanded {
+            Text("Animated details")
+        }.transition(.slide(from: .bottom), animation: Tween(duration: 0.24, delay: 0.04, easing: EaseOut))
+        SegmentedControl(
+            items: ["Day", "Week", "Month"],
+            selected: selection,
+            comment: "Date range options"
+        )
+        SegmentedControl(
+            items: choices,
+            selected: selection,
+            animation: Tween(duration: 0.24, delay: 0.04, easing: CubicBezier(0.2, 0.0, 0.2, 1.0))
+        )
+        SegmentedControl(items: localizedChoices, selected: localizedSelection)
+        SegmentedControl(items: emptyChoices, selected: emptySelection)
     }
 }"#,
     )
@@ -250,6 +315,65 @@ fn imperative_animation_aot_hosts_compile_when_native_toolchains_are_available()
     nexa_cli::generate_project(&entry, "android", &android, "NexaAnimatedProgress")
         .expect("Android animation host should generate");
     build_android_debug_if_available(&android, "Android animation host");
+}
+
+#[test]
+fn animations_and_segmented_control_dev_runtime_hosts_compile_when_native_toolchains_are_available()
+{
+    let temp = TestProject::new("nexa-animation-dev-runtime");
+    let entry = temp.join("SpringAnimation.nx");
+    fs::copy(example_path("spring_animation.nx"), &entry)
+        .expect("copy the shared animation fixture into the test project");
+    fs::copy(
+        example_path("component-parity/nexa.config.nx"),
+        temp.join("nexa.config.nx"),
+    )
+    .expect("copy a native DevRuntime-compatible project config");
+
+    let ios = temp.join("animation-dev-ios");
+    nexa_cli::generate_dev_project(
+        &entry,
+        "ios",
+        &ios,
+        "NexaAnimationDev",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("iOS animation DevRuntime host should generate");
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios16.0-simulator",
+            ])
+            .args(swift_sources(&ios.join("ios/NexaAnimationDev")))
+            .output()
+            .expect("Swift compiler should start for the animation DevRuntime host");
+        assert!(
+            built.status.success(),
+            "iOS animation DevRuntime host failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+
+    let android = temp.join("animation-dev-android");
+    nexa_cli::generate_dev_project(
+        &entry,
+        "android",
+        &android,
+        "NexaAnimationDev",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("Android animation DevRuntime host should generate");
+    build_android_debug_if_available(&android, "Android animation DevRuntime host");
 }
 
 #[test]
@@ -391,8 +515,29 @@ fn background_task_generates_native_schedulers_and_feature_gated_dependencies() 
 #[test]
 fn imported_websocket_screen_generates_a_hot_reloadable_plugin_bridge() {
     let temp = TestProject::new("nexa-websocket-imported-screen-dev");
-    let entry =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/websocket/tests/demo/app/App.nx");
+    let demo_app =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/websocket/tests/demo/app");
+    let plugin_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../plugins/websocket")
+        .canonicalize()
+        .expect("resolve the WebSocket plugin package");
+    let config = fs::read_to_string(demo_app.join("nexa.config.nx"))
+        .expect("read WebSocket demo config")
+        .replace("minSdk: 23", "minSdk: 24");
+    let app = fs::read_to_string(demo_app.join("App.nx"))
+        .expect("read WebSocket demo app")
+        .replace(
+            "plugin \"../../../\" as WebSocket",
+            &format!("plugin \"{}\" as WebSocket", plugin_root.display()),
+        );
+    temp.write("nexa.config.nx", config);
+    temp.write("App.nx", app);
+    temp.write(
+        "screens/Chat.nx",
+        fs::read_to_string(demo_app.join("screens/Chat.nx"))
+            .expect("read imported WebSocket screen"),
+    );
+    let entry = temp.path().join("App.nx");
     let ios = temp.join("websocket-dev-ios");
     nexa_cli::generate_dev_project(
         &entry,
@@ -862,6 +1007,39 @@ fn generated_android_example_hosts_build_with_gradle_when_available() {
     assert!(
         built.status.success(),
         "Android split-view DevRuntime host failed to compile:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+}
+
+#[test]
+fn generated_android_file_api_example_compiles_when_native_builds_are_enabled() {
+    if !Toolchain::should_run_native_builds() {
+        eprintln!(
+            "skipping Android file API build in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)"
+        );
+        return;
+    }
+
+    let (Some(gradle), Some(sdk)) = (Toolchain::gradle(), Toolchain::android_sdk()) else {
+        eprintln!("skipping Android file API build: Gradle or Android SDK is unavailable");
+        return;
+    };
+    if !sdk.join("platforms/android-36/android.jar").is_file() {
+        eprintln!("skipping Android file API build: Android API 36 is unavailable");
+        return;
+    }
+
+    let temp = TestProject::new("nexa-file-api-android");
+    let project = generate_example(&temp, "file_api", "android");
+    let built = Command::new(gradle)
+        .args([":app:assembleDebug"])
+        .current_dir(project.join("android"))
+        .output()
+        .expect("Gradle should start for the Android file API example");
+    assert!(
+        built.status.success(),
+        "generated Android File API example failed to compile:\n{}\n{}",
         String::from_utf8_lossy(&built.stdout),
         String::from_utf8_lossy(&built.stderr)
     );

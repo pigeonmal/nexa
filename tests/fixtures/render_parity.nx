@@ -18,12 +18,20 @@ app RenderParity {
     state progress: Float64 = 0.72
     state period: String = "Week"
     state periods: Array<String> = ["Day", "Week", "Month"]
+    state segmentTint: String = "#0088FF"
     state sectionItems: Array<Array<String>> = [["First section row", "Second section row"], ["Third section row"]]
     state movableItems: Array<String> = ["Move one", "Move two", "Move three"]
     state sort: String = "Due date"
     state sortOptions: Array<String> = ["Due date", "Priority", "Title"]
     state timestamp: Int64 = Time.now()
-    state hasTime: Bool = false
+    state rangeStart: Int64 = Time.now()
+    state rangeEnd: Int64 = Time.now()
+    state pickerLocale: String = "fr-FR"
+    state pickerTimeZone: String = "Europe/Paris"
+    state pickerUses24Hour: Bool = true
+    state pickerEnabled: Bool = true
+    state minimumTimestamp: Int64 = Time.now()
+    state maximumTimestamp: Int64 = Time.now()
     state selectedTab: Int32 = 0
     state selectedPage: Int32 = 0
     state detailVisible: Bool = true
@@ -39,6 +47,7 @@ app RenderParity {
     state sheetPresented: Bool = false
     state dialogPresented: Bool = false
     state confirmationPresented: Bool = false
+    state emptyStateIconTint: String = "#0088FF"
 
     screen Main {
         StatusBar(style: Default, hidden: false, background: "#000000")
@@ -52,7 +61,7 @@ app RenderParity {
                         }
                     }
                     Text("Toolbar actions: $toolbarActionCount", fontSize: 12)
-                    Form {
+                    Form(showDividers: true, background: "#FFFFFF") {
                         Text("Parity heading", fontSize: 20, fontWeight: Semibold)
                         NavigationLink(destination: Detail, when: canNavigate) {
                             Text("Open detail screen")
@@ -68,13 +77,16 @@ app RenderParity {
                         }
                         Switch(value: enabled, label: "Enabled", comment: "Controls the task filter")
                         Text("Enabled: $enabled", fontSize: 12)
-                        Section(title: "Layout and content", footer: "Native form section footer", comment: "General layout samples") {
+                        Section(title: "Layout and content", footer: "Native form section footer", comment: "General layout samples", showDividers: false, background: "#FFFFFF") {
                             ParityCard(title: "Custom component") {
                                 Text("Projected content", fontSize: 12, color: "#A0A0A0")
                             }
                             Row(spacing: 8, alignment: Center) {
                                 Text("Row layout")
                                 Icon(system: "check_circle", size: 24, tint: "#E11D48", description: "Completed")
+                            }
+                            Row(horizontalArrangement: Center) {
+                                Text("Horizontally centered row")
                             }
                             Stack(alignment: Center, width: 120, height: 44, background: "#303030", cornerRadius: 8) {
                                 Text("Stack layout")
@@ -84,7 +96,7 @@ app RenderParity {
                                 Text("Flexible row")
                                 Spacer()
                             }
-                            ContentUnavailable(title: "No archived tasks", icon: "inbox", description: "Archived tasks appear here.", comment: "Empty state sample")
+                            ContentUnavailable(title: "No archived tasks", icon: "inbox", description: "Archived tasks appear here.", titleColor: "#222222", descriptionColor: "#666666", iconTint: emptyStateIconTint, background: "#F4F4F8", comment: "Empty state sample")
                             Text("Conditional content", fontSize: 12)
                             if enabled {
                                 Text("If branch enabled", accessibilityLabel: "If branch enabled")
@@ -98,11 +110,22 @@ app RenderParity {
                         }
                         Section(title: "Input and controls") {
                             Slider(value: sliderValue, min: 0, max: 1, step: 0.05, accessibilityLabel: "Progress slider")
+                            Button("Animate progress") {
+                                withAnimation(Tween(duration: 0.24, easing: EaseOut)) {
+                                    if progress > 0.5 {
+                                        progress = 0.2
+                                    } else {
+                                        progress = 0.8
+                                    }
+                                }
+                            }
                             ProgressBar(progress: progress, accessibilityLabel: "Task progress")
                             ProgressRing(progress: progress, accessibilityLabel: "Circular task progress")
-                            SegmentedControl(items: periods, selected: period, comment: "Task date range", accessibilityLabel: "Period")
-                            Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Sort tasks by", accessibilityLabel: "Sort tasks")
-                            DatePicker(timestamp: timestamp, hasTime: hasTime, accessibilityLabel: "Due date")
+                            SegmentedControl(items: periods, selected: period, animation: Spring(response: 0.35, damping: 0.82), tint: segmentTint, background: "#E9EAF0", selectedTextColor: "#17171A", textColor: "#68686F", fontSize: 14, fontWeight: Medium, height: 36, cornerRadius: 18, borderColor: "#D2D3DA", borderWidth: 1, comment: "Task date range", accessibilityLabel: "Period")
+                            Picker(items: sortOptions, selected: sort, itemIcons: ["calendar", "flag_filled", "edit"], icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Sort tasks by", accessibilityLabel: "Sort tasks")
+                            PickerDate(type: DateTime, style: Graphical, selection: Single, timestamp: timestamp, minimum: minimumTimestamp, maximum: maximumTimestamp, tint: segmentTint, textColor: "#FFFFFF", backgroundColor: "#202124", pickerBackgroundColor: "#303134", borderColor: "#60646C", borderWidth: 1, cornerRadius: 12, locale: pickerLocale, timeZone: pickerTimeZone, is24Hour: pickerUses24Hour, enabled: pickerEnabled, accessibilityLabel: "Task due date")
+                            PickerDate(type: Date, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: minimumTimestamp, maximum: maximumTimestamp)
+                            PickerDate(type: Date, style: Input, timestamp: timestamp)
                             Pressable(accessibilityLabel: "Pressable action", accessibilityRole: Button) {
                                 Text("Pressable region")
                             }.onTap {
@@ -181,14 +204,16 @@ app RenderParity {
                             refreshing = false
                             refreshCount = refreshCount + 1
                         }
-                        FastList(count: 24, native: true, spacing: 4, accessibilityLabel: "Parity task list") { index in
-                            Row(spacing: 8, padding: 8) {
-                                Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
-                                Text("Virtual row \(index)")
-                            }
-                        }.swipeActions {
-                            Button("Delete row", icon: "delete", style: Borderless) {
-                                refreshCount = refreshCount + 1
+                        Stack(height: 180) {
+                            FastList(count: 24, native: true, spacing: 4, showDividers: false, accessibilityLabel: "Parity task list") { index in
+                                Row(spacing: 8, padding: 8) {
+                                    Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                                    Text("Virtual row \(index)")
+                                }
+                            }.swipeActions {
+                                Button("Delete row", icon: "delete", style: Borderless) {
+                                    refreshCount = refreshCount + 1
+                                }
                             }
                         }
                         Text("Reverse list parameters")
@@ -259,7 +284,7 @@ app RenderParity {
                 }
                 }
 
-                BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet") {
+                BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet", showDragHandle: false) {
                     Column(spacing: 12, padding: 24) {
                         Text("Sheet content", accessibilityLabel: "Sheet content")
                         Button("Close sheet") { sheetPresented = false }
@@ -267,6 +292,7 @@ app RenderParity {
                 }
                 Dialog(isPresented: dialogPresented, title: "Parity dialog", message: "Dialog content", comment: "Dialog localization coverage") {
                     Button("Dismiss dialog") { dialogPresented = false }
+                    Button("Confirm dialog") { dialogPresented = false }
                 }
                 ConfirmationDialog(isPresented: confirmationPresented, title: "Confirm parity", comment: "Confirmation localization coverage") {
                     Button("Confirm action") { confirmationPresented = false }
@@ -277,15 +303,19 @@ app RenderParity {
 
     screen Detail {
         Column(spacing: 12, padding: 16) {
-            NavigationBack(label: "Back to catalog")
+            NavigationBack(label: "Back to previous screen")
             Text("Navigation destination", accessibilityLabel: "Navigation destination")
+            NavigationLink(destination: TextEntry) {
+                Text("Open nested navigation screen", accessibilityLabel: "Open nested navigation screen")
+            }
         }
     }
 
     screen TextEntry {
         KeyboardAware(dismiss: Never) {
             Column(spacing: 12, padding: 16) {
-                NavigationBack(label: "Back to catalog")
+                NavigationBack(label: "Back to previous screen")
+                Text("Nested navigation destination", accessibilityLabel: "Nested navigation destination")
                 TextInput(value: title, placeholder: "Task title", keyboardType: Text, capitalization: None, comment: "Task title input").onChange { changed ->
                     title = changed
                 }
@@ -375,6 +405,19 @@ app RenderParity {
                 ) {
                     Text("Stack style parameters")
                 }
+                Column(
+                    width: 240,
+                    minHeight: 36,
+                    padding: 4,
+                    background: "#252525",
+                    cornerRadius: 8,
+                    animation: Tween(duration: 0.24, easing: EaseInOut)
+                ) {
+                    Text("Timed layout animation")
+                    if enabled {
+                        Text("Expanded content")
+                    }
+                }
             }
             Section(title: "Typography style parameters", comment: "Text appearance and line layout") {
                 Text(
@@ -417,6 +460,9 @@ app RenderParity {
                     glass: true
                 ) {
                     loading = !loading
+                }
+                Button("Stop loading indicator", style: Bordered) {
+                    loading = false
                 }
                 Button("Enable configured button", style: BorderedProminent) {
                     disabled = false
@@ -516,7 +562,8 @@ app RenderParity {
     screen ListParameters {
         Column(spacing: 12, padding: 16) {
             NavigationBack(label: "Back to lists")
-            Text("Page snap list parameters", accessibilityLabel: "Page snap list parameters")
+            Text("Page snap list parameters", comment: "Pagination screenshot fixture", accessibilityLabel: "Page snap list parameters")
+            Text("Page position: \(pagePosition)")
             FastList(count: 3, scrollPosition: pagePosition, pageSnap: true, accessibilityLabel: "Page snap parity list") { index in
                 Column(spacing: 12, padding: 24) {
                     Text("Page snap row \(index)")
@@ -532,6 +579,6 @@ app RenderParity {
         OnInactive { count = count }
         OnBackground { count = count }
         Direction(value: LTR)
-        NavigationStack(root: Main)
+        NavigationStack(root: Main, titleMode: Inline, titleAlignment: Automatic)
     }
 }

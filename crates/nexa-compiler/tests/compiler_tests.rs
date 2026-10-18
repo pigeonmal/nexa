@@ -2,10 +2,11 @@ use std::{fs, path::Path};
 
 use nexa_ir::{
     AccessibilityRole, Action, ArithmeticOp, AutofillType, CollectionMutation, ColorExpression,
-    Expr, ListPlan, MemberKind, Node, NumericType, ReturnKeyType, Type,
+    Expr, ListPlan, MemberKind, Node, NumericType, ReturnKeyType, SystemIcon, Type,
     walk::{walk_actions, walk_ir},
 };
 
+use nexa_codegen::Backend;
 use nexa_compiler::{Target, compile, compile_file_with_warnings_for_target};
 use nexa_testkit::TestProject;
 
@@ -83,6 +84,61 @@ fn fast_list_reverse_layout_is_typed_for_flat_vertical_lists() {
         horizontal
             .to_string()
             .contains("supported only for vertical lists")
+    );
+}
+
+#[test]
+fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
+    let module = compile(
+        r#"
+        struct DividerRow {
+            id: String,
+        }
+
+        app DividerOptions {
+            let rows: Array<DividerRow> = [DividerRow("first"), DividerRow("second")]
+            let groups: Array<Array<DividerRow>> = [rows]
+
+            body {
+                FastList(count: 2, showDividers: false) { index in Text(index) }
+                FastList(rows, key: .id, native: true, showDividers: false) { row, index in Text(row.id) }
+                FastList(sections: groups, native: true, showDividers: false) { row, index, section in Text(row.id) }
+            }
+        }
+        "#,
+    )
+    .expect("showDividers is valid on flat and sectioned lists");
+
+    let plans = module
+        .body
+        .iter()
+        .filter_map(|node| match node {
+            Node::FastList { plan } => Some(plan.as_ref()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(plans.len(), 3);
+    assert!(plans.iter().all(|plan| match plan {
+        ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => !common.show_dividers,
+        ListPlan::Sections { common, .. } => !common.show_dividers,
+    }));
+
+    let swift = nexa_backend_swift::SwiftBackend
+        .generate_units(&module)
+        .units
+        .into_iter()
+        .map(|unit| unit.contents)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("showDividers: false"));
+    assert!(swift.contains("NexaNativeListRowPrimitive(showDividers: false)"));
+    assert!(swift.contains("List {"));
+
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(!kotlin.contains("NexaFastListDividerPrimitive()"));
+    assert_eq!(
+        kotlin.matches("NexaNativeListDividerPrimitive()").count(),
+        1
     );
 }
 
@@ -512,6 +568,90 @@ fn in_memory_compile_merges_top_level_screens_into_the_app() {
             ..
         })
     ));
+}
+
+#[test]
+fn navigation_title_defaults_and_explicit_title_modes_and_alignment_compile() {
+    let inline = compile(
+        r#"
+        app InlineNavigationTitle {
+            screen Home { Text("Home") }
+            body { NavigationStack(root: Home) }
+        }
+        "#,
+    )
+    .expect("the default title mode should be inline");
+    assert!(matches!(
+        inline.body.first(),
+        Some(Node::NavigationStack {
+            title_mode: nexa_ir::NavigationTitleMode::Inline,
+            title_alignment: nexa_ir::NavigationTitleAlignment::Automatic,
+            ..
+        })
+    ));
+
+    let large = compile(
+        r#"
+        app LargeNavigationTitle {
+            screen Home { Text("Home") }
+            body { NavigationStack(root: Home, titleMode: Large) }
+        }
+        "#,
+    )
+    .expect("Large should opt into the native expanding title mode");
+    assert!(matches!(
+        large.body.first(),
+        Some(Node::NavigationStack {
+            title_mode: nexa_ir::NavigationTitleMode::Large,
+            ..
+        })
+    ));
+
+    let centered = compile(
+        r#"
+        app CenteredNavigationTitle {
+            screen Home { Text("Home") }
+            body { NavigationStack(root: Home, titleAlignment: Center) }
+        }
+        "#,
+    )
+    .expect("Center should preserve the native centered inline title");
+    assert!(matches!(
+        centered.body.first(),
+        Some(Node::NavigationStack {
+            title_mode: nexa_ir::NavigationTitleMode::Inline,
+            title_alignment: nexa_ir::NavigationTitleAlignment::Center,
+            ..
+        })
+    ));
+
+    let leading = compile(
+        r#"
+        app LeadingNavigationTitle {
+            screen Home { Text("Home") }
+            body { NavigationStack(root: Home, titleAlignment: Leading) }
+        }
+        "#,
+    )
+    .expect("Leading should explicitly align the title beside the back control");
+    assert!(matches!(
+        leading.body.first(),
+        Some(Node::NavigationStack {
+            title_alignment: nexa_ir::NavigationTitleAlignment::Leading,
+            ..
+        })
+    ));
+
+    let invalid_alignment = compile(
+        r#"
+        app InvalidNavigationTitleAlignment {
+            screen Home { Text("Home") }
+            body { NavigationStack(root: Home, titleAlignment: Trailing) }
+        }
+        "#,
+    )
+    .expect_err("unsupported title alignments should be diagnosed");
+    assert!(invalid_alignment.message.contains("titleAlignment"));
 }
 
 #[test]
@@ -1151,26 +1291,37 @@ fn app_bottom_bar_and_controls_accept_runtime_hex_color_state() {
     .expect("runtime hexadecimal string state should feed native tints");
 
     let Some(Node::AppBottomBar {
-        tint: Some(nexa_ir::ColorExpression::Dynamic(Expr::State(name, Type::String))),
+        tint: Some(nexa_ir::ColorExpression::Dynamic(color)),
         tabs,
         ..
     }) = module.body.first()
     else {
         panic!("expected a dynamic AppBottomBar tint");
     };
-    assert_eq!(name, "accent");
     assert!(matches!(
-        tabs[0].children.as_slice(),
-        [
-            Node::Button {
-                tint: Some(nexa_ir::ColorExpression::Dynamic(Expr::State(button_name, Type::String))),
-                ..
-            },
-            Node::SystemIcon {
-                tint: nexa_ir::ColorExpression::Dynamic(Expr::State(icon_name, Type::String)),
-                ..
-            }
-        ] if button_name == "accent" && icon_name == "accent"
+        color.as_ref(),
+        Expr::State(name, Type::String) if name == "accent"
+    ));
+    let [
+        Node::Button {
+            tint: Some(nexa_ir::ColorExpression::Dynamic(button_color)),
+            ..
+        },
+        Node::SystemIcon {
+            tint: nexa_ir::ColorExpression::Dynamic(icon_color),
+            ..
+        },
+    ] = tabs[0].children.as_slice()
+    else {
+        panic!("expected a tinted button and icon in the custom tab bar");
+    };
+    assert!(matches!(
+        button_color.as_ref(),
+        Expr::State(name, Type::String) if name == "accent"
+    ));
+    assert!(matches!(
+        icon_color.as_ref(),
+        Expr::State(name, Type::String) if name == "accent"
     ));
 }
 
@@ -1252,24 +1403,34 @@ fn icon_component_supports_shared_and_platform_specific_symbols() {
 #[test]
 fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
     let module = compile(
-        r#"
+        r##"
         app EmptyState {
+            state descriptionColor: String = "#666666"
             body {
                 ContentUnavailable(
                     title: "Inbox is empty",
                     icon: "inbox",
-                    description: "Tasks you add will appear here."
+                    description: "Tasks you add will appear here.",
+                    titleColor: "#222222",
+                    descriptionColor: descriptionColor,
+                    iconTint: "#0088FF",
+                    background: "#F4F4F8"
                 )
             }
         }
-        "#,
+        "##,
     )
     .expect("ContentUnavailable should accept simple localized text and shared icons");
 
     let Some(Node::ContentUnavailable {
         title,
         icon: nexa_ir::SystemIcon::Shared(icon),
-        description,
+        description: Some(description),
+        title_color:
+            Some(nexa_ir::ColorExpression::Static(nexa_ir::ColorValue::Static(title_color))),
+        description_color: Some(nexa_ir::ColorExpression::Dynamic(dynamic_description_color)),
+        icon_tint: Some(nexa_ir::ColorExpression::Static(nexa_ir::ColorValue::Static(icon_tint))),
+        background: Some(nexa_ir::ColorExpression::Static(nexa_ir::ColorValue::Static(background))),
     }) = module.body.first()
     else {
         panic!("expected a typed ContentUnavailable node");
@@ -1280,6 +1441,76 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
         source_text(description),
         Some("Tasks you add will appear here.")
     );
+    assert_eq!(
+        (
+            title_color.red,
+            title_color.green,
+            title_color.blue,
+            title_color.alpha
+        ),
+        (34, 34, 34, 255)
+    );
+    assert!(matches!(
+        dynamic_description_color.as_ref(),
+        Expr::State(name, _) if name == "descriptionColor"
+    ));
+    assert_eq!(
+        (
+            icon_tint.red,
+            icon_tint.green,
+            icon_tint.blue,
+            icon_tint.alpha
+        ),
+        (0, 136, 255, 255)
+    );
+    assert_eq!(
+        (
+            background.red,
+            background.green,
+            background.blue,
+            background.alpha
+        ),
+        (244, 244, 248, 255)
+    );
+
+    let swift = nexa_backend_swift::SwiftBackend
+        .generate_units(&module)
+        .units
+        .into_iter()
+        .map(|unit| unit.contents)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(swift.contains("titleColor: Color(red: 0.133333"));
+    assert!(swift.contains("descriptionColor: nexaColor(hex:"));
+    assert!(swift.contains("iconTint: Color(red: 0.000000, green: 0.533333, blue: 1.000000"));
+    assert!(swift.contains("background: Color(red: 0.956863, green: 0.956863, blue: 0.972549"));
+    assert!(kotlin.contains("titleColor = Color(0xFF222222)"));
+    assert!(kotlin.contains("descriptionColor = nexaColorFromHex("));
+    assert!(kotlin.contains("iconTint = Color(0xFF0088FF)"));
+    assert!(kotlin.contains("background = Color(0xFFF4F4F8)"));
+
+    let without_description = compile(
+        r#"
+        app EmptyStateWithoutDescription {
+            body {
+                ContentUnavailable(title: "No reminders", icon: "calendar")
+            }
+        }
+        "#,
+    )
+    .expect("ContentUnavailable description should be optional");
+    assert!(matches!(
+        without_description.body.first(),
+        Some(Node::ContentUnavailable {
+            description: None,
+            title_color: None,
+            description_color: None,
+            icon_tint: None,
+            background: None,
+            ..
+        })
+    ));
 
     let invalid_icon = compile(
         r#"
@@ -1350,6 +1581,43 @@ fn toolbar_lowers_placement_and_native_action_content() {
             placement: nexa_ir::ToolbarPlacement::Trailing,
             children,
         }) if matches!(children.first(), Some(Node::Button { .. }))
+    ));
+}
+
+#[test]
+fn bottom_sheet_drag_handle_defaults_visible_and_accepts_explicit_hide() {
+    let default_sheet = compile(
+        r#"
+        app DefaultSheetHandle {
+            state presented: Bool = false
+            body { BottomSheet(isPresented: presented) { Text("Default handle") } }
+        }
+        "#,
+    )
+    .expect("BottomSheet should default to its native drag handle");
+    assert!(matches!(
+        default_sheet.body.as_slice(),
+        [Node::BottomSheet {
+            show_drag_handle: true,
+            ..
+        }]
+    ));
+
+    let hidden_sheet = compile(
+        r#"
+        app HiddenSheetHandle {
+            state presented: Bool = false
+            body { BottomSheet(isPresented: presented, showDragHandle: false) { Text("No handle") } }
+        }
+        "#,
+    )
+    .expect("BottomSheet should accept showDragHandle: false");
+    assert!(matches!(
+        hidden_sheet.body.as_slice(),
+        [Node::BottomSheet {
+            show_drag_handle: false,
+            ..
+        }]
     ));
 }
 
@@ -1979,6 +2247,175 @@ fn spring_animation_lowers_custom_physics_and_rejects_nonpositive_values() {
 }
 
 #[test]
+fn tween_animation_keeps_duration_and_curve_in_both_native_backends() {
+    let module = compile(
+        r#"app TweenAnimation {
+            state progress: Float64 = 0.0
+            body {
+                Column(animation: Tween(duration: 0.42, easing: EaseOut)) {
+                    Button("Animate") {
+                        withAnimation(Tween(duration: 0.18, easing: EaseInOut)) {
+                            progress = 1.0
+                        }
+                    }
+                    ProgressBar(progress: progress)
+                }
+            }
+        }"#,
+    )
+    .expect("duration and easing options should compile");
+
+    let Node::Layout {
+        style, children, ..
+    } = &module.body[0]
+    else {
+        panic!("expected animated Column");
+    };
+    assert_eq!(
+        style.animation,
+        Some(nexa_ir::AnimationSpec::Tween {
+            duration: 0.42,
+            delay: 0.0,
+            easing: nexa_ir::AnimationEasing::EaseOut,
+        })
+    );
+    let Node::Button { actions, .. } = &children[0] else {
+        panic!("expected animation button");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [Action::WithAnimation {
+            animation: nexa_ir::AnimationSpec::Tween {
+                duration,
+                easing,
+                delay,
+            },
+            animated_states,
+            ..
+        }] if (*duration - 0.18).abs() < f64::EPSILON
+            && delay.abs() < f64::EPSILON
+            && *easing == nexa_ir::AnimationEasing::EaseInOut
+            && animated_states == &["progress"]
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains(".timingCurve(0.0, 0.0, 0.2, 1.0, duration: 0.42)"));
+    assert!(swift.contains(".timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.18)"));
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("tween(durationMillis = 420, easing = LinearOutSlowInEasing)"));
+    assert!(kotlin.contains(
+        "androidx.compose.animation.core.tween(durationMillis = 180, easing = androidx.compose.animation.core.FastOutSlowInEasing)"
+    ));
+
+    for (easing, swift_curve, kotlin_curve) in [
+        (
+            "EaseIn",
+            ".timingCurve(0.4, 0.0, 1.0, 1.0, duration: 0.24)",
+            "tween(durationMillis = 240, easing = FastOutLinearInEasing)",
+        ),
+        (
+            "EaseOut",
+            ".timingCurve(0.0, 0.0, 0.2, 1.0, duration: 0.24)",
+            "tween(durationMillis = 240, easing = LinearOutSlowInEasing)",
+        ),
+        (
+            "EaseInOut",
+            ".timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.24)",
+            "tween(durationMillis = 240, easing = FastOutSlowInEasing)",
+        ),
+        (
+            "Linear",
+            ".linear(duration: 0.24)",
+            "tween(durationMillis = 240, easing = LinearEasing)",
+        ),
+    ] {
+        let source = format!(
+            "app TimedCurve {{ body {{ Column(animation: Tween(duration: 0.24, easing: {easing})) {{ Text(\"x\") }} }} }}"
+        );
+        let module = compile(&source).expect("each supported easing curve should compile");
+        assert!(
+            nexa_backend_swift::SwiftBackend
+                .generate(&module)
+                .contains(swift_curve),
+            "Swift easing mapping drifted for {easing}"
+        );
+        assert!(
+            nexa_backend_kotlin::KotlinBackend
+                .generate(&module)
+                .contains(kotlin_curve),
+            "Kotlin easing mapping drifted for {easing}"
+        );
+    }
+
+    let default_tween = compile(
+        r#"app DefaultTween {
+            body { Column(animation: Tween(duration: 0.24)) { Text("x") } }
+        }"#,
+    )
+    .expect("Tween should default to EaseInOut");
+    assert!(
+        nexa_backend_swift::SwiftBackend
+            .generate(&default_tween)
+            .contains(".timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.24)")
+    );
+    assert!(
+        nexa_backend_kotlin::KotlinBackend
+            .generate(&default_tween)
+            .contains("tween(durationMillis = 240, easing = FastOutSlowInEasing)")
+    );
+
+    for animation in [
+        "Tween(duration: 0, easing: EaseOut)",
+        "Tween(duration: 60.1, easing: EaseOut)",
+        "Tween(duration: 0.3, easing: Bounce)",
+        "Tween(duration: 0.3, delay: -0.1, easing: EaseOut)",
+        "Tween(duration: 0.3, delay: 60.1, easing: EaseOut)",
+        "Tween(duration: 0.3, easing: CubicBezier(-0.1, 0, 0.2, 1))",
+        "Tween(duration: 0.3, easing: CubicBezier(0.1, 0, 1.1, 1))",
+    ] {
+        let source = format!(
+            "app InvalidTween {{ body {{ Column(animation: {animation}) {{ Text(\"x\") }} }} }}"
+        );
+        assert!(
+            compile(&source).is_err(),
+            "invalid animation compiled: {animation}"
+        );
+    }
+}
+
+#[test]
+fn custom_cubic_bezier_and_delay_map_to_native_animation_apis() {
+    let module = compile(
+        r#"app CustomAnimation {
+            state progress: Float64 = 0.0
+            body {
+                Button("Animate") {
+                    withAnimation(Tween(
+                        duration: 0.24,
+                        delay: 0.1,
+                        easing: CubicBezier(x1: 0.2, y1: 0.1, x2: 0.7, y2: 1)
+                    )) {
+                        progress = 1.0
+                    }
+                }
+                ProgressBar(progress: progress)
+            }
+        }"#,
+    )
+    .expect("custom native easing and delay should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(
+        swift.contains(".timingCurve(0.2, 0.1, 0.7, 1, duration: 0.24).delay(0.1)"),
+        "{swift}"
+    );
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains(
+        "androidx.compose.animation.core.tween(durationMillis = 240, delayMillis = 100, easing = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0.1f, 0.7f, 1f))"
+    ));
+}
+
+#[test]
 fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
     let module = compile(
         r#"app ImperativeAnimation {
@@ -2035,7 +2472,7 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
     assert!(
         integer
             .to_string()
-            .contains("mutable Float32, Float64, or Array state")
+            .contains("mutable Float32 or Float64 state")
     );
 
     let collection = compile(
@@ -2048,33 +2485,29 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
             }
         }"#,
     )
-    .expect("compound state assignment should support native collection transitions");
-    let Node::Button { actions, .. } = &collection.body[0] else {
-        panic!("expected collection animation button");
-    };
-    let [
-        Action::WithAnimation {
-            animated_states,
-            actions: inner,
-            ..
-        },
-    ] = actions.as_slice()
-    else {
-        panic!("expected the array assignment to stay inside withAnimation");
-    };
-    let updates_task_array = matches!(
-        inner.as_slice(),
-        [Action::Assign { name, .. }] if name == "tasks"
-    ) || matches!(
-        inner.as_slice(),
-        [Action::CollectionMutation {
-            name,
-            operation: nexa_ir::CollectionMutation::Replace,
-            ..
-        }] if name == "tasks"
+    .expect_err("collection updates must not silently ignore a custom animation spec");
+    assert!(
+        collection
+            .to_string()
+            .contains("cannot animate collection mutations of `tasks`")
     );
-    assert!(animated_states.is_empty());
-    assert!(updates_task_array);
+
+    let collection_mutation = compile(
+        r#"app AnimatedCollectionMutation {
+            state tasks: Array<Int32> = []
+            body {
+                Button("Add") {
+                    withAnimation(Spring(response: 0.35, damping: 0.8)) { tasks.append(1) }
+                }
+            }
+        }"#,
+    )
+    .expect_err("collection mutations must not silently ignore a custom animation spec");
+    assert!(
+        collection_mutation
+            .to_string()
+            .contains("cannot animate collection mutations of `tasks`")
+    );
 
     let unobserved = compile(
         r#"app UnobservedAnimation {
@@ -2131,7 +2564,7 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
     assert!(
         side_effect
             .to_string()
-            .contains("only supports mutable Float32, Float64, or Array state assignments"),
+            .contains("only supports mutable Float32 or Float64 state assignments"),
         "unexpected diagnostic: {side_effect}"
     );
 }
@@ -2142,7 +2575,7 @@ fn conditional_transitions_lower_to_typed_ir() {
         r#"app ConditionalTransitions {
             state visible = false
             body {
-                if visible { Text("shown") }.transition(.fade)
+                if visible { Text("shown") }.transition(.fade, animation: Tween(duration: 0.24, delay: 0.04, easing: EaseOut))
                 when visible {
                     true: { Text("yes") }
                     else: { Text("no") }
@@ -2156,8 +2589,13 @@ fn conditional_transitions_lower_to_typed_ir() {
         &module.body[0],
         Node::If {
             transition: Some(nexa_ir::ViewTransition::Fade),
+            transition_animation: Some(nexa_ir::AnimationSpec::Tween {
+                duration,
+                delay,
+                easing: nexa_ir::AnimationEasing::EaseOut,
+            }),
             ..
-        }
+        } if (*duration - 0.24).abs() < 0.001 && (*delay - 0.04).abs() < 0.001
     ));
     assert!(matches!(
         &module.body[1],
@@ -2747,9 +3185,48 @@ fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
         Node::SegmentedControl {
             items: Expr::State(name, Type::Array(element)),
             state,
+            animation,
             ..
-        } if name == "filters" && **element == Type::String && state == "selectedFilter"
+        } if name == "filters" && **element == Type::String && state == "selectedFilter" && animation.is_none()
     ));
+
+    let custom_animation = compile(
+        r#"
+        app AnimatedFilters {
+            state filters: Array<String> = ["All", "Open"]
+            state selectedFilter: String = "All"
+            body {
+                SegmentedControl(
+                    items: filters,
+                    selected: selectedFilter,
+                    animation: Tween(duration: 0.24, easing: EaseOut)
+                )
+            }
+        }
+        "#,
+    )
+    .expect("a segmented control should accept a typed animation spec");
+    assert!(matches!(
+        &custom_animation.body[0],
+        Node::SegmentedControl {
+            animation: Some(nexa_ir::AnimationSpec::Tween {
+                duration,
+                easing: nexa_ir::AnimationEasing::EaseOut,
+                ..
+            }),
+            ..
+        } if (*duration - 0.24).abs() < f64::EPSILON
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&custom_animation);
+    assert!(
+        swift.contains("selection: $nexa_selectedFilter, animation: .timingCurve(0.0, 0.0, 0.2, 1.0, duration: 0.24)"),
+        "{swift}"
+    );
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&custom_animation);
+    assert!(
+        kotlin.contains("animation = androidx.compose.animation.core.tween(durationMillis = 240, easing = androidx.compose.animation.core.LinearOutSlowInEasing)")
+    );
 
     let invalid = compile(
         r#"
@@ -2763,6 +3240,112 @@ fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
         "#,
     );
     assert!(invalid.is_err(), "segmented options must be Array<String>");
+}
+
+#[test]
+fn segmented_control_visual_parameters_reach_both_native_backends_and_dev_ir() {
+    let module = compile(
+        r##"
+        app StyledSegments {
+            state choices: Array<String> = ["Day", "Week", "Month"]
+            state selected: String = "Day"
+            state selectedFill: String = "#FFFFFF"
+            body {
+                SegmentedControl(
+                    items: choices,
+                    selected: selected,
+                    tint: selectedFill,
+                    background: "#E9EAF0",
+                    selectedTextColor: "#17171A",
+                    textColor: "#68686F",
+                    fontSize: 14,
+                    fontWeight: Semibold,
+                    height: 36,
+                    cornerRadius: 18,
+                    borderColor: selectedFill,
+                    borderWidth: 1
+                )
+            }
+        }
+        "##,
+    )
+    .expect("visual segmented-control options should typecheck");
+
+    let Node::SegmentedControl {
+        tint: Some(nexa_ir::ColorExpression::Dynamic(_)),
+        background: Some(nexa_ir::ColorExpression::Static(_)),
+        selected_text_color: Some(nexa_ir::ColorExpression::Static(_)),
+        text_color: Some(nexa_ir::ColorExpression::Static(_)),
+        font_size: Some(font_size),
+        font_weight: Some(nexa_ir::FontWeight::Semibold),
+        height: Some(height),
+        corner_radius: Some(corner_radius),
+        border_color: Some(nexa_ir::ColorExpression::Dynamic(_)),
+        border_width: Some(border_width),
+        ..
+    } = &module.body[0]
+    else {
+        panic!("every visual option should be represented in typed IR");
+    };
+    assert_eq!(
+        (*font_size, *height, *corner_radius, *border_width),
+        (14.0, 36.0, 18.0, 1.0)
+    );
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(
+        swift.contains("tint: nexaColor(hex: nexa_selectedFill)"),
+        "{swift}"
+    );
+    assert!(swift.contains("background: Color(red:"), "{swift}");
+    assert!(swift.contains("textColor: Color(red:"), "{swift}");
+    assert!(swift.contains("selectedTextColor: Color(red:"), "{swift}");
+    assert!(swift.contains("fontSize: 14"), "{swift}");
+    assert!(swift.contains("fontWeight: .semibold"), "{swift}");
+    assert!(swift.contains("height: 36"), "{swift}");
+    assert!(swift.contains("cornerRadius: 18"), "{swift}");
+    assert!(
+        swift.contains("borderColor: nexaColor(hex: nexa_selectedFill)"),
+        "{swift}"
+    );
+    assert!(swift.contains("borderWidth: 1"), "{swift}");
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(
+        kotlin.contains("tint = nexaColorFromHex(nexa_selectedFill)"),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("background = Color(0xFFE9EAF0)"),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("selectedTextColor = Color(0xFF17171A)"),
+        "{kotlin}"
+    );
+    assert!(kotlin.contains("textColor = Color(0xFF68686F)"), "{kotlin}");
+    assert!(kotlin.contains("fontSize = 14f.sp"), "{kotlin}");
+    assert!(
+        kotlin.contains("fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold"),
+        "{kotlin}"
+    );
+    assert!(kotlin.contains("height = 36f.dp"), "{kotlin}");
+    assert!(kotlin.contains("cornerRadius = 18f.dp"), "{kotlin}");
+    assert!(
+        kotlin.contains("borderColor = nexaColorFromHex(nexa_selectedFill)"),
+        "{kotlin}"
+    );
+    assert!(kotlin.contains("borderWidth = 1f.dp"), "{kotlin}");
+}
+
+#[test]
+fn segmented_control_rejects_negative_visual_dimensions() {
+    for argument in ["height: -1", "cornerRadius: -1", "borderWidth: -1"] {
+        let source = format!(
+            "app InvalidSegments {{ state selected: String = \"Day\" body {{ SegmentedControl(items: [\"Day\"], selected: selected, {argument}) }} }}"
+        );
+        assert!(compile(&source).is_err(), "should reject {argument}");
+    }
 }
 
 #[test]
@@ -2825,10 +3408,231 @@ fn picker_tint_lowers_a_runtime_color_expression() {
     assert!(matches!(
         module.body.first(),
         Some(Node::Picker {
-            tint: Some(ColorExpression::Dynamic(Expr::State(name, Type::String))),
+            tint: Some(ColorExpression::Dynamic(color)),
             ..
-        }) if name == "priorityTint"
+        }) if matches!(color.as_ref(), Expr::State(name, Type::String) if name == "priorityTint")
     ));
+}
+
+#[test]
+fn picker_item_icons_are_resolved_to_shared_system_icons() {
+    let module = compile(
+        r#"
+        app PickerRowIcons {
+            state options: Array<String> = ["Due date", "Priority", "Title"]
+            state selected: String = "Priority"
+
+            body {
+                Picker(
+                    items: options,
+                    selected: selected,
+                    itemIcons: ["calendar", "flag_filled", "edit"]
+                )
+            }
+        }
+        "#,
+    )
+    .expect("static per-option shared icon names should compile");
+
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::Picker { item_icons, .. })
+            if item_icons == &vec![
+                SystemIcon::Shared("calendar".to_owned()),
+                SystemIcon::Shared("flag_filled".to_owned()),
+                SystemIcon::Shared("edit".to_owned()),
+            ]
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidPickerIcons {
+            state options: Array<String> = ["First"]
+            state selected: String = "First"
+            body { Picker(items: options, selected: selected, itemIcons: ["not_a_system_icon"]) }
+        }
+        "#,
+    );
+    assert!(
+        invalid.is_err(),
+        "unknown option icons must fail compilation"
+    );
+}
+
+#[test]
+fn picker_date_parameters_are_typed_and_reach_both_native_backends() {
+    let module = compile(
+        r##"
+        app DateTimeControls {
+            state selected: Int64 = 1792153800000
+            state rangeStart: Int64 = 1791763200000
+            state rangeEnd: Int64 = 1792454400000
+            state lowerBound: Int64 = 1791763200000
+            state upperBound: Int64 = 1792454400000
+            state accent: String = "#2563EB"
+            state localeTag: String = "fr-FR"
+            state zoneId: String = "Europe/Paris"
+            state isEnabled: Bool = true
+
+            body {
+                PickerDate(
+                    type: Date,
+                    timestamp: selected,
+                    style: Graphical,
+                    minimum: lowerBound,
+                    maximum: upperBound,
+                    tint: accent,
+                    textColor: "#172033",
+                    backgroundColor: "#F1F5F9",
+                    pickerBackgroundColor: "#FFFFFF",
+                    borderColor: "#CBD5E1",
+                    borderWidth: 1,
+                    cornerRadius: 16,
+                    locale: localeTag,
+                    timeZone: zoneId,
+                    enabled: isEnabled
+                )
+                PickerDate(
+                    type: Date,
+                    style: Graphical,
+                    selection: Range,
+                    startTimestamp: rangeStart,
+                    endTimestamp: rangeEnd,
+                    minimum: lowerBound,
+                    maximum: upperBound
+                )
+                PickerDate(
+                    type: Date,
+                    style: Compact,
+                    selection: Range,
+                    startTimestamp: rangeStart,
+                    endTimestamp: rangeEnd,
+                    minimum: lowerBound,
+                    maximum: upperBound
+                )
+                PickerDate(type: Time, style: Wheel, timestamp: selected, is24Hour: true)
+                PickerDate(type: Date, style: Input, timestamp: selected)
+                PickerDate(type: DateTime, style: Compact, timestamp: selected)
+            }
+        }
+        "##,
+    )
+    .expect("date, time, date-time, range, style, and visual parameters should typecheck");
+
+    let Node::PickerDate { props } = &module.body[0] else {
+        panic!(
+            "the first picker should lower to its own typed node: {:?}",
+            module.body
+        );
+    };
+    assert_eq!(props.picker_type, nexa_ir::PickerDateType::Date);
+    assert_eq!(props.style, nexa_ir::PickerDateStyle::Graphical);
+    assert_eq!(props.selection, nexa_ir::PickerDateSelection::Single);
+    assert_eq!(props.timestamp_state.as_deref(), Some("selected"));
+    assert!(props.minimum.is_some() && props.maximum.is_some());
+    assert!(matches!(props.tint, Some(ColorExpression::Dynamic(_))));
+    assert!(matches!(props.text_color, Some(ColorExpression::Static(_))));
+    assert!(matches!(
+        props.background_color,
+        Some(ColorExpression::Static(_))
+    ));
+    assert!(matches!(
+        props.picker_background_color,
+        Some(ColorExpression::Static(_))
+    ));
+    assert!(matches!(
+        props.border_color,
+        Some(ColorExpression::Static(_))
+    ));
+    assert_eq!(
+        (props.border_width, props.corner_radius),
+        (Some(1.0), Some(16.0))
+    );
+    assert!(props.locale.is_some() && props.time_zone.is_some() && props.enabled.is_some());
+
+    let Node::PickerDate { props } = &module.body[1] else {
+        panic!("the second picker should lower to the range node");
+    };
+    assert_eq!(props.selection, nexa_ir::PickerDateSelection::Range);
+    assert_eq!(props.start_timestamp_state.as_deref(), Some("rangeStart"));
+    assert_eq!(props.end_timestamp_state.as_deref(), Some("rangeEnd"));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    for expected in [
+        "NexaDatePickerPrimitive(",
+        "pickerType: \"Date\"",
+        "style: \"Graphical\"",
+        "style: \"Input\"",
+        "selection: \"Range\"",
+        "timestamp:",
+        "startTimestamp:",
+        "endTimestamp:",
+        "minimum:",
+        "maximum:",
+        "tint:",
+        "textColor:",
+        "backgroundColor:",
+        "pickerBackgroundColor:",
+        "borderColor:",
+        "borderWidth:",
+        "cornerRadius:",
+        "localeIdentifier:",
+        "timeZoneIdentifier:",
+        "is24Hour:",
+        "enabled:",
+        "accessibilityLabel:",
+    ] {
+        assert!(
+            swift.contains(expected),
+            "missing `{expected}` in Swift output:\n{swift}"
+        );
+    }
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    for expected in [
+        "NexaDatePickerPrimitive(",
+        "pickerType = \"Date\"",
+        "style = \"Graphical\"",
+        "style = \"Input\"",
+        "selection = \"Range\"",
+        "timestamp =",
+        "startTimestamp =",
+        "endTimestamp =",
+        "minimum =",
+        "maximum =",
+        "tint =",
+        "textColor =",
+        "backgroundColor =",
+        "pickerBackgroundColor =",
+        "borderColor =",
+        "borderWidth =",
+        "cornerRadius =",
+        "localeTag =",
+        "timeZoneId =",
+        "is24Hour =",
+        "enabled =",
+        "accessibilityLabel =",
+    ] {
+        assert!(
+            kotlin.contains(expected),
+            "missing `{expected}` in Kotlin output:\n{kotlin}"
+        );
+    }
+}
+
+#[test]
+fn picker_date_rejects_invalid_style_and_range_combinations() {
+    for source in [
+        r#"app BadStyle { body { PickerDate(type: Date, style: UnknownStyle) } }"#,
+        r#"app BadRange { body { PickerDate(type: Time, selection: Range) } }"#,
+        r#"app PartialRange { state start: Int64 = 1 body { PickerDate(type: Date, selection: Range, startTimestamp: start) } }"#,
+        r#"app ConflictingBindings { state date: Int64 = 1 body { PickerDate(type: Date, selection: Range, timestamp: date) } }"#,
+    ] {
+        assert!(
+            compile(source).is_err(),
+            "invalid declaration should fail: {source}"
+        );
+    }
 }
 
 #[test]

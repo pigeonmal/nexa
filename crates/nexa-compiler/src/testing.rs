@@ -727,7 +727,7 @@ impl<'a> HeadlessRuntime<'a> {
         for (index, node) in nodes.iter().enumerate() {
             match node {
                 Node::Layout { children, .. }
-                | Node::Form { children }
+                | Node::Form { children, .. }
                 | Node::Toolbar { children, .. } => self.render_nodes(
                     children,
                     environment,
@@ -772,12 +772,14 @@ impl<'a> HeadlessRuntime<'a> {
                         self.functions,
                         0,
                     )?));
-                    snapshot.texts.push(display_value(eval_expr(
-                        description,
-                        environment,
-                        self.functions,
-                        0,
-                    )?));
+                    if let Some(description) = description {
+                        snapshot.texts.push(display_value(eval_expr(
+                            description,
+                            environment,
+                            self.functions,
+                            0,
+                        )?));
+                    }
                 }
                 Node::Button {
                     label,
@@ -891,21 +893,7 @@ impl<'a> HeadlessRuntime<'a> {
                         },
                     ));
                 }
-                Node::DatePicker {
-                    timestamp_state,
-                    has_time_state,
-                } => {
-                    if !matches!(environment.get(timestamp_state), Some(Value::Integer(_))) {
-                        return Err(format!(
-                            "DatePicker timestamp state `{timestamp_state}` is not an Int64"
-                        ));
-                    }
-                    if !matches!(environment.get(has_time_state), Some(Value::Bool(_))) {
-                        return Err(format!(
-                            "DatePicker hasTime state `{has_time_state}` is not a Boolean"
-                        ));
-                    }
-                }
+                Node::PickerDate { .. } => {}
                 Node::Pressable {
                     disabled,
                     children,
@@ -1118,7 +1106,7 @@ fn node_name(node: &Node) -> &'static str {
         Node::ProgressRing { .. } => "ProgressRing",
         Node::SegmentedControl { .. } => "SegmentedControl",
         Node::Picker { .. } => "Picker",
-        Node::DatePicker { .. } => "DatePicker",
+        Node::PickerDate { .. } => "PickerDate",
         Node::Image { .. } => "Image",
         Node::SystemIcon { .. } => "Icon",
         Node::LinearGradient { .. } => "LinearGradient",

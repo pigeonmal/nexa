@@ -157,7 +157,8 @@ fn android_architecture_names_map_to_supported_abis() {
 
 #[test]
 fn android_dev_runtime_preloads_compose_and_platform_dependencies() {
-    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    let mut config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    config.android_min_sdk = 24;
     let dependencies = templates::android_app_gradle_with_dev_runtime(
         "demo",
         nexa_backend_kotlin::KotlinProjectFeatures::default(),
@@ -240,6 +241,27 @@ fn android_compose_animation_dependency_is_feature_gated_for_aot() {
     )
     .unwrap();
 
+    assert!(dependencies.contains("implementation(\"androidx.compose.animation:animation\")"));
+}
+
+#[test]
+fn android_segmented_control_uses_material3_expressive_motion() {
+    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    let dependencies = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures {
+            uses_expressive_motion: true,
+            uses_compose_animation: true,
+            ..Default::default()
+        },
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .unwrap();
+
+    assert!(dependencies.contains("androidx.compose.material3:material3:1.5.0-beta01"));
     assert!(dependencies.contains("implementation(\"androidx.compose.animation:animation\")"));
 }
 
@@ -812,35 +834,43 @@ mod template_generation {
     }
 
     #[test]
-    fn android_host_uses_api_23_by_default_in_dev_and_release() {
+    fn android_release_keeps_api_23_default_and_dev_runtime_requires_api_24() {
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
-        for dev_runtime in [false, true] {
-            let gradle = android_app_gradle_with_dev_runtime(
-                "dev.nexa.demo",
-                nexa_backend_kotlin::KotlinProjectFeatures::default(),
-                &[],
-                &[],
-                &config,
-                dev_runtime,
-            )
-            .expect("Android app Gradle file should render");
+        let release = android_app_gradle_with_dev_runtime(
+            "dev.nexa.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[],
+            &[],
+            &config,
+            false,
+        )
+        .expect("API 23 release app Gradle file should render");
+        assert!(release.contains("minSdk = 23"));
+        assert!(release.contains("targetSdk = 36"));
 
-            assert!(gradle.contains("minSdk = 23"));
-            assert!(gradle.contains("targetSdk = 36"));
-        }
+        let error = android_app_gradle_with_dev_runtime(
+            "dev.nexa.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[],
+            &[],
+            &config,
+            true,
+        )
+        .expect_err("the expressive DevRuntime dependency requires API 24");
+        assert!(error.contains("Material 3 Expressive menus require minSdk 24"));
 
         let mut configured = config;
         configured.android_min_sdk = 26;
-        let gradle = android_app_gradle_with_dev_runtime(
+        let dev = android_app_gradle_with_dev_runtime(
             "dev.nexa.demo",
             nexa_backend_kotlin::KotlinProjectFeatures::default(),
             &[],
             &[],
             &configured,
-            false,
+            true,
         )
-        .expect("configured Android app minSdk should render");
-        assert!(gradle.contains("minSdk = 26"));
+        .expect("configured API 26 DevRuntime project should render");
+        assert!(dev.contains("minSdk = 26"));
     }
 
     #[test]

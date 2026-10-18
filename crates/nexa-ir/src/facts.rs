@@ -13,10 +13,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::capabilities::Capabilities;
 use crate::walk::{
-    contains_scrollable, walk_actions, walk_callback_actions, walk_expression, walk_ir,
+    contains_scrollable, walk_action_tree, walk_actions, walk_callback_actions, walk_expression,
+    walk_ir,
 };
 use crate::{
-    AccessibilityRole, AnimationSpec, ButtonStyle, ColorValue, Expr, ImageSource,
+    AccessibilityRole, AnimationEasing, AnimationSpec, ButtonStyle, ColorValue, Expr, ImageSource,
     KeyboardDismissMode, ListAxis, ListPlan, Module, Node, NumericType, Permission,
     PermissionOpKind, State, SystemIcon, Type, ViewStyle,
 };
@@ -29,6 +30,8 @@ pub struct ModuleFacts {
     /// A task launch appears in an action, independent of whether app code
     /// stores its handle in state.
     pub uses_task_launch: bool,
+    /// A scoped `withAnimation` action appears in generated UI or lifecycle work.
+    pub uses_with_animation: bool,
     /// UI scopes that need a Compose coroutine scope for `Task.launch`.
     /// Keeping this scoped avoids allocating a remembered scope in unrelated
     /// screens and components when any part of the module launches a task.
@@ -454,6 +457,7 @@ impl ModuleFacts {
             });
             if let Some(actions) = &function.body_actions {
                 facts.uses_task_launch |= actions_contain_task_launch(actions);
+                facts.uses_with_animation |= actions_contain_with_animation(actions);
                 walk_actions(actions, &mut |expression| {
                     observe_expr(
                         expression,
@@ -476,6 +480,7 @@ impl ModuleFacts {
                 actions_contain_network_status_subscription(actions);
             let launches_task = actions_contain_task_launch(actions);
             facts.uses_task_launch |= launches_task;
+            facts.uses_with_animation |= actions_contain_with_animation(actions);
             facts.task_launch_scopes.app |= launches_task;
             walk_actions(actions, &mut |expression| {
                 observe_expr(
@@ -490,6 +495,7 @@ impl ModuleFacts {
             facts.capabilities.uses_network_connectivity |=
                 actions_contain_network_status_subscription(&task.actions);
             facts.uses_task_launch |= actions_contain_task_launch(&task.actions);
+            facts.uses_with_animation |= actions_contain_with_animation(&task.actions);
             walk_actions(&task.actions, &mut |expression| {
                 observe_expr(
                     expression,
@@ -505,6 +511,7 @@ impl ModuleFacts {
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
                 facts.uses_task_launch |= launches_task;
+                facts.uses_with_animation |= actions_contain_with_animation(actions);
                 if launches_task {
                     facts.task_launch_scopes.screens.insert(screen.name.clone());
                 }
@@ -528,6 +535,7 @@ impl ModuleFacts {
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
                 facts.uses_task_launch |= launches_task;
+                facts.uses_with_animation |= actions_contain_with_animation(actions);
                 if launches_task {
                     facts
                         .task_launch_scopes
@@ -554,6 +562,7 @@ impl ModuleFacts {
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
                 facts.uses_task_launch |= launches_task;
+                facts.uses_with_animation |= actions_contain_with_animation(actions);
                 facts.task_launch_scopes.app |= launches_task;
             });
             walk_ir(
@@ -588,6 +597,7 @@ impl ModuleFacts {
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
                 facts.uses_task_launch |= launches_task;
+                facts.uses_with_animation |= actions_contain_with_animation(actions);
                 if launches_task {
                     facts.task_launch_scopes.screens.insert(screen.name.clone());
                 }
@@ -628,6 +638,7 @@ impl ModuleFacts {
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
                 facts.uses_task_launch |= launches_task;
+                facts.uses_with_animation |= actions_contain_with_animation(actions);
                 if launches_task {
                     facts
                         .task_launch_scopes
@@ -868,9 +879,40 @@ fn observe_node(
                     .shadow
                     .is_some_and(|shadow| matches!(shadow.color, ColorValue::Adaptive { .. }));
         }
-        Node::ContentUnavailable { icon, .. } => {
+        Node::ContentUnavailable {
+            icon,
+            title_color,
+            description_color,
+            icon_tint,
+            background,
+            ..
+        } => {
             ui.content_unavailable = true;
             ui.system_icons.insert(icon.clone());
+            let foreground_colors = [
+                title_color.as_ref(),
+                description_color.as_ref(),
+                icon_tint.as_ref(),
+            ];
+            ui.style.dynamic_color |= foreground_colors
+                .iter()
+                .flatten()
+                .any(|color| matches!(color, crate::ColorExpression::Dynamic(_)))
+                || background
+                    .as_ref()
+                    .is_some_and(|color| matches!(color, crate::ColorExpression::Dynamic(_)));
+            scope_of(ui, scope).adaptive_text |= foreground_colors.iter().flatten().any(|color| {
+                matches!(
+                    color,
+                    crate::ColorExpression::Static(ColorValue::Adaptive { .. })
+                )
+            });
+            scope_of(ui, scope).adaptive_background |= background.as_ref().is_some_and(|color| {
+                matches!(
+                    color,
+                    crate::ColorExpression::Static(ColorValue::Adaptive { .. })
+                )
+            });
         }
         Node::Spacer => ui.layout.spacer = true,
         Node::Divider { .. } => ui.layout.divider = true,
@@ -893,7 +935,7 @@ fn observe_node(
                 ui.system_icons.insert(icon.clone());
             }
         }
-        Node::Form { children } => {
+        Node::Form { children, .. } => {
             ui.layout.form = true;
             record_child_layout(children, ui);
         }
@@ -942,18 +984,60 @@ fn observe_node(
         Node::ProgressRing { .. } => {
             ui.progress_ring_present = true;
         }
-        Node::SegmentedControl { .. } => {
+        Node::SegmentedControl {
+            tint,
+            background,
+            text_color,
+            selected_text_color,
+            border_color,
+            ..
+        } => {
             ui.segmented_control_present = true;
+            let colors = [
+                tint.as_ref(),
+                background.as_ref(),
+                text_color.as_ref(),
+                selected_text_color.as_ref(),
+                border_color.as_ref(),
+            ];
+            ui.style.color |= colors.into_iter().any(|color| color.is_some());
+            ui.style.dynamic_color |= colors
+                .into_iter()
+                .flatten()
+                .any(|color| matches!(color, crate::ColorExpression::Dynamic(_)));
         }
-        Node::Picker { icon, tint, .. } => {
+        Node::Picker {
+            icon,
+            item_icons,
+            tint,
+            ..
+        } => {
             ui.picker_present = true;
             ui.style.dynamic_color |= matches!(tint, Some(crate::ColorExpression::Dynamic(_)));
             if let Some(icon) = icon {
                 ui.system_icons.insert(icon.clone());
             }
+            ui.system_icons.extend(item_icons.iter().cloned());
         }
-        Node::DatePicker { .. } => {
+        Node::PickerDate { props } => {
             ui.date_picker_present = true;
+            let colors = [
+                props.tint.as_ref(),
+                props.text_color.as_ref(),
+                props.background_color.as_ref(),
+                props.picker_background_color.as_ref(),
+                props.border_color.as_ref(),
+            ];
+            ui.style.dynamic_color |= colors
+                .into_iter()
+                .flatten()
+                .any(|color| matches!(color, crate::ColorExpression::Dynamic(_)));
+            scope_of(ui, scope).adaptive_text |= colors.into_iter().flatten().any(|color| {
+                matches!(
+                    color,
+                    crate::ColorExpression::Static(ColorValue::Adaptive { .. })
+                )
+            });
         }
         Node::Image {
             source,
@@ -1199,6 +1283,13 @@ fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
         facts.animation = true;
         match animation {
             AnimationSpec::Spring { .. } => facts.spring = true,
+            AnimationSpec::Tween { easing, .. } => match easing {
+                AnimationEasing::Linear => facts.linear = true,
+                AnimationEasing::EaseIn => facts.ease_in = true,
+                AnimationEasing::EaseOut => facts.ease_out = true,
+                AnimationEasing::EaseInOut => facts.ease_in_out = true,
+                AnimationEasing::CubicBezier { .. } => {}
+            },
             AnimationSpec::EaseIn => facts.ease_in = true,
             AnimationSpec::EaseOut => facts.ease_out = true,
             AnimationSpec::EaseInOut => facts.ease_in_out = true,
@@ -1308,6 +1399,14 @@ fn actions_contain_task_launch(actions: &[crate::Action]) -> bool {
         }
         _ => false,
     })
+}
+
+fn actions_contain_with_animation(actions: &[crate::Action]) -> bool {
+    let mut found = false;
+    walk_action_tree(actions, &mut |action| {
+        found |= matches!(action, crate::Action::WithAnimation { .. });
+    });
+    found
 }
 
 fn observe_expr(
@@ -1759,6 +1858,7 @@ mod tests {
             item: "item".to_owned(),
             common: SectionedListCommon {
                 native: false,
+                show_dividers: true,
                 item_extent: None,
                 index: "index".to_owned(),
                 key: None,

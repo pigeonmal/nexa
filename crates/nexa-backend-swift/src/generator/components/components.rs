@@ -21,11 +21,13 @@ pub(crate) fn render_node(
     let scope = RenderScope { module, features };
     match node {
         Node::Appearance { mode, children } => {
-            out.line_at(depth, format_args!("Group {{"));
+            let mode = crate::generator::engine::expressions::expression(mode);
+            out.line_at(
+                depth,
+                format_args!("NexaAppearancePrimitive(mode: {mode}) {{"),
+            );
             render_children(children, module, features, depth + 1, out);
             out.line_at(depth, format_args!("}}"));
-            let mode = crate::generator::engine::expressions::expression(mode);
-            out.line_at(depth, format_args!(".preferredColorScheme({mode} == \"dark\" ? .dark : {mode} == \"light\" ? .light : nil)"));
         }
         Node::StatusBar { .. }
         | Node::Direction { .. }
@@ -40,13 +42,40 @@ pub(crate) fn render_node(
             style,
             children,
         } => layout::render_layout(*kind, *spacing, style, children, &scope, depth, out),
-        Node::Form { children } => {
-            out.line_at(depth, format_args!("NexaFormPrimitive {{"));
+        Node::Form {
+            show_dividers,
+            background,
+            children,
+        } => {
+            let background = background
+                .map(crate::generator::engine::colors::expression)
+                .unwrap_or_else(|| "nil".to_owned());
+            out.line_at(
+                depth,
+                format_args!("NexaFormPrimitive(background: {background}) {{"),
+            );
             for (index, child) in children.iter().enumerate() {
-                if matches!(child, Node::FormSection { .. }) {
-                    render_node(child, module, features, depth + 1, out);
-                } else {
-                    layout::render_form_row(child, &scope, depth + 1, out);
+                match child {
+                    Node::FormSection {
+                        title,
+                        footer,
+                        show_dividers: section_show_dividers,
+                        background,
+                        children,
+                    } => layout::render_form_section(
+                        layout::FormSectionRenderOptions {
+                            title: title.as_ref(),
+                            footer: footer.as_ref(),
+                            comment: None,
+                            show_dividers: section_show_dividers.unwrap_or(*show_dividers),
+                            background: *background,
+                        },
+                        children,
+                        &scope,
+                        depth + 1,
+                        out,
+                    ),
+                    _ => layout::render_form_row(child, *show_dividers, &scope, depth + 1, out),
                 }
                 if index + 1 < children.len() {
                     out.push('\n');
@@ -57,11 +86,17 @@ pub(crate) fn render_node(
         Node::FormSection {
             title,
             footer,
+            show_dividers,
+            background,
             children,
         } => layout::render_form_section(
-            title.as_ref(),
-            footer.as_ref(),
-            None,
+            layout::FormSectionRenderOptions {
+                title: title.as_ref(),
+                footer: footer.as_ref(),
+                comment: None,
+                show_dividers: show_dividers.unwrap_or(true),
+                background: *background,
+            },
             children,
             &scope,
             depth,
@@ -102,7 +137,23 @@ pub(crate) fn render_node(
             title,
             icon,
             description,
-        } => content_unavailable::render(title, icon, description, depth, out),
+            title_color,
+            description_color,
+            icon_tint,
+            background,
+        } => content_unavailable::render(
+            title,
+            icon,
+            description.as_ref(),
+            content_unavailable::ColorOverrides {
+                title: title_color.as_ref(),
+                description: description_color.as_ref(),
+                icon: icon_tint.as_ref(),
+                background: background.as_ref(),
+            },
+            depth,
+            out,
+        ),
         Node::Spacer => out.line_at(depth, format_args!("Spacer()")),
         Node::Divider { color, thickness } => out.line_at(
             depth,
@@ -196,13 +247,44 @@ pub(crate) fn render_node(
         } => controls::render_slider(state, *min, *max, *step, depth, out),
         Node::ProgressBar { progress } => controls::render_progress_bar(progress, depth, out),
         Node::ProgressRing { progress } => controls::render_progress_ring(progress, depth, out),
-        Node::SegmentedControl { items, state, .. } => {
-            controls::render_segmented_control(items, state, depth, out)
-        }
+        Node::SegmentedControl {
+            items,
+            state,
+            animation,
+            tint,
+            background,
+            text_color,
+            selected_text_color,
+            font_size,
+            font_weight,
+            height,
+            corner_radius,
+            border_color,
+            border_width,
+        } => controls::render_segmented_control(
+            items,
+            state,
+            *animation,
+            controls::SegmentedControlStyle {
+                tint: tint.as_ref(),
+                background: background.as_ref(),
+                text_color: text_color.as_ref(),
+                selected_text_color: selected_text_color.as_ref(),
+                font_size: *font_size,
+                font_weight: *font_weight,
+                height: *height,
+                corner_radius: *corner_radius,
+                border_color: border_color.as_ref(),
+                border_width: *border_width,
+            },
+            depth,
+            out,
+        ),
         Node::Picker {
             items,
             state,
             icon,
+            item_icons,
             label,
             tint,
         } => controls::render_picker(
@@ -210,6 +292,7 @@ pub(crate) fn render_node(
             state,
             controls::PickerOptions {
                 icon: icon.as_ref(),
+                item_icons,
                 label: label.as_ref(),
                 tint: tint.as_ref(),
                 comment: None,
@@ -217,10 +300,7 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
-        Node::DatePicker {
-            timestamp_state,
-            has_time_state,
-        } => controls::render_date_picker(timestamp_state, has_time_state, depth, out),
+        Node::PickerDate { .. } => controls::render_picker_date(node, depth, out),
         Node::Image {
             source,
             description,
@@ -273,8 +353,24 @@ pub(crate) fn render_node(
             );
         }
         Node::Pressable { .. } => controls::render_pressable(node, module, features, depth, out),
-        Node::NavigationStack { root, arguments } => {
-            navigation::render_navigation_stack(module, *root, arguments, features, depth, out);
+        Node::NavigationStack {
+            root,
+            arguments,
+            title_mode,
+            title_alignment,
+        } => {
+            navigation::render_navigation_stack(
+                module,
+                *root,
+                arguments,
+                navigation::NavigationTitleOptions {
+                    mode: *title_mode,
+                    alignment: *title_alignment,
+                },
+                features,
+                depth,
+                out,
+            );
         }
         Node::NavigationSplitView {
             detail_visible,
@@ -324,8 +420,11 @@ pub(crate) fn render_node(
             state,
             partial,
             large_only,
+            show_drag_handle,
             ..
-        } => sheets::render_bottom_sheet(state, *partial, *large_only, depth, out),
+        } => {
+            sheets::render_bottom_sheet(state, *partial, *large_only, *show_drag_handle, depth, out)
+        }
         Node::Dialog {
             state,
             title,
@@ -370,11 +469,10 @@ pub(crate) fn render_node(
             then_body,
             else_body,
             transition,
+            transition_animation,
         } => {
-            let content_depth = depth + usize::from(transition.is_some());
-            if transition.is_some() {
-                out.line_at(depth, format_args!("Group {{"));
-            }
+            let content_depth = depth + 1;
+            out.line_at(depth, format_args!("Group {{"));
             out.line_at(
                 content_depth,
                 format_args!(
@@ -392,15 +490,24 @@ pub(crate) fn render_node(
             out.push('\n');
             indent(out, content_depth);
             out.push('}');
+            out.push('\n');
+            indent(out, depth);
+            out.push('}');
             if let Some(transition) = transition {
-                out.push('\n');
-                indent(out, depth);
-                out.push('}');
+                let animation = transition_animation
+                    .map(controls::swift_animation)
+                    .unwrap_or_else(|| ".default".to_owned());
                 out.push_str(&format!(
-                    ".transition({}).animation(.default, value: {})",
+                    ".transition({}).animation({}, value: {})",
                     swift_transition(*transition),
+                    animation,
                     crate::generator::engine::expressions::expression(condition)
                 ));
+            } else {
+                // Compose inserts conditional content immediately unless the
+                // caller requests a transition. SwiftUI otherwise fades it by
+                // default when an ancestor is animating its layout.
+                out.push_str(".transition(.identity)");
             }
         }
         Node::When {
@@ -408,11 +515,10 @@ pub(crate) fn render_node(
             cases,
             else_body,
             transition,
+            transition_animation,
         } => {
-            let content_depth = depth + usize::from(transition.is_some());
-            if transition.is_some() {
-                out.line_at(depth, format_args!("Group {{"));
-            }
+            let content_depth = depth + 1;
+            out.line_at(depth, format_args!("Group {{"));
             out.line_at(
                 content_depth,
                 format_args!(
@@ -437,15 +543,21 @@ pub(crate) fn render_node(
             out.push('\n');
             indent(out, content_depth);
             out.push('}');
+            out.push('\n');
+            indent(out, depth);
+            out.push('}');
             if let Some(transition) = transition {
-                out.push('\n');
-                indent(out, depth);
-                out.push('}');
+                let animation = transition_animation
+                    .map(controls::swift_animation)
+                    .unwrap_or_else(|| ".default".to_owned());
                 out.push_str(&format!(
-                    ".transition({}).animation(.default, value: {})",
+                    ".transition({}).animation({}, value: {})",
                     swift_transition(*transition),
+                    animation,
                     crate::generator::engine::expressions::expression(value)
                 ));
+            } else {
+                out.push_str(".transition(.identity)");
             }
         }
         Node::Content => {
@@ -566,7 +678,13 @@ fn render_text(
     if has_explicit_font {
         style_modifiers.push(format!(".withFont({font})"));
     }
-    if let Some(weight) = style.font_weight {
+    let semantic_weight = style
+        .font_style
+        .filter(|_| style.font_size.is_some())
+        .map(nexa_codegen::design_system::text_metrics)
+        .map(|metrics| metrics.weight)
+        .filter(|weight| *weight != nexa_ir::FontWeight::Normal);
+    if let Some(weight) = style.font_weight.or(semantic_weight) {
         style_modifiers.push(format!(".withWeight({})", swift_font_weight(weight)));
     }
     if let Some(line_limit) = style.line_limit {
@@ -787,6 +905,41 @@ mod text_tests {
         assert!(generated.contains(".withTracking(0.5)"));
         assert!(generated.contains(".withStrikethrough()"));
         assert!(!generated.contains(".withItalic()"));
+    }
+
+    #[test]
+    fn explicit_font_size_keeps_semantic_font_style_weight() {
+        let mut output = SourceWriter::new();
+        render_text(
+            &Expr::String("Headline".to_owned()),
+            &TextStyle {
+                font_size: Some(24.0),
+                font_style: Some(TextFontStyle::Headline),
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(output.finish().contains(".withWeight(.semibold)"));
+    }
+
+    #[test]
+    fn explicit_font_weight_overrides_semantic_font_style_weight() {
+        let mut output = SourceWriter::new();
+        render_text(
+            &Expr::String("Regular headline".to_owned()),
+            &TextStyle {
+                font_size: Some(24.0),
+                font_style: Some(TextFontStyle::Headline),
+                font_weight: Some(nexa_ir::FontWeight::Normal),
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(output.finish().contains(".withWeight(.regular)"));
     }
 
     #[test]

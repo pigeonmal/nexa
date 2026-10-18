@@ -117,7 +117,11 @@ wait_for_log "Nexa $platform_label dev runtime applied module"
 if [[ "$platform" == "ios" ]]; then
     ios_project="$project/build/ios/FastListSmoke.xcodeproj"
     test_source="$project/build/ios/NexaHotReloadFastListUITests.swift"
-    cp "$script_dir/ios-hot-reload-fast-list-ui.swift" "$test_source"
+    ready_marker="nexa-fast-list-ready-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
+    completed_marker="nexa-fast-list-completed-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
+    sed -e "s/__READY_MARKER__/$ready_marker/" \
+        -e "s/__COMPLETED_MARKER__/$completed_marker/" \
+        "$script_dir/ios-hot-reload-fast-list-ui.swift" >"$test_source"
     test_runner_bundle_id=$(ruby "$script_dir/add-ios-ui-test-target.rb" "$ios_project" \
         NexaHotReloadFastListUITests.swift "$test_target")
     simulator_id=$(xcrun simctl list devices booted -j | python3 -c '
@@ -130,7 +134,7 @@ print(next((device["udid"] for group in devices.values() for device in group if 
         -destination "platform=iOS Simulator,id=$simulator_id" CODE_SIGNING_ALLOWED=NO \
         >"$xcode_log" 2>&1 &
     ui_pid=$!
-    wait_for_ui_marker nexa-fast-list-ready
+    wait_for_ui_marker "$ready_marker"
 else
     wait_for_visible_text "Item 15"
 fi
@@ -150,7 +154,7 @@ PY
 
 wait_for_patch_after "$patch_count"
 if [[ "$platform" == "ios" ]]; then
-    wait_for_ui_marker nexa-fast-list-completed
+    wait_for_ui_marker "$completed_marker"
     if ! wait "$ui_pid"; then ui_pid=; tail -n 100 "$xcode_log" >&2; exit 1; fi
     ui_pid=
     grep -Fq '** TEST SUCCEEDED **' "$xcode_log" || { tail -n 100 "$xcode_log" >&2; exit 1; }

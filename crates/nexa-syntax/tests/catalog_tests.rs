@@ -222,6 +222,29 @@ fn component_schemas_cover_every_vocabulary_entry() {
 }
 
 #[test]
+fn segmented_control_parameter_table_matches_the_catalog() {
+    let schema = catalog::component_schema("SegmentedControl").expect("SegmentedControl schema");
+    let catalog_names: Vec<&str> = schema
+        .arguments
+        .iter()
+        .map(|argument| argument.name)
+        .collect();
+    let documented_names: Vec<&str> = catalog::SEGMENTED_CONTROL_PARAMETER_DOCS
+        .iter()
+        .map(|parameter| parameter.name)
+        .filter(|name| *name != "accessibilityLabel")
+        .collect();
+    assert_eq!(catalog_names, documented_names);
+
+    nexa_testkit::assert_region(
+        &workspace_path("../../docs/components.md"),
+        "SEGMENTED_CONTROL_PARAMETERS",
+        &catalog::render_segmented_control_parameter_table(),
+        "docs/components.md",
+    );
+}
+
+#[test]
 fn fast_list_source_grammar_is_catalogued() {
     let schema = catalog::component_schema("FastList").expect("FastList schema");
     let options: Vec<&str> = schema.arguments.iter().map(|arg| arg.name).collect();
@@ -235,7 +258,8 @@ fn fast_list_source_grammar_is_catalogued() {
             "scrollEnabled",
             "reverseLayout",
             "pageSnap",
-            "native"
+            "native",
+            "showDividers"
         ]
     );
     assert_eq!(catalog::FASTLIST_SOURCE_KEYS, ["count", "sections"]);
@@ -249,6 +273,22 @@ fn stack_does_not_advertise_the_linear_layout_spacing_option() {
         nexa_syntax::parse_program(source).is_err(),
         "Stack spacing is rejected by semantic lowering and must not be accepted by the catalog parser"
     );
+}
+
+#[test]
+fn horizontal_arrangement_belongs_to_row_only() {
+    let row = catalog::component_schema("Row").expect("Row schema");
+    let row_options = catalog::schema_option_names(row);
+    assert!(row_options.contains(&"horizontalArrangement"));
+
+    for component in ["Column", "Stack"] {
+        let schema = catalog::component_schema(component).expect("layout schema");
+        let options = catalog::schema_option_names(schema);
+        assert!(
+            !options.contains(&"horizontalArrangement"),
+            "{component} does not use Row's horizontal main axis"
+        );
+    }
 }
 
 #[test]

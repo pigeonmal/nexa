@@ -1,0 +1,25 @@
+component CreatorAvatar(assetName: String, scale: String) {
+    body {
+        if scale == "large" {
+            Stack(alignment: Center, width: 84, height: 84, background: "#27272B", cornerRadius: 42, clip: Rounded(42), borderColor: "#FFFFFF", borderWidth: 1) {
+                if assetName == "mira" { Image(asset: "avatar_mira_pexels_774909", description: "Creator avatar", scale: Fill) } else { if assetName == "noah" { Image(asset: "avatar_noah_pexels_1239291", description: "Creator avatar", scale: Fill) } else { if assetName == "jules" { Image(asset: "avatar_jules_pexels_614810", description: "Creator avatar", scale: Fill) } else { Image(asset: "avatar_alex_pexels_220453", description: "Creator avatar", scale: Fill) } } }
+            }
+        } else if scale == "small" {
+            Stack(alignment: Center, width: 34, height: 34, background: "#27272B", cornerRadius: 17, clip: Rounded(17), borderColor: "#FFFFFF", borderWidth: 1) {
+                if assetName == "mira" { Image(asset: "avatar_mira_pexels_774909", description: "Creator avatar", scale: Fill) } else { if assetName == "noah" { Image(asset: "avatar_noah_pexels_1239291", description: "Creator avatar", scale: Fill) } else { if assetName == "jules" { Image(asset: "avatar_jules_pexels_614810", description: "Creator avatar", scale: Fill) } else { Image(asset: "avatar_alex_pexels_220453", description: "Creator avatar", scale: Fill) } } }
+            }
+        } else {
+            Stack(alignment: Center, width: 54, height: 54, background: "#27272B", cornerRadius: 27, clip: Rounded(27), borderColor: "#FFFFFF", borderWidth: 1) {
+            if assetName == "mira" {
+                Image(asset: "avatar_mira_pexels_774909", description: "Creator avatar", scale: Fill)
+            } else if assetName == "noah" {
+                Image(asset: "avatar_noah_pexels_1239291", description: "Creator avatar", scale: Fill)
+            } else if assetName == "jules" {
+                Image(asset: "avatar_jules_pexels_614810", description: "Creator avatar", scale: Fill)
+            } else {
+                Image(asset: "avatar_alex_pexels_220453", description: "Creator avatar", scale: Fill)
+            }
+        }
+        }
+    }
+}

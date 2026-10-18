@@ -101,6 +101,7 @@ pub mod names {
     }
 }
 
+pub mod animation;
 pub mod design_system;
 pub mod plugin;
 pub mod source_sections;

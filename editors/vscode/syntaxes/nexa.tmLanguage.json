@@ -165,7 +165,7 @@
       "patterns": [
         {
           "name": "support.class.component.nexa",
-          "match": "\\b(AppBottomBar|Appearance|BottomSheet|Button|Column|ConfirmationDialog|Content|ContentUnavailable|DatePicker|Dialog|Direction|Divider|FastList|Form|Icon|Image|KeyboardAware|LinearGradient|Link|NavigationBack|NavigationLink|NavigationSplitView|NavigationStack|OnActive|OnAppear|OnBackground|OnDisappear|OnInactive|PagePager|Picker|Pressable|ProgressBar|ProgressRing|RefreshControl|Row|Section|SegmentedControl|Slider|Spacer|Stack|StatusBar|Switch|Tab|TabBar|Text|TextInput|Toolbar)\\b"
+          "match": "\\b(AppBottomBar|Appearance|BottomSheet|Button|Column|ConfirmationDialog|Content|ContentUnavailable|Dialog|Direction|Divider|FastList|Form|Icon|Image|KeyboardAware|LinearGradient|Link|NavigationBack|NavigationLink|NavigationSplitView|NavigationStack|OnActive|OnAppear|OnBackground|OnDisappear|OnInactive|PagePager|Picker|PickerDate|Pressable|ProgressBar|ProgressRing|RefreshControl|Row|Section|SegmentedControl|Slider|Spacer|Stack|StatusBar|Switch|Tab|TabBar|Text|TextInput|Toolbar)\\b"
         }
       ]
     },

@@ -20,11 +20,11 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.ui.semantics.heading",
     );
     imports.add(
-        features.uses_switch || features.uses_date_picker || features.uses_accessibility,
+        features.uses_accessibility,
         "androidx.compose.ui.semantics.contentDescription",
     );
     imports.add(
-        features.uses_switch || features.uses_date_picker || features.uses_accessibility,
+        features.uses_accessibility,
         "androidx.compose.ui.semantics.semantics",
     );
     imports.add(

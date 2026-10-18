@@ -13,12 +13,15 @@ final class NexaFastListModesTests: XCTestCase {
         let initialStatus = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Events '")).firstMatch
         XCTAssertTrue(initialStatus.exists)
         let initialEvents = Int(initialStatus.label.split(separator: " ").dropFirst().first ?? "0") ?? 0
-        let lists = app.scrollViews
-        XCTAssertGreaterThanOrEqual(lists.count, 2)
+        XCTAssertTrue(initialStatus.label.contains("refreshing false"))
         let lastGridRow = app.staticTexts["Grid 39"]
         for _ in 0..<20 {
             if lastGridRow.exists { break }
-            lists.element(boundBy: 1).swipeUp()
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.84))
+                .press(
+                    forDuration: 0.05,
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+                )
         }
         XCTAssertTrue(lastGridRow.waitForExistence(timeout: 10))
         let completedStatus = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'pages 1'"))
@@ -33,8 +36,19 @@ final class NexaFastListModesTests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Section 0 row 0: A1"].waitForExistence(timeout: 45))
-        app.scrollViews.element(boundBy: 0).swipeDown()
+        let header = app.staticTexts["Section 0"]
+        XCTAssertTrue(header.exists)
+        let appHeight = app.frame.height
+        let start = app.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: max(0, min(1, (header.frame.minY + 1) / appHeight)))
+        )
+        let end = app.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: max(0, min(0.9, (header.frame.minY + 240) / appHeight)))
+        )
+        start.press(forDuration: 0.05, thenDragTo: end)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'refreshes 1'"))
             .firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'refreshing true'"))
+            .firstMatch.waitForExistence(timeout: 5))
     }
 }

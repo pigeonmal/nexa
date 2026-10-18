@@ -1,0 +1,92 @@
+import "../components/TopInset.nx"
+import "../components/CreatorAvatar.nx"
+import "../models/InboxMessage.nx"
+
+component ActivityScreen() {
+    let messages: Array<InboxMessage> = [
+        InboxMessage("mira", "Mira Chen", "mira", "That recipe looks amazing!", "2m", true),
+        InboxMessage("noah", "Noah Kim", "noah", "Sent you a video", "18m", true),
+        InboxMessage("jules", "Jules Parker", "jules", "Thanks for the follow ✨", "1h", false),
+        InboxMessage("alex", "Alex Morgan", "alex", "Your weekend edit is ready", "3h", false),
+    ]
+    let activity: Array<String> = ["mira.cooks liked your video", "noah.outside started following you", "jules.city mentioned you in a comment", "Your video reached 10K views"]
+    state viewMode: String = "Messages"
+    state selectedMessage: String = ""
+    state messageOpen: Bool = false
+
+    body {
+        Column(spacing: 15, padding: 16, background: "#08080A") {
+            TopInset()
+            Row(alignment: Center) {
+                Text("Inbox", color: "#FFFFFF", fontSize: 25, fontWeight: Bold)
+                Spacer()
+                Pressable(accessibilityLabel: "Open inbox settings", accessibilityRole: Button) {
+                    Icon(system: "more", description: "More", size: 22, tint: "#FFFFFF")
+                }.onTap { viewMode = "Activity" }
+            }
+            Row(spacing: 24, height: 40) {
+                Pressable(accessibilityLabel: "Show messages", accessibilityRole: Button) {
+                    Column(spacing: 5, alignment: Center) {
+                        if viewMode == "Messages" { Text("Messages", color: "#FFFFFF", fontSize: 15, fontWeight: Bold) } else { Text("Messages", color: "#98989C", fontSize: 15, fontWeight: Medium) }
+                        if viewMode == "Messages" { Stack(width: 36, height: 2, background: "#FFFFFF") {} }
+                    }
+                }.onTap { viewMode = "Messages" }
+                Pressable(accessibilityLabel: "Show activity", accessibilityRole: Button) {
+                    Column(spacing: 5, alignment: Center) {
+                        if viewMode == "Activity" { Text("Activity", color: "#FFFFFF", fontSize: 15, fontWeight: Bold) } else { Text("Activity", color: "#98989C", fontSize: 15, fontWeight: Medium) }
+                        if viewMode == "Activity" { Stack(width: 36, height: 2, background: "#FFFFFF") {} }
+                    }
+                }.onTap { viewMode = "Activity" }
+            }
+            if viewMode == "Messages" {
+                FastList(messages, key: .id, rowHeight: 78, spacing: 3, accessibilityLabel: "Recent conversations") { message, index in
+                    Pressable(fillMaxSize: true, accessibilityLabel: "Open chat with \(message.creator), conversation \(index + 1)", accessibilityRole: Button) {
+                        Row(spacing: 12, alignment: Center, padding: 8) {
+                            CreatorAvatar(assetName: message.avatar, scale: "medium")
+                            Column(spacing: 5) {
+                                Text(message.creator, color: "#FFFFFF", fontSize: 14, fontWeight: Semibold)
+                                if message.unread { Text(message.preview, color: "#EEEEF0", fontSize: 12, lineLimit: 1) } else { Text(message.preview, color: "#96969A", fontSize: 12, lineLimit: 1) }
+                            }
+                            Spacer()
+                            Column(spacing: 7, alignment: End) {
+                                Text(message.time, color: "#929297", fontSize: 10)
+                                if message.unread { Stack(width: 7, height: 7, background: "#FE2C55", cornerRadius: 4) {} }
+                            }
+                        }
+                    }.onTap {
+                        selectedMessage = message.creator
+                        messageOpen = true
+                    }
+                }
+            } else {
+                FastList(activity, key: .self, rowHeight: 76, spacing: 2, accessibilityLabel: "Recent activity") { item, index in
+                    Row(spacing: 12, alignment: Center, padding: 9) {
+                        if index == 0 { CreatorAvatar(assetName: "mira", scale: "medium") } else { if index == 1 { CreatorAvatar(assetName: "noah", scale: "medium") } else { CreatorAvatar(assetName: "jules", scale: "medium") } }
+                        Column(spacing: 4) {
+                            Text(item, color: "#FFFFFF", fontSize: 13, fontWeight: Semibold, lineLimit: 2)
+                            Text(if index == 0 { "12 min ago" } else { if index == 1 { "1 hour ago" } else { "Today" } }, color: "#8F8F94", fontSize: 10)
+                        }
+                        Spacer()
+                        if index == 0 { Icon(system: "favorite_filled", description: "Like", size: 18, tint: "#FE2C55") } else { Icon(system: "person", description: "Follow", size: 18, tint: "#A7A7AA") }
+                    }
+                }
+            }
+            Column(height: 64) {}
+        }
+
+        BottomSheet(isPresented: messageOpen, partial: true, title: selectedMessage) {
+            Column(spacing: 16, padding: 16, background: "#17171B") {
+                Row(spacing: 10, alignment: Center) {
+                    CreatorAvatar(assetName: if selectedMessage == "Mira Chen" { "mira" } else { if selectedMessage == "Noah Kim" { "noah" } else { "jules" } }, scale: "small")
+                    Text(selectedMessage, color: "#FFFFFF", fontSize: 15, fontWeight: Bold)
+                    Spacer()
+                }
+                Column(spacing: 10, padding: 12, background: "#29292E", cornerRadius: 12) {
+                    Text("Hi! I saw your video and wanted to say hello.", color: "#FFFFFF", fontSize: 13)
+                    Text("Sent today", color: "#A8A8AC", fontSize: 10)
+                }
+                TextInput(value: selectedMessage, placeholder: "Send a message", maxLength: 280)
+            }
+        }
+    }
+}

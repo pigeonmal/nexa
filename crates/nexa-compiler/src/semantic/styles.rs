@@ -1,5 +1,8 @@
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{Alignment, AnimationSpec, Color, ColorValue, ViewEffects, ViewShadow, ViewStyle};
+use nexa_ir::{
+    Alignment, AnimationEasing, AnimationSpec, Color, ColorValue, HorizontalArrangement,
+    ViewEffects, ViewShadow, ViewStyle,
+};
 use nexa_syntax::ast;
 
 use super::themes::ThemeSymbols;
@@ -69,6 +72,10 @@ pub(super) fn lower_style(
         themes,
     )?;
     let alignment = style.alignment.map(parse_alignment).transpose()?;
+    let horizontal_arrangement = style
+        .horizontal_arrangement
+        .map(parse_horizontal_arrangement)
+        .transpose()?;
     let animation = style.animation.map(parse_animation).transpose()?;
     let background = style
         .background
@@ -76,6 +83,7 @@ pub(super) fn lower_style(
         .transpose()?;
     Ok(ViewStyle {
         alignment,
+        horizontal_arrangement,
         padding,
         width,
         height,
@@ -359,7 +367,7 @@ pub(super) fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileE
             "Linear" => Ok(AnimationSpec::Linear),
             _ => Err(CompileError::new(
                 span,
-                "animation must be `Spring`, `Spring(response: ..., damping: ...)`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
+                "animation must be `Spring`, `Spring(response: ..., damping: ...)`, `Tween(duration: ..., easing: ...)`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
             )),
         },
         ast::Expr::Call(name, type_arguments, arguments, _span)
@@ -391,11 +399,216 @@ pub(super) fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileE
             }
             Ok(AnimationSpec::Spring { response, damping })
         }
+        ast::Expr::Call(name, type_arguments, mut arguments, span)
+            if name == "Tween"
+                && type_arguments.is_empty()
+                && (1..=2).contains(&arguments.len()) =>
+        {
+            let easing = if arguments.len() == 2 {
+                parse_animation_easing(
+                    arguments
+                        .pop()
+                        .ok_or_else(|| CompileError::new(span, "Tween requires a duration"))?,
+                )?
+            } else {
+                AnimationEasing::EaseInOut
+            };
+            let duration = arguments
+                .pop()
+                .ok_or_else(|| CompileError::new(span, "Tween requires a duration"))?;
+            parse_tween(duration, 0.0, easing, span)
+        }
+        ast::Expr::CallNamed {
+            name,
+            type_arguments,
+            mut arguments,
+            span,
+        } if name == "Tween" && type_arguments.is_empty() => {
+            let unknown = arguments
+                .keys()
+                .find(|key| !matches!(key.as_str(), "duration" | "delay" | "easing"));
+            if let Some(unknown) = unknown {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "unknown Tween parameter `{unknown}`; expected `duration`, `delay`, or `easing`"
+                    ),
+                ));
+            }
+            let duration = arguments
+                .remove("duration")
+                .ok_or_else(|| CompileError::new(span, "Tween requires a `duration` in seconds"))?;
+            let delay = arguments
+                .remove("delay")
+                .map(parse_tween_delay)
+                .transpose()?
+                .unwrap_or(0.0);
+            let easing = arguments
+                .remove("easing")
+                .map(parse_animation_easing)
+                .transpose()?
+                .unwrap_or(AnimationEasing::EaseInOut);
+            parse_tween(duration, delay, easing, span)
+        }
         other => Err(CompileError::new(
             other.span(),
-            "animation must be `Spring`, `Spring(response: ..., damping: ...)`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
+            "animation must be `Spring`, `Spring(response: ..., damping: ...)`, `Tween(duration: ..., delay: ..., easing: ...)`, an easing preset, or `CubicBezier(x1, y1, x2, y2)`",
         )),
     }
+}
+
+fn parse_animation_easing(expr: ast::Expr) -> Result<AnimationEasing, CompileError> {
+    match expr {
+        ast::Expr::Name(name, span) => match name.as_str() {
+            "Linear" => Ok(AnimationEasing::Linear),
+            "EaseIn" => Ok(AnimationEasing::EaseIn),
+            "EaseOut" => Ok(AnimationEasing::EaseOut),
+            "EaseInOut" => Ok(AnimationEasing::EaseInOut),
+            _ => Err(CompileError::new(
+                span,
+                "Tween easing must be a preset or `CubicBezier(x1, y1, x2, y2)`",
+            )),
+        },
+        ast::Expr::Call(name, type_arguments, arguments, span)
+            if name == "CubicBezier" && type_arguments.is_empty() && arguments.len() == 4 =>
+        {
+            let mut values = [0.0; 4];
+            for (index, argument) in arguments.iter().enumerate() {
+                values[index] = finite_number_value_f64(argument, ["x1", "y1", "x2", "y2"][index])?;
+            }
+            cubic_bezier(values, span)
+        }
+        ast::Expr::CallNamed {
+            name,
+            type_arguments,
+            arguments,
+            span,
+        } if name == "CubicBezier" && type_arguments.is_empty() => {
+            let expected = ["x1", "y1", "x2", "y2"];
+            if let Some(unknown) = arguments
+                .keys()
+                .find(|key| !expected.contains(&key.as_str()))
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "unknown CubicBezier parameter `{unknown}`; expected `x1`, `y1`, `x2`, or `y2`"
+                    ),
+                ));
+            }
+            let mut values = [0.0; 4];
+            for (index, key) in expected.iter().enumerate() {
+                let argument = arguments.get(*key).ok_or_else(|| {
+                    CompileError::new(span, format!("CubicBezier requires `{key}`"))
+                })?;
+                values[index] = finite_number_value_f64(argument, key)?;
+            }
+            cubic_bezier(values, span)
+        }
+        other => Err(CompileError::new(
+            other.span(),
+            "Tween easing must be a preset or `CubicBezier(x1, y1, x2, y2)`",
+        )),
+    }
+}
+
+fn cubic_bezier(
+    values: [f64; 4],
+    span: nexa_diagnostics::Span,
+) -> Result<AnimationEasing, CompileError> {
+    let x1 = values[0];
+    let x2 = values[2];
+    if !(0.0..=1.0).contains(&x1) || !(0.0..=1.0).contains(&x2) {
+        return Err(CompileError::new(
+            span,
+            "CubicBezier x control points must be between 0 and 1",
+        ));
+    }
+    let values = values.map(|value| value as f32);
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err(CompileError::new(
+            span,
+            "CubicBezier control points must fit the native animation range",
+        ));
+    }
+    Ok(AnimationEasing::CubicBezier {
+        x1: values[0],
+        y1: values[1],
+        x2: values[2],
+        y2: values[3],
+    })
+}
+
+fn parse_tween(
+    duration: ast::Expr,
+    delay: f64,
+    easing: AnimationEasing,
+    span: nexa_diagnostics::Span,
+) -> Result<AnimationSpec, CompileError> {
+    let duration = finite_number_value_f64(&duration, "Tween duration")?;
+    if !(0.0 < duration && duration <= 60.0) {
+        return Err(CompileError::new(
+            span,
+            "Tween duration must be between 1 millisecond and 60 seconds",
+        ));
+    }
+    let duration_millis = (duration * 1000.0).round();
+    if duration_millis < 1.0 {
+        return Err(CompileError::new(
+            span,
+            "Tween duration must be between 1 millisecond and 60 seconds",
+        ));
+    }
+    let duration = duration_millis / 1000.0;
+    Ok(AnimationSpec::Tween {
+        duration,
+        delay,
+        easing,
+    })
+}
+
+fn parse_tween_delay(expr: ast::Expr) -> Result<f64, CompileError> {
+    let span = expr.span();
+    let delay = finite_number_value_f64(&expr, "Tween delay")?;
+    if !(0.0..=60.0).contains(&delay) {
+        return Err(CompileError::new(
+            span,
+            "Tween delay must be between 0 and 60 seconds",
+        ));
+    }
+    Ok((delay * 1000.0).round() / 1000.0)
+}
+
+fn finite_number_value_f64(expr: &ast::Expr, field: &str) -> Result<f64, CompileError> {
+    let (raw, span, negative) = match expr {
+        ast::Expr::Number(raw, span) => (raw.as_str(), *span, false),
+        ast::Expr::Negate(inner, span) => match inner.as_ref() {
+            ast::Expr::Number(raw, _) => (raw.as_str(), *span, true),
+            _ => {
+                return Err(CompileError::new(
+                    *span,
+                    format!("{field} must be a finite numeric literal"),
+                ));
+            }
+        },
+        _ => {
+            return Err(CompileError::new(
+                expr.span(),
+                format!("{field} must be a finite numeric literal"),
+            ));
+        }
+    };
+    let value = raw.parse::<f64>().map_err(|_| {
+        CompileError::new(span, format!("{field} must be a finite numeric literal"))
+    })?;
+    let value = if negative { -value } else { value };
+    if !value.is_finite() {
+        return Err(CompileError::new(
+            span,
+            format!("{field} must be a finite numeric literal"),
+        ));
+    }
+    Ok(value)
 }
 
 fn parse_alignment(expr: ast::Expr) -> Result<Alignment, CompileError> {
@@ -412,6 +625,24 @@ fn parse_alignment(expr: ast::Expr) -> Result<Alignment, CompileError> {
         expr => Err(CompileError::new(
             expr.span(),
             "alignment must be `Start`, `Center`, or `End`",
+        )),
+    }
+}
+
+fn parse_horizontal_arrangement(expr: ast::Expr) -> Result<HorizontalArrangement, CompileError> {
+    match expr {
+        ast::Expr::Name(name, span) => match name.as_str() {
+            "Start" => Ok(HorizontalArrangement::Start),
+            "Center" => Ok(HorizontalArrangement::Center),
+            "End" => Ok(HorizontalArrangement::End),
+            _ => Err(CompileError::new(
+                span,
+                "horizontalArrangement must be `Start`, `Center`, or `End`",
+            )),
+        },
+        expr => Err(CompileError::new(
+            expr.span(),
+            "horizontalArrangement must be `Start`, `Center`, or `End`",
         )),
     }
 }

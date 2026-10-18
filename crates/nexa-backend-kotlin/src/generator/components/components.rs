@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{LayoutKind, Module, Node, ToolbarPlacement, ViewStyle};
+use nexa_ir::{LayoutKind, Module, Node, SystemIcon, ToolbarPlacement, ViewStyle};
 
 use crate::generator::{
     accessibility, bottom_bar, controls, dialogs, features::Features, images, input, keyboard,
@@ -38,15 +38,25 @@ pub(crate) fn render_node(
             style,
             children,
         } => layout::render_layout(*kind, *spacing, style, children, &scope, depth, out),
-        Node::Form { children } => layout::render_form(children, &scope, depth, out),
+        Node::Form {
+            show_dividers,
+            background,
+            children,
+        } => layout::render_form(*show_dividers, *background, children, &scope, depth, out),
         Node::FormSection {
             title,
             footer,
+            show_dividers,
+            background,
             children,
-            ..
         } => layout::render_form_section(
-            title.as_ref(),
-            footer.as_ref(),
+            layout::FormSectionRenderOptions {
+                title: title.as_ref(),
+                footer: footer.as_ref(),
+                show_dividers: show_dividers.unwrap_or(true),
+                first_section: false,
+                background: *background,
+            },
             children,
             &scope,
             depth,
@@ -69,14 +79,38 @@ pub(crate) fn render_node(
             title,
             icon,
             description,
+            title_color,
+            description_color,
+            icon_tint,
+            background,
         } => {
+            let icon_description = match icon {
+                SystemIcon::Shared(name) => name
+                    .split('_')
+                    .filter(|part| !part.is_empty())
+                    .map(|part| {
+                        let mut chars = part.chars();
+                        chars
+                            .next()
+                            .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                            .unwrap_or_default()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                SystemIcon::SfSymbol(_) | SystemIcon::MaterialSymbol(_) => "Icon".to_owned(),
+            };
             out.line_at(
                 depth,
                 format_args!(
-                    "NexaContentUnavailablePrimitive(title = {}, description = {}, icon = {})",
+                    "NexaContentUnavailablePrimitive(title = {}, description = {}, icon = {}, iconDescription = {}, titleColor = {}, descriptionColor = {}, iconTint = {}, background = {})",
                     crate::generator::engine::expressions::text_expression(title),
-                    crate::generator::engine::expressions::text_expression(description),
+                    description.as_ref().map(crate::generator::engine::expressions::text_expression).unwrap_or_else(|| "null".to_owned()),
                     icon.material_reference(),
+                    crate::generator::utils::kotlin_string(&icon_description),
+                    title_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
+                    description_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
+                    icon_tint.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
+                    background.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
                 ),
             );
         }
@@ -131,18 +165,50 @@ pub(crate) fn render_node(
         } => controls::render_slider(state, *animated, *min, *max, *step, depth, out),
         Node::ProgressBar { progress } => controls::render_progress_bar(progress, depth, out),
         Node::ProgressRing { progress } => controls::render_progress_ring(progress, depth, out),
-        Node::SegmentedControl { items, state, .. } => {
-            controls::render_segmented_control(items, state, depth, out)
-        }
+        Node::SegmentedControl {
+            items,
+            state,
+            animation,
+            tint,
+            background,
+            text_color,
+            selected_text_color,
+            font_size,
+            font_weight,
+            height,
+            corner_radius,
+            border_color,
+            border_width,
+        } => controls::render_segmented_control(
+            items,
+            state,
+            *animation,
+            controls::SegmentedControlStyle {
+                tint: tint.as_ref(),
+                background: background.as_ref(),
+                text_color: text_color.as_ref(),
+                selected_text_color: selected_text_color.as_ref(),
+                font_size: *font_size,
+                font_weight: *font_weight,
+                height: *height,
+                corner_radius: *corner_radius,
+                border_color: border_color.as_ref(),
+                border_width: *border_width,
+            },
+            depth,
+            out,
+        ),
         Node::Picker {
             items,
             state,
             icon,
+            item_icons,
             label,
             tint,
             ..
         } => controls::render_picker(
             items,
+            item_icons,
             state,
             icon.as_ref(),
             label.as_ref(),
@@ -151,10 +217,7 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
-        Node::DatePicker {
-            timestamp_state,
-            has_time_state,
-        } => controls::render_date_picker(timestamp_state, has_time_state, depth, out),
+        Node::PickerDate { .. } => controls::render_picker_date(node, depth, out),
         Node::Image {
             source,
             description,
@@ -201,8 +264,24 @@ pub(crate) fn render_node(
             );
         }
         Node::Pressable { .. } => controls::render_pressable(node, module, features, depth, out),
-        Node::NavigationStack { root, arguments } => {
-            navigation::render_navigation_stack(module, *root, arguments, features, depth, out);
+        Node::NavigationStack {
+            root,
+            arguments,
+            title_mode,
+            title_alignment,
+        } => {
+            navigation::render_navigation_stack(
+                module,
+                *root,
+                arguments,
+                navigation::NavigationTitleOptions {
+                    mode: *title_mode,
+                    alignment: *title_alignment,
+                },
+                features,
+                depth,
+                out,
+            );
         }
         Node::NavigationSplitView {
             detail_visible,
@@ -252,12 +331,14 @@ pub(crate) fn render_node(
             state,
             partial,
             large_only,
+            show_drag_handle,
             title,
             children,
         } => sheets::render_bottom_sheet(
             state,
             *partial,
             *large_only,
+            *show_drag_handle,
             title.as_ref(),
             children,
             module,
@@ -310,12 +391,14 @@ pub(crate) fn render_node(
             then_body,
             else_body,
             transition,
+            transition_animation,
         } => {
             conditional::render_if(
                 condition,
                 then_body,
                 else_body.as_deref(),
                 *transition,
+                *transition_animation,
                 conditional::RenderScope {
                     module,
                     features,
@@ -329,12 +412,14 @@ pub(crate) fn render_node(
             cases,
             else_body,
             transition,
+            transition_animation,
         } => {
             conditional::render_when(
                 value,
                 cases,
                 else_body,
                 *transition,
+                *transition_animation,
                 conditional::RenderScope {
                     module,
                     features,

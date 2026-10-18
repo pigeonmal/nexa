@@ -14,7 +14,7 @@ pub fn walk_ir(
         visit_node(node);
         match node {
             Node::Layout { children, .. }
-            | Node::Form { children }
+            | Node::Form { children, .. }
             | Node::Toolbar { children, .. }
             | Node::KeyboardAware { children, .. } => {
                 walk_ir(children, visit_node, visit_expression)
@@ -203,15 +203,60 @@ pub fn walk_ir(
             }
             Node::Text { value, .. } => walk_expression(value, visit_expression),
             Node::ContentUnavailable {
-                title, description, ..
+                title,
+                description,
+                title_color,
+                description_color,
+                icon_tint,
+                background,
+                ..
             } => {
                 walk_expression(title, visit_expression);
-                walk_expression(description, visit_expression);
+                if let Some(description) = description {
+                    walk_expression(description, visit_expression);
+                }
+                for color in [
+                    title_color.as_ref(),
+                    description_color.as_ref(),
+                    icon_tint.as_ref(),
+                    background.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    if let crate::ColorExpression::Dynamic(expression) = color {
+                        walk_expression(expression, visit_expression);
+                    }
+                }
             }
             Node::ProgressBar { progress } | Node::ProgressRing { progress } => {
                 walk_expression(progress, visit_expression)
             }
-            Node::SegmentedControl { items, .. } => walk_expression(items, visit_expression),
+            Node::SegmentedControl {
+                items,
+                tint,
+                background,
+                text_color,
+                selected_text_color,
+                border_color,
+                ..
+            } => {
+                walk_expression(items, visit_expression);
+                for color in [
+                    tint.as_ref(),
+                    background.as_ref(),
+                    text_color.as_ref(),
+                    selected_text_color.as_ref(),
+                    border_color.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    if let crate::ColorExpression::Dynamic(expression) = color {
+                        walk_expression(expression, visit_expression);
+                    }
+                }
+            }
             Node::Picker {
                 items, label, tint, ..
             } => {
@@ -221,6 +266,51 @@ pub fn walk_ir(
                 }
                 if let Some(crate::ColorExpression::Dynamic(color)) = tint {
                     walk_expression(color, visit_expression);
+                }
+            }
+            Node::PickerDate { props } => {
+                let crate::PickerDateProps {
+                    minimum,
+                    maximum,
+                    tint,
+                    text_color,
+                    background_color,
+                    picker_background_color,
+                    border_color,
+                    locale,
+                    time_zone,
+                    is_24_hour,
+                    enabled,
+                    accessibility_label,
+                    ..
+                } = props.as_ref();
+                for expression in [
+                    minimum.as_ref(),
+                    maximum.as_ref(),
+                    locale.as_ref(),
+                    time_zone.as_ref(),
+                    is_24_hour.as_ref(),
+                    enabled.as_ref(),
+                    accessibility_label.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    walk_expression(expression, visit_expression);
+                }
+                for color in [
+                    tint.as_ref(),
+                    text_color.as_ref(),
+                    background_color.as_ref(),
+                    picker_background_color.as_ref(),
+                    border_color.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    if let crate::ColorExpression::Dynamic(expression) = color {
+                        walk_expression(expression, visit_expression);
+                    }
                 }
             }
             Node::Button {
@@ -289,7 +379,6 @@ pub fn walk_ir(
             | Node::Divider { .. }
             | Node::LinearGradient { .. }
             | Node::Slider { .. }
-            | Node::DatePicker { .. }
             | Node::StatusBar { .. }
             | Node::Direction { .. } => {}
             Node::SystemIcon { tint, .. } => {
@@ -688,7 +777,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::ProgressRing { .. }
         | Node::SegmentedControl { .. }
         | Node::Picker { .. }
-        | Node::DatePicker { .. }
+        | Node::PickerDate { .. }
         | Node::Image { .. }
         | Node::SystemIcon { .. }
         | Node::LinearGradient { .. }
@@ -1001,7 +1090,7 @@ pub trait IrFolder: Sized {
 pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
     match node {
         Node::Layout { children, .. }
-        | Node::Form { children }
+        | Node::Form { children, .. }
         | Node::Toolbar { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
@@ -1171,15 +1260,60 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         }
         Node::Text { value, .. } => visitor.visit_expr(value),
         Node::ContentUnavailable {
-            title, description, ..
+            title,
+            description,
+            title_color,
+            description_color,
+            icon_tint,
+            background,
+            ..
         } => {
             visitor.visit_expr(title);
-            visitor.visit_expr(description);
+            if let Some(description) = description {
+                visitor.visit_expr(description);
+            }
+            for color in [
+                title_color.as_ref(),
+                description_color.as_ref(),
+                icon_tint.as_ref(),
+                background.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let crate::ColorExpression::Dynamic(expression) = color {
+                    visitor.visit_expr(expression);
+                }
+            }
         }
         Node::ProgressBar { progress } | Node::ProgressRing { progress } => {
             visitor.visit_expr(progress)
         }
-        Node::SegmentedControl { items, .. } => visitor.visit_expr(items),
+        Node::SegmentedControl {
+            items,
+            tint,
+            background,
+            text_color,
+            selected_text_color,
+            border_color,
+            ..
+        } => {
+            visitor.visit_expr(items);
+            for color in [
+                tint.as_ref(),
+                background.as_ref(),
+                text_color.as_ref(),
+                selected_text_color.as_ref(),
+                border_color.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let crate::ColorExpression::Dynamic(expression) = color {
+                    visitor.visit_expr(expression);
+                }
+            }
+        }
         Node::Picker {
             items, label, tint, ..
         } => {
@@ -1191,7 +1325,51 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 visitor.visit_expr(color);
             }
         }
-        Node::DatePicker { .. } => {}
+        Node::PickerDate { props } => {
+            let crate::PickerDateProps {
+                minimum,
+                maximum,
+                tint,
+                text_color,
+                background_color,
+                picker_background_color,
+                border_color,
+                locale,
+                time_zone,
+                is_24_hour,
+                enabled,
+                accessibility_label,
+                ..
+            } = props.as_ref();
+            for expression in [
+                minimum.as_ref(),
+                maximum.as_ref(),
+                locale.as_ref(),
+                time_zone.as_ref(),
+                is_24_hour.as_ref(),
+                enabled.as_ref(),
+                accessibility_label.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                visitor.visit_expr(expression);
+            }
+            for color in [
+                tint.as_ref(),
+                text_color.as_ref(),
+                background_color.as_ref(),
+                picker_background_color.as_ref(),
+                border_color.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let crate::ColorExpression::Dynamic(expression) = color {
+                    visitor.visit_expr(expression);
+                }
+            }
+        }
         Node::Button {
             label,
             loading,
@@ -1533,7 +1711,13 @@ pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
 
 pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Node> {
     match node {
-        Node::Form { children } => Some(Node::Form {
+        Node::Form {
+            show_dividers,
+            background,
+            children,
+        } => Some(Node::Form {
+            show_dividers,
+            background,
             children: folder.fold_nodes(children),
         }),
         Node::Switch { state, label } => Some(Node::Switch {
@@ -1543,10 +1727,14 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::FormSection {
             title,
             footer,
+            show_dividers,
+            background,
             children,
         } => Some(Node::FormSection {
             title: title.map(|title| folder.fold_expr(title)),
             footer: footer.map(|footer| folder.fold_expr(footer)),
+            show_dividers,
+            background,
             children: folder.fold_nodes(children),
         }),
         Node::Layout {
@@ -1575,12 +1763,14 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             state,
             partial,
             large_only,
+            show_drag_handle,
             title,
             children,
         } => Some(Node::BottomSheet {
             state,
             partial,
             large_only,
+            show_drag_handle,
             title: title.map(|title| folder.fold_expr(title)),
             children: folder.fold_nodes(children),
         }),
@@ -1710,7 +1900,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             state,
             tint: tint.map(|tint| match tint {
                 crate::ColorExpression::Dynamic(color) => {
-                    crate::ColorExpression::Dynamic(folder.fold_expr(color))
+                    crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
                 }
                 other => other,
             }),
@@ -1747,17 +1937,20 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             then_body,
             else_body,
             transition,
+            transition_animation,
         } => Some(Node::If {
             condition: folder.fold_expr(condition),
             then_body: folder.fold_nodes(then_body),
             else_body: else_body.map(|b| folder.fold_nodes(b)),
             transition,
+            transition_animation,
         }),
         Node::When {
             value,
             cases,
             else_body,
             transition,
+            transition_animation,
         } => Some(Node::When {
             value: folder.fold_expr(value),
             cases: cases
@@ -1769,6 +1962,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 .collect(),
             else_body: folder.fold_nodes(else_body),
             transition,
+            transition_animation,
         }),
         Node::Text { value, style } => Some(Node::Text {
             value: folder.fold_expr(value),
@@ -1778,10 +1972,18 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             title,
             icon,
             description,
+            title_color,
+            description_color,
+            icon_tint,
+            background,
         } => Some(Node::ContentUnavailable {
             title: folder.fold_expr(title),
             icon,
-            description: folder.fold_expr(description),
+            description: description.map(|description| folder.fold_expr(description)),
+            title_color: title_color.map(|color| fold_color_expression(color, folder)),
+            description_color: description_color.map(|color| fold_color_expression(color, folder)),
+            icon_tint: icon_tint.map(|color| fold_color_expression(color, folder)),
+            background: background.map(|color| fold_color_expression(color, folder)),
         }),
         Node::ProgressBar { progress } => Some(Node::ProgressBar {
             progress: folder.fold_expr(progress),
@@ -1789,35 +1991,106 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::ProgressRing { progress } => Some(Node::ProgressRing {
             progress: folder.fold_expr(progress),
         }),
-        Node::SegmentedControl { items, state } => Some(Node::SegmentedControl {
+        Node::SegmentedControl {
+            items,
+            state,
+            animation,
+            tint,
+            background,
+            text_color,
+            selected_text_color,
+            font_size,
+            font_weight,
+            height,
+            corner_radius,
+            border_color,
+            border_width,
+        } => Some(Node::SegmentedControl {
             items: folder.fold_expr(items),
             state,
+            animation,
+            tint: tint.map(|color| fold_color_expression(color, folder)),
+            background: background.map(|color| fold_color_expression(color, folder)),
+            text_color: text_color.map(|color| fold_color_expression(color, folder)),
+            selected_text_color: selected_text_color
+                .map(|color| fold_color_expression(color, folder)),
+            font_size,
+            font_weight,
+            height,
+            corner_radius,
+            border_color: border_color.map(|color| fold_color_expression(color, folder)),
+            border_width,
         }),
         Node::Picker {
             items,
             state,
             icon,
+            item_icons,
             label,
             tint,
         } => Some(Node::Picker {
             items: folder.fold_expr(items),
             state,
             icon,
+            item_icons,
             label: label.map(|label| folder.fold_expr(label)),
             tint: tint.map(|tint| match tint {
                 crate::ColorExpression::Dynamic(color) => {
-                    crate::ColorExpression::Dynamic(folder.fold_expr(color))
+                    crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
                 }
                 other => other,
             }),
         }),
-        Node::DatePicker {
-            timestamp_state,
-            has_time_state,
-        } => Some(Node::DatePicker {
-            timestamp_state,
-            has_time_state,
-        }),
+        Node::PickerDate { props } => {
+            let crate::PickerDateProps {
+                picker_type,
+                style,
+                selection,
+                timestamp_state,
+                start_timestamp_state,
+                end_timestamp_state,
+                minimum,
+                maximum,
+                tint,
+                text_color,
+                background_color,
+                picker_background_color,
+                border_color,
+                border_width,
+                corner_radius,
+                locale,
+                time_zone,
+                is_24_hour,
+                enabled,
+                accessibility_label,
+            } = *props;
+            Some(Node::PickerDate {
+                props: Box::new(crate::PickerDateProps {
+                    picker_type,
+                    style,
+                    selection,
+                    timestamp_state,
+                    start_timestamp_state,
+                    end_timestamp_state,
+                    minimum: minimum.map(|value| folder.fold_expr(value)),
+                    maximum: maximum.map(|value| folder.fold_expr(value)),
+                    tint: tint.map(|color| fold_color_expression(color, folder)),
+                    text_color: text_color.map(|color| fold_color_expression(color, folder)),
+                    background_color: background_color
+                        .map(|color| fold_color_expression(color, folder)),
+                    picker_background_color: picker_background_color
+                        .map(|color| fold_color_expression(color, folder)),
+                    border_color: border_color.map(|color| fold_color_expression(color, folder)),
+                    border_width,
+                    corner_radius,
+                    locale: locale.map(|value| folder.fold_expr(value)),
+                    time_zone: time_zone.map(|value| folder.fold_expr(value)),
+                    is_24_hour: is_24_hour.map(|value| folder.fold_expr(value)),
+                    enabled: enabled.map(|value| folder.fold_expr(value)),
+                    accessibility_label: accessibility_label.map(|value| folder.fold_expr(value)),
+                }),
+            })
+        }
         Node::Button {
             label,
             icon,
@@ -1839,7 +2112,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             shape,
             tint: tint.map(|tint| match tint {
                 crate::ColorExpression::Dynamic(color) => {
-                    crate::ColorExpression::Dynamic(folder.fold_expr(color))
+                    crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
                 }
                 other => other,
             }),
@@ -1927,12 +2200,19 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             mode: folder.fold_expr(mode),
             children: folder.fold_nodes(children),
         }),
-        Node::NavigationStack { root, arguments } => Some(Node::NavigationStack {
+        Node::NavigationStack {
+            root,
+            arguments,
+            title_mode,
+            title_alignment,
+        } => Some(Node::NavigationStack {
             root,
             arguments: arguments
                 .into_iter()
                 .map(|arg| folder.fold_expr(arg))
                 .collect(),
+            title_mode,
+            title_alignment,
         }),
         Node::NavigationBack { label } => Some(Node::NavigationBack {
             label: folder.fold_expr(label),
@@ -1982,11 +2262,23 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             size,
             tint: match tint {
                 crate::ColorExpression::Dynamic(color) => {
-                    crate::ColorExpression::Dynamic(folder.fold_expr(color))
+                    crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
                 }
                 other => other,
             },
         }),
+    }
+}
+
+fn fold_color_expression<F: IrFolder>(
+    color: crate::ColorExpression,
+    folder: &mut F,
+) -> crate::ColorExpression {
+    match color {
+        crate::ColorExpression::Dynamic(expression) => {
+            crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*expression)))
+        }
+        other => other,
     }
 }
 
@@ -2721,6 +3013,7 @@ mod tests {
                     }],
                     else_body: None,
                     transition: None,
+                    transition_animation: None,
                 },
             ],
         };

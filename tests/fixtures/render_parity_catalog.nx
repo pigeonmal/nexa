@@ -18,7 +18,6 @@ app RenderParityCatalog {
     state sort: String = "Due date"
     state sortOptions: Array<String> = ["Due date", "Priority", "Title"]
     state timestamp: Int64 = Time.now()
-    state hasTime: Bool = false
     state selectedTab: Int32 = 0
     state selectedPage: Int32 = 0
     state detailVisible: Bool = false
@@ -60,7 +59,7 @@ app RenderParityCatalog {
                                 Text("Flexible row")
                                 Spacer()
                             }
-                            ContentUnavailable(title: "No archived tasks", icon: "inbox", description: "Archived tasks appear here.")
+                            ContentUnavailable(title: "No archived tasks", icon: "inbox", description: "Archived tasks appear here.", titleColor: "#222222", descriptionColor: "#666666", iconTint: "#0088FF", background: "#F4F4F8")
                             Text("Conditional content", fontSize: 12)
                             if enabled {
                                 Text("If branch enabled", accessibilityLabel: "If branch enabled")
@@ -85,7 +84,6 @@ app RenderParityCatalog {
                             ProgressRing(progress: progress, accessibilityLabel: "Circular task progress")
                             SegmentedControl(items: periods, selected: period, accessibilityLabel: "Period")
                             Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", accessibilityLabel: "Sort tasks")
-                            DatePicker(timestamp: timestamp, hasTime: hasTime, accessibilityLabel: "Due date")
                             Pressable(accessibilityLabel: "Pressable action", accessibilityRole: Button) {
                                 Text("Pressable region")
                             }.onTap {

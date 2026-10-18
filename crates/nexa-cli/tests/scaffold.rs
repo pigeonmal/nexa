@@ -18,7 +18,7 @@ fn scaffold_writes_valid_source_and_default_config() {
     let config = fs::read_to_string(root.join("nexa.config.nx")).expect("scaffold config");
     let config = nexa_syntax::parse_config(&config).expect("scaffold config is valid");
     let android = config.android.expect("android config");
-    assert_eq!(android.min_sdk, Some(23));
+    assert_eq!(android.min_sdk, Some(24));
     assert_eq!(android.target_sdk, Some(36));
     let signing = fs::read_to_string(root.join(".nexa/signing.properties"))
         .expect("scaffold local signing settings");

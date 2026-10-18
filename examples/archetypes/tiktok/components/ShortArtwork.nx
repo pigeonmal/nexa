@@ -1,0 +1,19 @@
+component ShortArtwork(assetName: String) {
+    body {
+        if assetName == "coast" {
+            Image(asset: "poster_coast_pexels_8651079", description: "Short video preview", scale: Fill, fillMaxSize: true)
+        } else if assetName == "food" {
+            Image(asset: "poster_food_pexels_16060256", description: "Short video preview", scale: Fill, fillMaxSize: true)
+        } else if assetName == "trail" {
+            Image(asset: "poster_trail_pexels_35746721", description: "Short video preview", scale: Fill, fillMaxSize: true)
+        } else if assetName == "design" {
+            Image(asset: "poster_design_pexels_7546553", description: "Short video preview", scale: Fill, fillMaxSize: true)
+        } else if assetName == "waves" {
+            Image(asset: "poster_waves_pexels_19266818", description: "Short video preview", scale: Fill, fillMaxSize: true)
+        } else if assetName == "court" {
+            Image(asset: "poster_court_pexels_14317220", description: "Short video preview", scale: Fill, fillMaxSize: true)
+        } else {
+            Image(asset: "poster_city_pexels_20131950", description: "Short video preview", scale: Fill, fillMaxSize: true)
+        }
+    }
+}

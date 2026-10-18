@@ -8,7 +8,7 @@ app FastListModesSmoke {
     state refreshCount: Int32 = 0
 
     body {
-        Text("Events $scrollEvents pages $pagesLoaded refreshes $refreshCount")
+        Text("Events $scrollEvents pages $pagesLoaded refreshes $refreshCount refreshing $isRefreshing")
         RefreshControl(isRefreshing: isRefreshing) {
             FastList(sections: sections, rowHeight: 44) { item, index, section in
                 Text("Section $section row $index: $item")
@@ -17,6 +17,7 @@ app FastListModesSmoke {
             }
         }.onRefresh {
             refreshCount = refreshCount + 1
+            isRefreshing = true
         }
         FastList(count: itemCount, axis: Grid(2), scrollPosition: scrollPosition, rowHeight: 48) { index in
             Text("Grid $index")

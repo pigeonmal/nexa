@@ -936,6 +936,26 @@ fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Mo
                 design::FORM_LARGE_TITLE_TOP_PADDING.to_string(),
             ),
             (
+                "__NEXA_TITLE_BAR_HEIGHT__",
+                design::TITLE_BAR_METRICS.header_height.to_string(),
+            ),
+            (
+                "__NEXA_TITLE_BAR_COLLAPSE_DISTANCE__",
+                design::TITLE_BAR_METRICS.collapse_distance.to_string(),
+            ),
+            (
+                "__NEXA_TITLE_BAR_COLLAPSED_FONT_SIZE__",
+                design::TITLE_BAR_METRICS.collapsed_font_size.to_string(),
+            ),
+            (
+                "__NEXA_TITLE_BAR_EXPANDED_FONT_SIZE__",
+                design::TITLE_BAR_METRICS.expanded_font_size.to_string(),
+            ),
+            (
+                "__NEXA_TITLE_BAR_HORIZONTAL_INSET__",
+                design::TITLE_BAR_METRICS.horizontal_inset.to_string(),
+            ),
+            (
                 "__NEXA_FORM_SWITCH_OFF_TRACK_ARGB__",
                 format!("0x{:08X}", design::FORM_SWITCH_OFF_TRACK_ARGB),
             ),
@@ -1752,13 +1772,13 @@ fn android_plan(
     {
         (
             "Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent)",
-            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))",
+            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))",
             "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
         )
     } else {
         (
             "Surface(modifier = Modifier.fillMaxSize())",
-            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))",
+            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))",
             "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
         )
     };
@@ -2407,6 +2427,100 @@ mod tests {
     };
 
     #[test]
+    fn generated_android_projects_pin_native_title_material3_version_without_menus() {
+        let config = super::config::ProjectConfig::from_defaults(&[], "TitleParity")
+            .expect("resolve default project configuration");
+        let gradle = super::templates::android_app_gradle_with_dev_runtime(
+            "dev.nexa.titleparity",
+            nexa_backend_kotlin::KotlinProjectFeatures {
+                uses_navigation: true,
+                ..Default::default()
+            },
+            &[],
+            &[],
+            &config,
+            false,
+        )
+        .expect("render Android project dependencies");
+
+        assert!(
+            gradle
+                .contains("implementation(\"androidx.compose.material3:material3:1.5.0-alpha25\")")
+        );
+    }
+
+    #[test]
+    fn generated_android_projects_use_expressive_menu_groups_when_needed() {
+        let mut config = super::config::ProjectConfig::from_defaults(&[], "MenuParity")
+            .expect("resolve default project configuration");
+        config.android_min_sdk = 24;
+        let gradle = super::templates::android_app_gradle_with_dev_runtime(
+            "dev.nexa.menuparity",
+            nexa_backend_kotlin::KotlinProjectFeatures {
+                uses_expressive_menus: true,
+                uses_bottom_bar: true,
+                ..Default::default()
+            },
+            &[],
+            &[],
+            &config,
+            false,
+        )
+        .expect("render expressive-menu Android project dependencies");
+
+        assert!(
+            gradle
+                .contains("implementation(\"androidx.compose.material3:material3:1.5.0-beta01\")")
+        );
+        assert!(gradle.contains(
+            "implementation(\"androidx.compose.material3:material3-adaptive-navigation-suite:1.5.0-beta01\")"
+        ));
+    }
+
+    #[test]
+    fn segmented_control_animation_uses_expressive_motion_without_raising_min_sdk() {
+        let config = super::config::ProjectConfig::from_defaults(&[], "SegmentedMotion")
+            .expect("resolve default project configuration");
+        let gradle = super::templates::android_app_gradle_with_dev_runtime(
+            "dev.nexa.segmentedmotion",
+            nexa_backend_kotlin::KotlinProjectFeatures {
+                uses_expressive_motion: true,
+                uses_compose_animation: true,
+                ..Default::default()
+            },
+            &[],
+            &[],
+            &config,
+            false,
+        )
+        .expect("segmented motion does not require the expressive-menu minimum SDK");
+
+        assert!(gradle.contains("material3:1.5.0-beta01"));
+        assert!(gradle.contains("androidx.compose.animation:animation"));
+        assert!(gradle.contains(&format!("minSdk = {}", config.android_min_sdk)));
+    }
+
+    #[test]
+    fn generated_android_expressive_menus_report_their_minimum_sdk() {
+        let config = super::config::ProjectConfig::from_defaults(&[], "MenuParity")
+            .expect("resolve default project configuration");
+        let error = super::templates::android_app_gradle_with_dev_runtime(
+            "dev.nexa.menuparity",
+            nexa_backend_kotlin::KotlinProjectFeatures {
+                uses_expressive_menus: true,
+                ..Default::default()
+            },
+            &[],
+            &[],
+            &config,
+            false,
+        )
+        .expect_err("API 23 cannot use the expressive menu artifact");
+
+        assert!(error.contains("Material 3 Expressive menus require minSdk 24"));
+    }
+
+    #[test]
     fn dev_runtime_ui_defaults_are_injected_from_the_shared_design_system() {
         let module =
             nexa_compiler::compile(r##"app DesignSystemProbe { body { Text("Parity") } }"##)
@@ -2451,7 +2565,10 @@ mod tests {
         assert!(!swift.contains("nexaDevPageIndicator"));
 
         assert!(kotlin.contains("private const val nexaDevDefaultBodyFontSize = 17"));
-        assert!(kotlin.contains("private const val nexaDevFormRowMinHeight = 52"));
+        assert!(kotlin.contains(&format!(
+            "private const val nexaDevFormRowMinHeight = {}",
+            nexa_codegen::design_system::ANDROID_FORM_ROW_MIN_HEIGHT
+        )));
         assert!(kotlin.contains("NexaFormRowPrimitive("));
         assert!(kotlin.contains("minHeight = nexaDevFormRowMinHeight.toFloat()"));
         assert!(!kotlin.contains("nexaDevFormButtonRowMinHeight"));
@@ -2464,7 +2581,7 @@ mod tests {
         );
         assert!(kotlin.contains("private const val nexaDevDefaultLineHeightMultiplier = 1.2f"));
         assert!(kotlin.contains("NexaButtonPrimitive("));
-        assert!(kotlin.contains("NexaLargeTitlePrimitive("));
+        assert!(kotlin.contains("NexaNavigationChrome("));
         assert!(!kotlin.contains("LargeTopAppBar("));
         assert!(!kotlin.contains("nexaDevButtonMinWidth"));
         assert!(!kotlin.contains("outlinedTint"));

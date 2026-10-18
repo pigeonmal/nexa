@@ -112,10 +112,10 @@ private fun nexaDevFormatCurrency(amount: Double, currencyCode: String): String 
 }
 
 internal fun NexaDevStateStore.nativeCall(namespace: String, name: String, arguments: JSONArray): JSONObject =
-    JSONObject().put("NativeCall", JSONObject()
+    JSONObject()
         .put("namespace", namespace)
         .put("name", name)
-        .put("arguments", arguments))
+        .put("arguments", arguments)
 
 internal fun NexaDevStateStore.argument(name: String, expression: Any?): JSONArray =
     JSONArray().put(name).put(expression ?: JSONObject.NULL)

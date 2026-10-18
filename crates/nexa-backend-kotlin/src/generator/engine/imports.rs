@@ -4,6 +4,7 @@ use super::features::Features;
 /// imports; this type carries only cross-cutting placement facts.
 pub(crate) struct ImportContext<'a> {
     pub(crate) features: &'a Features,
+    pub(crate) include_all_shared_primitives: bool,
     pub(crate) uses_plugins: bool,
     pub(crate) has_navigation: bool,
     pub(crate) has_direction: bool,
@@ -43,12 +44,65 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
+    // DevRuntime can introduce navigation after a hot reload, so keep these
+    // imports there. AOT imports stay feature-gated to avoid requiring the
+    // optional Material icons artifact in apps that do not use navigation.
+    imports.add(
+        context.has_navigation || context.include_all_shared_primitives,
+        "androidx.compose.material.icons.Icons",
+    );
+    imports.add(
+        context.has_navigation || context.include_all_shared_primitives,
+        "androidx.compose.material.icons.automirrored.filled.ArrowBack",
+    );
     // The DevRuntime host includes every shared primitive so hot-reloaded
     // trees can use them even when the initial app does not. AOT source
     // sections are reachability-pruned, but share this import block.
     imports.add(true, "androidx.compose.foundation.background");
+    imports.add(true, "androidx.compose.foundation.border");
     imports.add(true, "androidx.compose.foundation.clickable");
+    imports.add(true, "androidx.compose.foundation.indication");
     imports.add(true, "androidx.compose.foundation.verticalScroll");
+    imports.add(true, "androidx.compose.foundation.rememberScrollState");
+    let uses_date_picker =
+        context.include_all_shared_primitives || context.features.uses_date_picker;
+    imports.add(uses_date_picker, "androidx.compose.ui.unit.dp");
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.foundation.gestures.awaitEachGesture",
+    );
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.foundation.gestures.awaitFirstDown",
+    );
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.ui.focus.focusProperties",
+    );
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.ui.input.pointer.PointerEventPass",
+    );
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.ui.input.pointer.pointerInput",
+    );
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.ui.semantics.clearAndSetSemantics",
+    );
+    imports.add(uses_date_picker, "androidx.compose.ui.semantics.disabled");
+    imports.add(uses_date_picker, "androidx.compose.ui.semantics.selected");
+    imports.add(uses_date_picker, "androidx.compose.ui.draw.rotate");
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.foundation.layout.heightIn",
+    );
+    imports.add(
+        uses_date_picker,
+        "androidx.compose.foundation.layout.requiredWidthIn",
+    );
+    imports.add(uses_date_picker, "kotlinx.coroutines.flow.collect");
     imports.add(true, "androidx.compose.foundation.layout.defaultMinSize");
     imports.add(true, "androidx.compose.foundation.layout.Row");
     imports.add(true, "androidx.compose.foundation.layout.Box");
@@ -67,8 +121,15 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
         "androidx.compose.foundation.relocation.bringIntoViewRequester",
     );
     imports.add(true, "androidx.compose.foundation.selection.toggleable");
+    imports.add(true, "androidx.compose.foundation.selection.selectable");
+    imports.add(
+        true,
+        "androidx.compose.foundation.selection.selectableGroup",
+    );
+    imports.add(true, "androidx.compose.foundation.progressSemantics");
     imports.add(true, "androidx.compose.ui.focus.onFocusChanged");
     imports.add(true, "androidx.compose.ui.draw.clip");
+    imports.add(true, "androidx.compose.ui.draw.alpha");
     imports.add(true, "androidx.compose.ui.Alignment");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxSize");
@@ -76,7 +137,9 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.ui.graphics.toArgb");
     imports.add(true, "androidx.compose.foundation.layout.height");
     imports.add(true, "androidx.compose.foundation.layout.heightIn");
+    imports.add(true, "androidx.compose.foundation.layout.offset");
     imports.add(true, "androidx.compose.foundation.layout.padding");
+    imports.add(true, "androidx.compose.foundation.layout.requiredWidth");
     imports.add(true, "androidx.compose.foundation.layout.size");
     imports.add(true, "androidx.compose.foundation.layout.width");
     imports.add(true, "androidx.compose.ui.unit.sp");
@@ -90,7 +153,6 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
         context.has_immutable_structs,
         "androidx.compose.runtime.Immutable",
     );
-    imports.add(true, "androidx.compose.material3.LocalRippleConfiguration");
     imports.add(context.has_widgets, "androidx.glance.appwidget.updateAll");
     imports.add(context.has_widgets, "kotlinx.coroutines.CoroutineScope");
     imports.add(context.has_widgets, "kotlinx.coroutines.Dispatchers");
@@ -151,8 +213,16 @@ mod tests {
     use crate::generator::engine::features::Features;
 
     fn render_features(features: &Features) -> String {
+        render_features_with_shared_primitives(features, false)
+    }
+
+    fn render_features_with_shared_primitives(
+        features: &Features,
+        include_all_shared_primitives: bool,
+    ) -> String {
         render(ImportContext {
             features,
+            include_all_shared_primitives,
             uses_plugins: false,
             has_navigation: false,
             has_direction: false,
@@ -165,11 +235,13 @@ mod tests {
     }
 
     #[test]
-    fn minimal_app_scopes_native_default_ripple_suppression() {
+    fn minimal_app_keeps_material_default_press_feedback() {
         let imports = render_features(&Features::default());
-        assert!(imports.contains("import androidx.compose.material3.LocalRippleConfiguration\n"));
+        assert!(!imports.contains("import androidx.compose.material3.LocalRippleConfiguration\n"));
         assert!(imports.contains("import androidx.compose.runtime.Composable\n"));
         assert!(imports.contains("import androidx.compose.runtime.CompositionLocalProvider\n"));
+        assert!(!imports.contains("import androidx.compose.material.icons.Icons\n"));
+        assert!(!imports.contains("androidx.compose.material.icons.automirrored.filled.ArrowBack"));
         assert!(imports.contains("import androidx.compose.foundation.layout.ime\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.navigationBars\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.statusBars\n"));
@@ -181,6 +253,50 @@ mod tests {
         assert!(imports.contains("import androidx.compose.foundation.selection.toggleable\n"));
         assert!(imports.contains("import androidx.compose.ui.focus.onFocusChanged\n"));
         assert!(imports.contains("import androidx.compose.ui.draw.clip\n"));
+        assert!(!imports.contains("import androidx.compose.ui.input.pointer.pointerInput\n"));
+        assert!(!imports.contains("import androidx.compose.ui.semantics.clearAndSetSemantics\n"));
+    }
+
+    #[test]
+    fn date_picker_imports_only_its_extension_dependencies() {
+        let mut date_picker_features = Features::default();
+        date_picker_features.uses_date_picker = true;
+        let imports = render_features(&date_picker_features);
+        assert!(imports.contains("import androidx.compose.ui.unit.dp\n"));
+        assert!(imports.contains("import kotlinx.coroutines.flow.collect\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.heightIn\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.requiredWidthIn\n"));
+        assert!(imports.contains("import androidx.compose.ui.input.pointer.pointerInput\n"));
+        assert!(imports.contains("import androidx.compose.ui.semantics.clearAndSetSemantics\n"));
+        assert!(imports.contains("import androidx.compose.ui.semantics.disabled\n"));
+        assert!(imports.contains("import androidx.compose.ui.semantics.selected\n"));
+        assert!(imports.contains("import androidx.compose.ui.draw.rotate\n"));
+        assert!(imports.contains("import androidx.compose.ui.focus.focusProperties\n"));
+        assert!(!imports.contains("androidx.compose.material3.DatePickerDialog"));
+        assert!(!imports.contains("androidx.compose.ui.window.DialogProperties"));
+    }
+
+    #[test]
+    fn dev_runtime_keeps_shared_navigation_icon_imports_for_hot_reload() {
+        let imports = render_features_with_shared_primitives(&Features::default(), true);
+
+        assert!(imports.contains("import androidx.compose.material.icons.Icons\n"));
+        assert!(
+            imports
+                .contains("import androidx.compose.material.icons.automirrored.filled.ArrowBack\n")
+        );
+    }
+
+    #[test]
+    fn fused_fast_list_refresh_imports_material_pull_to_refresh_box() {
+        let mut features = Features::default();
+        features.facts.ui.lists.refresh_fused = true;
+
+        let imports = render_features(&features);
+
+        assert!(
+            imports.contains("import androidx.compose.material3.pulltorefresh.PullToRefreshBox\n")
+        );
     }
 
     #[test]
@@ -188,6 +304,7 @@ mod tests {
         let mut context_features = Features::default();
         let baseline = render(ImportContext {
             features: &context_features,
+            include_all_shared_primitives: false,
             uses_plugins: false,
             has_navigation: false,
             has_direction: false,
@@ -200,6 +317,7 @@ mod tests {
         context_features.uses_network_api = true;
         let with_annotation = render(ImportContext {
             features: &context_features,
+            include_all_shared_primitives: false,
             uses_plugins: false,
             has_navigation: false,
             has_direction: false,
@@ -235,24 +353,6 @@ mod tests {
         assert!(imports.contains("import androidx.compose.runtime.mutableStateOf\n"));
         assert!(imports.contains("import androidx.compose.runtime.remember\n"));
         assert!(!imports.contains("import androidx.compose.material3.SegmentedButton\n"));
-    }
-
-    #[test]
-    fn switch_and_date_picker_import_full_row_toggle_behavior() {
-        let mut features = Features::default();
-        features.uses_switch = true;
-        let switch_imports = render_features(&features);
-        assert!(
-            switch_imports.contains("import androidx.compose.foundation.selection.toggleable\n")
-        );
-
-        features.uses_switch = false;
-        features.uses_date_picker = true;
-        let date_picker_imports = render_features(&features);
-        assert!(
-            date_picker_imports
-                .contains("import androidx.compose.foundation.selection.toggleable\n")
-        );
     }
 
     #[test]
@@ -362,7 +462,7 @@ mod tests {
         assert!(!imports.contains("import coil3.compose.AsyncImage\n"));
         assert!(imports.contains("import coil3.network.NetworkFetcher\n"));
         assert!(imports.contains("import org.chromium.net.CronetEngine\n"));
-        assert!(!imports.contains("androidx.compose.material.icons"));
+        assert!(!imports.contains("import androidx.compose.material.icons.filled."));
         assert!(!imports.contains("import org.chromium.net.UploadDataProvider\n"));
         assert!(!imports.contains("import org.chromium.net.UploadDataSink\n"));
     }

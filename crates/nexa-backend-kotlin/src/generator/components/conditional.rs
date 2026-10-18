@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{Expr, Module, Node, ViewTransition, WhenCase};
+use nexa_ir::{AnimationSpec, Expr, Module, Node, ViewTransition, WhenCase};
 
 use crate::generator::{
     engine::{expressions, features::Features, imports::ImportSet},
@@ -52,6 +52,7 @@ pub(crate) fn render_if(
     then_body: &[Node],
     else_body: Option<&[Node]>,
     transition: Option<ViewTransition>,
+    transition_animation: Option<AnimationSpec>,
     scope: RenderScope<'_>,
 ) {
     let RenderScope {
@@ -83,7 +84,7 @@ pub(crate) fn render_if(
         format_args!(
             "AnimatedContent(targetState = {}, transitionSpec = {{ {} }}, label = \"if-transition\") {{ nexTarget ->",
             expressions::expression(condition),
-            content_transform(transition)
+            content_transform(transition, transition_animation)
         ),
     );
     out.line_at(depth + 1, format_args!("if (nexTarget) {{"));
@@ -106,6 +107,7 @@ pub(crate) fn render_when(
     cases: &[WhenCase],
     else_body: &[Node],
     transition: Option<ViewTransition>,
+    transition_animation: Option<AnimationSpec>,
     scope: RenderScope<'_>,
 ) {
     let RenderScope {
@@ -132,7 +134,7 @@ pub(crate) fn render_when(
         format_args!(
             "AnimatedContent(targetState = {}, transitionSpec = {{ {} }}, label = \"when-transition\") {{ nexTarget ->",
             expressions::expression(value),
-            content_transform(transition)
+            content_transform(transition, transition_animation)
         ),
     );
     render_when_body(
@@ -179,18 +181,34 @@ fn render_when_body(
     out.push('}');
 }
 
-fn content_transform(transition: ViewTransition) -> &'static str {
+fn content_transform(transition: ViewTransition, animation: Option<AnimationSpec>) -> String {
+    let animation = animation.map_or_else(String::new, |animation| {
+        format!(
+            "(animationSpec = {})",
+            super::controls::kotlin_animation(animation)
+        )
+    });
     match transition {
-        ViewTransition::Fade => "fadeIn() togetherWith fadeOut()",
+        ViewTransition::Fade => {
+            format!("fadeIn{animation} togetherWith fadeOut{animation}")
+        }
         ViewTransition::SlideFromBottom => {
-            "slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }"
+            format!(
+                "slideInVertically{animation} {{ height -> height }} togetherWith slideOutVertically{animation} {{ height -> height }}"
+            )
         }
         ViewTransition::SlideFromLeft => {
-            "slideInHorizontally { width -> -width } togetherWith slideOutHorizontally { width -> width }"
+            format!(
+                "slideInHorizontally{animation} {{ width -> -width }} togetherWith slideOutHorizontally{animation} {{ width -> width }}"
+            )
         }
         ViewTransition::SlideFromRight => {
-            "slideInHorizontally { width -> width } togetherWith slideOutHorizontally { width -> -width }"
+            format!(
+                "slideInHorizontally{animation} {{ width -> width }} togetherWith slideOutHorizontally{animation} {{ width -> -width }}"
+            )
         }
-        ViewTransition::Scale => "scaleIn() togetherWith scaleOut()",
+        ViewTransition::Scale => {
+            format!("scaleIn{animation} togetherWith scaleOut{animation}")
+        }
     }
 }

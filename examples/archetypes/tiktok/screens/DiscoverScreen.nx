@@ -1,0 +1,103 @@
+import "../models/ShortVideo.nx"
+import "../components/TopInset.nx"
+import "../components/ShortArtwork.nx"
+import "../components/CreatorAvatar.nx"
+
+component DiscoverScreen() {
+    let categories: Array<String> = ["For you", "Food", "Travel", "Outdoors", "Style", "Design"]
+    let videos: Array<ShortVideo> = [
+        ShortVideo("discover-coast", "@mira.cooks", "A quiet hour by the water", "Blue Hour", "", "coast", "mira", "86.2K", "1,904", "940K"),
+        ShortVideo("discover-recipe", "@mira.cooks", "The market dumplings worth trying", "Sunday Kitchen", "", "food", "mira", "47.6K", "987", "84K"),
+        ShortVideo("discover-trail", "@noah.outside", "Above the clouds before sunrise", "First Light", "", "trail", "noah", "204K", "5,402", "1.2M"),
+        ShortVideo("discover-city", "@jules.city", "The city after the rain", "Night Shift", "", "city", "jules", "128K", "2,310", "260K"),
+        ShortVideo("discover-studio", "@alex.morgan", "A room made for slow mornings", "Soft Focus", "", "design", "alex", "19.5K", "412", "112K"),
+        ShortVideo("discover-court", "@jules.city", "One more set before sunset", "Side Out", "", "court", "jules", "32K", "800", "92K"),
+        ShortVideo("discover-waves", "@noah.outside", "Wait for the last wave", "First Light", "", "waves", "noah", "64K", "1,020", "308K"),
+        ShortVideo("discover-food", "@mira.cooks", "Dinner with five ingredients", "Sunday Kitchen", "", "food", "mira", "22K", "360", "61K"),
+    ]
+    state searchText: String = ""
+    state selectedCategory: String = "For you"
+    state openedCreator: String = ""
+    state creatorSheet: Bool = false
+    state isFollowing: Bool = false
+    let results: Array<ShortVideo> = videos.filter { video ->
+        (selectedCategory == "For you" || (selectedCategory == "Food" && video.artwork == "food") || (selectedCategory == "Travel" && (video.artwork == "coast" || video.artwork == "city" || video.artwork == "waves")) || (selectedCategory == "Outdoors" && (video.artwork == "trail" || video.artwork == "court" || video.artwork == "waves")) || (selectedCategory == "Style" && video.artwork == "design") || (selectedCategory == "Design" && video.artwork == "design")) && (searchText == "" || video.caption.contains(searchText) || video.creator.contains(searchText))
+    }
+
+    body {
+        Column(spacing: 13, padding: 14, background: "#08080A") {
+            TopInset()
+            Row(spacing: 10, alignment: Center) {
+                Text("Discover", color: "#FFFFFF", fontSize: 25, fontWeight: Bold)
+                Spacer()
+                Pressable(accessibilityLabel: "Scan a code", accessibilityRole: Button) {
+                    Icon(system: "camera", description: "Scan", size: 22, tint: "#FFFFFF")
+                }.onTap { selectedCategory = "For you" }
+            }
+            Row(spacing: 9, alignment: Center, padding: 11, background: "#222226", cornerRadius: 9) {
+                Icon(system: "search", description: "Search videos", size: 19, tint: "#A6A6AA")
+                TextInput(value: searchText, placeholder: "Search videos and creators", searchable: true, autocorrect: false, capitalization: None)
+            }
+            FastList(categories, key: .self, axis: Horizontal, spacing: 8, accessibilityLabel: "Video topics") { topic, index in
+                Pressable(accessibilityLabel: "Topic \(index + 1): \(topic)", accessibilityRole: Button) {
+                    if selectedCategory == topic {
+                        Row(alignment: Center, padding: 9, background: "#FFFFFF", cornerRadius: 18) {
+                            Text(topic, color: "#111111", fontSize: 12, fontWeight: Bold)
+                        }
+                    } else {
+                        Row(alignment: Center, padding: 9, background: "#252529", cornerRadius: 18) {
+                            Text(topic, color: "#D0D0D3", fontSize: 12, fontWeight: Semibold)
+                        }
+                    }
+                }.onTap { selectedCategory = topic }
+            }
+            Row(alignment: Center) {
+                Text(if searchText == "" { "Popular videos" } else { "Search results" }, color: "#FFFFFF", fontSize: 17, fontWeight: Bold)
+                Spacer()
+                Text("For you", color: "#A6A6AA", fontSize: 11)
+            }
+            if results.isEmpty {
+                Column(spacing: 8, alignment: Center, padding: 28) {
+                    Icon(system: "search", description: "No results", size: 34, tint: "#85858A")
+                    Text("Nothing found", color: "#FFFFFF", fontSize: 17, fontWeight: Bold)
+                    Text("Try a different topic or creator.", color: "#A7A7AA", fontSize: 12, alignment: Center)
+                }
+            } else {
+                FastList(results, key: .id, axis: AutoGrid(154), rowHeight: 224, spacing: 3, accessibilityLabel: "Responsive video discovery grid") { video, index in
+                    Pressable(fillMaxSize: true, accessibilityLabel: "Open video \(index + 1) by \(video.creator)", accessibilityRole: Button) {
+                        Column(spacing: 5, padding: 3) {
+                            VideoThumbnail(artwork: video.artwork, views: video.viewCount)
+                            Text(video.caption, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold, lineLimit: 2)
+                            Text(video.creator, color: "#A5A5A8", fontSize: 10, lineLimit: 1)
+                        }
+                    }.onTap {
+                        openedCreator = video.creator
+                        isFollowing = false
+                        creatorSheet = true
+                    }
+                }
+            }
+            Column(height: 62) {}
+        }
+
+        BottomSheet(isPresented: creatorSheet, partial: true, title: "Creator") {
+            Column(spacing: 14, padding: 18, background: "#17171B") {
+                Row(spacing: 13, alignment: Center) {
+                    CreatorAvatar(assetName: if openedCreator == "@mira.cooks" { "mira" } else { if openedCreator == "@noah.outside" { "noah" } else { if openedCreator == "@jules.city" { "jules" } else { "alex" } } }, scale: "medium")
+                    Column(spacing: 4) {
+                        Text(openedCreator, color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
+                        Text("Creator · videos for your feed", color: "#A8A8AC", fontSize: 11)
+                    }
+                    Spacer()
+                }
+                Pressable(accessibilityLabel: "Follow creator", accessibilityRole: Button) {
+                    if isFollowing {
+                        Row(alignment: Center, padding: 12, background: "#303034", cornerRadius: 6) { Text("Following", color: "#FFFFFF", fontSize: 13, fontWeight: Bold) }
+                    } else {
+                        Row(alignment: Center, padding: 12, background: "#FE2C55", cornerRadius: 6) { Text("Follow", color: "#FFFFFF", fontSize: 13, fontWeight: Bold) }
+                    }
+                }.onTap { isFollowing = !isFollowing }
+            }
+        }
+    }
+}

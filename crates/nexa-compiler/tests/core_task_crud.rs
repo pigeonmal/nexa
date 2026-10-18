@@ -269,7 +269,6 @@ test "soft-deleted records remain as hidden tombstones" {
         generated_source
             .contains("UINotificationFeedbackGenerator().notificationOccurred(.success)")
     );
-    assert!(generated_source.contains(".spring(response: 0.35, dampingFraction: 0.8)"));
     assert!(generated_kotlin_source.contains("HapticFeedbackConstants.CONFIRM"));
     let kotlin_widget = nexa_backend_kotlin::KotlinBackend
         .generate_widget_units(kotlin_module)
@@ -307,11 +306,10 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("nexa_field_title:"));
     assert!(generated_source.contains("!nexa_task.nexa_field_isCompleted"));
     assert!(generated_source.contains("nexa_field_taskDescription"));
-    assert!(generated_source.contains("DatePicker("));
     assert!(generated_source.contains(".navigationBarTitleDisplayMode(.inline)"));
-    assert!(generated_source.contains(".presentationDragIndicator(.visible)"));
     assert!(
-        generated_source.contains("withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {")
+        generated_source
+            .contains(".presentationDragIndicator(showDragHandle ? .visible : .hidden)")
     );
     assert!(generated_source.contains("ForEach(nexa_list_rows_"));
     assert!(generated_source.contains("ForEach(nexa_section_rows_"));
@@ -347,16 +345,7 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_kotlin_source.contains("nexa_fn_deleteComment(nexa_comments"));
     assert!(generated_kotlin_source.contains("nexa_fn_deleteReminder(nexa_reminders"));
     assert!(generated_kotlin_source.contains("ON_RESUME"));
-    assert!(
-        generated_kotlin_source
-            .contains("NexaDatePickerPrimitive(timestamp = nexa_reminderTimestamp")
-    );
-    assert!(generated_kotlin_source.contains("internal fun NexaDatePickerPrimitive("));
-    assert!(generated_kotlin_source.contains("androidx.compose.material3.DatePickerDialog("));
-    assert!(
-        generated_kotlin_source
-            .contains("androidx.compose.material3.TimePicker(state = timePickerState)")
-    );
+    assert!(generated_kotlin_source.contains("androidx.compose.material3.FilledTonalButton("));
     assert!(generated_kotlin_source.contains("isLocalPending"));
     assert!(generated_kotlin_source.contains("scheduleLocalAt"));
     assert!(generated_kotlin_source.contains("cancelLocal"));

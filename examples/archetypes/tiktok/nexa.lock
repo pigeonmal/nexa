@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "plugins": [
+    {"alias":"MediaPicker","id":"dev.nexa.media-picker","source":"path:../../../plugins/media-picker","revision":null,"package":null,"contentHash":"ca5f3bb2468b9f97"},
+    {"alias":"VideoPlayer","id":"dev.nexa.video-player","source":"path:../../../plugins/video-player","revision":null,"package":null,"contentHash":"0da999172871348c"}
+  ]
+}

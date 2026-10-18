@@ -69,14 +69,32 @@ pub(crate) fn render_back(
     out.push('}');
 }
 
+pub(crate) struct NavigationTitleOptions {
+    pub(crate) mode: nexa_ir::NavigationTitleMode,
+    pub(crate) alignment: nexa_ir::NavigationTitleAlignment,
+}
+
 pub(crate) fn render_navigation_stack(
     module: &Module,
     root: ScreenId,
     arguments: &[Expr],
+    title: NavigationTitleOptions,
     features: &Features,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let NavigationTitleOptions { mode, alignment } = title;
+    let app_appearance_mode = super::appearance::module_mode(module, root);
+    if let Some(appearance_mode) = &app_appearance_mode {
+        out.line_at(
+            depth,
+            format_args!(
+                "NexaAppearancePrimitive(mode: {}) {{",
+                expression(appearance_mode)
+            ),
+        );
+    }
+    let depth = depth + usize::from(app_appearance_mode.is_some());
     indent(out, depth);
     out.push_str("NavigationStack(path: $__nexaNavigationPath) {\n");
     indent(out, depth + 1);
@@ -123,9 +141,18 @@ pub(crate) fn render_navigation_stack(
             features,
             "routeIdentity",
         );
+        let leading_title = match alignment {
+            // Automatic preserves SwiftUI's native inline title placement.
+            // Leading is an explicit opt-in for a title beside the system Back button.
+            nexa_ir::NavigationTitleAlignment::Automatic => false,
+            nexa_ir::NavigationTitleAlignment::Leading => true,
+            nexa_ir::NavigationTitleAlignment::Center => false,
+        };
         out.push_str(&format!(
-            "NexaNavigationScreenPrimitive(title: {}) {{\n",
-            swift_string(&screen.name)
+            "NexaNavigationScreenPrimitive(title: {}, inline: {}, leadingTitle: {}) {{\n",
+            swift_string(&screen.name),
+            matches!(mode, nexa_ir::NavigationTitleMode::Inline),
+            leading_title
         ));
         indent(out, depth + 5);
         out.push_str(&destination);
@@ -145,6 +172,11 @@ pub(crate) fn render_navigation_stack(
     out.push_str("}\n");
     indent(out, depth);
     out.push('}');
+    if app_appearance_mode.is_some() {
+        out.push('\n');
+        indent(out, depth - 1);
+        out.push('}');
+    }
 }
 
 fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWriter) {

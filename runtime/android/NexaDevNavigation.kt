@@ -135,6 +135,14 @@ internal fun RenderNavigationStack(
                         destination.optJSONObject("parameters") ?: JSONObject(),
                     )
                     val scope = "screen/${screen.optString("name")}"
+                    val screenNodes = screen.optJSONArray("body") ?: JSONArray()
+                    val screenToolbars = nexaDevTabToolbars(screenNodes)
+                    val isRootScreen = screen.optString("name") == rootScreen.optString("name")
+                    val screenBody = if (isRootScreen) {
+                        screenNodes
+                    } else {
+                        nexaDevWithoutTabToolbars(screenNodes)
+                    }
                     val screenBindings = store.bindings(
                         screen.optJSONArray("states"),
                         parameters,
@@ -147,7 +155,7 @@ internal fun RenderNavigationStack(
                         val screenContent: @Composable () -> Unit = {
                             NexaDevScreenLifecycle(screen, store, screenBindings)
                             NexaDevNodeList(
-                                screen.optJSONArray("body") ?: JSONArray(),
+                                screenBody,
                                 module,
                                 store,
                                 screenBindings,
@@ -156,15 +164,43 @@ internal fun RenderNavigationStack(
                             )
                         }
                         val routeContent: @Composable () -> Unit = {
-                            if (screen.optString("name") == rootScreen.optString("name")) {
+                            if (isRootScreen) {
                                 screenContent()
                             } else {
                                 NexaNavigationScreenPrimitive(
                                     title = screen.optString("name"),
+                                    inline = fields.optString("title_mode", "Inline") == "Inline",
+                                    leadingTitle = when (fields.optString("title_alignment", "Automatic")) {
+                                        "Leading" -> true
+                                        else -> false
+                                    },
+                                    hasTrailingActions = screenToolbars.any {
+                                        it.first == "Trailing" && it.second.length() > 0
+                                    },
                                     onBack = {
                                         if (navController.previousBackStackEntry != null) {
                                             navController.popBackStack()
                                         }
+                                    },
+                                    leadingActions = {
+                                        RenderTabToolbarItems(
+                                            screenToolbars,
+                                            "Leading",
+                                            module,
+                                            store,
+                                            screenBindings,
+                                            scope,
+                                        )
+                                    },
+                                    actions = {
+                                        RenderTabToolbarItems(
+                                            screenToolbars,
+                                            "Trailing",
+                                            module,
+                                            store,
+                                            screenBindings,
+                                            scope,
+                                        )
                                     },
                                     content = screenContent,
                                 )

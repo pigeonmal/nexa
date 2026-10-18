@@ -3,7 +3,7 @@ use nexa_codegen::names::{navigation_route_name, state_name};
 use nexa_ir::{Expr, Module, Node, ScreenId, Type};
 
 use crate::generator::{
-    components::{appearance, render_children},
+    components::{appearance, bottom_bar, render_children},
     engine::types::kotlin_type,
     expressions::text_expression,
     features::Features,
@@ -30,6 +30,10 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     );
     imports.add(
         context.has_navigation,
+        "androidx.compose.foundation.background",
+    );
+    imports.add(
+        context.has_navigation,
         "androidx.compose.foundation.layout.fillMaxSize",
     );
     imports.add(
@@ -41,6 +45,19 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         "androidx.compose.material3.IconButton",
     );
     imports.add(context.has_navigation, "androidx.compose.material3.Text");
+    imports.add(context.has_navigation, "androidx.compose.material3.Icon");
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.material.icons.Icons",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.material.icons.automirrored.filled.ArrowBack",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.ui.input.nestedscroll.nestedScroll",
+    );
     imports.add(context.has_navigation, "androidx.compose.ui.Modifier");
     imports.add(
         context.has_navigation,
@@ -185,14 +202,21 @@ pub(crate) fn render_toolbar_link(
     out.push('}');
 }
 
+pub(crate) struct NavigationTitleOptions {
+    pub(crate) mode: nexa_ir::NavigationTitleMode,
+    pub(crate) alignment: nexa_ir::NavigationTitleAlignment,
+}
+
 pub(crate) fn render_navigation_stack(
     module: &Module,
     root: ScreenId,
     arguments: &[Expr],
+    title: NavigationTitleOptions,
     features: &Features,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let NavigationTitleOptions { mode, alignment } = title;
     let app_appearance_mode = appearance::module_mode(module, root);
     indent(out, depth);
     out.push_str("val navController = rememberNavController()\n");
@@ -300,8 +324,17 @@ pub(crate) fn render_navigation_stack(
                 out,
             );
         if screen.id == root {
-            render_screen_body(screen, module, features, themed_content_depth, out);
+            render_screen_body(&screen.body, module, features, themed_content_depth, out);
         } else {
+            let navigation_toolbars = bottom_bar::tab_toolbars(&screen.body);
+            let content = bottom_bar::without_tab_toolbars(&screen.body);
+            let leading_title = match alignment {
+                // Automatic uses the native centered title variant. Leading is
+                // available when an app explicitly wants the title beside Back.
+                nexa_ir::NavigationTitleAlignment::Automatic => false,
+                nexa_ir::NavigationTitleAlignment::Leading => true,
+                nexa_ir::NavigationTitleAlignment::Center => false,
+            };
             out.line_at(
                 themed_content_depth,
                 format_args!("NexaNavigationScreenPrimitive("),
@@ -312,16 +345,50 @@ pub(crate) fn render_navigation_stack(
             );
             out.line_at(
                 themed_content_depth + 1,
+                format_args!(
+                    "inline = {},",
+                    matches!(mode, nexa_ir::NavigationTitleMode::Inline)
+                ),
+            );
+            out.line_at(
+                themed_content_depth + 1,
+                format_args!("leadingTitle = {},", leading_title),
+            );
+            out.line_at(
+                themed_content_depth + 1,
+                format_args!(
+                    "hasTrailingActions = {},",
+                    navigation_toolbars.iter().any(|(placement, children)| {
+                        *placement == nexa_ir::ToolbarPlacement::Trailing && !children.is_empty()
+                    })
+                ),
+            );
+            out.line_at(
+                themed_content_depth + 1,
                 format_args!("onBack = {{ if (navController.previousBackStackEntry != null) navController.popBackStack() }},"),
             );
-            if let Some(grouped_surface) = screen_grouped_surface_expression(&screen.body) {
-                out.line_at(
-                    themed_content_depth + 1,
-                    format_args!("groupedSurface = {grouped_surface},"),
-                );
+            for (parameter, placement) in [
+                ("leadingActions", nexa_ir::ToolbarPlacement::Leading),
+                ("actions", nexa_ir::ToolbarPlacement::Trailing),
+            ] {
+                if navigation_toolbars
+                    .iter()
+                    .any(|(toolbar_placement, _)| *toolbar_placement == placement)
+                {
+                    out.line_at(themed_content_depth + 1, format_args!("{parameter} = {{"));
+                    bottom_bar::render_tab_toolbar_items(
+                        &navigation_toolbars,
+                        placement,
+                        module,
+                        features,
+                        themed_content_depth + 2,
+                        out,
+                    );
+                    out.line_at(themed_content_depth + 1, format_args!("}},"));
+                }
             }
             out.line_at(themed_content_depth, format_args!(") {{"));
-            render_screen_body(screen, module, features, themed_content_depth + 1, out);
+            render_screen_body(&content, module, features, themed_content_depth + 1, out);
             out.push('\n');
             out.line_at(themed_content_depth, format_args!("}}"));
         }
@@ -373,119 +440,8 @@ pub(crate) fn render_navigation_stack(
     render_deep_link_dispatch(module, depth, out);
 }
 
-fn screen_grouped_surface_expression(children: &[Node]) -> Option<String> {
-    let mut expressions = children
-        .iter()
-        .filter_map(node_grouped_surface_expression)
-        .collect::<Vec<_>>();
-    if expressions.iter().any(|expression| expression == "true") {
-        return Some("true".to_owned());
-    }
-    match expressions.len() {
-        0 => None,
-        1 => expressions.pop(),
-        _ => Some(format!("({})", expressions.join(" || "))),
-    }
-}
-
-fn node_grouped_surface_expression(node: &Node) -> Option<String> {
-    match node {
-        Node::Appearance { children, .. }
-        | Node::Layout { children, .. }
-        | Node::Toolbar { children, .. } => screen_grouped_surface_expression(children),
-        Node::Form { .. } => Some("true".to_owned()),
-        Node::FastList { plan } if plan.native() => Some("true".to_owned()),
-        Node::If {
-            condition,
-            then_body,
-            else_body,
-            ..
-        } => {
-            let then_surface = screen_grouped_surface_expression(then_body);
-            let else_surface = else_body
-                .as_deref()
-                .and_then(screen_grouped_surface_expression);
-            match (then_surface.as_deref(), else_surface.as_deref()) {
-                (None, None) => None,
-                (Some("true"), Some("true")) => Some("true".to_owned()),
-                (Some("true"), None) => Some(crate::generator::expressions::expression(condition)),
-                (None, Some("true")) => Some(format!(
-                    "!({})",
-                    crate::generator::expressions::expression(condition)
-                )),
-                (Some("true"), Some(else_surface)) => Some(format!(
-                    "!({}) || ({else_surface})",
-                    crate::generator::expressions::expression(condition)
-                )),
-                (Some(then_surface), Some("true")) => Some(format!(
-                    "({}) || ({then_surface})",
-                    crate::generator::expressions::expression(condition)
-                )),
-                (Some(then_surface), Some(else_surface)) => {
-                    let condition = crate::generator::expressions::expression(condition);
-                    Some(format!(
-                        "(({condition}) && ({then_surface})) || (!({condition}) && ({else_surface}))"
-                    ))
-                }
-                (Some(then_surface), None) => Some(format!(
-                    "({}) && ({then_surface})",
-                    crate::generator::expressions::expression(condition)
-                )),
-                (None, Some(else_surface)) => Some(format!(
-                    "!({}) && ({else_surface})",
-                    crate::generator::expressions::expression(condition)
-                )),
-            }
-        }
-        Node::When {
-            value,
-            cases,
-            else_body,
-            ..
-        } => {
-            let grouped_cases = cases
-                .iter()
-                .map(|case| {
-                    (
-                        crate::generator::expressions::expression(&case.value),
-                        screen_grouped_surface_expression(&case.body)
-                            .unwrap_or_else(|| "false".to_owned()),
-                    )
-                })
-                .collect::<Vec<_>>();
-            let else_surface =
-                screen_grouped_surface_expression(else_body).unwrap_or_else(|| "false".to_owned());
-            if grouped_cases
-                .iter()
-                .all(|(_, expression)| expression == "false")
-                && else_surface == "false"
-            {
-                None
-            } else if grouped_cases
-                .iter()
-                .all(|(_, expression)| expression == "true")
-                && else_surface == "true"
-            {
-                Some("true".to_owned())
-            } else {
-                let mut branches = grouped_cases
-                    .iter()
-                    .map(|(case, expression)| format!("{case} -> {expression}"))
-                    .collect::<Vec<_>>();
-                branches.push(format!("else -> {else_surface}"));
-                Some(format!(
-                    "when ({}) {{ {} }}",
-                    crate::generator::expressions::expression(value),
-                    branches.join("; ")
-                ))
-            }
-        }
-        _ => None,
-    }
-}
-
 fn render_screen_body(
-    screen: &nexa_ir::Screen,
+    content: &[Node],
     module: &Module,
     features: &Features,
     depth: usize,
@@ -505,12 +461,12 @@ fn render_screen_body(
                 "CompositionLocalProvider(LocalNexaAnimatedVisibilityScope provides nexaAnimatedVisibilityScope) {{"
             ),
         );
-        render_children(&screen.body, module, features, depth + 2, out);
+        render_children(content, module, features, depth + 2, out);
         out.push('\n');
         indent(out, depth + 1);
         out.push('}');
     } else {
-        render_children(&screen.body, module, features, depth + 1, out);
+        render_children(content, module, features, depth + 1, out);
     }
     out.push('\n');
     indent(out, depth);

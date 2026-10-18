@@ -1,7 +1,7 @@
 # Nexa Language Guide 📖
 
 > [!NOTE]
-> **Scope:** Core `.nx` language syntax and typed standard APIs. UI components are listed in the [component guide](components.md); their full checked argument catalog is in the [syntax audit](syntax-audit.md).
+> **Scope:** Core `.nx` language syntax and typed standard APIs. UI components are listed in the [component guide](components.md), animation is documented in the [animation guide](animations.md), and the full checked component catalog is in the [syntax audit](syntax-audit.md).
 
 | **Scope**: language and standard APIs | **Targets**: iOS and Android | **Errors**: typed `Result` and `throws` |
 
@@ -706,8 +706,8 @@ These calls are built into the compiler and need no plugin declaration. Asynchro
 | `Path.join(path, component)` | `(String, String) -> String` | Joins one path component using native path rules. |
 | `File.exists(path)` | `(String) -> Bool` | Checks whether a path exists. |
 | `File.readText(path)` | `async -> String throws` | Reads UTF-8 text from a file. |
-| `File.writeText(path, contents)` | `async -> Bool throws` | Writes UTF-8 text and reports success. |
-| `File.delete(path)` | `async -> Bool throws` | Deletes a file and reports success. |
+| `File.writeText(path, contents)` | `async -> Bool throws` | Writes UTF-8 text atomically and reports success. |
+| `File.delete(path)` | `async -> Bool throws` | Returns `false` when the path is missing, `true` when it is deleted, and throws for other I/O failures. |
 | `Network.fetch(url, method, body, headers, timeout, useCache, followRedirects, maxResponseBytes, certificatePins)` | `async -> NetworkResponse throws` | Sends an HTTP request and returns the status code, headers, and text body. `url` is required; the remaining options have defaults listed below. |
 | `Network.download(url, destinationPath, method, body, headers, timeout, useCache, followRedirects, maxResponseBytes, certificatePins)` | `async -> Bool throws` | Downloads a response to a local path. `url` and `destinationPath` are required; the remaining options have defaults listed below. |
 | `Network.upload(url, file, fields)` | `async -> NetworkResponse throws` | Uploads a local file with optional form fields. `fields` defaults to an empty map. |

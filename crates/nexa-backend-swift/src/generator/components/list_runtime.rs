@@ -74,6 +74,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
     let sectionCounts: [Int]
     let rowHeight: CGFloat?
     let spacing: CGFloat
+    let showDividers: Bool
     let scrollEnabled: Bool
     let rowKey: ((Int, Int) -> AnyHashable)?
     let isRefreshing: Bool
@@ -86,6 +87,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         sectionCounts: [Int],
         rowHeight: CGFloat? = nil,
         spacing: CGFloat = 0,
+        showDividers: Bool = true,
         scrollEnabled: Bool = true,
         rowKey: ((Int, Int) -> AnyHashable)? = nil,
         isRefreshing: Bool = false,
@@ -97,6 +99,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         self.sectionCounts = sectionCounts.map { max(0, $0) }
         self.rowHeight = rowHeight
         self.spacing = max(0, spacing)
+        self.showDividers = showDividers
         self.scrollEnabled = scrollEnabled
         self.rowKey = rowKey
         self.isRefreshing = isRefreshing
@@ -119,6 +122,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
 
     func makeUIView(context: Context) -> UITableView {
         let tableView = UITableView(frame: .zero, style: .plain)
+        tableView.separatorStyle = showDividers ? .singleLine : .none
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         tableView.alwaysBounceVertical = onRefresh != nil
@@ -157,6 +161,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
         coordinator.rowHeight = rowHeight
         coordinator.spacing = max(0, spacing)
         tableView.isScrollEnabled = scrollEnabled
+        tableView.separatorStyle = showDividers ? .singleLine : .none
         coordinator.rowKey = rowKey
         coordinator.headerContent = headerContent
         coordinator.rowContent = rowContent
@@ -307,6 +312,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let rowCount: Int
     let rowHeight: CGFloat?
     let spacing: CGFloat
+    let showDividers: Bool
     let scrollEnabled: Bool
     let rowKey: ((Int) -> AnyHashable)?
     let reverseLayout: Bool
@@ -328,6 +334,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         rowCount: Int,
         rowHeight: CGFloat? = nil,
         spacing: CGFloat = 0,
+        showDividers: Bool = true,
         scrollEnabled: Bool = true,
         rowKey: ((Int) -> AnyHashable)? = nil,
         reverseLayout: Bool = false,
@@ -348,6 +355,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         self.rowCount = max(0, rowCount)
         self.rowHeight = rowHeight
         self.spacing = max(0, spacing)
+        self.showDividers = showDividers
         self.scrollEnabled = scrollEnabled
         self.rowKey = rowKey
         self.reverseLayout = reverseLayout
@@ -389,6 +397,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITableView {
         let tableView = NexaFastListTableView(frame: .zero, style: .plain)
+        tableView.separatorStyle = showDividers ? .singleLine : .none
         let coordinator = context.coordinator
         tableView.onViewportSizeChanged = { [weak tableView, weak coordinator] size in
             DispatchQueue.main.async {
@@ -399,7 +408,11 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         tableView.isPagingEnabled = pageSnap
         tableView.isScrollEnabled = scrollEnabled
         tableView.alwaysBounceVertical = onRefresh != nil
-        if pageSnap {
+        if pageSnap || reverseLayout {
+            // A vertically flipped table view turns the system's automatic top
+            // inset into a leading offset inside the reversed content. That
+            // hides the first logical rows underneath Nexa's own screen header,
+            // while Compose LazyColumn does not add such an inset.
             tableView.contentInsetAdjustmentBehavior = .never
         }
         if reverseLayout {
@@ -435,6 +448,17 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         tableView.backgroundColor = .clear
         tableView.reloadData()
         context.coordinator.applyScrollPosition(to: tableView)
+        if reverseLayout {
+            // The table has no final viewport while makeUIView is constructing
+            // it. Reapply the logical initial position after SwiftUI attaches
+            // and sizes the transformed UITableView, otherwise its first rows
+            // can land above the visible list region.
+            DispatchQueue.main.async { [weak tableView, weak coordinator] in
+                guard let tableView, let coordinator else { return }
+                tableView.layoutIfNeeded()
+                coordinator.applyScrollPosition(to: tableView, force: true)
+            }
+        }
         return tableView
     }
 
@@ -455,6 +479,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         coordinator.rowHeight = rowHeight
         coordinator.spacing = max(0, spacing)
         tableView.isScrollEnabled = scrollEnabled
+        tableView.separatorStyle = showDividers ? .singleLine : .none
         coordinator.rowKey = rowKey
         coordinator.reverseLayout = reverseLayout
         coordinator.pageSnap = pageSnap
@@ -478,7 +503,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             ? CGAffineTransform(scaleX: 1, y: -1)
             : .identity
         tableView.isPagingEnabled = pageSnap
-        tableView.contentInsetAdjustmentBehavior = pageSnap ? .never : .automatic
+        tableView.contentInsetAdjustmentBehavior = pageSnap || reverseLayout ? .never : .automatic
         if pageSnap {
             coordinator.updatePageHeight(tableView.bounds.height, in: tableView)
         } else if previousPageSnap {
@@ -676,6 +701,17 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             return rowHeight.map { $0 + gap } ?? UITableView.automaticDimension
         }
 
+        func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+            if pageSnap {
+                return pageHeight > 0 ? pageHeight : max(tableView.bounds.height, 1)
+            }
+            guard let rowHeight else { return tableView.estimatedRowHeight }
+            let row = reverseLayout ? rowCount - 1 - indexPath.row : indexPath.row
+            let gap = (row > 0 ? spacing / 2 : 0)
+                + (row + 1 < rowCount ? spacing / 2 : 0)
+            return rowHeight + gap
+        }
+
         // <nexa:sticky-header-delegate-methods:begin>
         func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
             guard let headerContent else { return nil }
@@ -792,14 +828,14 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             onEndReached()
         }
 
-        func applyScrollPosition(to tableView: UITableView) {
+        func applyScrollPosition(to tableView: UITableView, force: Bool = false) {
             guard let scrollPosition, rowCount > 0 else { return }
             let target = min(max(Int(scrollPosition), 0), rowCount - 1)
             let visualTarget = reverseLayout ? rowCount - 1 - target : target
             let visiblePosition = reverseLayout
                 ? tableView.indexPathsForVisibleRows?.map(\.row).max()
                 : tableView.indexPathsForVisibleRows?.first?.row
-            guard (visiblePosition ?? -1) != visualTarget else {
+            guard force || (visiblePosition ?? -1) != visualTarget else {
                 return
             }
             lastReportedScrollPosition = target
@@ -1616,6 +1652,7 @@ func NexaFastSectionedListPrimitive<RowContent: View, HeaderContent: View>(
     sectionCounts: [Int],
     rowHeight: CGFloat? = nil,
     spacing: CGFloat = 0,
+    showDividers: Bool = true,
     scrollEnabled: Bool = true,
     rowKey: ((Int, Int) -> AnyHashable)? = nil,
     isRefreshing: Bool = false,
@@ -1628,6 +1665,7 @@ func NexaFastSectionedListPrimitive<RowContent: View, HeaderContent: View>(
         sectionCounts: sectionCounts,
         rowHeight: rowHeight,
         spacing: spacing,
+        showDividers: showDividers,
         scrollEnabled: scrollEnabled,
         rowKey: rowKey,
         isRefreshing: isRefreshing,
@@ -1667,6 +1705,7 @@ fn append_fast_list_primitive(
     out.push_str("    rowCount: Int,\n");
     out.push_str("    rowHeight: CGFloat? = nil,\n");
     out.push_str("    spacing: CGFloat = 0,\n");
+    out.push_str("    showDividers: Bool = true,\n");
     out.push_str("    scrollEnabled: Bool = true,\n");
     out.push_str("    rowKey: ((Int) -> AnyHashable)? = nil,\n");
     out.push_str("    reverseLayout: Bool = false,\n");
@@ -1696,10 +1735,22 @@ fn append_fast_list_primitive(
             out.push_str("                onScroll: nil,\n");
         }
         out.push_str("                onEndReached: onEndReached.map { callback in { _ in callback() } },\n                rowContent: rowContent\n            )\n        } else {\n");
-        append_native_fast_list_call(out, has_header, uses_sticky_header, uses_scroll_events);
+        append_native_fast_list_call(
+            out,
+            has_header,
+            uses_sticky_header,
+            uses_scroll_events,
+            true,
+        );
         out.push_str("        }\n    } else {\n");
     }
-    append_native_fast_list_call(out, has_header, uses_sticky_header, uses_scroll_events);
+    append_native_fast_list_call(
+        out,
+        has_header,
+        uses_sticky_header,
+        uses_scroll_events,
+        false,
+    );
     if !has_header {
         out.push_str("    }\n");
     }
@@ -1711,6 +1762,7 @@ fn append_native_fast_list_call(
     has_header: bool,
     uses_sticky_header: bool,
     uses_scroll_events: bool,
+    page_snap_fallback: bool,
 ) {
     out.push_str("        NexaFastList<");
     out.push_str("RowContent");
@@ -1723,6 +1775,11 @@ fn append_native_fast_list_call(
     out.push_str("            rowCount: rowCount,\n");
     out.push_str("            rowHeight: rowHeight,\n");
     out.push_str("            spacing: spacing,\n");
+    out.push_str(if page_snap_fallback {
+        "            showDividers: false,\n"
+    } else {
+        "            showDividers: showDividers,\n"
+    });
     out.push_str("            scrollEnabled: scrollEnabled,\n");
     out.push_str("            rowKey: rowKey,\n");
     out.push_str("            reverseLayout: reverseLayout,\n");

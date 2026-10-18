@@ -73,12 +73,15 @@ wait_for_patch() {
 wait_for_text() {
     local expected=$1
     for _ in $(seq 1 60); do
-        adb shell uiautomator dump /sdcard/nexa-refresh-control.xml >/dev/null 2>&1
-        adb exec-out cat /sdcard/nexa-refresh-control.xml >"$project/build/refresh-control.xml"
-        if grep -Fq "text=\"$expected\"" "$project/build/refresh-control.xml"; then return 0; fi
+        if adb shell 'rm -f /sdcard/nexa-refresh-control.xml && uiautomator dump /sdcard/nexa-refresh-control.xml >/dev/null 2>&1' >/dev/null 2>&1 \
+            && adb exec-out cat /sdcard/nexa-refresh-control.xml >"$project/build/refresh-control.xml" \
+            && grep -q '<hierarchy' "$project/build/refresh-control.xml" \
+            && grep -Fq "text=\"$expected\"" "$project/build/refresh-control.xml"; then
+            return 0
+        fi
         sleep 0.5
     done
-    cat "$project/build/refresh-control.xml" >&2
+    cat "$project/build/refresh-control.xml" >&2 || true
     return 1
 }
 

@@ -3,9 +3,11 @@ use crate::generator::engine::{features::Features, imports::ImportSet};
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let enabled = features.uses_content_unavailable;
     imports.add(enabled, "androidx.compose.foundation.layout.Arrangement");
+    imports.add(enabled, "androidx.compose.foundation.layout.Box");
     imports.add(enabled, "androidx.compose.foundation.layout.Column");
     imports.add(enabled, "androidx.compose.foundation.layout.Spacer");
     imports.add(enabled, "androidx.compose.foundation.layout.fillMaxSize");
+    imports.add(enabled, "androidx.compose.foundation.layout.fillMaxWidth");
     imports.add(enabled, "androidx.compose.foundation.layout.height");
     imports.add(enabled, "androidx.compose.foundation.layout.padding");
     imports.add(enabled, "androidx.compose.foundation.layout.size");

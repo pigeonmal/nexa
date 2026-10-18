@@ -228,6 +228,7 @@ fn conditional_transition_changes_are_carried_by_a_hot_reload_patch() {
         then_body: vec![text("Visible")],
         else_body: None,
         transition,
+        transition_animation: None,
     };
     let original = lower(&module(vec![conditional(None)], Type::Bool), "revision-1");
     let updated = lower(

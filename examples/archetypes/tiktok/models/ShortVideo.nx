@@ -1,0 +1,12 @@
+struct ShortVideo {
+    id: String,
+    creator: String,
+    caption: String,
+    sound: String,
+    videoUrl: String,
+    artwork: String,
+    avatar: String,
+    likeCount: String,
+    commentCount: String,
+    viewCount: String,
+}

@@ -9,7 +9,7 @@ config {
         minVersion: "16.0", bundleIdentifier: "dev.nexa.componentparity", icon: ""
     }
     android {
-        minSdk: 23, targetSdk: 36, applicationId: "dev.nexa.componentparity", icon: ""
+        minSdk: 24, targetSdk: 36, applicationId: "dev.nexa.componentparity", icon: ""
     }
     permissions {
     }

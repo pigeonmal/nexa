@@ -94,7 +94,7 @@ config {
         arch: ["arm64"],
     }
     android {
-        minSdk: 23,
+        minSdk: 24,
         targetSdk: 36,
         applicationId: "dev.nexa.pulse",
         arch: ["arm64", "x86_64"],

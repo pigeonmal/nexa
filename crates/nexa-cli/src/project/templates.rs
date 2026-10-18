@@ -2164,6 +2164,12 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
     dev_runtime: bool,
     has_widgets: bool,
 ) -> Result<String, String> {
+    if (dev_runtime || features.uses_expressive_menus) && config.android_min_sdk < 24 {
+        return Err(format!(
+            "Android Material 3 Expressive menus require minSdk 24, but `nexa.config.nx` sets android.minSdk to {}. Increase `android.minSdk` to at least 24.",
+            config.android_min_sdk
+        ));
+    }
     if features.uses_background_tasks && config.android_min_sdk < 23 {
         return Err(format!(
             "Android background tasks require minSdk 23 because WorkManager 2.11.2 does not support API levels below 23; increase `android.minSdk` from {} in `nexa.config.nx`.",
@@ -2200,8 +2206,15 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
     } else {
         ""
     };
-    let mut dependencies = String::from(
-        "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3\")\n",
+    let uses_expressive_material3 =
+        dev_runtime || features.uses_expressive_menus || features.uses_expressive_motion;
+    let material3_version = if uses_expressive_material3 {
+        "1.5.0-beta01"
+    } else {
+        "1.5.0-alpha25"
+    };
+    let mut dependencies = format!(
+        "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3:{material3_version}\")\n",
     );
     if dev_runtime {
         dependencies.push_str(
@@ -2209,9 +2222,9 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
         );
     }
     if dev_runtime || features.uses_bottom_bar {
-        dependencies.push_str(
-            "    implementation(\"androidx.compose.material3:material3-adaptive-navigation-suite\")\n    implementation(\"androidx.compose.runtime:runtime-saveable\")\n",
-        );
+        dependencies.push_str(&format!(
+            "    implementation(\"androidx.compose.material3:material3-adaptive-navigation-suite:{material3_version}\")\n    implementation(\"androidx.compose.runtime:runtime-saveable\")\n",
+        ));
     }
     if dev_runtime || features.uses_compose_graphics {
         dependencies.push_str("    implementation(\"androidx.compose.ui:ui-graphics\")\n");

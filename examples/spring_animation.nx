@@ -1,5 +1,6 @@
 app SpringAnimation {
     state expanded: Bool = false
+    state progress: Float64 = 0.25
 
     body {
         Column(spacing: 12, animation: Spring(response: 0.35, damping: 0.8)) {
@@ -7,14 +8,25 @@ app SpringAnimation {
                 expanded = !expanded
             }
 
+            ProgressBar(progress: progress)
+            Button("Animate progress") {
+                withAnimation(Tween(
+                    duration: 0.24,
+                    delay: 0.04,
+                    easing: CubicBezier(x1: 0.2, y1: 0.0, x2: 0.2, y2: 1.0)
+                )) {
+                    progress = 0.85
+                }
+            }
+
             if expanded {
                 Text("The layout expands with a configured spring.")
-            }.transition(.fade)
+            }.transition(.fade, animation: Spring(response: 0.32, damping: 0.86))
 
             when expanded {
                 true: { Text("Conditional content enters from the bottom.") }
                 else: { Spacer() }
-            }.transition(.slide(from: .bottom))
+            }.transition(.slide(from: .bottom), animation: Tween(duration: 0.28, easing: EaseOut))
         }
     }
 }

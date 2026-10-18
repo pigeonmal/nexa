@@ -75,9 +75,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Row",
-        summary: "Horizontal layout container with optional spacing",
+        summary: "Horizontal layout container with spacing and main-axis arrangement",
         snippet: "Row(spacing: ${1:8}) {\n    $0\n}",
-        probe: "app P { body { Row(spacing: 8) { Text(\"a\") } } }",
+        probe: "app P { body { Row(spacing: 8, horizontalArrangement: Center) { Text(\"a\") } } }",
     },
     ComponentEntry {
         name: "Stack",
@@ -87,15 +87,15 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Form",
-        summary: "Native grouped settings form",
-        snippet: "Form {\n    Section(title: \"${1:General}\") {\n        $0\n    }\n}",
-        probe: "app P { body { Form { Section(title: \"General\") { Text(\"Setting\") } } } }",
+        summary: "Native settings form with optional background and configurable row dividers",
+        snippet: "Form(showDividers: false) {\n    Section(title: \"${1:General}\") {\n        $0\n    }\n}",
+        probe: "app P { body { Form(showDividers: false, background: \"#FFFFFF\") { Section(title: \"General\", background: \"#F5F5F5\") { Text(\"Setting\") } } } }",
     },
     ComponentEntry {
         name: "Section",
-        summary: "A titled or footnoted group inside a Form",
-        snippet: "Section(title: \"${1:General}\") {\n    $0\n}",
-        probe: "app P { body { Form { Section(title: \"General\", footer: \"Details\") { Text(\"Setting\") } } } }",
+        summary: "A titled or footnoted group with optional background and divider override",
+        snippet: "Section(title: \"${1:General}\", showDividers: false) {\n    $0\n}",
+        probe: "app P { body { Form { Section(title: \"General\", footer: \"Details\", showDividers: false, background: \"#FFFFFF\") { Text(\"Setting\") } } } }",
     },
     ComponentEntry {
         name: "Spacer",
@@ -118,8 +118,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "ContentUnavailable",
         summary: "Shows a native empty or unavailable content state",
-        snippet: "ContentUnavailable(title: \"${1:Nothing here}\", icon: \"${2:inbox}\", description: \"${3:Add some content to get started.}\")",
-        probe: "app P { body { ContentUnavailable(title: \"Nothing here\", icon: \"inbox\", description: \"Add some content to get started.\") } }",
+        snippet: "ContentUnavailable(title: \"${1:Nothing here}\", icon: \"${2:inbox}\")",
+        probe: "app P { body { ContentUnavailable(title: \"Nothing here\", icon: \"inbox\", titleColor: \"#222222\", descriptionColor: \"#666666\", iconTint: \"#0088FF\", background: \"#F4F4F8\") } }",
     },
     ComponentEntry {
         name: "Button",
@@ -159,21 +159,21 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "SegmentedControl",
-        summary: "Selects one string option from a compact segmented control",
-        snippet: "SegmentedControl(items: ${1:filters}, selected: ${2:selectedFilter})",
-        probe: "app P { state filters: Array<String> = [\"All\", \"Open\"]\n state selected: String = \"All\"\n body { SegmentedControl(items: filters, selected: selected) } }",
+        summary: "Selects one string option with customizable color and shape",
+        snippet: "SegmentedControl(items: ${1:filters}, selected: ${2:selectedFilter}, tint: \"${3:#FFFFFF}\", background: \"${4:#F2F2F7}\", selectedTextColor: \"${5:#000000}\", textColor: \"${6:#555555}\", height: ${7:36}, cornerRadius: ${8:18})",
+        probe: "app P { state filters: Array<String> = [\"All\", \"Open\"]\n state selected: String = \"All\"\n body { SegmentedControl(items: filters, selected: selected, tint: \"#FFFFFF\", background: \"#F2F2F7\", selectedTextColor: \"#000000\", textColor: \"#555555\", fontSize: 14, fontWeight: Medium, height: 36, cornerRadius: 18, borderColor: \"#D1D1D6\", borderWidth: 1) } }",
     },
     ComponentEntry {
         name: "Picker",
         summary: "Selects one string option from a native menu",
-        snippet: "Picker(items: ${1:options}, selected: ${2:selectedOption}, icon: \"${3:sort}\", tint: \"${4:#6750A4}\")",
-        probe: "app P { state options: Array<String> = [\"Small\", \"Medium\", \"Large\"]\n state selected: String = \"Medium\"\n body { Picker(items: options, selected: selected) } }",
+        snippet: "Picker(items: ${1:options}, selected: ${2:selectedOption}, itemIcons: [\"calendar\", \"flag_filled\"], icon: \"${3:sort}\", tint: \"${4:#6750A4}\")",
+        probe: "app P { state options: Array<String> = [\"Small\", \"Medium\"]\n state selected: String = \"Medium\"\n body { Picker(items: options, selected: selected, itemIcons: [\"calendar\", \"flag_filled\"]) } }",
     },
     ComponentEntry {
-        name: "DatePicker",
-        summary: "Presents the native date and optional time picker",
-        snippet: "DatePicker(timestamp: ${1:dateMillis}, hasTime: ${2:hasTime})",
-        probe: "app P { state dateMillis: Int64 = 0\n state hasTime: Bool = false\n body { DatePicker(timestamp: dateMillis, hasTime: hasTime) } }",
+        name: "PickerDate",
+        summary: "Selects a date, time, date-time, or date range",
+        snippet: "PickerDate(type: ${1:Date}, style: ${2:Graphical}, selection: ${3:Single}, timestamp: ${4:selectedDate}, tint: \"${5:#6750A4}\")",
+        probe: "app P { state selected: Int64 = 1792153800000\n state start: Int64 = 1791763200000\n state end: Int64 = 1792454400000\n body { PickerDate(type: Date, timestamp: selected, style: Graphical, selection: Single, minimum: start, maximum: end, tint: \"#6750A4\", textColor: \"#111827\", backgroundColor: \"#FFFFFF\", pickerBackgroundColor: \"#F8FAFC\", borderColor: \"#D1D5DB\", borderWidth: 1, cornerRadius: 16, locale: \"en-US\", timeZone: \"UTC\", is24Hour: true, enabled: true, accessibilityLabel: \"Due date\") PickerDate(type: Date, style: Input, timestamp: selected) } }",
     },
     ComponentEntry {
         name: "Image",
@@ -202,8 +202,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "NavigationStack",
         summary: "Navigation host rooted at a declared screen",
-        snippet: "NavigationStack(root: ${1:Home})",
-        probe: "app P { screen Home { body { Text(\"x\") } }\n body { NavigationStack(root: Home) } }",
+        snippet: "NavigationStack(root: ${1:Home}, titleMode: ${2|Inline,Large|}, titleAlignment: ${3|Automatic,Leading,Center|})",
+        probe: "app P { screen Home { body { Text(\"x\") } }\n body { NavigationStack(root: Home, titleMode: Inline, titleAlignment: Automatic) } }",
     },
     ComponentEntry {
         name: "NavigationSplitView",
@@ -238,8 +238,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "BottomSheet",
         summary: "Modal bottom sheet bound to a boolean binding",
-        snippet: "BottomSheet(isPresented: ${1:show}, title: \"Details\") {\n    $0\n}",
-        probe: "app P { state show: Bool = false\n body { BottomSheet(isPresented: show, title: \"Details\") { Text(\"x\") } } }",
+        snippet: "BottomSheet(isPresented: ${1:show}, title: \"Details\", showDragHandle: false) {\n    $0\n}",
+        probe: "app P { state show: Bool = false\n body { BottomSheet(isPresented: show, title: \"Details\", showDragHandle: false) { Text(\"x\") } } }",
     },
     ComponentEntry {
         name: "Dialog",
@@ -279,9 +279,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "FastList",
-        summary: "High-performance virtualized list view with fixed or width-adaptive grids",
+        summary: "High-performance virtualized list with configurable dividers and responsive grids",
         snippet: "FastList(${1:items}) { ${2:item}, ${3:index} in\n    $0\n}",
-        probe: "app P { state enabled: Bool = true\n body { FastList(count: 3, axis: AutoGrid(168), scrollEnabled: enabled) { index in Text(\"x\") } } }",
+        probe: "app P { state enabled: Bool = true\n body { FastList(count: 3, axis: AutoGrid(168), scrollEnabled: enabled, showDividers: false) { index in Text(\"x\") } } }",
     },
     ComponentEntry {
         name: "StatusBar",
@@ -880,6 +880,123 @@ pub struct ComponentSchema {
     pub trailing_message: Option<&'static str>,
 }
 
+/// Human-facing type/default/behavior documentation for a component argument.
+/// Kept beside the parser catalog so the published parameter table can be
+/// generated and checked against the accepted language.
+pub struct ComponentParameterDoc {
+    pub name: &'static str,
+    pub type_name: &'static str,
+    pub default: &'static str,
+    pub behavior: &'static str,
+}
+
+pub const SEGMENTED_CONTROL_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
+    ComponentParameterDoc {
+        name: "items",
+        type_name: "`Array<String>`",
+        default: "Required",
+        behavior: "Labels and values for the equal-width choices",
+    },
+    ComponentParameterDoc {
+        name: "selected",
+        type_name: "mutable `String` state",
+        default: "Required",
+        behavior: "Current choice; updated when a segment is tapped",
+    },
+    ComponentParameterDoc {
+        name: "animation",
+        type_name: "`Spring`, `Tween`, or easing preset",
+        default: "Platform default",
+        behavior: "Selection movement timing",
+    },
+    ComponentParameterDoc {
+        name: "accessibilityLabel",
+        type_name: "`String`",
+        default: "Automatic",
+        behavior: "Optional VoiceOver/TalkBack control name",
+    },
+    ComponentParameterDoc {
+        name: "comment",
+        type_name: "`String`",
+        default: "`null`",
+        behavior: "Translator note for literal choice labels",
+    },
+    ComponentParameterDoc {
+        name: "tint",
+        type_name: "color string or `String` state",
+        default: "Platform default",
+        behavior: "Fill color of the selected segment",
+    },
+    ComponentParameterDoc {
+        name: "background",
+        type_name: "color string or `String` state",
+        default: "Platform default",
+        behavior: "Segment track fill color",
+    },
+    ComponentParameterDoc {
+        name: "selectedTextColor",
+        type_name: "color string or `String` state",
+        default: "Platform default",
+        behavior: "Label color for the selected segment",
+    },
+    ComponentParameterDoc {
+        name: "textColor",
+        type_name: "color string or `String` state",
+        default: "Platform default",
+        behavior: "Label color for unselected segments",
+    },
+    ComponentParameterDoc {
+        name: "fontSize",
+        type_name: "non-negative `Sp` number",
+        default: "Platform typography",
+        behavior: "Label text size; uses the platform unit (points on iOS, sp on Android)",
+    },
+    ComponentParameterDoc {
+        name: "fontWeight",
+        type_name: "`Normal`, `Medium`, `Semibold`, or `Bold`",
+        default: "Platform typography",
+        behavior: "Label text weight",
+    },
+    ComponentParameterDoc {
+        name: "height",
+        type_name: "non-negative `Dp` number",
+        default: "32 dp when custom styling is used",
+        behavior: "Track height; touch area remains at least 48 dp",
+    },
+    ComponentParameterDoc {
+        name: "cornerRadius",
+        type_name: "non-negative `Dp` number",
+        default: "Half the track height (pill)",
+        behavior: "Track and selected-segment corner radius",
+    },
+    ComponentParameterDoc {
+        name: "borderColor",
+        type_name: "color string or `String` state",
+        default: "No border",
+        behavior: "Track outline color",
+    },
+    ComponentParameterDoc {
+        name: "borderWidth",
+        type_name: "non-negative `Dp` number",
+        default: "1 dp with `borderColor`; otherwise 0 dp",
+        behavior: "Track outline width; uses the platform outline color when no color is supplied",
+    },
+];
+
+pub fn render_segmented_control_parameter_table() -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::from("| Parameter | Type | Default | Behavior |\n|---|---|---|---|\n");
+    for parameter in SEGMENTED_CONTROL_PARAMETER_DOCS {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} |",
+            parameter.name, parameter.type_name, parameter.default, parameter.behavior
+        );
+    }
+    out.trim_end().to_owned()
+}
+
 /// An optional named option: `name: ...`.
 const fn opt(name: &'static str) -> ArgSchema {
     ArgSchema {
@@ -912,6 +1029,34 @@ const fn req_msg(name: &'static str, message: &'static str) -> ArgSchema {
 const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
     opt("spacing"),
     opt("alignment"),
+    opt("padding"),
+    opt("width"),
+    opt("height"),
+    opt("minWidth"),
+    opt("maxWidth"),
+    opt("minHeight"),
+    opt("maxHeight"),
+    opt("background"),
+    opt("cornerRadius"),
+    opt("borderColor"),
+    opt("borderWidth"),
+    opt("opacity"),
+    opt("scale"),
+    opt("rotation"),
+    opt("shadow"),
+    opt("blur"),
+    opt("clip"),
+    opt("zIndex"),
+    opt("glass"),
+    opt("animation"),
+];
+
+/// Row shares the layout styling options but also exposes placement along its
+/// horizontal main axis. `alignment` remains the vertical cross-axis option.
+const ROW_LAYOUT_ARGUMENTS: &[ArgSchema] = &[
+    opt("spacing"),
+    opt("alignment"),
+    opt("horizontalArrangement"),
     opt("padding"),
     opt("width"),
     opt("height"),
@@ -998,7 +1143,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
         positional: PositionalModel::None,
-        arguments: LAYOUT_ARGUMENTS,
+        arguments: ROW_LAYOUT_ARGUMENTS,
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -1024,7 +1169,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
         positional: PositionalModel::None,
-        arguments: &[],
+        arguments: &[opt("showDividers"), opt("background")],
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -1037,7 +1182,13 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
         positional: PositionalModel::None,
-        arguments: &[opt("title"), opt("footer"), opt("comment")],
+        arguments: &[
+            opt("title"),
+            opt("footer"),
+            opt("comment"),
+            opt("showDividers"),
+            opt("background"),
+        ],
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -1119,7 +1270,11 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         arguments: &[
             req("title"),
             req("icon"),
-            req("description"),
+            opt("description"),
+            opt("titleColor"),
+            opt("descriptionColor"),
+            opt("iconTint"),
+            opt("background"),
             opt("comment"),
         ],
         exclusive: &[],
@@ -1244,7 +1399,22 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("items"), req("selected"), opt("comment")],
+        arguments: &[
+            req("items"),
+            req("selected"),
+            opt("animation"),
+            opt("comment"),
+            opt("tint"),
+            opt("background"),
+            opt("selectedTextColor"),
+            opt("textColor"),
+            opt("fontSize"),
+            opt("fontWeight"),
+            opt("height"),
+            opt("cornerRadius"),
+            opt("borderColor"),
+            opt("borderWidth"),
+        ],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1260,6 +1430,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         arguments: &[
             req("items"),
             req("selected"),
+            opt("itemIcons"),
             opt("icon"),
             opt("label"),
             opt("tint"),
@@ -1272,12 +1443,33 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
-        name: "DatePicker",
-        doc: "components.md#datepicker",
+        name: "PickerDate",
+        doc: "components.md#pickerdate",
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("timestamp"), req("hasTime")],
+        arguments: &[
+            req("type"),
+            opt("style"),
+            opt("selection"),
+            opt("timestamp"),
+            opt("startTimestamp"),
+            opt("endTimestamp"),
+            opt("minimum"),
+            opt("maximum"),
+            opt("tint"),
+            opt("textColor"),
+            opt("backgroundColor"),
+            opt("pickerBackgroundColor"),
+            opt("borderColor"),
+            opt("borderWidth"),
+            opt("cornerRadius"),
+            opt("locale"),
+            opt("timeZone"),
+            opt("is24Hour"),
+            opt("enabled"),
+            opt("accessibilityLabel"),
+        ],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1416,10 +1608,14 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Navigation],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req_msg(
-            "root",
-            "NavigationStack requires a declared screen as `root`",
-        )],
+        arguments: &[
+            req_msg(
+                "root",
+                "NavigationStack requires a declared screen as `root`",
+            ),
+            opt("titleMode"),
+            opt("titleAlignment"),
+        ],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1507,6 +1703,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             req("isPresented"),
             opt("partial"),
             opt("largeOnly"),
+            opt("showDragHandle"),
             opt("title"),
         ],
         exclusive: &[],
@@ -1618,6 +1815,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("reverseLayout"),
             opt("pageSnap"),
             opt("native"),
+            opt("showDividers"),
         ],
         exclusive: &[],
         children: ChildModel::ListRows,

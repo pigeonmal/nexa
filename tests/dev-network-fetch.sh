@@ -56,15 +56,27 @@ for expected in \
     grep -Fq "$expected" "$log_file" || { cat "$log_file" >&2; exit 1; }
 done
 
-patch_count=$(grep -Fc "Nexa $platform_label dev runtime applied patch" "$log_file" || true)
+applied_count=$(grep -Ec "Nexa $platform_label dev runtime applied (patch|module)" "$log_file" || true)
 cp "$script_dir/fixtures/dev_network_fetch.nx" "$project/App.nx"
+if [[ -n "${NEXA_TEST_NETWORK_URL:-}" ]]; then
+    python3 - "$project/App.nx" "$NEXA_TEST_NETWORK_URL" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+source = path.read_text()
+source = source.replace(json.dumps("https://example.com"), json.dumps(sys.argv[2]))
+path.write_text(source)
+PY
+fi
 for _ in $(seq 1 180); do
-    count=$(grep -Fc "Nexa $platform_label dev runtime applied patch" "$log_file" || true)
-    if (( count > patch_count )); then break; fi
+    count=$(grep -Ec "Nexa $platform_label dev runtime applied (patch|module)" "$log_file" || true)
+    if (( count > applied_count )); then break; fi
     if ! kill -0 "$dev_pid" 2>/dev/null; then cat "$log_file" >&2; exit 1; fi
     sleep 1
 done
-if (( count <= patch_count )); then
+if (( count <= applied_count )); then
     cat "$log_file" >&2
     echo "timed out waiting for the async network-call hot reload" >&2
     exit 1

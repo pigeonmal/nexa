@@ -24,6 +24,21 @@ fi
 
 "$nexa" create PageSnapSmoke --directory "$project"
 cp "$fixture" "$project/App.nx"
+python3 - "$project/nexa.config.nx" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+config = path.read_text()
+pattern = re.compile(r"(\bandroid\s*\{\s*minSdk:\s*)(\d+)")
+config, count = pattern.subn(
+    lambda match: match.group(1) + str(max(24, int(match.group(2)))), config, count=1
+)
+if count != 1:
+    raise SystemExit(f"could not set the DevRuntime Android minSdk in {path}")
+path.write_text(config)
+PY
 mkfifo "$project/dev-stdin"
 exec 3<>"$project/dev-stdin"
 cd "$project"

@@ -650,7 +650,7 @@ fn parses_closed_transition_modifiers_on_if_and_when_blocks() {
         r#"app Demo {
             state visible = false
             body {
-                if visible { Text("shown") }.transition(.fade)
+                if visible { Text("shown") }.transition(.fade, animation: Tween(duration: 0.24, easing: EaseOut))
                 when visible {
                     true: { Text("yes") }
                     else: { Text("no") }
@@ -664,6 +664,7 @@ fn parses_closed_transition_modifiers_on_if_and_when_blocks() {
         &app.body[0],
         Node::If {
             transition: Some(nexa_syntax::ast::ViewTransition::Fade),
+            transition_animation: Some(_),
             ..
         }
     ));

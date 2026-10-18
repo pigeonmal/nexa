@@ -93,6 +93,10 @@ When contributing to Nexa, agents must adhere strictly to these principles:
    - Nexa uses Rust-style `Result<T, E>` with the `?` postfix propagation operator. Functions and expressions must avoid hidden unchecked exception paths.
 5. **Deterministic Scaffolding**:
    - Scaffolding templates in `nexa-cli` and `nexa-codegen` must be strictly deterministic and idempotent.
+6. **Customizable components with simple APIs**:
+   - Components should expose their meaningful visual and behavioral choices through small, typed, optional named parameters. Omitted parameters keep the platform's native defaults; users should not need to fork a component to customize it.
+   - Prefer cohesive parameters over mode flags, duplicate component variants, or verbose workarounds. Keep parameter names and examples easy to read in Nexa.
+   - Route every shared parameter through the typed IR, SwiftUI and Compose AOT output, and both DevRuntimes; test defaults and custom values on both platforms.
 
 ---
 

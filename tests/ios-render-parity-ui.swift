@@ -122,16 +122,33 @@ final class NexaRenderParityTests: XCTestCase {
         let scrollContainer: XCUIElement = scrollView(containing: anchor, app: app) ?? app
 
         for _ in 0..<4 {
-            waitForScrollToSettle(app)
+            waitForElementToSettle(anchor)
             let deltaY = targetY - anchor.frame.minY
-            if abs(deltaY) < 0.25 { return }
+            if abs(deltaY) < 12 { return }
 
             let start = scrollContainer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
             // Move the finger in the direction needed to move the content to targetY.
             let end = start.withOffset(CGVector(dx: 0, dy: deltaY))
-            start.press(forDuration: 0.05, thenDragTo: end)
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0)
         }
-        waitForScrollToSettle(app)
+        waitForElementToSettle(anchor)
+    }
+
+    private func waitForElementToSettle(_ element: XCUIElement) {
+        let deadline = Date().addingTimeInterval(6)
+        var previousY = element.frame.minY
+        var stableSamples = 0
+        while Date() < deadline && stableSamples < 6 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+            guard element.exists else { return }
+            let currentY = element.frame.minY
+            if abs(currentY - previousY) < 0.25 {
+                stableSamples += 1
+            } else {
+                stableSamples = 0
+            }
+            previousY = currentY
+        }
     }
 
     private func scrollView(containing anchor: XCUIElement, app: XCUIApplication) -> XCUIElement? {
@@ -177,7 +194,7 @@ final class NexaRenderParityTests: XCTestCase {
         title.typeText("NexaParity\n")
         XCTAssertTrue(app.staticTexts["Title: NexaParity"].waitForExistence(timeout: 5))
         try capture("text-entry", app: app)
-        try tap("Back to catalog", app: app)
+        try tap("Back to previous screen", app: app)
 
         let scrollAnchor = app.staticTexts["Archived tasks appear here."]
         if let scrollView = scrollView(containing: scrollAnchor, app: app) {
@@ -200,10 +217,21 @@ final class NexaRenderParityTests: XCTestCase {
         try tap("Open detail screen", app: app)
         XCTAssertTrue(app.staticTexts["Navigation destination"].waitForExistence(timeout: 10))
         try capture("navigation", app: app)
-        try tap("Back to catalog", app: app)
+        try tap("Open nested navigation screen", app: app)
+        XCTAssertTrue(app.staticTexts["Nested navigation destination"].waitForExistence(timeout: 10))
+        try capture("navigation-nested", app: app)
+        try tap("Back to previous screen", app: app)
+        XCTAssertTrue(app.staticTexts["Navigation destination"].waitForExistence(timeout: 10))
+        try capture("navigation-pop", app: app)
+        try tap("Back to previous screen", app: app)
+        XCTAssertTrue(app.staticTexts["Parity heading"].waitForExistence(timeout: 10))
+        try capture("navigation-root-restored", app: app)
 
         try tap("Lists", app: app)
         XCTAssertTrue(app.staticTexts["Virtualized list"].waitForExistence(timeout: 10))
+        let firstNativeRow = app.staticTexts["Virtual row 0"]
+        waitForElementToSettle(firstNativeRow)
+        XCTAssertTrue(firstNativeRow.isHittable, "Native FastList's first row must remain inside its allocated viewport")
         try capture("lists", app: app)
         if element("Refresh now", app: app).isHittable {
             try tap("Refresh now", app: app)
@@ -223,8 +251,11 @@ final class NexaRenderParityTests: XCTestCase {
         try tap("Open list parameters", app: app)
         XCTAssertTrue(app.staticTexts["Page snap list parameters"].waitForExistence(timeout: 10))
         try capture("list-parameters", app: app)
-        app.swipeUp()
-        XCTAssertTrue(app.staticTexts["Page snap row 1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Page position: 0"].waitForExistence(timeout: 5))
+        let pagedList = element("Page snap parity list", app: app)
+        XCTAssertTrue(pagedList.waitForExistence(timeout: 5))
+        pagedList.swipeUp()
+        XCTAssertTrue(app.staticTexts["Page position: 1"].waitForExistence(timeout: 10))
         try capture("list-parameters-next", app: app)
         try tap("Back to lists", app: app)
 
@@ -256,13 +287,16 @@ final class NexaRenderParityTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Large sheet content"].waitForExistence(timeout: 5))
         try capture("large-sheet", app: app)
         try tap("Close large sheet", app: app)
+        try scrollToLabel("Button style parameters", app: app)
+        try tap("Stop loading indicator", app: app)
+        XCTAssertTrue(app.staticTexts["Configured state: loading=false, disabled=false"].waitForExistence(timeout: 5))
         try scrollToLabel("Text input parameters", app: app)
+        alignScrollAnchor(app, label: "Text input parameters", targetY: 400)
         try capture("style-input", app: app)
         try scrollToLabel("Image and icon parameters", app: app)
-        alignScrollAnchor(app, label: "Image and icon parameters", targetY: 406)
+        alignScrollAnchor(app, label: "Image and icon parameters", targetY: 400)
         try capture("style-images", app: app)
         try scrollToLabel("Pressable parameters", app: app)
-        alignScrollAnchor(app, label: "Pressable parameters", targetY: 600)
         try capture("style-pressable", app: app)
         try scrollToLabel("Back to catalog", upwards: false, app: app)
         try tap("Back to catalog", app: app)
@@ -283,6 +317,30 @@ final class NexaRenderParityTests: XCTestCase {
         try tap("Confirm action", app: app)
     }
 
+    @MainActor
+    func testNavigationScreenTransitions() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Parity heading"].waitForExistence(timeout: 60))
+        try scrollToLabel("Open detail screen", app: app)
+        try tap("Open detail screen", app: app)
+        XCTAssertTrue(app.staticTexts["Navigation destination"].waitForExistence(timeout: 10))
+        try capture("navigation", app: app)
+
+        try tap("Open nested navigation screen", app: app)
+        XCTAssertTrue(app.staticTexts["Nested navigation destination"].waitForExistence(timeout: 10))
+        try capture("navigation-nested", app: app)
+
+        try tap("Back to previous screen", app: app)
+        XCTAssertTrue(app.staticTexts["Navigation destination"].waitForExistence(timeout: 10))
+        try capture("navigation-pop", app: app)
+
+        try tap("Back to previous screen", app: app)
+        XCTAssertTrue(app.staticTexts["Parity heading"].waitForExistence(timeout: 10))
+        try capture("navigation-root-restored", app: app)
+    }
+
     func testPressableLongPressDoesNotFallThroughToTap() throws {
         let app = XCUIApplication()
         app.launch()
@@ -297,6 +355,28 @@ final class NexaRenderParityTests: XCTestCase {
         XCTAssertTrue(pressable.waitForExistence(timeout: 5))
         pressable.press(forDuration: 0.8)
         XCTAssertTrue(app.staticTexts["Pressable result: tap=0, long=1"].waitForExistence(timeout: 5))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         try capture("pressable-long", app: app)
+    }
+
+    func testStyleInputScrollAnchorIsAligned() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Parity heading"].waitForExistence(timeout: 60))
+        try tap("Controls", app: app)
+        try scrollToLabel("Open style parameters", app: app)
+        try tap("Open style parameters", app: app)
+        XCTAssertTrue(app.staticTexts["Column style parameters"].waitForExistence(timeout: 10))
+        try scrollToLabel("Text input parameters", app: app)
+        alignScrollAnchor(app, label: "Text input parameters", targetY: 400)
+
+        let anchor = element("Text input parameters", app: app)
+        let anchorExists = anchor.exists
+        let anchorIsHittable = anchor.isHittable
+        let anchorY = anchor.frame.minY
+        XCTAssertTrue(anchorExists && anchorIsHittable)
+        XCTAssertLessThan(abs(anchorY - 400), 25, "Text input section did not reach the shared capture position")
+        try capture("style-input-aligned", app: app)
     }
 }

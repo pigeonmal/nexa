@@ -1218,12 +1218,10 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             | Node::PagePager { state, .. } => {
                 bindings.push(state.clone());
             }
-            Node::DatePicker {
-                timestamp_state,
-                has_time_state,
-            } => {
-                bindings.push(timestamp_state.clone());
-                bindings.push(has_time_state.clone());
+            Node::PickerDate { props } => {
+                bindings.extend(props.timestamp_state.iter().cloned());
+                bindings.extend(props.start_timestamp_state.iter().cloned());
+                bindings.extend(props.end_timestamp_state.iter().cloned());
             }
             Node::NavigationSplitView { detail_visible, .. } => {
                 bindings.push(detail_visible.clone());
@@ -1347,6 +1345,23 @@ impl IrFolder for IrOptimizer {
                     children,
                 })
             }
+            Node::ContentUnavailable {
+                title,
+                icon,
+                description,
+                title_color,
+                description_color,
+                icon_tint,
+                background,
+            } => Some(Node::ContentUnavailable {
+                title: self.fold_expr(title),
+                icon,
+                description: description.map(|value| self.fold_expr(value)),
+                title_color: title_color.map(fold_color_expression),
+                description_color: description_color.map(fold_color_expression),
+                icon_tint: icon_tint.map(fold_color_expression),
+                background: background.map(fold_color_expression),
+            }),
             Node::Button {
                 label,
                 icon,
@@ -1372,7 +1387,7 @@ impl IrFolder for IrOptimizer {
                 shape,
                 tint: tint.map(|tint| match tint {
                     nexa_ir::ColorExpression::Dynamic(color) => {
-                        nexa_ir::ColorExpression::Dynamic(self.fold_expr(color))
+                        nexa_ir::ColorExpression::Dynamic(Box::new(self.fold_expr(*color)))
                     }
                     other => other,
                 }),
@@ -1384,6 +1399,7 @@ impl IrFolder for IrOptimizer {
                 then_body,
                 else_body,
                 transition,
+                transition_animation,
             } => {
                 let condition = self.fold_expr(condition);
                 let then_body = self.fold_nodes(then_body);
@@ -1396,6 +1412,7 @@ impl IrFolder for IrOptimizer {
                         then_body,
                         else_body,
                         transition,
+                        transition_animation,
                     }),
                 }
             }
@@ -1464,6 +1481,15 @@ impl IrFolder for IrOptimizer {
     fn fold_expr(&mut self, expr: Expr) -> Expr {
         let folded = fold_expr_children(expr, self);
         fold_expression_rules(folded)
+    }
+}
+
+fn fold_color_expression(color: nexa_ir::ColorExpression) -> nexa_ir::ColorExpression {
+    match color {
+        nexa_ir::ColorExpression::Dynamic(expression) => {
+            nexa_ir::ColorExpression::Dynamic(Box::new(fold_expression(*expression)))
+        }
+        other => other,
     }
 }
 

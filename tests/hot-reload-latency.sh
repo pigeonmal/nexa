@@ -19,6 +19,21 @@ fi
 
 fixture="$script_dir/fixtures/dev_component_initial.nx"
 hr_init "$nexa" "$platform" "$project" "$project/dev.log" "ComponentSmoke" "$fixture"
+if [[ "$platform" == android ]]; then
+    python3 - "$project/nexa.config.nx" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+config = Path(sys.argv[1])
+source = config.read_text()
+match = re.search(r"(\bandroid\s*\{\s*minSdk:\s*)(\d+)\b", source)
+if match is None:
+    raise SystemExit(f"could not set the Android hot-reload fixture minSdk in {config}")
+if int(match.group(2)) < 24:
+    config.write_text(source[:match.start(2)] + "24" + source[match.end(2):])
+PY
+fi
 if [[ "$platform" == ios ]]; then
     hr_ensure_screenshot_tool
 fi

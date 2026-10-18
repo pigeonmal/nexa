@@ -3946,12 +3946,13 @@ impl Parser {
         } else {
             None
         };
-        let transition = self.conditional_transition()?;
+        let (transition, transition_animation) = self.conditional_transition()?;
         Ok(Node::If {
             condition,
             then_body,
             else_body,
             transition,
+            transition_animation,
             span,
         })
     }
@@ -3959,9 +3960,11 @@ impl Parser {
     /// Parses the closed transition vocabulary accepted on `if` and `when`
     /// view blocks. Keeping this grammar explicit avoids treating transitions
     /// as dynamic expressions in either native backend.
-    fn conditional_transition(&mut self) -> Result<Option<ViewTransition>, CompileError> {
+    fn conditional_transition(
+        &mut self,
+    ) -> Result<(Option<ViewTransition>, Option<Expr>), CompileError> {
         if !self.take(&Kind::Dot) {
-            return Ok(None);
+            return Ok((None, None));
         }
         let (modifier, modifier_span) = self.ident()?;
         if modifier != "transition" {
@@ -4009,8 +4012,21 @@ impl Parser {
                 ));
             }
         };
+        let animation = if self.take(&Kind::Comma) {
+            let (argument, argument_span) = self.ident()?;
+            if argument != "animation" {
+                return Err(CompileError::new(
+                    argument_span,
+                    "`.transition` only supports the optional `animation:` argument",
+                ));
+            }
+            self.expect(Kind::Colon, "expected `:` after `animation`")?;
+            Some(self.expr()?)
+        } else {
+            None
+        };
         self.expect(Kind::RParen, "expected `)` after transition")?;
-        Ok(Some(transition))
+        Ok((Some(transition), animation))
     }
 
     fn when_node(&mut self) -> Result<Node, CompileError> {
@@ -4055,11 +4071,13 @@ impl Parser {
                 "when requires at least one value case",
             ));
         }
+        let (transition, transition_animation) = self.conditional_transition()?;
         Ok(Node::When {
             value,
             cases,
             else_body,
-            transition: self.conditional_transition()?,
+            transition,
+            transition_animation,
             span,
         })
     }

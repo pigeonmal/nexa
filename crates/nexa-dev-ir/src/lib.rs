@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use nexa_ir::{Module, Node};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 40;
+pub const DEV_IR_FORMAT_VERSION: u16 = 46;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevModule {
@@ -291,7 +291,7 @@ fn node_kind(node: &Node) -> &'static str {
         Node::ProgressRing { .. } => "ProgressRing",
         Node::SegmentedControl { .. } => "SegmentedControl",
         Node::Picker { .. } => "Picker",
-        Node::DatePicker { .. } => "DatePicker",
+        Node::PickerDate { .. } => "PickerDate",
         Node::Image { .. } => "Image",
         Node::SystemIcon { .. } => "SystemIcon",
         Node::LinearGradient { .. } => "LinearGradient",
@@ -324,7 +324,7 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
     match node {
         Node::Appearance { children, .. }
         | Node::Layout { children, .. }
-        | Node::Form { children }
+        | Node::Form { children, .. }
         | Node::FormSection { children, .. }
         | Node::Toolbar { children, .. }
         | Node::NavigationLink { children, .. }

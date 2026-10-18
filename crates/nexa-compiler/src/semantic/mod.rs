@@ -325,7 +325,7 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                 | Node::ProgressRing { .. }
                 | Node::SegmentedControl { .. }
                 | Node::Picker { .. }
-                | Node::DatePicker { .. }
+                | Node::PickerDate { .. }
                 | Node::Image { .. }
                 | Node::ContentUnavailable { .. }
                 | Node::LinearGradient { .. }

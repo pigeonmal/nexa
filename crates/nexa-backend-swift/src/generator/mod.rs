@@ -245,7 +245,10 @@ const NEXA_COLLECTION_HELPERS: &str = r#"private func nexaGroupByStable<Element,
 
 "#;
 
-const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = r#"// nexa-codegen: NexaTextPrimitive
+const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = concat!(
+    r#"// nexa-codegen: NexaTextPrimitive
+__NEXA_REDUCE_MOTION_ANIMATION_MODIFIER__
+
 struct NexaTextStyle {
     var alignment: TextAlignment?
     var color: Color?
@@ -397,6 +400,7 @@ struct NexaSwitchPrimitive: View {
                 .onTapGesture { isOn.toggle() }
             Toggle("", isOn: $isOn)
                 .labelsHidden()
+                .tint(Color(uiColor: .systemBlue))
                 .accessibilityLabel(label)
         }
     }
@@ -428,11 +432,20 @@ struct NexaTextInputPrimitive: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                field.frame(maxWidth: .infinity, alignment: .leading)
+                leadingField
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            field
+            leadingField
         }
+    }
+
+    // SwiftUI TextField otherwise measures to its placeholder's ideal width. Compose fields fill
+    // the available parent width, so keep the SwiftUI primitive leading-aligned and equally wide.
+    private var leadingField: some View {
+        field
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(.leading)
     }
 }
 
@@ -452,37 +465,65 @@ private extension View {
 struct NexaPickerPrimitive<LabelContent: View>: View {
     @Binding var selection: String
     let items: [String]
+    let itemIcons: [String]
     let icon: String?
     let tint: Color?
     let hasLabel: Bool
     @ViewBuilder let label: () -> LabelContent
 
+    private var resolvedTint: Color {
+        tint ?? Color.accentColor
+    }
+
+    @ViewBuilder
+    private func pickerOptions(selection: Binding<String>) -> some View {
+        Picker("", selection: selection) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                if itemIcons.indices.contains(index) {
+                    Label {
+                        Text(item)
+                    } icon: {
+                        Image(systemName: itemIcons[index])
+                            .foregroundStyle(.secondary)
+                    }
+                        .tag(item)
+                } else {
+                    Text(item)
+                        .tag(item)
+                }
+            }
+        }
+        .labelsHidden()
+    }
+
     @ViewBuilder
     var body: some View {
         if hasLabel {
-            Picker(selection: $selection) {
-                ForEach(items, id: \.self) { item in
-                    Text(item).tag(item)
-                }
-            } label: {
-                if let icon {
-                    Label { label() } icon: { Image(systemName: icon) }
-                } else {
-                    label()
-                }
-            }
-            .nexaPickerTint(tint)
-        } else if let icon {
             Menu {
-                ForEach(items, id: \.self) { item in
-                    Button { selection = item } label: {
-                        if item == selection {
-                            Label(item, systemImage: "checkmark")
-                        } else {
-                            Text(item)
-                        }
+                pickerOptions(selection: $selection)
+            } label: {
+                HStack(spacing: 8) {
+                    if let icon {
+                        Image(systemName: icon)
+                    }
+                    label()
+                    Spacer(minLength: 12)
+                    HStack(spacing: 4) {
+                        Text(selection)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption)
                     }
                 }
+                .foregroundStyle(resolvedTint)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(selection)
+        } else if let icon {
+            Menu {
+                pickerOptions(selection: $selection)
             } label: {
                 Image(systemName: icon)
                     .foregroundStyle(tint ?? Color.accentColor)
@@ -490,46 +531,16 @@ struct NexaPickerPrimitive<LabelContent: View>: View {
             .accessibilityLabel("Choose an option")
             .accessibilityValue(selection)
         } else {
-            Picker("", selection: $selection) {
-                ForEach(items, id: \.self) { item in
-                    Text(item).tag(item)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .nexaPickerTint(tint)
+            pickerOptions(selection: $selection)
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .nexaPickerTint(tint)
         }
     }
 }
 
-// nexa-codegen: NexaDatePickerPrimitive
-struct NexaDatePickerPrimitive: View {
-    @Binding var timestamp: Int64
-    @Binding var includesTime: Bool
-
-    private var date: Binding<Date> {
-        Binding(
-            get: { Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000) },
-            set: { timestamp = Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
-        )
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Toggle("Include time", isOn: $includesTime)
-            HStack(spacing: 12) {
-                DatePicker("Date", selection: date, displayedComponents: [.date])
-                    .datePickerStyle(.compact)
-                if includesTime {
-                    DatePicker("Time", selection: date, displayedComponents: [.hourAndMinute])
-                        .datePickerStyle(.compact)
-                }
-            }
-        }
-    }
-}
-
-// nexa-codegen: NexaSharedButtonStyleKind
+"#,
+    r#"// nexa-codegen: NexaSharedButtonStyleKind
 enum NexaSharedButtonStyleKind {
     case borderedProminent
     case bordered
@@ -707,11 +718,33 @@ struct NexaButtonPrimitive<Label: View>: View {
     }
 
     @ViewBuilder
+    private var progressLabelContent: some View {
+        ProgressView()
+            .frame(
+                width: CGFloat(__NEXA_BUTTON_LOADING_INDICATOR_SIZE__),
+                height: CGFloat(__NEXA_BUTTON_LOADING_INDICATOR_SIZE__)
+            )
+    }
+
+    @ViewBuilder
     private var labelContent: some View {
         if loading {
-            ProgressView()
+            progressLabelContent
         } else {
             label.font(.system(size: CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)))
+        }
+    }
+
+    @ViewBuilder
+    private var plainLabelContent: some View {
+        if loading {
+            progressLabelContent.tint(tint.map { ((disabled || loading) ? $0.opacity(0.38) : $0) })
+        } else if let tint {
+            label
+                .font(.system(size: CGFloat(__NEXA_DEFAULT_BODY_FONT_SIZE__)))
+                .foregroundStyle((disabled || loading) ? tint.opacity(0.38) : tint)
+        } else {
+            labelContent
         }
     }
 
@@ -754,14 +787,14 @@ struct NexaButtonPrimitive<Label: View>: View {
                 .modifier(NexaSharedGlassModifier(enabled: glass, tint: tint, shape: shape))
         case .borderless:
             platformSize(
-                Button(action: action) { labelContent }
+                Button(action: action) { plainLabelContent }
                     .disabled(disabled || loading)
                     .buttonStyle(.borderless)
                     .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
             )
         case .plain:
             platformSize(
-                Button(action: action) { labelContent }
+                Button(action: action) { plainLabelContent }
                     .disabled(disabled || loading)
                     .buttonStyle(.plain)
                     .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
@@ -798,9 +831,56 @@ struct NexaProgressBarPrimitive: View {
 struct NexaProgressRingPrimitive: View {
     let progress: Double
 
+    private var normalizedProgress: Double {
+        min(max(progress, 0), 1)
+    }
+
     var body: some View {
-        ProgressView(value: min(max(progress, 0), 1), total: 1)
-            .progressViewStyle(.circular)
+        ZStack {
+            Circle()
+                .stroke(Color.accentColor.opacity(0.16), lineWidth: 4)
+
+            if normalizedProgress >= 1 {
+                Circle()
+                    .stroke(Color.accentColor, lineWidth: 4)
+            } else if normalizedProgress > 0 {
+                Circle()
+                    .trim(from: 0, to: normalizedProgress)
+                    .stroke(
+                        Color.accentColor,
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+            }
+        }
+        .frame(width: 40, height: 40)
+        .animation(.easeInOut(duration: 0.2), value: normalizedProgress)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Progress")
+        .accessibilityValue("\(Int((normalizedProgress * 100).rounded()))%")
+    }
+}
+
+// nexa-codegen: NexaStatusBarBackgroundPrimitive
+@MainActor
+private func nexaStatusBarSafeAreaHeight() -> CGFloat {
+    UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .first { $0.activationState == .foregroundActive }?
+        .windows
+        .first(where: \.isKeyWindow)?
+        .safeAreaInsets.top ?? 0
+}
+
+struct NexaStatusBarBackgroundPrimitive: View {
+    let color: Color
+
+    var body: some View {
+        color
+            .frame(maxWidth: .infinity)
+            .frame(height: nexaStatusBarSafeAreaHeight())
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
     }
 }
 
@@ -818,18 +898,161 @@ struct NexaDividerPrimitive: View {
 }
 
 // nexa-codegen: NexaSegmentedControlPrimitive
+@MainActor
+private struct NexaNativeSegmentedControl: UIViewRepresentable {
+    let items: [String]
+    @Binding var selection: String
+    let tint: Color?
+    let background: Color?
+    let textColor: Color?
+    let selectedTextColor: Color?
+    let fontSize: CGFloat?
+    let fontWeight: Font.Weight?
+    let height: CGFloat?
+    let cornerRadius: CGFloat?
+    let borderColor: Color?
+    let borderWidth: CGFloat?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection, items: items)
+    }
+
+    func makeUIView(context: Context) -> UISegmentedControl {
+        let control = UISegmentedControl(items: items)
+        control.addTarget(
+            context.coordinator,
+            action: #selector(Coordinator.selectionChanged(_:)),
+            for: .valueChanged
+        )
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return control
+    }
+
+    func updateUIView(_ control: UISegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        context.coordinator.items = items
+
+        let displayedItems = (0..<control.numberOfSegments).compactMap {
+            control.titleForSegment(at: $0)
+        }
+        if displayedItems != items {
+            control.removeAllSegments()
+            for (index, item) in items.enumerated() {
+                control.insertSegment(withTitle: item, at: index, animated: false)
+            }
+        }
+
+        control.selectedSegmentIndex = items.firstIndex(of: selection) ?? UISegmentedControl.noSegment
+
+        if let background {
+            let color = UIColor(background)
+            control.backgroundColor = color
+            control.layer.backgroundColor = color.cgColor
+        } else {
+            control.backgroundColor = nil
+            control.layer.backgroundColor = nil
+        }
+
+        // UIKit owns the selected capsule in every style. Its iOS 26 material may blend an
+        // explicit track background, while tint and title attributes remain directly configurable.
+        control.selectedSegmentTintColor = tint.map { UIColor($0) }
+            ?? (background == nil ? nil : UIColor.systemBackground)
+
+        let font = (fontSize != nil || fontWeight != nil)
+            ? UIFont.systemFont(ofSize: fontSize ?? UIFont.systemFontSize, weight: Self.uiFontWeight(fontWeight))
+            : nil
+        var normalAttributes: [NSAttributedString.Key: Any] = [:]
+        if let textColor { normalAttributes[.foregroundColor] = UIColor(textColor) }
+        if let font { normalAttributes[.font] = font }
+        control.setTitleTextAttributes(normalAttributes.isEmpty ? nil : normalAttributes, for: .normal)
+
+        var selectedAttributes: [NSAttributedString.Key: Any] = [:]
+        if let selectedTextColor { selectedAttributes[.foregroundColor] = UIColor(selectedTextColor) }
+        if let font { selectedAttributes[.font] = font }
+        control.setTitleTextAttributes(selectedAttributes.isEmpty ? nil : selectedAttributes, for: .selected)
+
+        control.layer.cornerRadius = cornerRadius ?? (background == nil ? 0 : max(32, height ?? 32) / 2)
+        control.layer.borderColor = borderColor.map { UIColor($0).cgColor }
+        control.layer.borderWidth = max(0, borderWidth ?? (borderColor == nil ? 0 : 1))
+        control.layer.masksToBounds = background != nil || borderColor != nil || (borderWidth ?? 0) > 0
+    }
+
+    private static func uiFontWeight(_ weight: Font.Weight?) -> UIFont.Weight {
+        guard let weight else { return .regular }
+        if weight == .ultraLight { return .ultraLight }
+        if weight == .thin { return .thin }
+        if weight == .light { return .light }
+        if weight == .medium { return .medium }
+        if weight == .semibold { return .semibold }
+        if weight == .bold { return .bold }
+        if weight == .heavy { return .heavy }
+        if weight == .black { return .black }
+        return .regular
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var selection: Binding<String>
+        var items: [String]
+
+        init(selection: Binding<String>, items: [String]) {
+            self.selection = selection
+            self.items = items
+        }
+
+        @objc func selectionChanged(_ sender: UISegmentedControl) {
+            guard items.indices.contains(sender.selectedSegmentIndex) else { return }
+            selection.wrappedValue = items[sender.selectedSegmentIndex]
+        }
+    }
+}
+
 struct NexaSegmentedControlPrimitive: View {
     let items: [String]
     @Binding var selection: String
-
+    var animation: Animation? = nil
+    var tint: Color? = nil
+    var background: Color? = nil
+    var textColor: Color? = nil
+    var selectedTextColor: Color? = nil
+    var fontSize: CGFloat? = nil
+    var fontWeight: Font.Weight? = nil
+    var height: CGFloat? = nil
+    var cornerRadius: CGFloat? = nil
+    var borderColor: Color? = nil
+    var borderWidth: CGFloat? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ViewBuilder
     var body: some View {
-        Picker("", selection: $selection) {
-            ForEach(items, id: \.self) { item in
-                Text(item).tag(item)
+        if items.isEmpty {
+            EmptyView()
+        } else {
+            NexaNativeSegmentedControl(
+                items: items,
+                selection: $selection,
+                tint: tint,
+                background: background,
+                textColor: textColor,
+                selectedTextColor: selectedTextColor,
+                fontSize: fontSize,
+                fontWeight: fontWeight,
+                height: height,
+                cornerRadius: cornerRadius,
+                borderColor: borderColor,
+                borderWidth: borderWidth
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: max(32, height ?? 32))
+            .transaction { transaction in
+                if reduceMotion {
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                } else if let animation {
+                    transaction.animation = animation
+                }
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
     }
 }
 
@@ -871,26 +1094,60 @@ struct NexaLinearGradientPrimitive: View {
 struct NexaContentUnavailablePrimitive: View {
     let title: Text
     let symbol: String
-    let description: Text
+    let description: Text?
+    let titleColor: Color?
+    let descriptionColor: Color?
+    let iconTint: Color?
+    let background: Color?
 
     @ViewBuilder var body: some View {
         if #available(iOS 17.0, *) {
             ContentUnavailableView {
-                Label { title } icon: { Image(systemName: symbol) }
+                Label {
+                    if let titleColor { title.foregroundStyle(titleColor) } else { title }
+                } icon: {
+                    if let iconTint {
+                        Image(systemName: symbol).foregroundStyle(iconTint)
+                    } else {
+                        Image(systemName: symbol)
+                    }
+                }
             } description: {
-                description
+                if let description {
+                    if let descriptionColor {
+                        description.foregroundStyle(descriptionColor)
+                    } else {
+                        description
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { if let background { background } }
         } else {
             VStack(spacing: 8) {
-                Label { title } icon: { Image(systemName: symbol) }
+                Label {
+                    if let titleColor { title.foregroundStyle(titleColor) } else { title }
+                } icon: {
+                    if let iconTint {
+                        Image(systemName: symbol).foregroundStyle(iconTint)
+                    } else {
+                        Image(systemName: symbol)
+                    }
+                }
                     .font(.title3)
-                description
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                if let description {
+                    if let descriptionColor {
+                        description.foregroundStyle(descriptionColor)
+                            .multilineTextAlignment(.center)
+                    } else {
+                        description.foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(32)
+            .background { if let background { background } }
         }
     }
 }
@@ -921,23 +1178,47 @@ struct NexaColumnPrimitive<Content: View>: View {
 }
 
 // nexa-codegen: NexaRowPrimitive
+enum NexaRowArrangement {
+    case start
+    case center
+    case end
+
+    var frameAlignment: Alignment {
+        switch self {
+        case .start: .leading
+        case .center: .center
+        case .end: .trailing
+        }
+    }
+}
+
 struct NexaRowPrimitive<Content: View>: View {
     let alignment: VerticalAlignment
     let spacing: CGFloat
+    let horizontalArrangement: NexaRowArrangement?
     private let content: Content
 
     init(
         alignment: VerticalAlignment = .center,
         spacing: CGFloat = 0,
+        horizontalArrangement: NexaRowArrangement? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.alignment = alignment
         self.spacing = spacing
+        self.horizontalArrangement = horizontalArrangement
         self.content = content()
     }
 
     var body: some View {
-        HStack(alignment: alignment, spacing: spacing) { content }
+        if let horizontalArrangement {
+            HStack(alignment: alignment, spacing: spacing) { content }
+                .frame(maxWidth: .infinity, alignment: horizontalArrangement.frameAlignment)
+                .multilineTextAlignment(.leading)
+        } else {
+            HStack(alignment: alignment, spacing: spacing) { content }
+                .multilineTextAlignment(.leading)
+        }
     }
 }
 
@@ -953,6 +1234,73 @@ struct NexaStackPrimitive<Content: View>: View {
 
     var body: some View {
         ZStack(alignment: alignment) { content }
+    }
+}
+
+// nexa-codegen: NexaContentSizePreferenceKey
+private struct NexaContentSizePreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGSize] { [:] }
+
+    static func reduce(value: inout [UUID: CGSize], nextValue: () -> [UUID: CGSize]) {
+        value.merge(nextValue()) { _, latest in latest }
+    }
+}
+
+// nexa-codegen: NexaAnimateContentSizeModifier
+struct NexaAnimateContentSizeModifier: ViewModifier {
+    let animation: Animation
+
+    @State private var contentSize: CGSize?
+    @State private var preferenceID = UUID()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            // Keep the child at its final intrinsic size. Only the outer frame
+            // interpolates, so the Stack reveals/clips content like Compose's
+            // animateContentSize instead of moving or fading the child itself.
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: NexaContentSizePreferenceKey.self,
+                        value: [preferenceID: geometry.size]
+                    )
+                }
+            }
+            .onPreferenceChange(NexaContentSizePreferenceKey.self) { measurements in
+                guard let newSize = measurements[preferenceID],
+                      newSize.width.isFinite,
+                      newSize.height.isFinite else {
+                    return
+                }
+
+                guard let contentSize else {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        self.contentSize = newSize
+                    }
+                    return
+                }
+
+                guard abs(newSize.width - contentSize.width) > 0.5
+                    || abs(newSize.height - contentSize.height) > 0.5 else {
+                    return
+                }
+                if reduceMotion {
+                    self.contentSize = newSize
+                } else {
+                    withAnimation(animation) {
+                        self.contentSize = newSize
+                    }
+                }
+            }
+            .frame(width: contentSize?.width, height: contentSize?.height, alignment: .topLeading)
+            .clipped()
     }
 }
 
@@ -999,9 +1347,11 @@ struct NexaNativeListPrimitive<Content: View>: View {
 
 // nexa-codegen: NexaNativeListRowPrimitive
 struct NexaNativeListRowPrimitive<Content: View>: View {
+    let showDividers: Bool
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    init(showDividers: Bool = true, @ViewBuilder content: () -> Content) {
+        self.showDividers = showDividers
         self.content = content()
     }
 
@@ -1015,6 +1365,7 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
             ))
             .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
             .listRowSeparatorTint(Color(uiColor: .separator))
+            .listRowSeparator(showDividers ? .visible : .hidden)
     }
 }
 
@@ -1030,28 +1381,37 @@ struct NexaNativeListStyleModifier: ViewModifier {
 
 // nexa-codegen: NexaFormPrimitive
 struct NexaFormPrimitive<Content: View>: View {
+    let background: Color?
     private let content: Content
+    @Environment(\.multilineTextAlignment) private var inheritedTextAlignment
 
-    init(@ViewBuilder content: () -> Content) {
+    init(background: Color? = nil, @ViewBuilder content: () -> Content) {
+        self.background = background
         self.content = content()
     }
 
     var body: some View {
         Form { content }
+            .multilineTextAlignment(inheritedTextAlignment)
+            .scrollContentBackground(.hidden)
+            .background(background ?? Color.clear)
     }
 }
 
 // nexa-codegen: NexaFormSectionPrimitive
 struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View {
+    let background: Color?
     private let content: Content
     private let header: Header
     private let footer: Footer
 
     init(
+        background: Color? = nil,
         @ViewBuilder content: () -> Content,
         @ViewBuilder header: () -> Header,
         @ViewBuilder footer: () -> Footer
     ) {
+        self.background = background
         self.content = content()
         self.header = header()
         self.footer = footer()
@@ -1065,6 +1425,10 @@ struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View
         } footer: {
             footer
         }
+        // Compose form sections draw row dividers but no section-edge rules.
+        // Hide SwiftUI's automatic section separators to keep the shared layout aligned.
+        .listSectionSeparator(.hidden)
+        .listRowBackground(background ?? Color.clear)
     }
 }
 
@@ -1072,15 +1436,18 @@ struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View
 struct NexaFormRowPrimitive<Content: View>: View {
     let minHeight: CGFloat
     let horizontalInset: CGFloat
+    let showDividers: Bool
     private let content: Content
 
     init(
         minHeight: CGFloat,
         horizontalInset: CGFloat,
+        showDividers: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.minHeight = minHeight
         self.horizontalInset = horizontalInset
+        self.showDividers = showDividers
         self.content = content()
     }
 
@@ -1088,6 +1455,7 @@ struct NexaFormRowPrimitive<Content: View>: View {
         content
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
             .listRowInsets(EdgeInsets(top: 0, leading: horizontalInset, bottom: 0, trailing: horizontalInset))
+            .listRowSeparator(showDividers ? .visible : .hidden)
     }
 }
 
@@ -1149,6 +1517,40 @@ struct NexaAccessibilityPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaAppearancePrimitive
+struct NexaAppearancePrimitive<Content: View>: View {
+    let mode: String
+    private let content: Content
+    @Environment(\.colorScheme) private var systemColorScheme
+
+    init(mode: String, @ViewBuilder content: () -> Content) {
+        self.mode = mode
+        self.content = content()
+    }
+
+    private var resolvedColorScheme: ColorScheme {
+        switch mode {
+        case "dark": .dark
+        case "light": .light
+        default: systemColorScheme
+        }
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch mode {
+        case "dark": .dark
+        case "light": .light
+        default: nil
+        }
+    }
+
+    var body: some View {
+        content
+            .environment(\.colorScheme, resolvedColorScheme)
+            .preferredColorScheme(preferredColorScheme)
+    }
+}
+
 // nexa-codegen: NexaLinkPrimitive
 struct NexaLinkPrimitive<Content: View>: View {
     let destination: URL?
@@ -1201,25 +1603,43 @@ struct NexaRefreshPrimitive<Content: View>: View {
     }
 }
 
+// nexa-codegen: NexaRefreshBounceModifier
+private struct NexaRefreshBounceModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.scrollBounceBehavior(.always, axes: .vertical)
+        } else {
+            content
+        }
+    }
+}
+
 // nexa-codegen: NexaBottomSheetPrimitive
 struct NexaBottomSheetPrimitive<Content: View>: View {
     @Binding var isPresented: Bool
     let partial: Bool
     let largeOnly: Bool
+    let showDragHandle: Bool
     @State private var isKeyboardVisible = false
-    @State private var selectedDetent: PresentationDetent = .large
-    @State private var detentBeforeKeyboard: PresentationDetent = .large
+    @State private var selectedDetent: PresentationDetent
+    @State private var detentBeforeKeyboard: PresentationDetent
     private let content: Content
 
     init(
         isPresented: Binding<Bool>,
         partial: Bool,
         largeOnly: Bool,
+        showDragHandle: Bool,
         @ViewBuilder content: () -> Content
     ) {
         self._isPresented = isPresented
         self.partial = partial
         self.largeOnly = largeOnly
+        self.showDragHandle = showDragHandle
+        let initialDetent: PresentationDetent = largeOnly ? .large : .medium
+        _selectedDetent = State(initialValue: initialDetent)
+        _detentBeforeKeyboard = State(initialValue: initialDetent)
         self.content = content()
     }
 
@@ -1234,7 +1654,7 @@ struct NexaBottomSheetPrimitive<Content: View>: View {
                             : (largeOnly ? [.large] : [.medium, .large]),
                         selection: $selectedDetent
                     )
-                    .presentationDragIndicator(.visible)
+                    .presentationDragIndicator(showDragHandle ? .visible : .hidden)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 guard !largeOnly, !isKeyboardVisible else { return }
@@ -1251,6 +1671,14 @@ struct NexaBottomSheetPrimitive<Content: View>: View {
                 withAnimation(.easeInOut(duration: duration)) {
                     isKeyboardVisible = false
                     selectedDetent = detentBeforeKeyboard
+                }
+            }
+            .onChange(of: isPresented) { presented in
+                guard presented else { return }
+                let initialDetent: PresentationDetent = largeOnly ? .large : .medium
+                withAnimation(.default) {
+                    selectedDetent = initialDetent
+                    detentBeforeKeyboard = initialDetent
                 }
             }
         } else {
@@ -1362,6 +1790,7 @@ struct NexaPageIndicatorRow: View {
 // nexa-codegen: NexaNavigationSplitViewPrimitive
 struct NexaNavigationSplitViewPrimitive<Sidebar: View, Detail: View>: View {
     @Binding var detailVisible: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let sidebar: Sidebar
     private let detail: Detail
 
@@ -1377,7 +1806,18 @@ struct NexaNavigationSplitViewPrimitive<Sidebar: View, Detail: View>: View {
 
     @ViewBuilder
     var body: some View {
-        if #available(iOS 17.0, *) {
+        if horizontalSizeClass == .compact {
+            Group {
+                if detailVisible {
+                    detail
+                        .transition(.move(edge: .trailing))
+                } else {
+                    sidebar
+                        .transition(.move(edge: .leading))
+                }
+            }
+            .animation(.default, value: detailVisible)
+        } else if #available(iOS 17.0, *) {
             NavigationSplitView(preferredCompactColumn: Binding(
                 get: { detailVisible ? .detail : .sidebar },
                 set: { detailVisible = ($0 == .detail) }
@@ -1403,67 +1843,60 @@ struct NexaNavigationSplitViewPrimitive<Sidebar: View, Detail: View>: View {
 // nexa-codegen: NexaNavigationScreenPrimitive
 struct NexaNavigationScreenPrimitive<Content: View>: View {
     let title: String
+    let inline: Bool
+    let leadingTitle: Bool
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(
+        title: String,
+        inline: Bool,
+        leadingTitle: Bool,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
+        self.inline = inline
+        self.leadingTitle = leadingTitle
         self.content = content()
     }
 
-    private var titledContent: some View {
+    var body: some View {
         content
-            .navigationTitle(title)
-            .modifier(NexaNavigationTitleDisplayModePrimitive(large: true))
+            .navigationTitle(inline && leadingTitle ? "" : title)
+            .modifier(NexaNavigationTitleDisplayModeModifier(inline: inline))
+            .toolbar {
+                if inline && leadingTitle {
+                    ToolbarItem(placement: .topBarLeading) {
+                        leadingNavigationTitle
+                    }
+                }
+            }
+            .toolbar(.hidden, for: .tabBar)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    @ViewBuilder
-    var body: some View {
-        if #available(iOS 16.0, *) {
-            titledContent.toolbar(.hidden, for: .tabBar)
-        } else {
-            titledContent
-        }
+    private var leadingNavigationTitle: some View {
+        Text(title)
+            .font(.headline)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .layoutPriority(1)
+            .frame(minWidth: 160, alignment: .leading)
+            .offset(x: -13)
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
-// nexa-codegen: NexaNavigationTitleDisplayModePrimitive
-struct NexaNavigationTitleDisplayModePrimitive: ViewModifier {
-    let large: Bool
+// nexa-codegen: NexaNavigationTitleDisplayModeModifier
+struct NexaNavigationTitleDisplayModeModifier: ViewModifier {
+    let inline: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.toolbarTitleDisplayMode(large ? .inlineLarge : .inline)
+        if #available(iOS 17.0, *) {
+            content.toolbarTitleDisplayMode(inline ? .inline : .large)
         } else {
-            content.navigationBarTitleDisplayMode(large ? .large : .inline)
-        }
-    }
-}
-
-// nexa-codegen: NexaAppTabNavigationTitlePrimitive
-struct NexaAppTabNavigationTitlePrimitive: ViewModifier {
-    let title: String
-    let large: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if large {
-            content
-                .onAppear {
-                    let appearance = UINavigationBar.appearance()
-                    var attributes = appearance.largeTitleTextAttributes ?? [:]
-                    attributes[.font] = UIFontMetrics.default.scaledFont(
-                        for: .systemFont(ofSize: __NEXA_APP_TAB_LARGE_TITLE_FONT_SIZE__, weight: .bold)
-                    )
-                    appearance.largeTitleTextAttributes = attributes
-                }
-                .navigationTitle(title)
-                .modifier(NexaNavigationTitleDisplayModePrimitive(large: true))
-        } else {
-            content
-                .navigationTitle(title)
-                .modifier(NexaNavigationTitleDisplayModePrimitive(large: large))
+            content.navigationBarTitleDisplayMode(inline ? .inline : .large)
         }
     }
 }
@@ -1487,8 +1920,8 @@ struct NexaNavigationLinkPrimitive<Value: Hashable, Label: View>: View {
         .disabled(!enabled)
     }
 }
-
-"#;
+"#
+);
 
 /// Owns tab appearance behavior for both generated release views and dynamic
 /// DevRuntime tabs while leaving SwiftUI's typed TabContent builders intact.
@@ -1547,8 +1980,20 @@ struct NexaTabLabelPrimitive: View {
 
 "#;
 
+#[cfg(test)]
 fn shared_component_primitives(line_height: bool) -> String {
+    shared_component_primitives_with_animation(line_height, false)
+}
+
+fn shared_component_primitives_with_animation(
+    line_height: bool,
+    reduce_motion_animation: bool,
+) -> String {
     let tokens = [
+        (
+            "__NEXA_BUTTON_LOADING_INDICATOR_SIZE__",
+            nexa_codegen::design_system::BUTTON_LOADING_INDICATOR_SIZE.to_string(),
+        ),
         (
             "__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__",
             nexa_codegen::design_system::BUTTON_SMALL_HORIZONTAL_PADDING.to_string(),
@@ -1590,8 +2035,34 @@ fn shared_component_primitives(line_height: bool) -> String {
             nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
         ),
         (
-            "__NEXA_APP_TAB_LARGE_TITLE_FONT_SIZE__",
-            nexa_codegen::design_system::APP_TAB_LARGE_TITLE_FONT_SIZE.to_string(),
+            "__NEXA_TITLE_BAR_HEIGHT__",
+            nexa_codegen::design_system::TITLE_BAR_METRICS
+                .header_height
+                .to_string(),
+        ),
+        (
+            "__NEXA_TITLE_BAR_COLLAPSE_DISTANCE__",
+            nexa_codegen::design_system::TITLE_BAR_METRICS
+                .collapse_distance
+                .to_string(),
+        ),
+        (
+            "__NEXA_TITLE_BAR_EXPANDED_FONT_SIZE__",
+            nexa_codegen::design_system::TITLE_BAR_METRICS
+                .expanded_font_size
+                .to_string(),
+        ),
+        (
+            "__NEXA_TITLE_BAR_COLLAPSED_FONT_SIZE__",
+            nexa_codegen::design_system::TITLE_BAR_METRICS
+                .collapsed_font_size
+                .to_string(),
+        ),
+        (
+            "__NEXA_TITLE_BAR_HORIZONTAL_INSET__",
+            nexa_codegen::design_system::TITLE_BAR_METRICS
+                .horizontal_inset
+                .to_string(),
         ),
         (
             "__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__",
@@ -1645,6 +2116,26 @@ fn shared_component_primitives(line_height: bool) -> String {
         "lineSpacing(0)"
     };
     source = source.replace("__NEXA_TEXT_LINE_HEIGHT_MODIFIER__", line_height_modifier);
+    let reduce_motion_modifier = if reduce_motion_animation {
+        r#"// nexa-codegen: NexaAnimationAccessibilityModifier
+private struct NexaAnimationAccessibilityModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.transaction { transaction in
+            if reduceMotion {
+                transaction.disablesAnimations = true
+            }
+        }
+    }
+}"#
+    } else {
+        ""
+    };
+    source = source.replace(
+        "__NEXA_REDUCE_MOTION_ANIMATION_MODIFIER__",
+        reduce_motion_modifier,
+    );
     if line_height {
         source.push_str(
             r#"
@@ -1671,6 +2162,7 @@ private struct NexaTextLineHeightModifier: ViewModifier {
 "#,
         );
     }
+    source.push_str(include_str!("components/date_picker.swift"));
     source
 }
 
@@ -2022,17 +2514,10 @@ fn generate_with_analysis_mode(
             out.push_str("    public init() {}\n\n    public var body: some View {\n");
         }
         let task_handles = lifecycle::task_handles(&module.states);
-        let has_body_modifiers = module.direction.is_some()
-            || module.on_appear.is_some()
-            || module.on_appear_async
-            || module.on_disappear.is_some()
-            || !task_handles.is_empty()
-            || module.status_bar.is_some()
-            || features.uses_shared_elements;
-        let needs_group = features.uses_shared_elements
-            || (module.body.len() == 1
-                && matches!(module.body[0], Node::If { .. })
-                && has_body_modifiers);
+        // A top-level conditional is already emitted as a concrete `Group` by
+        // the node renderer, so body modifiers (including task cleanup) can be
+        // applied to it directly without adding a redundant second wrapper.
+        let needs_group = features.uses_shared_elements;
 
         if needs_group {
             out.push_str("        Group {\n");
@@ -2076,6 +2561,9 @@ fn generate_with_analysis_mode(
         status_bar::render(module.status_bar, 2, out);
         if features.uses_shared_elements {
             out.push_str("\n        .environment(\\.nexaSharedNamespace, nexaSharedNamespace)");
+        }
+        if features.facts.uses_with_animation {
+            out.push_str("\n        .modifier(NexaAnimationAccessibilityModifier())");
         }
         out.push_str("\n    }\n");
         components::sheets::render_bottom_sheet_helpers(&module.body, module, &features, out);
@@ -2174,8 +2662,10 @@ fn generate_with_analysis_mode(
         .map(|unit| unit.contents.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    let primitive_source =
-        shared_component_primitives(dev_runtime || features.facts.ui.text.line_height);
+    let primitive_source = shared_component_primitives_with_animation(
+        dev_runtime || features.facts.ui.text.line_height,
+        features.facts.uses_with_animation,
+    );
     let primitives = if dev_runtime {
         nexa_codegen::source_sections::all(&primitive_source)
     } else {
@@ -2330,12 +2820,27 @@ fn module_has_native_object_state(module: &Module) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate, shared_component_primitives};
+    use super::{NEXA_SHARED_COMPONENT_PRIMITIVES, generate, shared_component_primitives};
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
         ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
         SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn segmented_control_reaches_the_unified_native_bridge() {
+        let primitives = nexa_codegen::source_sections::reachable(
+            NEXA_SHARED_COMPONENT_PRIMITIVES,
+            "NexaSegmentedControlPrimitive()",
+        );
+
+        assert!(
+            primitives.contains("private struct NexaNativeSegmentedControl: UIViewRepresentable")
+        );
+        assert!(primitives.contains("control.setTitleTextAttributes"));
+        assert!(primitives.contains("control.layer.backgroundColor = color.cgColor"));
+        assert!(primitives.contains("control.selectedSegmentTintColor = tint.map { UIColor($0) }"));
+    }
 
     #[test]
     fn shared_button_primitive_embeds_design_system_geometry() {
@@ -2344,11 +2849,22 @@ mod tests {
         assert!(primitives.contains("struct NexaButtonPrimitive<Label: View>"));
         assert!(primitives.contains("private struct NexaSharedProminentButtonStyle: ButtonStyle"));
         assert!(primitives.contains("NexaSharedProminentButtonStyle("));
+        assert!(primitives.contains("private var plainLabelContent: some View"));
+        assert!(
+            primitives
+                .contains(".foregroundStyle((disabled || loading) ? tint.opacity(0.38) : tint)")
+        );
+        assert!(primitives.contains("width: CGFloat(20),\n                height: CGFloat(20)"));
         assert!(primitives.contains("CGFloat(8)"));
         assert!(primitives.contains("struct NexaFormPrimitive<Content: View>"));
         assert!(primitives.contains(
+            "@Environment(\\.multilineTextAlignment) private var inheritedTextAlignment"
+        ));
+        assert!(primitives.contains(".multilineTextAlignment(inheritedTextAlignment)"));
+        assert!(primitives.contains(
             "struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>"
         ));
+        assert!(primitives.contains(".listSectionSeparator(.hidden)"));
         assert!(primitives.contains("CGFloat(64)"));
         assert!(primitives.contains("CGFloat(48)"));
         assert!(primitives.contains("CGFloat(50)"));
@@ -2358,6 +2874,128 @@ mod tests {
             !primitives.contains("__NEXA_"),
             "unresolved design token in helper source"
         );
+    }
+
+    #[test]
+    fn date_picker_uses_native_controls_and_a_committable_range_sheet() {
+        let primitives = shared_component_primitives(false);
+        let date_picker = primitives
+            .split("struct NexaDatePickerPrimitive: View {")
+            .nth(1)
+            .unwrap_or_default();
+
+        assert!(date_picker.contains("DatePicker(\"\", selection: selectedDate"));
+        assert!(date_picker.contains(".labelsHidden()"));
+        assert!(
+            date_picker.contains(
+                "MultiDatePicker(\"\", selection: rangeDraftBinding, in: rangeDateRange)"
+            )
+        );
+        assert!(
+            date_picker
+                .contains("MultiDatePicker(\"\", selection: selectedRange, in: rangeDateRange)")
+        );
+        assert!(date_picker.contains("private var rangeDateRange: Range<Date>"));
+        assert!(
+            date_picker
+                .contains("pickerCalendar.date(byAdding: .day, value: 1, to: pickerCalendar.startOfDay(for: date(for: value)))")
+        );
+        assert!(date_picker.contains("let selectedDays = Set("));
+        assert!(date_picker.contains("selectedDays.symmetricDifference(previousDays)"));
+        assert!(date_picker.contains("selectedDays.contains(changed)"));
+        assert!(date_picker.contains("@State private var rangeAnchor: Date?"));
+        assert!(!date_picker.contains("selection.contains(changed)"));
+        assert!(date_picker.contains(".sheet(isPresented: $isRangePresented)"));
+        assert!(date_picker.contains("Button(\"Cancel\")"));
+        assert!(date_picker.contains("Button(\"Done\")"));
+        assert!(date_picker.contains(".accessibilityValue(rangeSummary)"));
+        assert!(date_picker.contains(".disabled(rangeDraft.count < 2)"));
+        assert!(date_picker.contains("private func commitRangeSelection()"));
+        assert!(
+            date_picker.contains("private func updateRangeDraft(_ selection: Set<DateComponents>)")
+        );
+        assert!(date_picker.contains(".presentationDetents([.medium, .large])"));
+        assert!(date_picker.contains(".padding(.top, 24)"));
+        assert!(!date_picker.contains("Text(rangeDraftSummary)"));
+        assert!(date_picker.contains("Capsule()"));
+        assert!(date_picker.contains(".padding(.horizontal, 16)"));
+        assert!(
+            date_picker.contains(".frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)")
+        );
+        assert!(date_picker.contains("Color.secondary.opacity(0.38)"));
+        assert!(!date_picker.contains("LazyVGrid("));
+        assert!(date_picker.contains(".datePickerStyle(.graphical)"));
+        assert!(date_picker.contains(".datePickerStyle(.wheel)"));
+        assert!(date_picker.contains("case \"Compact\", \"Input\":"));
+        assert!(date_picker.contains(".datePickerStyle(.compact)"));
+        assert!(date_picker.contains(".datePickerStyle(.automatic)"));
+        assert!(!date_picker.contains(".popover("));
+        assert!(!date_picker.contains(".accessibilityLabel(accessibilityLabel ?? \"\")"));
+        assert!(!date_picker.contains("DateFormatter()"));
+    }
+
+    #[test]
+    fn refresh_bounce_modifier_allows_short_content_to_trigger_pull_to_refresh() {
+        let primitives = super::NEXA_SHARED_COMPONENT_PRIMITIVES;
+
+        assert!(primitives.contains("private struct NexaRefreshBounceModifier: ViewModifier"));
+        assert!(primitives.contains("if #available(iOS 16.4, *)"));
+        assert!(primitives.contains(".scrollBounceBehavior(.always, axes: .vertical)"));
+    }
+
+    #[test]
+    fn shared_text_input_fills_parent_and_keeps_text_leading_aligned() {
+        let primitives = shared_component_primitives(false);
+        let input = primitives
+            .split("struct NexaTextInputPrimitive: View {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+
+        assert!(input.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
+        assert!(input.contains(".multilineTextAlignment(.leading)"));
+        assert!(input.contains("leadingField"));
+    }
+
+    #[test]
+    fn status_bar_background_uses_the_active_window_safe_area() {
+        let primitives = shared_component_primitives(false);
+        let status_bar = primitives
+            .split("struct NexaStatusBarBackgroundPrimitive: View {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+
+        assert!(primitives.contains("private func nexaStatusBarSafeAreaHeight() -> CGFloat"));
+        assert!(status_bar.contains(".frame(height: nexaStatusBarSafeAreaHeight())"));
+        assert!(status_bar.contains(".ignoresSafeArea(edges: .top)"));
+    }
+
+    #[test]
+    fn split_view_uses_visible_single_column_on_compact_ios() {
+        let primitives = shared_component_primitives(false);
+        let split_view = primitives
+            .split("struct NexaNavigationSplitViewPrimitive<Sidebar: View, Detail: View>: View {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+
+        assert!(
+            split_view
+                .contains("@Environment(\\.horizontalSizeClass) private var horizontalSizeClass")
+        );
+        assert!(split_view.contains("if horizontalSizeClass == .compact"));
+        assert!(split_view.contains("if detailVisible {"));
+        assert!(
+            split_view
+                .contains("detail\n                        .transition(.move(edge: .trailing))")
+        );
+        assert!(
+            split_view
+                .contains("sidebar\n                        .transition(.move(edge: .leading))")
+        );
+        assert!(split_view.contains(".animation(.default, value: detailVisible)"));
+        assert!(split_view.contains("NavigationSplitView(preferredCompactColumn:"));
     }
 
     #[test]
@@ -2385,8 +3023,54 @@ mod tests {
         assert!(primitives.contains(".nexaPickerTint(tint)"));
         assert!(primitives.contains("if hasLabel {"));
         assert!(primitives.contains("} else if let icon {"));
+        let labeled_picker = primitives
+            .split("} else if let icon {")
+            .next()
+            .unwrap_or_default();
+        assert!(
+            labeled_picker.contains("Menu {\n                pickerOptions(selection: $selection)")
+        );
+        assert!(!labeled_picker.contains(".pickerStyle(.inline)"));
+        assert!(!labeled_picker.contains(".popover("));
+        assert!(labeled_picker.contains(".labelsHidden()"));
+        assert!(!labeled_picker.contains("labelsVisibility"));
+        assert!(!labeled_picker.contains("labeledMenuOptions"));
+        assert!(labeled_picker.contains("Image(systemName: itemIcons[index])\n                            .foregroundStyle(.secondary)"));
+        assert!(labeled_picker.contains(".foregroundStyle(resolvedTint)"));
+        assert!(labeled_picker.contains(".contentShape(Rectangle())"));
+        assert!(labeled_picker.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
+        assert!(labeled_picker.contains("Text(selection)"));
+        assert!(labeled_picker.contains("Spacer(minLength: 12)"));
         assert!(primitives.contains(".pickerStyle(.menu)"));
         assert!(primitives.contains(".accessibilityValue(selection)"));
+    }
+
+    #[test]
+    fn shared_switch_uses_the_cross_platform_system_blue_accent() {
+        let primitives = shared_component_primitives(false);
+
+        assert!(primitives.contains(".tint(Color(uiColor: .systemBlue))"));
+    }
+
+    #[test]
+    fn shared_progress_ring_renders_the_determinate_value() {
+        let primitives = shared_component_primitives(false);
+        let ring = primitives
+            .split("// nexa-codegen: NexaProgressRingPrimitive")
+            .nth(1)
+            .unwrap_or_default();
+
+        assert!(ring.contains("private var normalizedProgress: Double"));
+        assert!(ring.contains(".trim(from: 0, to: normalizedProgress)"));
+        assert!(ring.contains("if normalizedProgress >= 1"));
+        assert!(ring.contains(".frame(width: 40, height: 40)"));
+        assert!(ring.contains(".accessibilityLabel(\"Progress\")"));
+        assert!(
+            ring.contains(
+                ".accessibilityValue(\"\\(Int((normalizedProgress * 100).rounded()))%\")"
+            )
+        );
+        assert!(!ring.contains(".progressViewStyle(.circular)"));
     }
 
     #[test]
@@ -2404,7 +3088,15 @@ mod tests {
                 && primitives.contains("selectedDetent = .height(280)")
                 && primitives.contains("detentBeforeKeyboard")
         );
-        assert!(primitives.contains(".presentationDragIndicator(.visible)"));
+        assert!(
+            primitives
+                .contains("let initialDetent: PresentationDetent = largeOnly ? .large : .medium")
+        );
+        assert!(primitives.contains("_selectedDetent = State(initialValue: initialDetent)"));
+        assert!(primitives.contains(".onChange(of: isPresented) { presented in"));
+        assert!(
+            primitives.contains(".presentationDragIndicator(showDragHandle ? .visible : .hidden)")
+        );
         assert!(primitives.contains("host.alert(title, isPresented: $isPresented)"));
         assert!(primitives.contains(".confirmationDialog(title, isPresented: $isPresented"));
     }
@@ -2541,6 +3233,7 @@ mod tests {
                 }],
                 else_body: None,
                 transition: None,
+                transition_animation: None,
             }],
             status_bar: None,
             direction: None,
@@ -2560,7 +3253,7 @@ mod tests {
         );
         assert!(
             swift.contains(
-                "\n        }\n            .onDisappear {\n                nexa_refreshTask?.cancel()"
+                "\n        }.transition(.identity)\n            .onDisappear {\n                nexa_refreshTask?.cancel()"
             ),
             "task cleanup must apply to the full conditional view"
         );
@@ -2666,7 +3359,10 @@ mod tests {
             on_background: None,
         };
         let swift = generate(&module);
-        assert!(swift.contains(".preferredColorScheme(\"dark\" == \"dark\" ? .dark"));
+        assert!(swift.contains("NexaAppearancePrimitive(mode: \"dark\")"));
+        assert!(swift.contains(".environment(\\.colorScheme, resolvedColorScheme)"));
+        assert!(swift.contains(".preferredColorScheme(preferredColorScheme)"));
+        assert!(swift.contains("private var preferredColorScheme: ColorScheme?"));
         assert!(swift.contains("Text(\"Hello\")"));
         // AOT output includes only primitives reachable from the app body.
         assert!(!swift.contains("struct NexaButtonPrimitive<Label: View>"));
@@ -2760,6 +3456,7 @@ mod tests {
                     common: ListCommon {
                         axis: ListAxis::Vertical,
                         native: false,
+                        show_dividers: true,
                         reverse_layout: false,
                         page_snap: true,
                         item_extent: None,
@@ -2820,6 +3517,30 @@ mod tests {
         assert!(swift.contains("func scrollViewDidEndDecelerating(_ scrollView: UIScrollView)"));
         assert!(swift.contains("guard !pageSnap else { return }"));
         assert!(!swift.contains("onScroll?()"));
+
+        let mut reverse_module = module.clone();
+        let Node::FastList { plan } = &mut reverse_module.body[0] else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let ListPlan::Count { common, .. } = plan.as_mut() else {
+            panic!("expected the count-backed FastList plan");
+        };
+        common.page_snap = false;
+        common.reverse_layout = true;
+        let reverse_swift = generate(&reverse_module);
+        assert!(reverse_swift.contains("if pageSnap || reverseLayout {"));
+        assert!(
+            reverse_swift.contains("coordinator.applyScrollPosition(to: tableView, force: true)")
+        );
+        assert!(
+            reverse_swift.contains(
+                "func applyScrollPosition(to tableView: UITableView, force: Bool = false)"
+            )
+        );
+        assert!(reverse_swift.contains("func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat"));
+        assert!(reverse_swift.contains(
+            "tableView.contentInsetAdjustmentBehavior = pageSnap || reverseLayout ? .never : .automatic"
+        ));
     }
 
     #[test]
@@ -2846,6 +3567,7 @@ mod tests {
                     common: ListCommon {
                         axis: ListAxis::Vertical,
                         native: true,
+                        show_dividers: true,
                         reverse_layout: false,
                         page_snap: false,
                         item_extent: None,
@@ -2919,21 +3641,42 @@ mod tests {
             background_tasks: Vec::new(),
             globals: Vec::new(),
             states: Vec::new(),
-            screens: vec![Screen {
-                id: ScreenId(0),
-                name: "Home".to_owned(),
-                parameters: Vec::new(),
-                states: Vec::new(),
-                body: vec![image],
-                status_bar: None,
-                on_appear: None,
-                on_appear_async: false,
-                on_disappear: None,
-            }],
+            screens: vec![
+                Screen {
+                    id: ScreenId(0),
+                    name: "Home".to_owned(),
+                    parameters: Vec::new(),
+                    states: Vec::new(),
+                    body: vec![Node::Appearance {
+                        mode: Expr::String("dark".to_owned()),
+                        children: vec![image],
+                    }],
+                    status_bar: None,
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+                Screen {
+                    id: ScreenId(1),
+                    name: "Details".to_owned(),
+                    parameters: Vec::new(),
+                    states: Vec::new(),
+                    body: vec![Node::Text {
+                        value: Expr::String("Detail screen".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                    status_bar: None,
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+            ],
             components: Vec::new(),
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
                 arguments: Vec::new(),
+                title_mode: nexa_ir::NavigationTitleMode::Inline,
+                title_alignment: nexa_ir::NavigationTitleAlignment::Leading,
             }],
             status_bar: None,
             direction: None,
@@ -2946,17 +3689,85 @@ mod tests {
         };
 
         let swift = generate(&module);
+        let app_body = swift
+            .split("struct NexaScreen0: View")
+            .next()
+            .expect("navigation host is emitted before screen declarations");
+        let appearance_position = app_body
+            .find("NexaAppearancePrimitive(mode: \"dark\")")
+            .expect("root appearance is hoisted to the navigation host");
+        let navigation_position = app_body
+            .find("NavigationStack(path: $__nexaNavigationPath)")
+            .expect("navigation stack is generated");
+        assert!(appearance_position < navigation_position);
+        assert!(app_body.contains("NexaNavigationScreenPrimitive(title: \"Details\""));
         assert!(swift.contains("@Namespace private var nexaSharedNamespace"));
-        assert!(swift.contains("Group {\n            NavigationStack"));
         assert!(
             swift.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)")
         );
-        assert!(swift.contains(
-            ".modifier(NexaNavigationTitleDisplayModePrimitive(large: true))\n            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)"
-        ));
+        assert!(!swift.contains(".modifier(NexaNavigationChromeModifier("));
+        assert!(swift.contains("struct NexaNavigationScreenPrimitive<Content: View>: View"));
+        assert!(swift.contains(".navigationTitle(inline && leadingTitle ? \"\" : title)"));
+        assert!(swift.contains("NexaNavigationTitleDisplayModeModifier(inline: inline)"));
+        assert!(swift.contains("content.toolbarTitleDisplayMode(inline ? .inline : .large)"));
+        assert!(swift.contains("content.navigationBarTitleDisplayMode(inline ? .inline : .large)"));
+        assert!(!swift.contains(".navigationBarBackButtonHidden(true)"));
+        assert!(!swift.contains("NexaNavigationEdgeBackGesture"));
+        assert!(swift.contains("ToolbarItem(placement: .topBarLeading)"));
+        assert!(!swift.contains("Image(systemName: \"chevron.backward\")"));
+        assert!(swift.contains(".accessibilityLabel(title)"));
+        assert!(swift.contains(".frame(minWidth: 160, alignment: .leading)"));
+        assert!(swift.contains(".offset(x: -13)"));
+        assert!(swift.contains("Text(title)"));
+        assert!(swift.contains("if inline && leadingTitle"));
+        assert!(swift.contains("inline: true"));
+        assert!(swift.contains("leadingTitle: true"));
+        assert!(!swift.contains("NexaNavigationChromeProbe"));
+        assert!(!swift.contains("NexaNavigationChromeState"));
+        assert!(!swift.contains("NexaTitleBarModifier"));
+        assert!(!swift.contains("NexaTitleBarScrollCoordinator"));
+        assert!(!swift.contains("NexaTitleHeaderPrimitive"));
         assert!(swift.contains(".nexaSharedElement(id: \"hero-image\")"));
         assert!(swift.contains(".environment(\\.nexaSharedNamespace, nexaSharedNamespace)"));
         assert!(swift.contains("matchedGeometryEffect(id: id, in: namespace)"));
+
+        let mut large_module = module.clone();
+        let Node::NavigationStack { title_mode, .. } = &mut large_module.body[0] else {
+            panic!("test module should have a navigation stack");
+        };
+        *title_mode = nexa_ir::NavigationTitleMode::Large;
+        assert!(generate(&large_module).contains("inline: false"));
+
+        let mut centered_module = module.clone();
+        let Node::NavigationStack {
+            title_alignment, ..
+        } = &mut centered_module.body[0]
+        else {
+            panic!("test module should have a navigation stack");
+        };
+        *title_alignment = nexa_ir::NavigationTitleAlignment::Center;
+        assert!(generate(&centered_module).contains("leadingTitle: false"));
+
+        let mut automatic_without_toolbar = module.clone();
+        let Node::NavigationStack {
+            title_alignment, ..
+        } = &mut automatic_without_toolbar.body[0]
+        else {
+            panic!("test module should have a navigation stack");
+        };
+        *title_alignment = nexa_ir::NavigationTitleAlignment::Automatic;
+        assert!(generate(&automatic_without_toolbar).contains("leadingTitle: false"));
+
+        automatic_without_toolbar.screens[0]
+            .body
+            .push(Node::Toolbar {
+                placement: nexa_ir::ToolbarPlacement::Trailing,
+                children: vec![Node::Text {
+                    value: Expr::String("Save".to_owned()),
+                    style: TextStyle::default(),
+                }],
+            });
+        assert!(generate(&automatic_without_toolbar).contains("leadingTitle: false"));
     }
 
     #[test]
@@ -2999,9 +3810,30 @@ mod tests {
             on_background: None,
         };
 
+        let swift = generate(&module);
+        assert!(swift.contains(
+            ".modifier(NexaAnimateContentSizeModifier(animation: .interpolatingSpring(mass: 1, stiffness: 816.32654, damping: 45.714287, initialVelocity: 0)))"
+        ));
+        let animated_size_modifier = swift
+            .split("struct NexaAnimateContentSizeModifier: ViewModifier {")
+            .nth(1)
+            .expect("emit the layout animation modifier");
+        assert!(animated_size_modifier.contains("transaction.animation = nil"));
+        let frame = animated_size_modifier
+            .find(".frame(width: contentSize?.width, height: contentSize?.height, alignment: .topLeading)")
+            .expect("animate the measured frame");
+        assert!(animated_size_modifier.contains("withAnimation(animation)"));
+        assert!(animated_size_modifier.contains("if reduceMotion {"));
+        assert!(animated_size_modifier.contains("self.contentSize = newSize"));
+        assert!(!animated_size_modifier.contains(".animation("));
         assert!(
-            generate(&module).contains("animation(.spring(response: 0.35, dampingFraction: 0.8))")
+            animated_size_modifier
+                .find("withAnimation(animation)")
+                .expect("animate the measured size update")
+                < frame
         );
+        assert!(animated_size_modifier.contains("NexaContentSizePreferenceKey"));
+        assert!(animated_size_modifier.contains(".clipped()"));
     }
 
     #[test]
@@ -3088,6 +3920,11 @@ mod tests {
                     }],
                     else_body: None,
                     transition: Some(ViewTransition::Fade),
+                    transition_animation: Some(nexa_ir::AnimationSpec::Tween {
+                        duration: 0.24,
+                        delay: 0.04,
+                        easing: nexa_ir::AnimationEasing::EaseOut,
+                    }),
                 },
                 Node::When {
                     value: Expr::State("visible".to_owned(), Type::Bool),
@@ -3103,6 +3940,33 @@ mod tests {
                         style: TextStyle::default(),
                     }],
                     transition: Some(ViewTransition::SlideFromBottom),
+                    transition_animation: Some(nexa_ir::AnimationSpec::Spring {
+                        response: 0.35,
+                        damping: 0.8,
+                    }),
+                },
+                Node::If {
+                    condition: Expr::State("visible".to_owned(), Type::Bool),
+                    then_body: vec![Node::Text {
+                        value: Expr::String("no default fade".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                    else_body: None,
+                    transition: None,
+                    transition_animation: None,
+                },
+                Node::When {
+                    value: Expr::State("visible".to_owned(), Type::Bool),
+                    cases: vec![WhenCase {
+                        value: Expr::Bool(true),
+                        body: vec![Node::Text {
+                            value: Expr::String("also no default fade".to_owned()),
+                            style: TextStyle::default(),
+                        }],
+                    }],
+                    else_body: Vec::new(),
+                    transition: None,
+                    transition_animation: None,
                 },
             ],
             status_bar: None,
@@ -3117,8 +3981,9 @@ mod tests {
 
         let swift = generate(&module);
         assert!(swift.contains("Group {\n"));
-        assert!(swift.contains(".transition(.opacity).animation(.default, value:"));
-        assert!(swift.contains(".transition(.move(edge: .bottom)).animation(.default, value:"));
+        assert!(swift.contains(".transition(.opacity).animation(.timingCurve(0.0, 0.0, 0.2, 1.0, duration: 0.24).delay(0.04), value:"));
+        assert!(swift.contains(".transition(.move(edge: .bottom)).animation(.interpolatingSpring(mass: 1, stiffness: 816.32654, damping: 45.714287, initialVelocity: 0), value:"));
+        assert_eq!(swift.matches(".transition(.identity)").count(), 2);
     }
 
     #[test]
@@ -3636,6 +4501,8 @@ mod tests {
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
                 arguments: Vec::new(),
+                title_mode: nexa_ir::NavigationTitleMode::Inline,
+                title_alignment: nexa_ir::NavigationTitleAlignment::Leading,
             }],
             status_bar: None,
             direction: None,

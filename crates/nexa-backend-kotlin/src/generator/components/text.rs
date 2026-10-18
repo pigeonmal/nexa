@@ -94,13 +94,29 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     if style.selectable {
         out.push_str(", selectable = true");
     }
+    if let Some(shadow) = style.effects.shadow {
+        out.push_str(&format!(
+            ", textShadow = NexaGlyphShadow(color = {}, radius = {}.dp, x = {}.dp, y = {}.dp)",
+            colors::expression(shadow.color),
+            number(shadow.radius),
+            number(shadow.x),
+            number(shadow.y)
+        ));
+    }
     append_visual_modifier(style, out);
     out.push(')');
 }
 
 fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
     let effects = &style.effects;
-    if style.padding.is_none() && style.opacity.is_none() && !effects.has_modifiers() {
+    let has_modifier = style.padding.is_some()
+        || style.opacity.is_some()
+        || effects.scale.is_some()
+        || effects.rotation.is_some()
+        || effects.blur.is_some()
+        || effects.clip_rounded.is_some()
+        || effects.z_index.is_some();
+    if !has_modifier {
         return;
     }
     out.push_str(", modifier = Modifier");
@@ -122,17 +138,6 @@ fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
     }
     if let Some(blur) = effects.blur {
         out.push_str(&format!(".blur({}.dp)", number(blur)));
-    }
-    if let Some(shadow) = effects.shadow {
-        let radius = effects.clip_rounded.unwrap_or(0.0);
-        out.push_str(&format!(
-            ".dropShadow(shape = RoundedCornerShape({}.dp), shadow = Shadow(radius = {}.dp, color = {}, offset = DpOffset({}.dp, {}.dp)))",
-            number(radius),
-            number(shadow.radius),
-            colors::expression(shadow.color),
-            number(shadow.x),
-            number(shadow.y)
-        ));
     }
     if let Some(radius) = effects.clip_rounded {
         out.push_str(&format!(".clip(RoundedCornerShape({}.dp))", number(radius)));
@@ -158,7 +163,7 @@ fn kotlin_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
 mod tests {
     use super::render;
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Expr, TextStyle};
+    use nexa_ir::{Color, ColorValue, Expr, TextStyle, ViewEffects, ViewShadow};
 
     #[test]
     fn text_emphasis_is_passed_to_the_shared_native_primitive() {
@@ -214,6 +219,55 @@ mod tests {
         assert!(generated.contains("lineHeight = 30.sp"));
         assert!(generated.contains("letterSpacing = 0.5.sp"));
         assert!(!generated.contains("selectable = false"));
+    }
+
+    #[test]
+    fn text_line_limit_is_forwarded_to_the_shared_primitive() {
+        let mut output = SourceWriter::new();
+        render(
+            &Expr::String("This text should truncate at one line".to_owned()),
+            &TextStyle {
+                line_limit: Some(1),
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(output.finish().contains("maxLines = 1"));
+    }
+
+    #[test]
+    fn text_shadow_is_applied_to_glyphs_not_a_rounded_rectangle() {
+        let mut output = SourceWriter::new();
+        render(
+            &Expr::String("Shadow".to_owned()),
+            &TextStyle {
+                effects: ViewEffects {
+                    shadow: Some(ViewShadow {
+                        radius: 2.0,
+                        x: 4.0,
+                        y: 2.0,
+                        color: ColorValue::Static(Color {
+                            red: 0,
+                            green: 0,
+                            blue: 0,
+                            alpha: 102,
+                        }),
+                    }),
+                    ..ViewEffects::default()
+                },
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(generated.contains(
+            "textShadow = NexaGlyphShadow(color = Color(0x66000000), radius = 2.dp, x = 4.dp, y = 2.dp)"
+        ));
+        assert!(!generated.contains("dropShadow"));
     }
 
     #[test]

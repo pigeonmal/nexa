@@ -1,0 +1,8 @@
+struct InboxMessage {
+    id: String,
+    creator: String,
+    avatar: String,
+    preview: String,
+    time: String,
+    unread: Bool,
+}

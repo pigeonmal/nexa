@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,7 +57,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val foregroundTasks = ConcurrentHashMap<String, Job>()
     internal val values = mutableStateMapOf<String, Any>()
-    internal val animationSpecs = mutableStateMapOf<String, androidx.compose.animation.core.AnimationSpec<Float>>()
+    internal val animationSpecs = mutableStateMapOf<String, androidx.compose.animation.core.FiniteAnimationSpec<Float>>()
     internal var typeSignatures = mutableMapOf<String, String>()
     internal var functions = mutableMapOf<String, JSONObject>()
     internal var classTypes = mutableMapOf<String, JSONObject>()
@@ -470,7 +471,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             "app/state/$name"
         }
 
-    private fun devAnimationSpec(raw: Any?): androidx.compose.animation.core.AnimationSpec<Float> {
+    internal fun <T> devAnimationSpec(raw: Any?): androidx.compose.animation.core.FiniteAnimationSpec<T> {
         val tagged = raw as? JSONObject
         val kind = raw as? String
             ?: tagged?.keys()?.asSequence()?.firstOrNull()
@@ -483,10 +484,37 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val stiffness = (100.0 / (response * response)).toFloat()
                 androidx.compose.animation.core.spring(dampingRatio = damping, stiffness = stiffness)
             }
-            "EaseIn" -> androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.FastOutLinearInEasing)
-            "EaseOut" -> androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.LinearOutSlowInEasing)
-            "EaseInOut" -> androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.FastOutSlowInEasing)
-            "Linear" -> androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.LinearEasing)
+            "Tween" -> {
+                val durationMillis = (fields.optDouble("duration", 0.3) * 1000.0)
+                    .coerceIn(1.0, 60_000.0)
+                    .roundToInt()
+                val delayMillis = (fields.optDouble("delay", 0.0) * 1000.0)
+                    .coerceIn(0.0, 60_000.0)
+                    .roundToInt()
+                val easingValue = fields.opt("easing")
+                val easing = when (easingValue) {
+                    is JSONObject -> {
+                        val bezier = easingValue.optJSONObject("CubicBezier") ?: JSONObject()
+                        androidx.compose.animation.core.CubicBezierEasing(
+                            bezier.optDouble("x1").toFloat(),
+                            bezier.optDouble("y1").toFloat(),
+                            bezier.optDouble("x2").toFloat(),
+                            bezier.optDouble("y2").toFloat(),
+                        )
+                    }
+                    else -> when (easingValue as? String ?: "EaseInOut") {
+                    "Linear" -> androidx.compose.animation.core.LinearEasing
+                    "EaseIn" -> androidx.compose.animation.core.FastOutLinearInEasing
+                    "EaseOut" -> androidx.compose.animation.core.LinearOutSlowInEasing
+                    else -> androidx.compose.animation.core.FastOutSlowInEasing
+                    }
+                }
+                androidx.compose.animation.core.tween(durationMillis = durationMillis, delayMillis = delayMillis, easing = easing)
+            }
+            "EaseIn" -> androidx.compose.animation.core.tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutLinearInEasing)
+            "EaseOut" -> androidx.compose.animation.core.tween(durationMillis = 300, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+            "EaseInOut" -> androidx.compose.animation.core.tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            "Linear" -> androidx.compose.animation.core.tween(durationMillis = 300, easing = androidx.compose.animation.core.LinearEasing)
             else -> androidx.compose.animation.core.spring()
         }
     }

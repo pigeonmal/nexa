@@ -1,0 +1,10 @@
+component TopInset() {
+    body {
+        platform android {
+            Column(height: 24) {}
+        }
+        platform ios {
+            Column(height: 0) {}
+        }
+    }
+}

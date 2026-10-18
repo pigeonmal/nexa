@@ -7,7 +7,7 @@ app BottomSheetSmoke {
             Button("Open sheet") {
                 showSheet = true
             }
-            BottomSheet(isPresented: showSheet, partial: true) {
+            BottomSheet(isPresented: showSheet, partial: true, showDragHandle: false) {
                 Column {
                     Text("Sheet content")
                     Button("Close sheet") {

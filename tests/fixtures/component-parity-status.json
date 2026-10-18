@@ -1,0 +1,222 @@
+{
+  "schema_version": 2,
+  "current_human_gate": "PickerDateCases",
+  "customization_audit_goal": [
+    {
+      "component": "Button",
+      "route": "ButtonCases",
+      "focus": "Expose and verify meaningful visual choices such as tint, shape, size, style, and loading/disabled appearance."
+    },
+    {
+      "component": "LinearGradient",
+      "route": "GradientCases",
+      "focus": "Audit gradient stops, direction, and layout behavior for typed visual customization and cross-platform color parity."
+    },
+    {
+      "component": "Picker",
+      "route": "PickerCases",
+      "focus": "Audit tint, labels, row icons, selection, popup styling, and empty/invalid states."
+    },
+    {
+      "component": "ProgressBar",
+      "route": "ProgressBarCases",
+      "focus": "Audit track/fill colors, thickness, corner treatment, labels, and boundary values."
+    },
+    {
+      "component": "ProgressRing",
+      "route": "ProgressRingCases",
+      "focus": "Audit track/fill colors, stroke width, size, labels, and boundary values."
+    },
+    {
+      "component": "BottomSheet",
+      "route": "SheetCases",
+      "focus": "Audit detents, title/actions, keyboard behavior, and whether the native drag handle is visible."
+    },
+    {
+      "component": "Slider",
+      "route": "SliderCases",
+      "focus": "Audit track/thumb colors, range, step, value, labels, and touch feedback."
+    },
+    {
+      "component": "Switch",
+      "route": "SwitchCases",
+      "focus": "Audit track/thumb colors, label, disabled state, accessibility, and pressed feedback."
+    },
+    {
+      "component": "TextInput",
+      "route": "TextInputCases",
+      "focus": "Audit text/cursor/placeholder colors, typography, borders, shape, focus, and keyboard variants."
+    },
+    {
+      "component": "PickerDate",
+      "route": "PickerDateCases",
+      "focus": "Restart the shared date/time picker API and cover date, time, date-time, compact/graphical/wheel styles, single/range selection, bounds, locale/time zone, colors, AOT/DevRuntime, and both platforms."
+    }
+  ],
+  "human_approved_routes": [
+    "ColumnCases",
+    "RowCases",
+    "StackCases",
+    "SpacerCases",
+    "TitleCases",
+    "TitleLeadingCases",
+    "TitleNoToolbarCases",
+    "PressableCases",
+    "FormCases",
+    "SegmentedCases"
+  ],
+  "human_approved_components": [
+    "Column",
+    "Row",
+    "Stack",
+    "Spacer",
+    "Title",
+    "Menu",
+    "Pressable",
+    "Form",
+    "Section",
+    "SegmentedControl",
+    "Picker"
+  ],
+  "parameter_value_audit": {
+    "ButtonCases": "Reopened for the shared visual customization audit: tint, shape, size, style, and loading/disabled appearance need a parameter and parity review.",
+    "ColumnCases": "Reviewed",
+    "DividerCases": "AOT iOS and Android tested color values gray/red/blue and thicknesses 1/2/4 dp. Measured line thickness matches exactly after physical-pixel-to-dp conversion; text alignment and 28 dp horizontal inset match. Zero/fractional thickness device cases remain pending.",
+    "FormCases": "Compiler and backend tests cover Form showDividers default true and explicit false, direct rows, Section explicit true/false and inherited settings, plus optional backgrounds. AOT Swift/Kotlin output and DevRuntime serialization/rendering are covered. Rebuilt DevRuntime screenshots on iOS 26.5 and Android API 31 confirm Form and Section have no forced gray fill (transparent by default), with explicit background color remaining opt-in. Row height, divider inset, leading alignment for wrapped Android text, and divider inheritance were also checked. Empty sections, non-Text rows, long header/footer wrapping, on-device AOT screenshots, remain pending after human approval of the visible default state on 2026-10-16.",
+    "PressableCases": "Reviewed",
+    "RowCases": "Reviewed",
+    "SpacerCases": "Reviewed",
+    "StackCases": "Reviewed",
+    "SwitchCases": "Both Boolean states are AOT-tested on iOS and Android. On iOS the accessible value transitions 0→1→0; on Android the switch pixels change on first tap and return exactly on second tap. Supporting comment semantics remain pending.",
+    "TextCases": "Every Text argument and style enum case is present in the fixture; iOS XCTest and Android UI smoke verify the three style tabs update after one tap. Boundary values, truncation, selectable text, and per-parameter DevRuntime edge behavior remain pending.",
+    "NavigationBackCases": "NavigationLink.when=true is exercised. Two nested pushes, two pops, and restoration of the originating screen pass in the iOS/Android AOT and DevRuntime fixtures. The dedicated catalog flow also verifies native iOS back and Android system back. Conditional when=false, interactive iOS edge-swipe, interrupted transitions, and process restoration remain pending.",
+    "TitleCases": "Reviewed",
+    "TitleLeadingCases": "Reviewed",
+    "TitleNoToolbarCases": "Reviewed",
+    "PickerCases": "Restored the iOS native SwiftUI Menu with a Picker for icon-bearing choices. On iOS 26.5, selecting Title and Priority updates the bound value and closes the menu; the selected option shows the native checkmark. Option icons remain neutral and unaccented. The trigger label and selected value return after selection. The open iOS native menu overlays part of its full-row trigger. Android API 31 remains on its Material 3 Expressive menu with neutral icons. AOT edge states and human approval remain pending.",
+    "EmptyCases": "Title and shared icon are required; description is optional, with one supplied and one omitted. Optional titleColor, descriptionColor, iconTint, and background values are exercised with explicit hex colors; a dynamic iconTint expression is covered by compiler/IR and both DevRuntime mappings. Omitted colors preserve native defaults. The translator comment is supplied on one variant, and compiler coverage rejects unknown shared icons. A state-bound title and description toggle between short and wrapping copy on the first tap in DevRuntime on iOS 26.5 and Android API 31. AOT device interaction, Dynamic Type, and localization edges remain pending.",
+    "ProgressBarCases": "Tested values −0.25, 0, 0.45, 1, and 1.25 with per-value accessibility labels. Values below zero render like zero and above one like complete on iOS/Android AOT and DevRuntime. Android and iOS AOT/Dev screenshots are pixel-identical within each platform. NaN/infinity and live state animation remain pending.",
+    "ProgressRingCases": "Tested values −0.25, 0, 0.45, 1, and 1.25 with per-value accessibility labels. Values below zero render like zero and above one like complete on iOS/Android AOT and DevRuntime. iOS and Android AOT/Dev screenshots are pixel-identical to DevRuntime within each platform. NaN/infinity and live state animation remain pending.",
+    "SegmentedCases": "Every parameter is now exercised: default and custom animation specs, literal and state-bound items, valid/invalid selection, empty/single item arrays, accessibility labels, and translator comments. The translator comment is asserted for inline string choices in localization extraction, AOT Swift/Kotlin resources, and Dev IR. State-driven choices use Locale.localized at their declaration. Android uses Material 3 Expressive spatial motion by default; typed Spring/Tween specs customize it. Tween adds a shared start delay and custom cubic Bézier easing, covered by semantic parsing, AOT Swift/Kotlin, and Dev IR tests. On iOS and Android AOT, default, Spring, and Tween selections update the bound value on the first tap. DevRuntime first-tap selection was rechecked for all three motion settings on both devices. Android's animator duration scale was set to 0 for an interaction check, then restored to its original unset value. One-item, empty-list, and invalid-selection states were checked; an iOS empty Picker that reserved extra space was fixed to render EmptyView, matching Android. Rapid Month→Day→Week retargets at about 130 ms intervals end on Week on both AOT devices without a crash. A 30 fps Android DevRuntime recording shows the custom 240 ms tween moving through intermediate positions; capture timing is too coarse to assert exact duration. Nine rapid retarget taps (~170 ms apart) completed on both DevRuntime devices without a crash. The Compose offset is read in the layout phase, and the Android pressed indication is clipped to the pill in AOT and DevRuntime. iOS AOT and DevRuntime now suppress scoped `withAnimation` updates when Reduce Motion is enabled; live iOS Reduce Motion behavior and exact frame timing remain unmeasured. The custom visual API (tint, track background, selected/unselected label colors, font size/weight, height, corner radius, and border color/width) is represented in the parity app and shared render-parity fixture; typed AOT and DevRuntime mappings are covered for both native backends. The device fixture shows dedicated high-contrast and compact variants, with every custom hex color (including borders), border width, font size/weight, height, and corner radius labeled visibly. SegmentedCases is wrapped in the vertical scrolling KeyboardAware container so the long edge-case card is reachable instead of clipped. Native-first update on 2026-10-16: iOS uses SwiftUI Picker(.segmented) when no visual overrides are supplied; animation-only variants retain the native Picker. SwiftUI exposes no public per-Picker selected-pill or track fill setting, and a background behind the Picker is obscured, so each explicit visual override (tint, background, label colors, typography, dimensions, and border) now selects the custom renderer. A focused Swift codegen regression checks all ten visual overrides reach the primitive and trigger that route. The rebuilt iOS/Android DevRuntime screen shows the native default and exact #E8EDF5 track-only override. A tint-only sample was then added and verified in fresh iOS/Android AOT screenshots: the custom selected pill is blue on both, and tapping Week updates the bound value. A direct iOS simulator check confirmed `.tint` alone does not recolor the native SwiftUI segmented Picker pill; no per-picker track-fill API is exposed. Fresh iOS 26.5 and Android API 31 DevRuntime builds render the native default plus the blue tint-only custom pill; tapping Week updates the bound value on the first tap on both. Android DevTools accessibility output lagged behind the visible screen, so the selection was confirmed with a full-resolution screenshot. After resetting to Day on both builds, full-resolution same-platform AOT-versus-DevRuntime screenshots are pixel-identical (0% mismatch) on iOS and Android. The user approved SegmentedControl on 2026-10-16. Separate Android TextInput keyboard-on-drag regression is tracked under KeyboardCases.",
+    "SheetCases": "BottomSheet.showDragHandle defaults to true and is explicitly false in the parity fixture. Compiler lowering, SwiftUI/Compose generation, and DevRuntime field mapping are tested on both platforms. Device interaction and visual confirmation of the hidden-handle variant remain pending.",
+    "FastListCases": "AOT coverage exercises count 3/12/24; rowHeight 48/56/92/120 dp; spacing 4/8/12 dp; vertical, horizontal, Grid(2), and AutoGrid(160); reverseLayout with bound scrollPosition; native mode; scrollEnabled true/false; and pageSnap. showDividers false is compiler-tested for flat, collection, native, and sectioned plans. Rebuilt DevRuntime screenshots on iOS 26.5 and Android API 31 confirm no row dividers on both the custom vertical and native pages. Existing AOT and DevRuntime navigation, scroll, refresh, and hot-reload checks remain; empty/one-item lists, large-list stress, invalid dimensions, movable/swipe actions, exhaustive DevRuntime toggles, AOT divider screenshots, and human review remain pending.",
+    "RefreshCases": "AOT generator regression coverage confirms the Android refresh container and its short-content scroll surface fill the available viewport. DevRuntime iOS and Android both exercised a downward pull after a live source edit; the onRefresh callback updated its counter. Android before the fix exposed only the short child bounds and missed normal full-screen gestures. Explicit isRefreshing true/false indicator transitions, empty content, nested-scroll combinations, and on-device AOT gesture checks remain pending.",
+    "KeyboardCases": "Android API 31 DevRuntime reproduced the keyboard reopening when a drag started on a previously focused input after the keyboard had been dismissed. The shared KeyboardAware Compose primitive now snapshots actual IME visibility before pointer-down and clears incidental focus when the gesture becomes a drag. On-device verification confirms a drag keeps the keyboard closed while a normal tap still opens it. Kotlin AOT generation and DevRuntime mapping regression tests pass; Android AOT device build and interactive dismissal variants remain to be checked.",
+    "PickerDateCases": "The typed fixture covers Date, Time, DateTime; Automatic, Graphical, Compact, Input, and Wheel styles; Single and Range selection; local and bound values; bounds; visual parameters; locale, time zone, 12/24-hour display, enabled state, and accessibility labels. Android now uses a Material 3-styled single-month bounded range calendar; range selection commits with OK and Android Back cancels the draft. DateTime compact and input presentations use separate date and time triggers on Android. API 31 AOT and DevRuntime builds were installed and interacted with; the AOT selection committed, and DevRuntime Back cancellation preserved the committed value. Route entry and time-input presentation leave the keyboard closed until a field is tapped. Compact and input date/time triggers use the same rounded light-neutral pill treatment on iOS and Android while opening platform-native picker controls. The current iOS native SwiftUI range picker and separate DateTime controls were also exercised on the iOS 26.5 simulator. The focused Kotlin generation/runtime tests and current iOS/Android AOT compilation pass. Broader parameter edge cases and human approval remain pending; Android release packaging was not available because signing credentials are not configured."
+  },
+  "device_review": {
+    "AccessibilityCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "AppearanceCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "BottomBarCases": "AOT route captured on both devices; shared AppBottomBar appears in the 29-state iOS and 32-state Android AOT/DevRuntime comparisons",
+    "ButtonCases": "Reopened: visual customization parameters and their matched iOS/Android states need renewed review.",
+    "ColumnCases": "Approved",
+    "ConfirmationCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "DialogCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "DirectionCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "DividerCases": "Focused iOS XCTest asserts all three cases and stores screenshots; Android AOT route captured and pixels inspected. Divider geometry matches in dp; native navigation chrome shifts the content start by about 28 dp on iOS. Human review pending.",
+    "EmptyCases": "Rebuilt the DevRuntime hosts and captured paired EmptyCases screenshots on iOS 26.5 and Android API 31. The first state visibly applies titleColor #111111, descriptionColor #666666, iconTint #007AFF, and background #F2F2F7; the Search state omits the description and all color overrides, preserving its native defaults without dangling detail spacing. The centered empty-state layouts match; platform-native inbox/search glyph shapes differ intentionally. A first tap updates the state-bound title and description on iOS, with DevRuntime interaction coverage on both targets. AOT device interaction and human review remain pending.",
+    "FastListCases": "Prior iOS 26.5 AOT XCTest passed reverse position 0→7 and Android API 31 AOT smoke passed all seven pages, reverse position 0→4→0, visible-dot selection, adaptive-grid scrolling off/on, and pageSnap 0→1. Focused DevRuntime interactions pass on both devices for section headers/rows, grid, scroll/end-reached, refresh, and hot reload. Rebuilt DevRuntime screenshots confirm showDividers: false removes dividers on custom vertical and native pages on both platforms. Remaining list edge states and human review are pending.",
+    "FormCases": "Rebuilt DevRuntime route captured on iOS 26.5 and Android API 31. Paired screenshots confirm the Form canvas and Sections are white/transparent by default on both devices; optional explicit background is covered by compiler/backend and DevRuntime render tests. Section row heights and divider insets match; Android wrapped row text is leading aligned. Divider override true is visible; Form(showDividers: false) inheritance hides separators. The final label wraps only on the narrower Android viewport. Human visual review approved by the user on 2026-10-16; on-device AOT capture remains pending.",
+    "GradientCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "IconCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "ImageCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "KeyboardCases": "Android API 31 DevRuntime: hidden keyboard stayed closed after drag starting on the focused TextInput; a normal tap reopened it. AOT Kotlin source generation and runtime mapping are covered by focused tests. Android AOT release build succeeds; AOT device gesture coverage and iOS comparison remain pending. Follow-up on 2026-10-16: fixed the related no-focus scroll regression by attaching Android imeNestedScroll only while the IME is visible. On SegmentedCases, repeated bottom-scroll passes no longer request the keyboard. KeyboardAware tap-to-open and drag-after-dismiss behavior still passes on the Android DevRuntime; AOT source generation and DevRuntime mapping tests pass.",
+    "LifecycleCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "LinkCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "NavigationBackCases": "AOT and DevRuntime transition runs on iOS 26.5 and Android API 31 verify two nested pushes, two pops, and root restoration. Four settled states per platform have matching accessibility trees and pixel-identical AOT/DevRuntime screenshots (MAE 0.000). Catalog UI tests separately verify native iOS back and Android system back. Human review, conditional when=false, interactive iOS edge-swipe, interrupted transitions, and process-restoration cases remain pending.",
+    "PagerCases": "AOT route opened and screenshot captured on both devices. Finding: Android UIAutomator reports page-dot accessibility bounds whose centers do not match visible dot centers; tapping the reported Page 2 center selects page 1, while tapping the visible Page 2 dot selects page 2. VoiceOver/TalkBack activation, full parameter interactions, and human approval remain pending.",
+    "PickerCases": "Approved by user advancing to DatePickerCases after restoring the native SwiftUI Menu and Picker. Selection updates correctly with the native checkmark; option icons are neutral. The selected label and value remain on the trigger after selection.",
+    "PressableCases": "Approved",
+    "ProgressBarCases": "AOT and DevRuntime routes captured on both devices. Underflow/zero and overflow/complete render identically; 45% fills to the same point. AOT-to-Dev screenshot diff is 0% on iOS and Android. Human approval pending.",
+    "ProgressRingCases": "AOT and DevRuntime routes captured on both devices. Underflow/zero and overflow/complete render identically; 45% arc, 40 dp/pt diameter, 4 dp/pt stroke, and 16 dp/pt spacing match. AOT-to-Dev screenshot diff is 0% on both platforms. Human approval pending.",
+    "RefreshCases": "AOT route screenshots were captured on both devices. DevRuntime hot reload and pull-to-refresh callback passed on iOS 26.5 and Android API 31. Android scroll surface now spans the available 720×1528 px app viewport, matching the full-height iOS scroll area; a normal pull increments the callback counter. Explicit spinner-state transitions, AOT gesture interaction, edge content, and human approval remain pending.",
+    "RowCases": "Approved",
+    "SegmentedCases": "A focused DevRuntime build was installed on iOS 26.5 and Android API 31 with SegmentedCases at the root. Default, Spring, and Tween selections were each changed on the first tap; visible bound text matched on both devices. Android's global animator duration scale was temporarily set to 0 and its default selection changed immediately; the setting was restored and the screen was returned to Day. One-item, empty, and invalid-selection states were inspected; after the empty-state fix, iOS and Android have no reserved control gap. A 30 fps Android DevRuntime recording shows intermediate motion for the custom 240 ms tween. Nine rapid retarget taps (~170 ms apart) completed on both DevRuntime devices without a crash. The Compose indicator offset is read during layout, avoiding per-frame label recomposition. iOS AOT and DevRuntime include Reduce Motion suppression for scoped `withAnimation`; live iOS behavior, exact frame duration, and the existing default and motion visuals were approved by the user on 2026-10-16. A settled native UIAutomator hierarchy confirms each Android control label, selectable option, and checked selection; its DevTools accessibility snapshot can lag the visible selection after a tap. iOS AOT selection tests locate controls by their accessibility labels. The new custom-style variant was built and screenshot-checked on both AOT simulators; selecting Week updates the bound label on the first tap on both. The custom visual variant passed human review on 2026-10-16. Fresh paired-device verification on 2026-10-16 rebuilt DevRuntime for both targets after capturing AOT. AOT and DevRuntime each accepted first-tap changes to default Week, Spring Month, Tween Week, and custom-styled Week; the selected segments and bound labels agree. Full-resolution same-state AOT-versus-DevRuntime screenshot comparisons show 0% pixel mismatch separately on iOS and Android after the screenshot tool masks the status-bar band. The native viewport sizes were left unchanged. The default, custom-style, single-item, empty-item, and invalid-selection states are present; the empty control renders no track. Android DevTools accessibility snapshots lagged during catalog scrolling and some selection updates, so rendered screenshots were used to confirm those visual states. The custom-style visual variant was approved by the user on 2026-10-16; live iOS Reduce Motion and exact animation-frame timing remain unmeasured. Post-fix verification on 2026-10-16: this record supersedes earlier AOT-versus-DevRuntime screenshot evidence, which used stale generated Swift and therefore did not verify the geometry change. The CLI was rebuilt before regenerating the native apps. The custom 36-unit track is centered within a 48-unit touch target on both platforms; the selected pill is inset 3 units. At native screenshot scales, the exact #E9EAF0 interior spans 104 px on iOS (3 px/pt, with the 1 pt border overlaid at the edge) and 68 px on Android (2 px/dp, with the 1 dp border overlaid at the edge), consistent with the requested 36 pt/dp track. AOT and DevRuntime both accepted first-tap changes to Default Week, Spring Month, Tween Week, and custom-styled Week on iOS 26.5 and Android API 31. Full-resolution same-platform AOT-versus-DevRuntime screenshots have 0% pixel mismatch on each device; the native viewports were unchanged. The custom-style visual variant was approved by the user on 2026-10-16; live iOS Reduce Motion and exact animation-frame timing remain unmeasured. Follow-up on 2026-10-16: split the visual customization into clearly labeled color and compact typography/geometry examples, with the selected and unselected color values visible. The full screen now scrolls vertically on iOS and Android; AOT and DevRuntime both reached the final Missing selection control and its bound Year value after scrolling. Tapping Week in the blue color case updates its bound label on the first tap in AOT and DevRuntime on both platforms. Same-platform full-resolution AOT/DevRuntime screenshot diffs are unchanged at 0% pixel mismatch on both platforms. The user approved the updated visual variants on 2026-10-16. Native-first follow-up on 2026-10-16: rebuilt the DevRuntime app for both simulators after changing the track-only background route. The iOS default is now the system segmented Picker; the Android control keeps Material 3 Expressive defaults. A track-only #E8EDF5 override visibly colors the full track on both platforms, confirming it uses the custom renderer. First-tap Week selection was checked on both, and the bound label updated. AOT Swift/Kotlin generation and native-host compilation pass, but the new track-only case has not yet been captured as an on-device AOT screenshot. The user approved this latest visual pair on 2026-10-16. The user approved the latest iOS and Android SegmentedControl screen pair on 2026-10-16. Android keyboard regression follow-up on 2026-10-16: repeated scrolls to the bottom previously showed the keyboard even with no field on this screen. The Android IME nested-scroll connection now attaches only while the IME is already visible. Two full scroll-to-bottom passes on the rebuilt DevRuntime stayed closed; the dedicated KeyboardAware input flow still opens the keyboard on tap and keeps it closed during a drag after dismissal.",
+    "SheetCases": "The existing AOT route screenshots cover default handle behavior on both devices. The new showDragHandle: false case is in the app and both native generators/DevRuntime mappings are covered by tests; open the sheet on both devices to confirm the handle disappears, then request human review.",
+    "SliderCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "SpacerCases": "Approved",
+    "SplitViewCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "StackCases": "Approved",
+    "StatusBarCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "SwitchCases": "AOT iOS XCTest and Android pixel-region interaction smoke verify off→on→off. Comment/accessibility detail and DevRuntime toggle interaction remain pending; human review pending.",
+    "TextCases": "iOS XCTest and Android UI smoke verify Layout + Effects, Font Styles, and Typography switch after one tap; AOT screenshots captured. Text tab interactions inside DevRuntime remain pending.",
+    "TextInputCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "TitleCases": "Approved",
+    "TitleLeadingCases": "Approved",
+    "TitleNoToolbarCases": "Approved",
+    "ToolbarCases": "AOT route opened and screenshot captured on both devices; broad visual scan done; parameter interactions pending",
+    "PickerDateCases": "On Android API 31 at the existing 360 dp viewport, current AOT debug and DevRuntime builds were opened on PickerDateCases. Both show one bounded range calendar with all seven columns. In AOT, selecting a range and pressing OK updates the trigger. In DevRuntime, pressing Android Back during a new draft keeps the previous committed range. DateTime controls show separate date/time fields, and the keyboard stays closed on route entry and until a time/date field is focused. The full-resolution AOT-to-DevRuntime screenshot comparison reports 5.47% pixel mismatch, primarily small text-edge and scroll alignment shifts; no clipping or missing controls were visible. Compact and input triggers use the same rounded light-neutral pill treatment on both platforms while the picker surfaces remain native. The iOS 26.5 simulator opened the current native SwiftUI range sheet, committed a range with Done, and showed separate DateTime controls. Android release signing is unavailable because the required keystore environment variables are unset. Broader parameter review and human approval remain pending."
+  },
+  "runtime_capabilities": [
+    {
+      "capability": "Component arguments",
+      "automated evidence": "Catalog gates require every built-in argument name and shared accessibility argument in the parity app; all 41 catalog routes are in the AOT app. Text enum values are enumerated. Per-parameter value and edge-state audits remain open by route. Picker-specific XCTest exercises all item values, all optional-parameter presence combinations, and first-tap state updates in iOS AOT and DevRuntime.",
+      "iOS AOT / Android AOT": "Both 41-route apps built and all routes were opened and captured",
+      "iOS DevRuntime / Android DevRuntime": "Typed DevRuntime dispatch gate passed; paired device runs cover 29 iOS and 32 Android states",
+      "status": "Argument-name coverage is complete. Exhaustive values, boundaries, empty states, failure states, and interactions remain incomplete for unapproved routes. Picker blank/invalid edge values still need coverage."
+    },
+    {
+      "capability": "Component and IR dispatch",
+      "automated evidence": "The hot_reload_coverage suite passed, including catalog argument presence, DevRuntime dispatch, and AOT generation for both targets. Kotlin backend library tests pass. Focused FastList tests also exercise sectioned AOT width and refresh-enabled short lists, plus live DevRuntime callbacks and FastList hot reload on both devices. Generic RefreshControl onRefresh hot reload and pull gestures pass on iOS and Android; short-content viewport sizing is covered by the Kotlin generator regression test. PickerDate-specific compiler coverage asserts typed parameters reach both native generators; the AOT release-generation fixture passes for both targets. The focused PickerDate regression test also asserts both DevRuntime renderers unwrap the typed nested props object, and the Kotlin codegen test asserts custom tint reaches selected and current-date colors. The focused PickerDate generator test also asserts the Material date inputs do not autofocus, and timestamp zero is preserved as a valid epoch value.",
+      "iOS AOT / Android AOT": "Both platform builds and 41 route captures passed",
+      "iOS DevRuntime / Android DevRuntime": "29 iOS and 32 Android AOT-to-DevRuntime states passed accessibility and screenshot comparison; three iOS reload revisions passed at 90–109 ms, and three Android revisions at 113–134 ms",
+      "status": "This verifies the sampled paired states and dispatch mappings; it does not complete the route-specific parameter edge audit. Live source reload remained under the 1 s interaction budget on both platforms. The full workspace test suite passes; route-specific parameter edge auditing remains incomplete."
+    },
+    {
+      "capability": "Compiler and language",
+      "automated evidence": "Parser, semantic analysis, typed IR, and code generation have workspace coverage. `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets`, and `cargo test --workspace` pass. The Todo fixture test no longer expects native date and time picker controls because that fixture does not contain PickerDate; dedicated PickerDate compiler and backend tests cover its generated output. core_task_crud compiles through the SQLite analyzer after its structural walker learned to visit AppBottomBar tabs and custom-bar nodes; a stale Swift spring assertion was aligned with the current shared spring physics output.",
+      "iOS AOT / Android AOT": "`cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets`, and `cargo test --workspace` pass.",
+      "iOS DevRuntime / Android DevRuntime": "Compiler and runtime contract audit pending",
+      "status": "Workspace type checking, Clippy, and the full test suite pass."
+    },
+    {
+      "capability": "State, async work, and animation",
+      "automated evidence": "Typed Spring/Tween specs are covered through semantic parsing, AOT Swift/Kotlin generation, and Dev IR serialization. Tween delay and custom cubic Bézier easing are covered in semantic, AOT, and Dev IR tests. SegmentedControl.animation covers custom Spring/Tween mapping; Android defaults to the official Material 3 Expressive MotionScheme defaultSpatialSpec, cached for the composition and read in the layout phase. AOT dependency selection upgrades to Material 3 1.5 beta when expressive motion is used. Conditional if/when transitions accept optional custom Spring/Tween timing, delay, and easing; generated SwiftUI and Compose mappings and Dev IR serialization are tested. Android DevRuntime keeps Float and IntOffset transition specs correctly typed. AOT and DevRuntime regression tests assert empty segmented item lists render no placeholder track on both platforms and Android pill clipping precedes selectable feedback. Swift generated output retains Reduce Motion handling. Scoped state and layout animation paths have backend tests. Android AOT one-shot animation specs snapshot the prior Float value and clear back to snap when a scoped assignment leaves it unchanged, so a no-op cannot leak its curve into a later update. Semantic tests reject nonpositive spring values, out-of-range tween duration/delay, invalid cubic Bézier x control points, empty animation blocks, and unsupported animated integer assignments.",
+      "iOS AOT / Android AOT": "iOS Swift type-check and Android Gradle builds pass for an AOT animation host containing a custom timed slide transition and animated segmented controls. Previously reviewed device coverage confirms both AOT apps update default, Spring, and Tween segmented bound values on the first tap; one-item, empty, invalid, and rapid-retarget cases pass. A 30 fps Android recording shows intermediate indicator positions for a 240 ms tween; exact elapsed duration is not inferred from the recording.",
+      "iOS DevRuntime / Android DevRuntime": "iOS Swift type-check and Android Gradle builds pass for DevRuntime hosts containing animated conditional content. Dev IR preserves Tween duration, delay, and easing, and both native renderers apply the typed spec. Previously reviewed live segmented selection and scoped progress animation update on first tap on both devices; nine rapid retarget taps (~170 ms apart) complete without a crash. Android ripple clipping was verified in the live host.",
+      "status": "Focused semantic, code-generation, AOT native-host, DevRuntime-host, and hot-reload serialization checks pass. Compose reads the animated segmented offset in the layout phase, avoiding per-frame label recomposition; Android uses the official Material 3 Expressive spatial motion scheme by default. Exact frame timing, live device comparison of custom conditional transitions, on-device iOS Reduce Motion, broader cancellation/lifecycle cases, and human parity approval remain pending."
+    },
+    {
+      "capability": "Navigation, presentation, and lifecycle",
+      "automated evidence": "Nested native navigation pushes, explicit back, system back, and root restoration are exercised by a dedicated catalog UI flow and the shared render-parity fixture. The focused fixture captures push, nested push, pop, and root-restored states.",
+      "iOS AOT / Android AOT": "Focused transition flow passes on both simulators/emulators; iOS native back and Android system back catalog flows pass",
+      "iOS DevRuntime / Android DevRuntime": "Four transition phases per platform pass accessibility and screenshot comparison with 0.000 MAE",
+      "status": "Nested push/pop and restoration are covered. Human review, conditional-link false state, interactive iOS back gesture, interrupted transitions, deep links, and process restoration remain pending."
+    },
+    {
+      "capability": "Network and storage APIs",
+      "automated evidence": "Fetch, file, path, and permission integration scenarios exist. The DevRuntime fetch script accepts NEXA_TEST_NETWORK_URL so iOS simulator network checks can use a deterministic local endpoint when external proxy auto-discovery is unavailable. A regression test asserts Android synthetic native-call payloads use the dispatcher’s top-level shape.",
+      "iOS AOT / Android AOT": "Focused scenarios exist; on-device AOT network fetch has not been exercised.",
+      "iOS DevRuntime / Android DevRuntime": "iOS DevRuntime Network.fetch returned HTTP 200 from a local HTTP endpoint on the iOS 26.5 simulator. Fetching https://example.com timed out because simulator PAC proxy discovery could not resolve its configured proxy. Android DevRuntime Network.fetch returned HTTP 200 from https://example.com using embedded Cronet. Android file/path/permission calls returned FILE_OK, true, and granted. iOS storage remains unverified.",
+      "status": "The iOS DevRuntime fetch path is confirmed against a local endpoint; the failed public-host request is environment proxy configuration, not evidence of a Nexa fetch defect. Android DevRuntime fetch and file/path/permission calls pass. iOS storage, AOT network execution, and physical-device coverage remain pending."
+    },
+    {
+      "capability": "Plugin contracts and bindings",
+      "automated evidence": "All 25 nexa-plugin-idl tests pass for service/class/component contracts, events, typed errors, generic bounds, nullable/collection values, defaults, and safe manifest paths. All 69 nexa-codegen unit tests, 12 C++ plugin codegen integration tests, and 3 doctests pass across Swift, Kotlin, C++, and DevRuntime value/typed-error bridge generation. The 15 native_plugin_build tests and 5 DevRuntime plugin/hot-reload bridge tests pass.",
+      "iOS AOT / Android AOT": "All 15 native_plugin_build tests pass, including generated Xcode and Gradle plugin hosts, Swift/Kotlin contract typechecks, C++/JNI builds when toolchains are available, typed errors, independent native class instances, and iOS entitlements.",
+      "iOS DevRuntime / Android DevRuntime": "Five focused tests pass for typed service bridges, generic codecs, plugin classes/events/components, and loading a new module that calls a preconfigured plugin after host build; both Swift and Kotlin Dev bridges are generated and checked.",
+      "status": "Framework contract parsing, typed Swift/Kotlin/C++ bindings, native build integration, DevRuntime bridge generation, and hot-reload boundaries are verified. Live plugin functionality on physical devices and plugin-package-specific behavior remain outside this framework sweep."
+    },
+    {
+      "capability": "Accessibility and visual feedback",
+      "automated evidence": "Shared accessibility parameters are required in the parity fixture; control feedback has focused tests.",
+      "iOS AOT / Android AOT": "Argument presence gate passed",
+      "iOS DevRuntime / Android DevRuntime": "Focused interaction tests exist",
+      "status": "Accessibility and button feedback mappings have automated coverage; per-component semantics and pressed-state parity review remains pending."
+    }
+  ],
+  "device_runs": [
+    {
+      "platform": "iOS 26.5 Simulator",
+      "paired states": "29",
+      "accessibility and screenshots": "All accessibility states and screenshot pairs passed; most screenshots are pixel-identical, remaining differences are below the measured comparison thresholds",
+      "interaction coverage": "Current PickerDate code was built for iOS and opened on the iOS 26.5 simulator. The native SwiftUI range sheet shows one month with Cancel/Done; selecting October 14–18 and pressing Done updates the trigger. DateTime presents separate date and time controls, and the native time wheel is available. Its rounded light-neutral date/time trigger pills match Android. Remaining PickerDate parameters, release packaging, physical-device coverage, and human approval remain pending."
+    },
+    {
+      "platform": "Android API 31 Emulator",
+      "paired states": "32",
+      "accessibility and screenshots": "All accessibility states and screenshot pairs passed; a few screens use measured uniform scroll offsets, with every image below comparison thresholds",
+      "interaction coverage": "Current debug AOT and DevRuntime builds were installed at the unchanged 360 dp viewport. The bounded range calendar shows all seven weekday/date columns; AOT OK commits a selection, while DevRuntime Android Back cancels a draft and keeps the committed range. Separate DateTime date/time controls and keyboard focus behavior were checked. Rounded light-neutral trigger pills match iOS. The full-resolution same-platform AOT-to-DevRuntime screenshot comparison reports 5.47% pixel mismatch, mainly small text-edge and scroll alignment shifts; no clipping or missing controls were visible. Android release packaging remains unverified because signing credentials are not configured. Physical-device coverage and human approval remain pending."
+    }
+  ]
+}

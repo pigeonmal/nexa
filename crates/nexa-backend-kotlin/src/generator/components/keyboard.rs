@@ -9,6 +9,14 @@ use crate::generator::engine::imports::ImportSet;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
+        features.uses_keyboard_aware,
+        "androidx.compose.foundation.gestures.awaitEachGesture",
+    );
+    imports.add(
+        features.uses_keyboard_aware,
+        "androidx.compose.foundation.gestures.awaitFirstDown",
+    );
+    imports.add(
         features.uses_keyboard_aware || features.uses_refresh_scroll,
         "androidx.compose.foundation.rememberScrollState",
     );
@@ -21,8 +29,33 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.imePadding",
     );
     imports.add(
-        features.uses_keyboard_interactive,
+        features.uses_keyboard_aware,
+        "androidx.compose.foundation.layout.isImeVisible",
+    );
+    imports.add(
+        features.uses_keyboard_aware,
         "androidx.compose.foundation.layout.imeNestedScroll",
+    );
+    imports.add(
+        features.uses_keyboard_aware,
+        "androidx.compose.ui.input.pointer.PointerEventPass",
+    );
+    imports.add(
+        features.uses_keyboard_aware,
+        "androidx.compose.ui.input.pointer.pointerInput",
+    );
+    imports.add(features.uses_keyboard_aware, "androidx.compose.ui.Modifier");
+    imports.add(
+        features.uses_keyboard_aware,
+        "androidx.compose.ui.platform.LocalFocusManager",
+    );
+    imports.add(
+        features.uses_keyboard_aware,
+        "androidx.compose.ui.platform.LocalViewConfiguration",
+    );
+    imports.add(
+        features.uses_keyboard_aware,
+        "androidx.compose.runtime.rememberUpdatedState",
     );
 }
 
@@ -35,11 +68,13 @@ pub(crate) fn render_keyboard_aware(
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
-    out.push_str("Column(modifier = Modifier.imePadding()");
-    if matches!(dismiss, KeyboardDismissMode::Interactive) {
-        out.push_str(".imeNestedScroll()");
-    }
-    out.push_str(".verticalScroll(rememberScrollState())) {\n");
+    out.push_str("NexaKeyboardAwareColumnPrimitive(interactiveDismiss = ");
+    out.push_str(if matches!(dismiss, KeyboardDismissMode::Interactive) {
+        "true"
+    } else {
+        "false"
+    });
+    out.push_str(") {\n");
     render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);

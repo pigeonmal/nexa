@@ -14,6 +14,11 @@ app ComponentParity {
 
     screen Catalog {
         Form {
+            Section(title: "Featured") {
+                NavigationLink(destination: PickerDateCases) {
+                    Text("Date and time picker")
+                }
+            }
             Section(title: "Layout") {
                 NavigationLink(destination: ColumnCases) {
                     Text("Column spacing and padding")
@@ -26,6 +31,9 @@ app ComponentParity {
                 }
                 NavigationLink(destination: SpacerCases) {
                     Text("Spacer distribution")
+                }
+                NavigationLink(destination: TitleCases) {
+                    Text("Navigation title system")
                 }
                 NavigationLink(destination: DividerCases) {
                     Text("Divider thickness and color")
@@ -58,9 +66,6 @@ app ComponentParity {
                 }
                 NavigationLink(destination: PickerCases) {
                     Text("Picker options")
-                }
-                NavigationLink(destination: DatePickerCases) {
-                    Text("Date picker modes")
                 }
             }
             Section(title: "Content and lists") {
@@ -149,19 +154,29 @@ app ComponentParity {
             Row(spacing: 6) {
                 Pressable(accessibilityLabel: "Flow and alignment tests", accessibilityRole: Button) {
                     Text("Flow")
-                }.onTap { columnTestPage = 0 }
+                }.onTap {
+                    columnTestPage = 0
+                }
                 Pressable(accessibilityLabel: "Size and bounds tests", accessibilityRole: Button) {
                     Text("Bounds")
-                }.onTap { columnTestPage = 1 }
+                }.onTap {
+                    columnTestPage = 1
+                }
                 Pressable(accessibilityLabel: "Surface and padding tests", accessibilityRole: Button) {
                     Text("Surface")
-                }.onTap { columnTestPage = 2 }
+                }.onTap {
+                    columnTestPage = 2
+                }
                 Pressable(accessibilityLabel: "Effects and behavior tests", accessibilityRole: Button) {
                     Text("Effects")
-                }.onTap { columnTestPage = 3 }
+                }.onTap {
+                    columnTestPage = 3
+                }
                 Pressable(accessibilityLabel: "Animation and accessibility tests", accessibilityRole: Button) {
                     Text("Behavior")
-                }.onTap { columnTestPage = 4 }
+                }.onTap {
+                    columnTestPage = 4
+                }
             }
 
             if columnTestPage == 0 {
@@ -295,22 +310,30 @@ app ComponentParity {
                     }
                     Column(minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseIn) {
                         Text("EaseIn")
-                        if columnAnimationExpanded { Text("Expanded") }
+                        if columnAnimationExpanded {
+                            Text("Expanded")
+                        }
                     }
                     Column(minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseOut) {
                         Text("EaseOut")
-                        if columnAnimationExpanded { Text("Expanded") }
+                        if columnAnimationExpanded {
+                            Text("Expanded")
+                        }
                     }
                     Column(minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: Linear) {
                         Text("Linear")
-                        if columnAnimationExpanded { Text("Expanded") }
+                        if columnAnimationExpanded {
+                            Text("Expanded")
+                        }
                     }
                     Column(minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: Spring(response: 0.35, damping: 0.8)) {
                         Text("Spring")
-                        if columnAnimationExpanded { Text("Expanded") }
+                        if columnAnimationExpanded {
+                            Text("Expanded")
+                        }
                     }
                     Button("Toggle animated content") {
-                        columnAnimationExpanded = !columnAnimationExpanded
+                        columnAnimationExpanded =!columnAnimationExpanded
                     }
                     Column(padding: 8, background: "#F2F2F7", cornerRadius: 8, accessibilityLabel: "Column accessibility sample", accessibilityHint: "Demonstrates Column semantics", accessibilityValue: "Ready", accessibilityRole: Header) {
                         Text("Accessible Column")
@@ -337,89 +360,486 @@ app ComponentParity {
     }
 
     screen RowCases {
-        Column(spacing: 12, padding: 16) {
+        state rowTestPage: Int32 = 0
+        state rowAnimationExpanded: Bool = false
+        Column(spacing: 10, padding: 16) {
             Text("Row", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Spacing and vertical alignment") {
-                Row(spacing: 0, height: 48, background: "#F2F2F7") {
-                    Text("Zero")
-                    Text("Gap")
+            Row(spacing: 12) {
+                Pressable(accessibilityLabel: "Row flow parameter tests", accessibilityRole: Button) {
+                    Text("Flow", fontSize: 13)
+                }.onTap {
+                    rowTestPage = 0
                 }
-                Row(spacing: 12, height: 48, alignment: Center, background: "#F2F2F7") {
-                    Text("Twelve")
-                    Text("Centered")
+                Pressable(accessibilityLabel: "Row horizontal arrangement tests", accessibilityRole: Button) {
+                    Text("Arrange", fontSize: 13)
+                }.onTap {
+                    rowTestPage = 1
                 }
-                Row(spacing: 24, height: 48, padding: 8, background: "#F2F2F7") {
-                    Text("Twenty-four")
-                    Text("With padding")
+                Pressable(accessibilityLabel: "Row size and bounds tests", accessibilityRole: Button) {
+                    Text("Bounds", fontSize: 13)
+                }.onTap {
+                    rowTestPage = 2
                 }
-                Column(width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 12) {
-                    Row(spacing: 8, alignment: Center, width: 180, height: 48, padding: 8, glass: "capsule") {
-                        Text("Glass capsule row")
+            }
+            Row(spacing: 12) {
+                Pressable(accessibilityLabel: "Row surface and padding tests", accessibilityRole: Button) {
+                    Text("Surface", fontSize: 13)
+                }.onTap {
+                    rowTestPage = 3
+                }
+                Pressable(accessibilityLabel: "Row effects tests", accessibilityRole: Button) {
+                    Text("Effects", fontSize: 13)
+                }.onTap {
+                    rowTestPage = 4
+                }
+                Pressable(accessibilityLabel: "Row animation and accessibility tests", accessibilityRole: Button) {
+                    Text("Behavior", fontSize: 13)
+                }.onTap {
+                    rowTestPage = 5
+                }
+            }
+
+            if rowTestPage == 0 {
+                ParityCard(title: "Spacing and vertical alignment") {
+                    Row(spacing: 0, width: 280, height: 36, background: "#F2F2F7") {
+                        Text("0 dp")
+                        Text("A")
+                        Text("B")
+                    }
+                    Row(spacing: 8, width: 280, height: 36, background: "#F2F2F7") {
+                        Text("8 dp")
+                        Text("A")
+                        Text("B")
+                    }
+                    Row(spacing: 24, width: 280, height: 36, background: "#F2F2F7") {
+                        Text("24 dp")
+                        Text("A")
+                        Text("B")
+                    }
+                    Row(width: 280, height: 52, background: "#F2F2F7") {
+                        Column(width: 42, height: 16, background: "#2563EB", cornerRadius: 4) {
+                            Text("Short", fontSize: 10, color: "#FFFFFF")
+                        }
+                        Column(width: 42, height: 44, background: "#E11D48", cornerRadius: 4) {
+                            Text("Tall", fontSize: 10, color: "#FFFFFF")
+                        }
+                    }
+                    Row(spacing: 8, width: 280, height: 52, alignment: Start, background: "#F2F2F7") {
+                        Column(width: 42, height: 16, background: "#2563EB", cornerRadius: 4) {
+                            Text("Top", fontSize: 10, color: "#FFFFFF")
+                        }
+                        Column(width: 42, height: 44, background: "#E11D48", cornerRadius: 4) {
+                            Text("Tall", fontSize: 10, color: "#FFFFFF")
+                        }
+                    }
+                    Row(spacing: 8, width: 280, height: 52, alignment: Center, background: "#F2F2F7") {
+                        Column(width: 42, height: 16, background: "#2563EB", cornerRadius: 4) {
+                            Text("Mid", fontSize: 10, color: "#FFFFFF")
+                        }
+                        Column(width: 42, height: 44, background: "#E11D48", cornerRadius: 4) {
+                            Text("Tall", fontSize: 10, color: "#FFFFFF")
+                        }
+                    }
+                    Row(spacing: 8, width: 280, height: 52, alignment: End, background: "#F2F2F7") {
+                        Column(width: 42, height: 16, background: "#2563EB", cornerRadius: 4) {
+                            Text("Bottom", fontSize: 9, color: "#FFFFFF")
+                        }
+                        Column(width: 42, height: 44, background: "#E11D48", cornerRadius: 4) {
+                            Text("Tall", fontSize: 10, color: "#FFFFFF")
+                        }
                     }
                 }
-                Row(
-                spacing: 8,
-                alignment: Center,
-                padding: 4,
-                width: 280,
-                height: 56,
-                minWidth: 240,
-                maxWidth: 300,
-                minHeight: 48,
-                maxHeight: 64,
-                background: "#FFFFFF",
-                cornerRadius: 8,
-                borderColor: "#2563EB",
-                borderWidth: 1,
-                opacity: 1.0,
-                scale: 1.0,
-                rotation: 0,
-                shadow: Shadow(1, 0, 0, "#00000020"),
-                blur: 0,
-                clip: Rounded(8),
-                zIndex: 1,
-                animation: EaseInOut
-                ) {
-                    Text("Row sizing and visual parameters")
+            }
+
+            if rowTestPage == 1 {
+                ParityCard(title: "Horizontal arrangement") {
+                    Row(spacing: 8, width: 280, height: 42, background: "#F2F2F7") {
+                        Text("Default start")
+                        Text("Second")
+                    }
+                    Row(spacing: 8, width: 280, height: 42, horizontalArrangement: Start, background: "#F2F2F7") {
+                        Text("Explicit start")
+                        Text("Second")
+                    }
+                    Row(spacing: 8, width: 280, height: 42, horizontalArrangement: Center, background: "#F2F2F7") {
+                        Text("Center")
+                        Text("Second")
+                    }
+                    Row(spacing: 8, width: 280, height: 42, horizontalArrangement: End, background: "#F2F2F7") {
+                        Text("End")
+                        Text("Second")
+                    }
+                    Row(spacing: 8, height: 42, horizontalArrangement: Center, background: "#DDEBFF", cornerRadius: 8) {
+                        Text("Arrangement fills available width")
+                    }
+                    Row(spacing: 4, width: 280, padding: 6, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Outer 4")
+                        Row(spacing: 16, background: "#DDEBFF", cornerRadius: 6) {
+                            Text("A")
+                            Text("B")
+                        }
+                        Text("Outer 4")
+                    }
+                    Row(width: 280, height: 64, background: "#F2F2F7") {
+                        Text("Default arrangement remains start aligned")
+                    }
+                }
+            }
+
+            if rowTestPage == 2 {
+                ParityCard(title: "Fixed size and independent bounds") {
+                    Row(width: 220, background: "#E8F0FF", cornerRadius: 8) {
+                        Text("Fixed width: 220")
+                    }
+                    Row(height: 56, background: "#E8F0FF", cornerRadius: 8) {
+                        Text("Fixed height: 56")
+                    }
+                    Row(width: 240, height: 72, minWidth: 220, maxWidth: 260, minHeight: 64, maxHeight: 80, background: "#FFFFFF", cornerRadius: 8, borderColor: "#2563EB", borderWidth: 1) {
+                        Text("Fixed 240 × 72 inside 220–260 × 64–80")
+                    }
+                    Row(minWidth: 210, maxWidth: 260, minHeight: 64, maxHeight: 84, padding: 8, background: "#E8F0FF", cornerRadius: 8) {
+                        Text("Minimum expands this short content")
+                    }
+                    Row(maxWidth: 170, padding: 8, background: "#FFF1E8", cornerRadius: 8) {
+                        Text("Maximum width wraps this longer label onto multiple lines")
+                    }
+                    Row(width: 200, maxHeight: 68, spacing: 6, padding: 6, background: "#F2F2F7", cornerRadius: 8) {
+                        Column(width: 72, height: 88, background: "#E11D48", cornerRadius: 4) {
+                        }
+                    }
+                }
+            }
+
+            if rowTestPage == 3 {
+                ParityCard(title: "Padding, background, border, and opacity") {
+                    Row(spacing: 8, width: 280, height: 76, padding: 12, background: "#DDEBFF", cornerRadius: 14, borderColor: "#2563EB", borderWidth: 2) {
+                        Text("12 dp padding")
+                        Text("Blue fill · 14 dp corners · 2 dp border")
+                    }
+                    Row(width: 240, height: 52, padding: 8, background: "#E11D48", cornerRadius: 8, opacity: 0.45) {
+                        Text("Opacity 0.45", color: "#FFFFFF")
+                    }
+                    Row(width: 240, height: 52, padding: 8, background: "#E11D48", cornerRadius: 8, opacity: 0.0) {
+                        Text("Opacity 0.0 · transparent")
+                    }
+                    Row(width: 240, height: 52, padding: 8, background: "#34C759", cornerRadius: 8, opacity: 1.0) {
+                        Text("Opacity 1.0", color: "#FFFFFF")
+                    }
+                    Row(spacing: 8, width: 280, height: 40, padding: 0, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("No inset")
+                        Text("12 dp above")
+                    }
+                }
+            }
+
+            if rowTestPage == 4 {
+                ParityCard(title: "Transforms, clipping, shadows, and surfaces") {
+                    Row(spacing: 24, height: 88, alignment: Center) {
+                        Row(width: 90, height: 48, background: "#E11D48", cornerRadius: 8, scale: 1.2) {
+                            Text("Scale", color: "#FFFFFF")
+                        }
+                        Row(width: 90, height: 48, background: "#2563EB", cornerRadius: 8, rotation: 12) {
+                            Text("Rotate", color: "#FFFFFF")
+                        }
+                    }
+                    Row(width: 240, height: 64, background: "#FFFFFF", cornerRadius: 12, shadow: Shadow(8, 4, 6, "#00000070")) {
+                        Text("Shadow radius 8, offset 4 × 6")
+                    }
+                    Row(width: 240, height: 42, padding: 6, background: "#E8F0FF", cornerRadius: 8, blur: 2) {
+                        Text("Blur radius 2")
+                    }
+                    Row(width: 180, height: 64, background: "#DDEBFF", clip: Rounded(14)) {
+                        Row(width: 220, height: 84, background: "#E11D48", rotation: 12, cornerRadius: 4) {
+                            Text("Clipped overflow", color: "#FFFFFF")
+                        }
+                    }
+                    Stack(width: 240, height: 88, background: "#F2F2F7", cornerRadius: 8) {
+                        Row(width: 150, height: 48, padding: 4, background: "#E11D48", cornerRadius: 8, zIndex: 2) {
+                            Text("Above", color: "#FFFFFF")
+                        }
+                        Row(width: 210, height: 72, padding: 4, background: "#2563EB", cornerRadius: 8, zIndex: 1) {
+                            Text("Behind", color: "#FFFFFF")
+                        }
+                    }
+                    Row(spacing: 8, width: 220, height: 48, padding: 8, glass: Glass(shape: "capsule", tint: "#DDEBFF")) {
+                        Text("Capsule surface")
+                    }
+                }
+            }
+
+            if rowTestPage == 5 {
+                ParityCard(title: "Animation variants and accessibility") {
+                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseInOut) {
+                        Text("EaseInOut")
+                        if rowAnimationExpanded {
+                            Text("Expanded")
+                        }
+                    }
+                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseIn) {
+                        Text("EaseIn")
+                        if rowAnimationExpanded {
+                            Text("Expanded")
+                        }
+                    }
+                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseOut) {
+                        Text("EaseOut")
+                        if rowAnimationExpanded {
+                            Text("Expanded")
+                        }
+                    }
+                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: Linear) {
+                        Text("Linear")
+                        if rowAnimationExpanded {
+                            Text("Expanded")
+                        }
+                    }
+                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: Spring(response: 0.35, damping: 0.8)) {
+                        Text("Spring")
+                        if rowAnimationExpanded {
+                            Text("Expanded")
+                        }
+                    }
+                    Button("Toggle animated row content") {
+                        rowAnimationExpanded =!rowAnimationExpanded
+                    }
+                    Row(accessibilityLabel: "Accessible row sample", accessibilityHint: "Demonstrates row semantics", accessibilityValue: "Ready", accessibilityRole: Header) {
+                        Text("Accessible Row")
+                    }
+                    Row(accessibilityLabel: "Button role row", accessibilityRole: Button) {
+                        Text("Button role")
+                    }
+                    Row(accessibilityLabel: "Link role row", accessibilityRole: Link) {
+                        Text("Link role")
+                    }
+                    Row(accessibilityLabel: "Image role row", accessibilityRole: Image) {
+                        Text("Image role")
+                    }
+                    Row(accessibilityLabel: "None role row", accessibilityRole: None) {
+                        Text("None role")
+                    }
                 }
             }
         }
     }
 
     screen StackCases {
-        Column(spacing: 12, padding: 16) {
+        state stackTestPage: Int32 = 0
+        state stackAnimationExpanded: Bool = false
+        Column(spacing: 10, padding: 16) {
             Text("Stack", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Center and corner alignment") {
-                Stack(alignment: Center, width: 160, height: 96, background: "#DDEBFF", cornerRadius: 12) {
-                    Text("Centered")
-                    Icon(system: "star", size: 24, tint: "#E11D48", description: "Star")
+            Row(spacing: 12) {
+                Pressable(accessibilityLabel: "Stack alignment tests", accessibilityRole: Button) {
+                    Text("Align", fontSize: 13)
+                }.onTap {
+                    stackTestPage = 0
                 }
-                Stack(alignment: End, width: 160, height: 96, background: "#F2F2F7", cornerRadius: 12) {
-                    Text("End aligned")
+                Pressable(accessibilityLabel: "Stack size and bounds tests", accessibilityRole: Button) {
+                    Text("Bounds", fontSize: 13)
+                }.onTap {
+                    stackTestPage = 1
                 }
-                Stack(
-                alignment: Center,
-                padding: 4,
-                width: 240,
-                height: 64,
-                minWidth: 220,
-                maxWidth: 260,
-                minHeight: 56,
-                maxHeight: 72,
-                background: "#FFFFFF",
-                cornerRadius: 8,
-                borderColor: "#34C759",
-                borderWidth: 1,
-                opacity: 1.0,
-                scale: 1.0,
-                rotation: 0,
-                shadow: Shadow(1, 0, 0, "#00000020"),
-                blur: 0,
-                clip: Rounded(8),
-                zIndex: 1,
-                animation: Linear
-                ) {
-                    Text("Stack sizing and visual parameters")
+                Pressable(accessibilityLabel: "Stack surface and padding tests", accessibilityRole: Button) {
+                    Text("Surface", fontSize: 13)
+                }.onTap {
+                    stackTestPage = 2
+                }
+            }
+            Row(spacing: 12) {
+                Pressable(accessibilityLabel: "Stack glass shape tests", accessibilityRole: Button) {
+                    Text("Glass", fontSize: 13)
+                }.onTap {
+                    stackTestPage = 3
+                }
+                Pressable(accessibilityLabel: "Stack effects tests", accessibilityRole: Button) {
+                    Text("Effects", fontSize: 13)
+                }.onTap {
+                    stackTestPage = 4
+                }
+                Pressable(accessibilityLabel: "Stack animation and accessibility tests", accessibilityRole: Button) {
+                    Text("Behavior", fontSize: 13)
+                }.onTap {
+                    stackTestPage = 5
+                }
+            }
+
+            if stackTestPage == 0 {
+                ParityCard(title: "Default, center, and corner alignment") {
+                    Stack(width: 220, height: 48) {
+                        Text("No fill · transparent")
+                    }
+                    Stack(width: 220, height: 64, background: "#DDEBFF", cornerRadius: 8) {
+                        Text("Default center")
+                    }
+                    Stack(alignment: Start, width: 220, height: 64, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Top leading")
+                    }
+                    Stack(alignment: Center, width: 220, height: 64, background: "#DDEBFF", cornerRadius: 8) {
+                        Text("Explicit center")
+                    }
+                    Stack(alignment: End, width: 220, height: 64, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Bottom trailing")
+                    }
+                    Stack(width: 220, height: 64, background: "#F2F2F7", cornerRadius: 8) {
+                        Stack(alignment: Start, width: 220, height: 56, padding: 4, background: "#2563EB", cornerRadius: 6) {
+                            Text("First layer · blue", color: "#FFFFFF")
+                        }
+                        Stack(alignment: End, width: 132, height: 40, padding: 4, background: "#E11D48", cornerRadius: 6) {
+                            Text("Second · red", color: "#FFFFFF")
+                        }
+                    }
+                }
+            }
+
+            if stackTestPage == 1 {
+                ParityCard(title: "Fixed size and independent bounds") {
+                    Stack(width: 180, height: 56, background: "#DDEBFF", cornerRadius: 8) {
+                        Text("Fixed 180 × 56")
+                    }
+                    Stack(minWidth: 180, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Minimum width: 180")
+                    }
+                    Stack(maxWidth: 150, padding: 8, background: "#FFF1E8", cornerRadius: 8) {
+                        Text("Maximum width wraps this longer Stack label onto several lines")
+                    }
+                    Stack(minHeight: 72, padding: 8, background: "#E8F0FF", cornerRadius: 8) {
+                        Text("Minimum height: 72")
+                    }
+                    Stack(maxHeight: 64, background: "#F2F2F7", cornerRadius: 8) {
+                        Column(spacing: 4) {
+                            Text("Maximum height: 64")
+                            Text("Second line")
+                            Text("Third line")
+                        }
+                    }
+                    Stack(width: 240, height: 72, minWidth: 220, maxWidth: 260, minHeight: 64, maxHeight: 80, background: "#FFFFFF", cornerRadius: 8, borderColor: "#34C759", borderWidth: 1) {
+                        Text("Fixed size within 220–260 × 64–80 bounds")
+                    }
+                }
+            }
+
+            if stackTestPage == 2 {
+                ParityCard(title: "Padding, fill, corners, and border") {
+                    Stack(width: 240, height: 64, padding: 0, background: "#DDEBFF", cornerRadius: 18) {
+                        Text("Zero padding")
+                    }
+                    Stack(width: 240, height: 72, padding: 16, background: "#DDEBFF", cornerRadius: 18) {
+                        Text("16 dp padding · blue fill")
+                    }
+                    Stack(width: 240, height: 64, padding: 8, background: "#FFFFFF", cornerRadius: 12, borderColor: "#E11D48", borderWidth: 1) {
+                        Text("1 dp red border")
+                    }
+                    Stack(width: 240, height: 64, padding: 8, background: "#FFFFFF", cornerRadius: 12, borderColor: "#2563EB", borderWidth: 3) {
+                        Text("3 dp blue border")
+                    }
+                }
+            }
+
+            if stackTestPage == 3 {
+                ParityCard(title: "Glass shapes and padded bounds") {
+                    Stack(width: 64, height: 64, padding: 8, glass: Glass(shape: "circle", tint: "#DDEBFF")) {
+                        Text("●")
+                    }
+                    Stack(width: 220, height: 56, padding: 8, glass: Glass(shape: "capsule", tint: "#DDEBFF")) {
+                        Text("Glass capsule with padding")
+                    }
+                    Stack(width: 220, height: 64, padding: 8, glass: Glass(shape: "rounded(12)", tint: "#DDEBFF")) {
+                        Text("Glass rounded corners")
+                    }
+                }
+            }
+
+            if stackTestPage == 4 {
+                ParityCard(title: "Opacity, transforms, shadow, blur, and clipping") {
+                    Stack(width: 220, height: 48, background: "#E11D48", cornerRadius: 8, opacity: 0.45) {
+                        Text("Opacity 0.45", color: "#FFFFFF")
+                    }
+                    Stack(width: 220, height: 48, background: "#E11D48", cornerRadius: 8, opacity: 0.0) {
+                        Text("Opacity 0 · transparent")
+                    }
+                    Stack(width: 220, height: 48, background: "#34C759", cornerRadius: 8, opacity: 1.0) {
+                        Text("Opacity 1.0", color: "#FFFFFF")
+                    }
+                    Row(spacing: 16, alignment: Center, height: 88) {
+                        Stack(width: 72, height: 48, background: "#E11D48", cornerRadius: 8, scale: 0.75) {
+                            Text("Scale .75", fontSize: 11, color: "#FFFFFF")
+                        }
+                        Stack(width: 72, height: 48, background: "#2563EB", cornerRadius: 8, scale: 1.2) {
+                            Text("Scale 1.2", fontSize: 11, color: "#FFFFFF")
+                        }
+                        Stack(width: 72, height: 48, background: "#34C759", cornerRadius: 8, rotation: 12) {
+                            Text("Rotate 12°", fontSize: 11, color: "#FFFFFF")
+                        }
+                    }
+                    Stack(width: 240, height: 64, background: "#FFFFFF", cornerRadius: 12, shadow: Shadow(8, 4, 6, "#00000070")) {
+                        Text("Shadow radius 8, offset 4 × 6")
+                    }
+                    Stack(width: 240, height: 48, padding: 6, background: "#E8F0FF", cornerRadius: 8, blur: 2) {
+                        Text("Blur radius 2")
+                    }
+                    Stack(width: 180, height: 64, background: "#DDEBFF", clip: Rounded(14)) {
+                        Stack(width: 240, height: 88, background: "#E11D48") {
+                            Text("Rounded clip")
+                        }
+                    }
+                }
+            }
+
+            if stackTestPage == 5 {
+                ParityCard(title: "Animation and accessibility") {
+                    Stack(width: 240, height: 88, background: "#F2F2F7", cornerRadius: 8) {
+                        Stack(width: 150, height: 48, padding: 4, background: "#E11D48", cornerRadius: 8, zIndex: 2) {
+                            Text("Above · z 2", color: "#FFFFFF")
+                        }
+                        Stack(width: 210, height: 72, padding: 4, background: "#2563EB", cornerRadius: 8, zIndex: 1) {
+                            Text("Behind · z 1", color: "#FFFFFF")
+                        }
+                    }
+                    Stack(width: 240, minHeight: 36, padding: 4, background: "#F2F2F7", cornerRadius: 8, animation: EaseInOut) {
+                        Column(width: 220, padding: 4, background: "#DDEBFF", cornerRadius: 6) {
+                            Text("EaseInOut content")
+                            if stackAnimationExpanded {
+                                Text("Extra content")
+                            }
+                        }
+                    }
+                    Stack(width: 240, minHeight: 36, padding: 4, background: "#F2F2F7", cornerRadius: 8, animation: EaseIn) {
+                        Column(width: 220, padding: 4, background: "#E8F0FF", cornerRadius: 6) {
+                            Text("EaseIn content")
+                            if stackAnimationExpanded {
+                                Text("Extra content")
+                            }
+                        }
+                    }
+                    Stack(width: 240, minHeight: 36, padding: 4, background: "#F2F2F7", cornerRadius: 8, animation: EaseOut) {
+                        Column(width: 220, padding: 4, background: "#DDEBFF", cornerRadius: 6) {
+                            Text("EaseOut content")
+                            if stackAnimationExpanded {
+                                Text("Extra content")
+                            }
+                        }
+                    }
+                    Stack(width: 240, minHeight: 36, padding: 4, background: "#F2F2F7", cornerRadius: 8, animation: Linear) {
+                        Column(width: 220, padding: 4, background: "#E8F0FF", cornerRadius: 6) {
+                            Text("Linear content")
+                            if stackAnimationExpanded {
+                                Text("Extra content")
+                            }
+                        }
+                    }
+                    Stack(width: 240, minHeight: 36, padding: 4, background: "#F2F2F7", cornerRadius: 8, animation: Spring(response: 0.35, damping: 0.8)) {
+                        Column(width: 220, padding: 4, background: "#DDEBFF", cornerRadius: 6) {
+                            Text("Spring content")
+                            if stackAnimationExpanded {
+                                Text("Extra content")
+                            }
+                        }
+                    }
+                    Button("Toggle animated Stack content") {
+                        stackAnimationExpanded =!stackAnimationExpanded
+                    }
+                    Stack(accessibilityLabel: "Accessible Stack sample", accessibilityHint: "Demonstrates Stack semantics", accessibilityValue: "Ready", accessibilityRole: Image, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Accessible Stack")
+                    }
                 }
             }
         }
@@ -428,7 +848,7 @@ app ComponentParity {
     screen SpacerCases {
         Column(spacing: 12, padding: 16) {
             Text("Spacer", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Flexible space in a row") {
+            ParityCard(title: "Flexible space on both axes") {
                 Row(height: 56, padding: 8, background: "#F2F2F7") {
                     Text("Leading")
                     Spacer()
@@ -441,6 +861,99 @@ app ComponentParity {
                     Spacer()
                     Text("End")
                 }
+                Column(width: 180, height: 120, padding: 8, background: "#F2F2F7", alignment: Start) {
+                    Text("Top")
+                    Spacer()
+                    Text("Bottom")
+                }
+            }
+        }
+    }
+
+    screen TitleCases {
+        state titleActions: Int32 = 0
+        Column(spacing: 0) {
+            Toolbar(placement: Trailing) {
+                Button("Save $titleActions", style: Plain) {
+                    titleActions = titleActions + 1
+                }
+                Pressable() {
+                    Icon(system: "more", description: "More actions", size: 20, tint: "#111111")
+                }.onTap {
+                    titleActions = titleActions + 1
+                }.contextMenu {
+                    Button("Archive", icon: "folder") {
+                        titleActions = titleActions + 10
+                    }
+                    Button("Delete", icon: "delete") {
+                        titleActions = titleActions + 100
+                    }
+                }
+            }
+            Form {
+                Section(title: "Native title behavior") {
+                    Text("The inline title uses the platform's native centered placement beside a trailing button and menu. Long press More actions for its menu.", comment: "Native title, toolbar action, and context menu behavior")
+                    Text("Action count: $titleActions")
+                    NavigationLink(destination: TitleLeadingCases) {
+                        Text("Title with a leading toolbar item")
+                    }
+                    NavigationLink(destination: TitleNoToolbarCases) {
+                        Text("Title without toolbar items")
+                    }
+                }
+                Section(title: "Scroll to collapse") {
+                    Text("Title row one")
+                    Text("Title row two")
+                    Text("Title row three")
+                    Text("Title row four")
+                    Text("Title row five")
+                    Text("Title row six")
+                    Text("Title row seven")
+                    Text("Title row eight")
+                    Text("Title row nine")
+                    Text("Title row ten")
+                    Text("Title row eleven")
+                    Text("Title row twelve")
+                    Text("Title row thirteen")
+                    Text("Title row fourteen")
+                    Text("Title row fifteen")
+                    Text("Title row sixteen")
+                    Text("Title row seventeen")
+                    Text("Title row eighteen")
+                    Text("Title row nineteen")
+                    Text("Title row twenty")
+                }
+            }
+        }
+    }
+
+    screen TitleLeadingCases {
+        state leadingTitleActions: Int32 = 0
+        Column(spacing: 0) {
+            Toolbar(placement: Leading) {
+                Button("Tool", style: Plain) {
+                    leadingTitleActions = leadingTitleActions + 1
+                }
+            }
+            Form {
+                Section(title: "Leading toolbar item") {
+                    Text("The title stays next to Back, before the leading toolbar button.")
+                    Text("Action count: $leadingTitleActions")
+                    NavigationLink(destination: TitleNoToolbarCases) {
+                        Text("Title without toolbar items")
+                    }
+                }
+            }
+        }
+    }
+
+    screen TitleNoToolbarCases {
+        Form {
+            Section(title: "No toolbar actions") {
+                Text("The title centers when no toolbar actions are present.")
+                NavigationLink(destination: TitleCases) {
+                    Text("Return to toolbar title cases")
+                }
             }
         }
     }
@@ -448,53 +961,104 @@ app ComponentParity {
     screen DividerCases {
         Column(spacing: 12, padding: 16) {
             Text("Divider", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Same color, varied thickness") {
-                Text("One dp")
+            ParityCard(title: "Color and thickness") {
+                Text("Gray · 1 dp")
                 Divider(color: "#8E8E93", thickness: 1)
-                Text("Two dp")
-                Divider(color: "#8E8E93", thickness: 2)
-                Text("Four dp")
-                Divider(color: "#8E8E93", thickness: 4)
+                Text("Red · 2 dp")
+                Divider(color: "#FF3B30", thickness: 2)
+                Text("Blue · 4 dp")
+                Divider(color: "#007AFF", thickness: 4)
             }
         }
     }
 
     screen TextCases {
-        Column(spacing: 12, padding: 16) {
+        state textTestPage: Int32 = 0
+        Column(spacing: 10, padding: 16) {
             Text("Text", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Shared font size, weight, and line metrics") {
-                Text("Normal 14", fontSize: 14, fontWeight: Normal)
-                Text("Medium 18", fontSize: 18, fontWeight: Medium)
-                Text("Semibold 22", fontSize: 22, fontWeight: Semibold)
-                Text("Bold 26", fontSize: 26, fontWeight: Bold)
-                Text("Italic text", italic: true, fontDesign: Serif)
-                Text("Underlined text", underline: true, fontDesign: Rounded)
-                Text("Combined emphasis", italic: true, underline: true, strikethrough: true, fontDesign: Monospaced)
-                Text("Serif design", fontDesign: Serif)
-                Text("Rounded design", fontDesign: Rounded)
-                Text("Monospaced design", fontDesign: Monospaced)
-                Text("Two-line text checks line height and wrapping across both platforms.", fontSize: 16, lineHeight: 22)
-                Text(
-                "Aligned text with visual effects",
-                comment: "Text appearance parity sample",
-                alignment: Center,
-                fontStyle: Body,
-                fontSize: 16,
-                opacity: 1.0,
-                scale: 1.0,
-                rotation: 0,
-                shadow: Shadow(1, 0, 0, "#00000020"),
-                blur: 0,
-                clip: Rounded(4),
-                zIndex: 1,
-                lineLimit: 2,
-                letterSpacing: 0.2,
-                selectable: true
-                )
-                Column(spacing: 0, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
-                    Text("Default text padding")
-                    Text("Explicit zero padding", padding: 0)
-                    Text("Explicit 12 dp padding", padding: 12)
+            Row(spacing: 12) {
+                Pressable(accessibilityLabel: "Text typography tests", accessibilityRole: Button) {
+                    Text("Typography", fontSize: 13)
+                }.onTap {
+                    textTestPage = 0
+                }
+                Pressable(accessibilityLabel: "Text layout and effects tests", accessibilityRole: Button) {
+                    Text("Layout + effects", fontSize: 13)
+                }.onTap {
+                    textTestPage = 1
+                }
+                Pressable(accessibilityLabel: "Text semantic font styles", accessibilityRole: Button) {
+                    Text("Font styles", fontSize: 13)
+                }.onTap {
+                    textTestPage = 2
+                }
+            }
+            if textTestPage == 0 {
+                ParityCard(title: "Font sizes, weights, and designs") {
+                    Text("Normal 14", fontSize: 14, fontWeight: Normal)
+                    Text("Medium 18", fontSize: 18, fontWeight: Medium)
+                    Text("Semibold 22", fontSize: 22, fontWeight: Semibold)
+                    Text("Bold 26", fontSize: 26, fontWeight: Bold)
+                    Text("Italic text", italic: true, fontDesign: Serif)
+                    Text("Underlined text", underline: true, fontDesign: Rounded)
+                    Text("Combined emphasis", italic: true, underline: true, strikethrough: true, fontDesign: Monospaced)
+                    Text("Default design", fontDesign: Default)
+                    Text("Serif design", fontDesign: Serif)
+                    Text("Serif 18", fontSize: 18, fontDesign: Serif, comment: "Serif typeface at a custom size")
+                    Text("Rounded design", fontDesign: Rounded)
+                    Text("Monospaced design", fontDesign: Monospaced)
+                }
+            }
+            if textTestPage == 1 {
+                ParityCard(title: "Layout, constraints, and effects") {
+                    Text("Leading alignment\nshort", alignment: Leading, color: "#FF3B30")
+                    Text("Centered alignment\nshort", alignment: Center, color: "#007AFF")
+                    Text("Trailing alignment\nshort", alignment: Trailing, color: "#E11D48")
+                    Text("Caption font style", fontStyle: Caption, color: "#007AFF")
+                    Text("Explicit line height\nkeeps both lines readable", fontSize: 16, lineHeight: 22, lineLimit: 2)
+                    Text("Line limit\nhides the next line", lineLimit: 1)
+                    Stack(alignment: Start, width: 220, height: 32, background: "#F2F2F7", cornerRadius: 4) {
+                        Text("This fixed-width text must truncate with an ellipsis", fontSize: 14, lineLimit: 1)
+                    }
+                    Text("Letter spacing", letterSpacing: 0.8)
+                    Row(spacing: 12) {
+                        Text("Opacity", fontSize: 14, opacity: 0.55)
+                        Text("Scale", fontSize: 14, scale: 1.08)
+                        Text("Rotate", fontSize: 14, rotation: 3)
+                    }
+                    Row(spacing: 12) {
+                        Text("Shadow", fontSize: 14, shadow: Shadow(4, 2, 2, "#00000066"))
+                        Text("Blur", fontSize: 14, blur: 1)
+                        Text("Clip", fontSize: 14, clip: Rounded(6))
+                    }
+                    Stack(width: 220, height: 44, background: "#F2F2F7") {
+                        Text("Above", color: "#FF3B30", fontSize: 20, fontWeight: Bold, zIndex: 2)
+                        Text("Below", color: "#007AFF", fontSize: 12, zIndex: 1)
+                    }
+                    Column(spacing: 0, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Default text padding")
+                        Text("Explicit zero padding", padding: 0)
+                        Text("Explicit 12 dp padding", padding: 12)
+                    }
+                    Text("Selectable text", selectable: true)
+                }
+            }
+            if textTestPage == 2 {
+                ParityCard(title: "Semantic font styles") {
+                    Text("LargeTitle", fontStyle: LargeTitle)
+                    Text("Title", fontStyle: Title)
+                    Text("Title2", fontStyle: Title2)
+                    Text("Title3", fontStyle: Title3)
+                    Text("Headline", fontStyle: Headline)
+                    Text("Subheadline", fontStyle: Subheadline)
+                    Text("Body", fontStyle: Body)
+                    Text("Callout", fontStyle: Callout)
+                    Text("Footnote", fontStyle: Footnote)
+                    Text("Caption", fontStyle: Caption)
+                    Text("Caption2", fontStyle: Caption2)
+                    Text("Headline at 24", fontSize: 24, fontStyle: Headline)
+                    Text("Regular override", fontSize: 24, fontStyle: Headline, fontWeight: Normal)
+                    Text("Accessible text", comment: "Text with screen reader metadata", accessibilityLabel: "Accessible text label", accessibilityHint: "Read the text metadata", accessibilityValue: "Ready", accessibilityRole: Header)
                 }
             }
         }
@@ -502,26 +1066,84 @@ app ComponentParity {
 
     screen ButtonCases {
         state taps: Int32 = 0
-        Column(spacing: 12, padding: 16) {
+        state actionDisabled: Bool = false
+        state actionLoading: Bool = false
+        Column(spacing: 8, padding: 16) {
             Text("Button", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Style, size, shape, and state") {
-                Text("Enabled taps: $taps")
-                Button("Prominent", style: BorderedProminent, tint: "#E11D48") {
-                    taps = taps + 1
-                }
-                Button("Bordered", style: Bordered) {
-                    taps = taps + 1
-                }
-                Button("Plain", style: Plain) {
-                    taps = taps + 1
-                }
-                Button("Disabled", disabled: true)
-                Button("Loading", loading: true)
-                Button("Glass icon", comment: "Icon and glass style parity", icon: "star", glass: true, style: Bordered) {
-                    taps = taps + 1
-                }
-                Button("Large capsule", size: Large, shape: Capsule) {
-                    taps = taps + 1
+            ParityCard(title: "Button styles, dimensions, and states") {
+                Column(spacing: 6, alignment: Center) {
+                    Row(spacing: 6, alignment: Center) {
+                        Text("Taps: $taps")
+                        Button("Toggle states", style: Plain) {
+                            actionDisabled =!actionDisabled
+                            actionLoading =!actionLoading
+                        }
+                    }
+                    Row(spacing: 6, alignment: Center) {
+                        Button("Prominent", style: BorderedProminent, tint: "#E11D48") {
+                            taps = taps + 1
+                        }
+                        Button("Bordered", style: Bordered) {
+                            taps = taps + 1
+                        }
+                    }
+                    Row(spacing: 6, alignment: Center) {
+                        Button("Borderless", style: Borderless) {
+                            taps = taps + 1
+                        }
+                        Button("Plain", style: Plain) {
+                            taps = taps + 1
+                        }
+                    }
+                    Row(spacing: 6, alignment: Center) {
+                        Button("Small", style: Bordered, size: Small) {
+                            taps = taps + 1
+                        }
+                        Button("Regular", style: Bordered, size: Regular) {
+                            taps = taps + 1
+                        }
+                        Button("Large", style: Bordered, size: Large) {
+                            taps = taps + 1
+                        }
+                    }
+                    Row(spacing: 6, alignment: Center) {
+                        Button("", icon: "add", shape: Circle) {
+                            taps = taps + 1
+                        }
+                        Button("Capsule", shape: Capsule) {
+                            taps = taps + 1
+                        }
+                        Button("Rounded", shape: Rounded(12)) {
+                            taps = taps + 1
+                        }
+                    }
+                    Row(spacing: 6, alignment: Center) {
+                        Button("Glass icon", comment: "Icon and glass style parity", icon: "star", glass: true, style: Bordered) {
+                            taps = taps + 1
+                        }
+                        Button("Tinted plain", style: Plain, tint: "#7C3AED") {
+                            taps = taps + 1
+                        }
+                    }
+                    Row(spacing: 6, alignment: Center) {
+                        Button("Disabled", disabled: true) {
+                            taps = taps + 1
+                        }
+                        Button("Loading", loading: true) {
+                            taps = taps + 1
+                        }
+                    }
+                    Row(spacing: 6, alignment: Center) {
+                        Button("Dynamic disabled", disabled: actionDisabled) {
+                            taps = taps + 1
+                        }
+                        Button("Dynamic loading", loading: actionLoading) {
+                            taps = taps + 1
+                        }
+                    }
+                    Button("Enabled action") {
+                        taps = taps + 1
+                    }
                 }
             }
         }
@@ -652,38 +1274,198 @@ app ComponentParity {
     }
 
     screen SegmentedCases {
-        state segment: String = "Day"
+        state defaultSegment: String = "Day"
+        state tintOnlySegment: String = "Day"
+        state trackBackgroundSegment: String = "Day"
+        state springSegment: String = "Day"
+        state tweenSegment: String = "Day"
+        state paletteSegment: String = "Day"
+        state compactSegment: String = "Week"
+        state singleSegment: String = "Only"
+        state emptySegment: String = "Missing"
+        state invalidSegment: String = "Year"
         state choices: Array<String> = ["Day", "Week", "Month"]
-        Column(spacing: 12, padding: 16) {
-            Text("SegmentedControl", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Selection, widths, and longer labels") {
-                SegmentedControl(items: choices, selected: segment, comment: "Switch the visible date range", accessibilityLabel: "Time range")
-                Text("Selected: $segment")
+        state singleChoice: Array<String> = ["Only"]
+        state emptyChoices: Array<String> = []
+        KeyboardAware {
+            Column(spacing: 8, padding: 12) {
+                Text("SegmentedControl", fontSize: 28, fontWeight: Bold)
+                ParityCard(title: "Native segmented-control default style") {
+                    Text("No visual overrides · native platform styling", fontSize: 12, color: "#777780")
+                    SegmentedControl(
+                    items: choices,
+                    selected: defaultSegment,
+                    accessibilityLabel: "Native default range"
+                    )
+                    Text("Selected: $defaultSegment")
+                }
+                ParityCard(title: "Selected pill tint only") {
+                    Text("Selected pill #2563EB · no other overrides", fontSize: 12, color: "#777780")
+                    SegmentedControl(
+                    items: choices,
+                    selected: tintOnlySegment,
+                    tint: "#2563EB",
+                    accessibilityLabel: "Tint-only range"
+                    )
+                    Text("Selected: $tintOnlySegment")
+                }
+                ParityCard(title: "Track background only") {
+                    Text("Track color #E8EDF5", fontSize: 12, color: "#777780")
+                    SegmentedControl(
+                    items: choices,
+                    selected: trackBackgroundSegment,
+                    background: "#E8EDF5",
+                    accessibilityLabel: "Custom track background range"
+                    )
+                    Text("Selected: $trackBackgroundSegment")
+                }
+                ParityCard(title: "Color parameters") {
+                    Text("Track #E8EDF5 · selected #2563EB", fontSize: 12, color: "#777780")
+                    Text("Selected text #FFFFFF · other text #475569", fontSize: 12, color: "#777780")
+                    Text("Border #93C5FD · width 1", fontSize: 12, color: "#777780")
+                    SegmentedControl(
+                    items: choices,
+                    selected: paletteSegment,
+                    tint: "#2563EB",
+                    background: "#E8EDF5",
+                    selectedTextColor: "#FFFFFF",
+                    textColor: "#475569",
+                    borderColor: "#93C5FD",
+                    borderWidth: 1,
+                    accessibilityLabel: "Blue color range"
+                    )
+                    Text("Selected: $paletteSegment")
+                }
+                ParityCard(title: "Typography, height, shape, and border") {
+                    Text("Font 13 · Semibold · height 34 · radius 10 · border 2", fontSize: 12, color: "#777780")
+                    Text("Track #F2F4F7 · selected #FDE68A · border #CBD5E1", fontSize: 12, color: "#777780")
+                    Text("Selected text #111827 · other text #475569", fontSize: 12, color: "#777780")
+                    SegmentedControl(
+                    items: choices,
+                    selected: compactSegment,
+                    tint: "#FDE68A",
+                    background: "#F2F4F7",
+                    selectedTextColor: "#111827",
+                    textColor: "#475569",
+                    fontSize: 13,
+                    fontWeight: Semibold,
+                    height: 34,
+                    cornerRadius: 10,
+                    borderColor: "#CBD5E1",
+                    borderWidth: 2,
+                    accessibilityLabel: "Compact custom range"
+                    )
+                    Text("Selected: $compactSegment")
+                }
+                ParityCard(title: "Default, spring, and tween motion") {
+                    Text("Default platform motion", fontSize: 12, color: "#777780")
+                    SegmentedControl(items: ["Day", "Week", "Month"], selected: defaultSegment, comment: "Switch the visible date range", accessibilityLabel: "Default time range")
+                    Text("Default: $defaultSegment")
+                    Text("Custom spring motion", fontSize: 12, color: "#777780")
+                    SegmentedControl(items: choices, selected: springSegment, animation: Spring(response: 0.35, damping: 0.82), accessibilityLabel: "Spring time range")
+                    Text("Spring: $springSegment")
+                    Text("Custom tween motion", fontSize: 12, color: "#777780")
+                    SegmentedControl(items: choices, selected: tweenSegment, animation: Tween(duration: 0.24, easing: EaseOut), accessibilityLabel: "Tween time range")
+                    Text("Tween: $tweenSegment")
+                }
+                ParityCard(title: "Item and selection edge cases") {
+                    Text("One item")
+                    SegmentedControl(items: singleChoice, selected: singleSegment, accessibilityLabel: "Single option")
+                    Text("Single selection: $singleSegment")
+                    Text("No items")
+                    SegmentedControl(items: emptyChoices, selected: emptySegment, accessibilityLabel: "Empty options")
+                    Text("Empty selection: $emptySegment")
+                    Text("Selected value absent from items")
+                    SegmentedControl(items: choices, selected: invalidSegment, accessibilityLabel: "Missing selection")
+                    Text("Missing selection: $invalidSegment")
+                }
             }
         }
     }
 
     screen PickerCases {
-        state sort: String = "Due date"
-        state sortOptions: Array<String> = ["Due date", "Priority", "Title"]
+        state sort: String = Locale.localized("Due date")
+        state sortOptions: Array<String> = [
+            Locale.localized("Due date"),
+            Locale.localized("Priority"),
+            Locale.localized("Title")
+        ]
+        state labelOnlySort: String = Locale.localized("Priority")
+        state iconOnlySort: String = Locale.localized("Title")
+        state defaultSort: String = Locale.localized("Due date")
+        state rowIconSort: String = Locale.localized("Priority")
         Column(spacing: 12, padding: 16) {
             Text("Picker", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Selected value and custom label") {
                 Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Choose the task sort order")
                 Text("Selected: $sort")
             }
+            ParityCard(title: "Icon for each option") {
+                Picker(items: sortOptions, selected: rowIconSort, itemIcons: ["calendar", "flag_filled", "edit"], label: "Sort by", comment: "Choose an option with its own icon")
+                Text("Selected row icon: $rowIconSort")
+            }
+            ParityCard(title: "Label and comment without an icon or tint") {
+                Picker(items: sortOptions, selected: labelOnlySort, label: "Category", comment: "Choose a category")
+                Text("Selected label-only: $labelOnlySort")
+            }
+            ParityCard(title: "Tinted icon and comment without a label") {
+                Picker(items: sortOptions, selected: iconOnlySort, icon: "sort", tint: "#2563EB", comment: "Choose an icon-only sort")
+                Text("Selected icon-only: $iconOnlySort")
+            }
+            ParityCard(title: "Defaults with all optional parameters omitted") {
+                Picker(items: sortOptions, selected: defaultSort)
+                Text("Selected default: $defaultSort")
+            }
         }
     }
 
-    screen DatePickerCases {
-        state timestamp: Int64 = Time.now()
-        state includeTime: Bool = false
-        state dateAndTime: Bool = true
-        Column(spacing: 12, padding: 16) {
-            Text("DatePicker", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Date-only and date-with-time modes") {
-                DatePicker(timestamp: timestamp, hasTime: includeTime, accessibilityLabel: "Date only")
-                DatePicker(timestamp: timestamp, hasTime: dateAndTime, accessibilityLabel: "Date and time")
+    screen PickerDateCases {
+        state selectedDate: Int64 = 1792153800000
+        state boundedDate: Int64 = 1792153800000
+        state selectedTime: Int64 = 1792153800000
+        state selectedDateTime: Int64 = 1792153800000
+        state rangeStart: Int64 = 1791763200000
+        state rangeEnd: Int64 = 1792454400000
+        state earliestDate: Int64 = 1791763200000
+        state latestDate: Int64 = 1792454400000
+        Form(showDividers: false, background: "#FFFFFF") {
+            Section(title: "Date styles") {
+                Text("Range selection · one native calendar")
+                PickerDate(type: Date, style: Compact, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: earliestDate, maximum: latestDate, tint: "#2563EB", locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Compact travel dates")
+                Text("Default · inline graphical calendar")
+                PickerDate(type: Date, timestamp: selectedDate, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Due date")
+                Text("Automatic · explicit native style")
+                PickerDate(type: Date, style: Automatic, timestamp: selectedDate, locale: "en-GB")
+                Text("Graphical · inline calendar")
+                PickerDate(type: Date, style: Graphical, selection: Single, timestamp: boundedDate, minimum: earliestDate, maximum: latestDate, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Graphical due date")
+                Text("Wheel · native wheel on iOS, Material input on Android")
+                PickerDate(type: Date, style: Wheel, timestamp: selectedDate, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Wheel date")
+                Text("Input · date input style")
+                PickerDate(type: Date, style: Input, timestamp: selectedDate, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Date input")
+            }
+            Section(title: "Time and date-time") {
+                Text("Time · 24-hour display")
+                PickerDate(type: Time, style: Wheel, timestamp: selectedTime, is24Hour: true, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Appointment time")
+                Text("Input · time input style")
+                PickerDate(type: Time, style: Input, timestamp: selectedTime, is24Hour: false, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Time input")
+                Text("Input · date and time input style")
+                PickerDate(type: DateTime, style: Input, timestamp: selectedDateTime, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Date and time input")
+                Text("Date and time · compact presentation")
+                PickerDate(type: DateTime, style: Compact, timestamp: selectedDateTime, is24Hour: false, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Appointment date and time")
+                Text("Date · compact presentation")
+                PickerDate(type: Date, style: Compact, timestamp: selectedDate, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Compact date")
+            }
+            Section(title: "Date range") {
+                Text("Select a bounded date range")
+                PickerDate(type: Date, style: Graphical, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: earliestDate, maximum: latestDate, tint: "#2563EB", locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Travel dates")
+            }
+            Section(title: "Visual parameters and disabled state") {
+                Text("Accent, text, surfaces, border, and radius")
+                PickerDate(type: Date, style: Graphical, timestamp: boundedDate, minimum: earliestDate, maximum: latestDate, tint: "#7C3AED", textColor: "#172033", backgroundColor: "#F1F5F9", pickerBackgroundColor: "#FFFFFF", borderColor: "#CBD5E1", borderWidth: 1, cornerRadius: 16, locale: "fr-FR", timeZone: "Europe/Paris", accessibilityLabel: "Customized date picker")
+                Text("Disabled picker")
+                PickerDate(type: Date, style: Compact, timestamp: selectedDate, locale: "en-GB", timeZone: "Europe/Paris", enabled: false, accessibilityLabel: "Disabled date picker")
+                Text("Unbound picker uses its local selection")
+                PickerDate(type: Date, style: Compact, locale: "en-GB", timeZone: "Europe/Paris")
             }
         }
     }
@@ -691,52 +1473,77 @@ app ComponentParity {
     screen FormCases {
         Column(spacing: 12, padding: 16) {
             Text("Form and Section", fontSize: 28, fontWeight: Bold)
-            Form {
-                Section(title: "First group", footer: "First section footer", comment: "Grouped rows with explanatory footer") {
+            Form(showDividers: false, background: "#FFFFFF") {
+                Section(title: "First group", footer: "First section footer", comment: "Grouped rows with explanatory footer", showDividers: true, background: "#FFFFFF") {
                     Text("First row")
-                    Divider(color: "#8E8E93", thickness: 1)
                     Text("Second row")
                 }
                 Section(title: "Second group") {
-                    Text("One row")
+                    Text("First row without dividers")
+                    Text("Second row inherits hidden dividers")
                 }
             }
         }
     }
 
     screen EmptyCases {
+        state searchTitle: String = "No search results"
+        state inboxDescription: String = "Saved tasks will appear here."
         Column(spacing: 12, padding: 16) {
             Text("ContentUnavailable", fontSize: 28, fontWeight: Bold)
-            ContentUnavailable(title: "No saved tasks", icon: "inbox", description: "Saved tasks will appear here.", comment: "Empty state with supporting detail")
-            ContentUnavailable(title: "No search results", icon: "search", description: "Try a different keyword.")
+            ContentUnavailable(title: "No saved tasks", icon: "inbox", description: inboxDescription, titleColor: "#111111", descriptionColor: "#666666", iconTint: "#007AFF", background: "#F2F2F7", comment: "Custom empty-state colors")
+            ContentUnavailable(title: searchTitle, icon: "search")
+            Pressable(accessibilityLabel: "Toggle empty-state copy", accessibilityRole: Button) {
+                Stack(alignment: Center, width: 224, height: 48, background: "#F2F2F7", cornerRadius: 12) {
+                    Text("Toggle empty-state copy", fontSize: 14, color: "#111111")
+                }
+            }.onTap {
+                if searchTitle == "No search results" {
+                    searchTitle = "No results found for your current search"
+                    inboxDescription = "Your saved tasks will appear here once you add them to your inbox."
+                } else {
+                    searchTitle = "No search results"
+                    inboxDescription = "Saved tasks will appear here."
+                }
+            }
         }
     }
 
     screen ProgressBarCases {
+        state barUnderflow: Float64 = - 0.25
         state barZero: Float64 = 0.0
         state barMiddle: Float64 = 0.45
         state barFull: Float64 = 1.0
+        state barOverflow: Float64 = 1.25
         Column(spacing: 12, padding: 16) {
             Text("ProgressBar", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Zero, partial, and complete") {
-                ProgressBar(progress: barZero, accessibilityLabel: "No progress")
-                ProgressBar(progress: barMiddle, accessibilityLabel: "Partial progress")
-                ProgressBar(progress: barFull, accessibilityLabel: "Complete progress")
+            ParityCard(title: "Clamp below zero, partial, complete, and above one") {
+                Column(spacing: 12) {
+                    ProgressBar(progress: barUnderflow, accessibilityLabel: "Underflow clamps to zero")
+                    ProgressBar(progress: barZero, accessibilityLabel: "No progress")
+                    ProgressBar(progress: barMiddle, accessibilityLabel: "Partial progress")
+                    ProgressBar(progress: barFull, accessibilityLabel: "Complete progress")
+                    ProgressBar(progress: barOverflow, accessibilityLabel: "Overflow clamps to complete")
+                }
             }
         }
     }
 
     screen ProgressRingCases {
+        state ringUnderflow: Float64 = - 0.25
         state ringZero: Float64 = 0.0
         state ringMiddle: Float64 = 0.45
         state ringFull: Float64 = 1.0
+        state ringOverflow: Float64 = 1.25
         Column(spacing: 12, padding: 16) {
             Text("ProgressRing", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Zero, partial, and complete") {
-                Row(spacing: 24, alignment: Center) {
+            ParityCard(title: "Clamp below zero, partial, complete, and above one") {
+                Row(spacing: 16, alignment: Center) {
+                    ProgressRing(progress: ringUnderflow, accessibilityLabel: "Underflow clamps to zero")
                     ProgressRing(progress: ringZero, accessibilityLabel: "No progress")
                     ProgressRing(progress: ringMiddle, accessibilityLabel: "Partial progress")
                     ProgressRing(progress: ringFull, accessibilityLabel: "Complete progress")
+                    ProgressRing(progress: ringOverflow, accessibilityLabel: "Overflow clamps to complete")
                 }
             }
         }
@@ -745,46 +1552,91 @@ app ComponentParity {
     screen FastListCases {
         state listPosition: Int32 = 0
         state allowGridScroll: Bool = true
-        Column(spacing: 12, padding: 16) {
-            Text("FastList", fontSize: 28, fontWeight: Bold)
-            Text("Fixed row height: 56 dp")
-            FastList(count: 12, rowHeight: 56, spacing: 8, accessibilityLabel: "Component parity rows") {
-                index in
-                Row(spacing: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
-                    Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
-                    Text("Parity row \(index)")
+        state listPage: Int32 = 0
+        PagePager(selected: listPage, accessibilityLabel: "FastList cases") {
+            Tab(index: 0) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · vertical", fontSize: 24, fontWeight: Bold)
+                    Text("Fixed row height 56 dp · spacing 8 dp · 12 rows")
+                    FastList(count: 12, rowHeight: 56, spacing: 8, showDividers: false, accessibilityLabel: "Component parity rows") {
+                        index in
+                        Row(spacing: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
+                            Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                            Text("Parity row \(index)")
+                        }
+                    }
                 }
             }
-            FastList(count: 6, scrollPosition: listPosition, reverseLayout: true, accessibilityLabel: "Reversed rows") {
-                index in
-                Text("Reverse row \(index)")
-            }
-            FastList(count: 6, native: true, accessibilityLabel: "Native rows") {
-                index in
-                Text("Native row \(index)")
-            }
-            FastList(count: 4, axis: Horizontal, rowHeight: 96, spacing: 12, accessibilityLabel: "Horizontal rows") {
-                index in
-                Text("Horizontal row \(index)")
-            }
-            Text("Fixed two-column grid")
-            FastList(count: 6, axis: Grid(2), rowHeight: 92, spacing: 4, accessibilityLabel: "Fixed two-column grid") {
-                index in
-                Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
-                    Text("Fixed grid \(index)")
+            Tab(index: 1) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · reverse and position", fontSize: 24, fontWeight: Bold)
+                    Text("Scroll position: \(listPosition)")
+                    FastList(count: 24, scrollPosition: listPosition, reverseLayout: true, rowHeight: 48, spacing: 4, accessibilityLabel: "Reversed rows") {
+                        index in
+                        Text("Reverse row \(index)")
+                    }
                 }
             }
-            Text("Responsive grid with 160 dp minimum cells")
-            Switch(value: allowGridScroll, label: "Allow adaptive grid scrolling")
-            FastList(count: 6, axis: AutoGrid(160), rowHeight: 92, spacing: 4, scrollEnabled: allowGridScroll, accessibilityLabel: "Adaptive grid") {
-                index in
-                Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
-                    Text("Adaptive grid \(index)")
+            Tab(index: 2) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · native", fontSize: 24, fontWeight: Bold)
+                    Text("Platform-native vertical list rows")
+                    FastList(count: 12, native: true, showDividers: false, accessibilityLabel: "Native rows") {
+                        index in
+                        Text("Native row \(index)")
+                    }
                 }
             }
-            FastList(count: 3, pageSnap: true, accessibilityLabel: "Paged vertical rows") {
-                index in
-                Text("Page \(index)")
+            Tab(index: 3) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · horizontal", fontSize: 24, fontWeight: Bold)
+                    Text("Four 96 dp items with 12 dp spacing")
+                    Column(height: 128) {
+                        FastList(count: 4, axis: Horizontal, rowHeight: 96, spacing: 12, accessibilityLabel: "Horizontal rows") {
+                            index in
+                            Column(width: 120, height: 96, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
+                                Text("Horizontal row \(index)")
+                            }
+                        }
+                    }
+                }
+            }
+            Tab(index: 4) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · fixed grid", fontSize: 24, fontWeight: Bold)
+                    Text("Two columns · 92 dp cells · 4 dp spacing")
+                    FastList(count: 12, axis: Grid(2), rowHeight: 92, spacing: 4, accessibilityLabel: "Fixed two-column grid") {
+                        index in
+                        Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
+                            Text("Fixed grid \(index)")
+                        }
+                    }
+                }
+            }
+            Tab(index: 5) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · responsive grid", fontSize: 24, fontWeight: Bold)
+                    Text("Minimum cell width 160 dp · 92 dp cell height")
+                    Switch(value: allowGridScroll, label: "Allow adaptive grid scrolling")
+                    FastList(count: 12, axis: AutoGrid(160), rowHeight: 92, spacing: 4, scrollEnabled: allowGridScroll, accessibilityLabel: "Adaptive grid") {
+                        index in
+                        Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
+                            Text("Adaptive grid \(index)")
+                        }
+                    }
+                }
+            }
+            Tab(index: 6) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · page snap", fontSize: 24, fontWeight: Bold)
+                    Text("Swipe vertically to move one full viewport per page")
+                    FastList(count: 3, pageSnap: true, accessibilityLabel: "Paged vertical rows") {
+                        index in
+                        Column(padding: 24, background: "#E8F0FF", cornerRadius: 16) {
+                            Text("Page \(index)", fontSize: 28, fontWeight: Bold)
+                        }
+                    }
+                }
             }
         }
     }
@@ -969,6 +1821,7 @@ app ComponentParity {
     screen SheetCases {
         state sheetPresented: Bool = false
         state largeSheetPresented: Bool = false
+        state noHandleSheetPresented: Bool = false
         Column(spacing: 12, padding: 16) {
             Text("BottomSheet", fontSize: 28, fontWeight: Bold)
             Button("Open partial sheet") {
@@ -976,6 +1829,9 @@ app ComponentParity {
             }
             Button("Open large-only sheet") {
                 largeSheetPresented = true
+            }
+            Button("Open sheet without drag handle") {
+                noHandleSheetPresented = true
             }
             BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet") {
                 Toolbar(placement: Trailing) {
@@ -998,6 +1854,14 @@ app ComponentParity {
                     Text("Large-only sheet content")
                     Button("Dismiss") {
                         largeSheetPresented = false
+                    }
+                }
+            }
+            BottomSheet(isPresented: noHandleSheetPresented, partial: true, title: "No drag handle", showDragHandle: false) {
+                Column(spacing: 12, padding: 24) {
+                    Text("The native drag handle is hidden")
+                    Button("Dismiss") {
+                        noHandleSheetPresented = false
                     }
                 }
             }
@@ -1044,12 +1908,12 @@ app ComponentParity {
         Column(spacing: 12, padding: 16) {
             Text("Appearance", fontSize: 28, fontWeight: Bold)
             Appearance(mode: "light") {
-                Column(spacing: 8, padding: 12, cornerRadius: 16) {
+                Column(spacing: 8, padding: 12, cornerRadius: 16, background: "#F2F2F7") {
                     Text("Light appearance surface")
                 }
             }
             Appearance(mode: "dark") {
-                Column(spacing: 8, padding: 12, cornerRadius: 16) {
+                Column(spacing: 8, padding: 12, cornerRadius: 16, background: "#1C1C1E") {
                     Text("Dark appearance surface")
                 }
             }
@@ -1101,13 +1965,16 @@ app ComponentParity {
     screen DirectionCases {
         Column(spacing: 12, padding: 16) {
             Text("Direction", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Explicit left-to-right app environment") {
-                Text("The app pins LTR to make paired layout screenshots deterministic.")
+            ParityCard(title: "Layout follows the app direction") {
+                Text("Leading and trailing adapt to the app's layout direction.")
                 Row(spacing: 12, padding: 12, background: "#F2F2F7", cornerRadius: 12) {
                     Text("Leading")
                     Spacer()
                     Text("Trailing")
                 }
+            }
+            NavigationLink(destination: NavigationBackCases) {
+                Text("Open nested navigation level")
             }
         }
     }
@@ -1123,6 +1990,6 @@ app ComponentParity {
             appBackgroundEntries = appBackgroundEntries + 1
         }
         Direction(value: LTR)
-        NavigationStack(root: Catalog)
+        NavigationStack(root: Catalog, titleMode: Inline, titleAlignment: Automatic)
     }
 }

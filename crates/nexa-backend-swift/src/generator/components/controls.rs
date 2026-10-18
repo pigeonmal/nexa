@@ -1,8 +1,8 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
-    Action, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node,
-    SystemIcon, TaskExecutor,
+    Action, AnimationEasing, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle,
+    Module, Node, SystemIcon, TaskExecutor,
 };
 
 use crate::generator::{
@@ -259,18 +259,81 @@ pub(crate) fn render_progress_ring(progress: &nexa_ir::Expr, depth: usize, out: 
     );
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct SegmentedControlStyle<'a> {
+    pub tint: Option<&'a nexa_ir::ColorExpression>,
+    pub background: Option<&'a nexa_ir::ColorExpression>,
+    pub text_color: Option<&'a nexa_ir::ColorExpression>,
+    pub selected_text_color: Option<&'a nexa_ir::ColorExpression>,
+    pub font_size: Option<f32>,
+    pub font_weight: Option<nexa_ir::FontWeight>,
+    pub height: Option<f32>,
+    pub corner_radius: Option<f32>,
+    pub border_color: Option<&'a nexa_ir::ColorExpression>,
+    pub border_width: Option<f32>,
+}
+
 pub(crate) fn render_segmented_control(
     items: &nexa_ir::Expr,
     state: &str,
+    animation: Option<AnimationSpec>,
+    style: SegmentedControlStyle<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let animation = animation.map_or_else(|| "nil".to_owned(), swift_animation);
+    let color = |value: Option<&nexa_ir::ColorExpression>| {
+        value.map_or_else(
+            || "nil".to_owned(),
+            crate::generator::colors::expression_for_color,
+        )
+    };
+    let tint = color(style.tint);
+    let background = color(style.background);
+    let text_color = color(style.text_color);
+    let selected_text_color = color(style.selected_text_color);
+    let font_size = style
+        .font_size
+        .map_or_else(|| "nil".to_owned(), |value| format!("{value}"));
+    let font_weight = style.font_weight.map_or_else(
+        || "nil".to_owned(),
+        |weight| {
+            match weight {
+                nexa_ir::FontWeight::Normal => ".regular",
+                nexa_ir::FontWeight::Medium => ".medium",
+                nexa_ir::FontWeight::Semibold => ".semibold",
+                nexa_ir::FontWeight::Bold => ".bold",
+            }
+            .to_owned()
+        },
+    );
+    let height = style
+        .height
+        .map_or_else(|| "nil".to_owned(), |value| format!("{value}"));
+    let corner_radius = style
+        .corner_radius
+        .map_or_else(|| "nil".to_owned(), |value| format!("{value}"));
+    let border_color = color(style.border_color);
+    let border_width = style
+        .border_width
+        .map_or_else(|| "nil".to_owned(), |value| format!("{value}"));
     out.line_at(
         depth,
         format_args!(
-            "NexaSegmentedControlPrimitive(items: {}, selection: ${})",
+            "NexaSegmentedControlPrimitive(items: {}, selection: ${}, animation: {}, tint: {}, background: {}, textColor: {}, selectedTextColor: {}, fontSize: {}, fontWeight: {}, height: {}, cornerRadius: {}, borderColor: {}, borderWidth: {})",
             expression(items),
             state_name(state),
+            animation,
+            tint,
+            background,
+            text_color,
+            selected_text_color,
+            font_size,
+            font_weight,
+            height,
+            corner_radius,
+            border_color,
+            border_width,
         ),
     );
 }
@@ -278,6 +341,7 @@ pub(crate) fn render_segmented_control(
 #[derive(Default)]
 pub(crate) struct PickerOptions<'a> {
     pub icon: Option<&'a SystemIcon>,
+    pub item_icons: &'a [SystemIcon],
     pub label: Option<&'a nexa_ir::Expr>,
     pub tint: Option<&'a nexa_ir::ColorExpression>,
     pub comment: Option<&'a str>,
@@ -292,6 +356,7 @@ pub(crate) fn render_picker(
 ) {
     let PickerOptions {
         icon,
+        item_icons,
         label,
         tint,
         comment,
@@ -301,6 +366,11 @@ pub(crate) fn render_picker(
         || "nil".to_owned(),
         |icon| swift_string(&icon.sf_symbol_name()),
     );
+    let item_icons = item_icons
+        .iter()
+        .map(|icon| swift_string(&icon.sf_symbol_name()))
+        .collect::<Vec<_>>()
+        .join(", ");
     let tint = tint.map_or_else(
         || "nil".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -309,7 +379,7 @@ pub(crate) fn render_picker(
     out.line_at(
         depth,
         format_args!(
-            "NexaPickerPrimitive(selection: ${selected}, items: {}, icon: {icon}, tint: {tint}, hasLabel: {has_label}) {{",
+            "NexaPickerPrimitive(selection: ${selected}, items: {}, itemIcons: [{item_icons}], icon: {icon}, tint: {tint}, hasLabel: {has_label}) {{",
             expression(items),
         ),
     );
@@ -327,18 +397,157 @@ pub(crate) fn render_picker(
     out.line_at(depth, format_args!("}}"));
 }
 
-pub(crate) fn render_date_picker(
-    timestamp_state: &str,
-    has_time_state: &str,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    let timestamp = state_name(timestamp_state);
-    let has_time = state_name(has_time_state);
+pub(crate) fn render_picker_date(node: &Node, depth: usize, out: &mut SourceWriter) {
+    let Node::PickerDate { props } = node else {
+        return;
+    };
+    let nexa_ir::PickerDateProps {
+        picker_type,
+        style,
+        selection,
+        timestamp_state,
+        start_timestamp_state,
+        end_timestamp_state,
+        minimum,
+        maximum,
+        tint,
+        text_color,
+        background_color,
+        picker_background_color,
+        border_color,
+        border_width,
+        corner_radius,
+        locale,
+        time_zone,
+        is_24_hour,
+        enabled,
+        accessibility_label,
+    } = props.as_ref();
+    let kind = match picker_type {
+        nexa_ir::PickerDateType::Date => "Date",
+        nexa_ir::PickerDateType::Time => "Time",
+        nexa_ir::PickerDateType::DateTime => "DateTime",
+    };
+    let style = match style {
+        nexa_ir::PickerDateStyle::Automatic => "Automatic",
+        nexa_ir::PickerDateStyle::Graphical => "Graphical",
+        nexa_ir::PickerDateStyle::Compact => "Compact",
+        nexa_ir::PickerDateStyle::Input => "Input",
+        nexa_ir::PickerDateStyle::Wheel => "Wheel",
+    };
+    let selection = match selection {
+        nexa_ir::PickerDateSelection::Single => "Single",
+        nexa_ir::PickerDateSelection::Range => "Range",
+    };
+    let binding = |state: &Option<String>| {
+        state
+            .as_deref()
+            .map_or_else(|| "nil".to_owned(), |name| format!("${}", state_name(name)))
+    };
+    let optional_expr = |value: Option<&Expr>| value.map_or_else(|| "nil".to_owned(), expression);
+    let color = |value: Option<&nexa_ir::ColorExpression>| {
+        value.map_or_else(
+            || "nil".to_owned(),
+            crate::generator::colors::expression_for_color,
+        )
+    };
+    let optional_float =
+        |value: Option<f32>| value.map_or_else(|| "nil".to_owned(), |v| format!("{v}"));
+
+    out.line_at(depth, format_args!("NexaDatePickerPrimitive("));
     out.line_at(
-        depth,
-        format_args!("NexaDatePickerPrimitive(timestamp: ${timestamp}, includesTime: ${has_time})"),
+        depth + 1,
+        format_args!("timestamp: {},", binding(timestamp_state)),
     );
+    out.line_at(
+        depth + 1,
+        format_args!("startTimestamp: {},", binding(start_timestamp_state)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("endTimestamp: {},", binding(end_timestamp_state)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "pickerType: {},",
+            crate::generator::engine::utils::swift_string(kind)
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "style: {},",
+            crate::generator::engine::utils::swift_string(style)
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "selection: {},",
+            crate::generator::engine::utils::swift_string(selection)
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("minimum: {},", optional_expr(minimum.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("maximum: {},", optional_expr(maximum.as_ref())),
+    );
+    out.line_at(depth + 1, format_args!("tint: {},", color(tint.as_ref())));
+    out.line_at(
+        depth + 1,
+        format_args!("textColor: {},", color(text_color.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("backgroundColor: {},", color(background_color.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "pickerBackgroundColor: {},",
+            color(picker_background_color.as_ref())
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("borderColor: {},", color(border_color.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("borderWidth: {},", optional_float(*border_width)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("cornerRadius: {},", optional_float(*corner_radius)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("localeIdentifier: {},", optional_expr(locale.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("timeZoneIdentifier: {},", optional_expr(time_zone.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("is24Hour: {},", optional_expr(is_24_hour.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("enabled: {},", optional_expr(enabled.as_ref())),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "accessibilityLabel: {},",
+            optional_expr(accessibility_label.as_ref())
+        ),
+    );
+    out.line_at(depth, format_args!(")"));
 }
 
 pub(crate) fn render_pressable(
@@ -887,16 +1096,47 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
     }
 }
 
-fn swift_animation(animation: AnimationSpec) -> String {
+pub(crate) fn swift_animation(animation: AnimationSpec) -> String {
     match animation {
         AnimationSpec::Spring { response, damping } => {
-            format!(".spring(response: {response}, dampingFraction: {damping})")
+            let physics = nexa_codegen::animation::spring_physics(response, damping);
+            format!(
+                ".interpolatingSpring(mass: 1, stiffness: {}, damping: {}, initialVelocity: 0)",
+                physics.stiffness, physics.damping_coefficient
+            )
         }
-        AnimationSpec::EaseIn => ".easeIn".to_owned(),
-        AnimationSpec::EaseOut => ".easeOut".to_owned(),
-        AnimationSpec::EaseInOut => ".easeInOut".to_owned(),
-        AnimationSpec::Linear => ".linear".to_owned(),
+        AnimationSpec::Tween {
+            duration,
+            delay,
+            easing,
+        } => swift_tween(duration, easing, delay),
+        AnimationSpec::EaseIn => swift_tween(0.3, AnimationEasing::EaseIn, 0.0),
+        AnimationSpec::EaseOut => swift_tween(0.3, AnimationEasing::EaseOut, 0.0),
+        AnimationSpec::EaseInOut => swift_tween(0.3, AnimationEasing::EaseInOut, 0.0),
+        AnimationSpec::Linear => swift_tween(0.3, AnimationEasing::Linear, 0.0),
     }
+}
+
+fn swift_tween(duration: f64, easing: AnimationEasing, delay: f64) -> String {
+    let mut animation = match easing {
+        AnimationEasing::Linear => format!(".linear(duration: {duration})"),
+        AnimationEasing::EaseIn => {
+            format!(".timingCurve(0.4, 0.0, 1.0, 1.0, duration: {duration})")
+        }
+        AnimationEasing::EaseOut => {
+            format!(".timingCurve(0.0, 0.0, 0.2, 1.0, duration: {duration})")
+        }
+        AnimationEasing::EaseInOut => {
+            format!(".timingCurve(0.4, 0.0, 0.2, 1.0, duration: {duration})")
+        }
+        AnimationEasing::CubicBezier { x1, y1, x2, y2 } => {
+            format!(".timingCurve({x1}, {y1}, {x2}, {y2}, duration: {duration})")
+        }
+    };
+    if delay > 0.0 {
+        animation.push_str(&format!(".delay({delay})"));
+    }
+    animation
 }
 
 fn render_swift_error_catches(
@@ -976,14 +1216,17 @@ mod tests {
     };
 
     use super::{
-        PickerOptions, render_actions, render_button, render_date_picker, render_picker,
-        render_progress_bar, render_progress_ring, render_slider,
+        PickerOptions, render_actions, render_button, render_picker, render_progress_bar,
+        render_progress_ring, render_slider,
     };
 
     #[test]
     fn icon_picker_uses_the_selected_dynamic_tint() {
         let items = Expr::Array(vec![Expr::String("High".to_owned())]);
-        let tint = ColorExpression::Dynamic(Expr::State("priorityTint".to_owned(), Type::String));
+        let tint = ColorExpression::Dynamic(Box::new(Expr::State(
+            "priorityTint".to_owned(),
+            Type::String,
+        )));
         let mut output = SourceWriter::new();
 
         render_picker(
@@ -991,6 +1234,7 @@ mod tests {
             "priority",
             PickerOptions {
                 icon: Some(&SystemIcon::Shared("flag_filled".to_owned())),
+                item_icons: &[],
                 label: None,
                 tint: Some(&tint),
                 comment: None,
@@ -1000,21 +1244,40 @@ mod tests {
         );
 
         assert!(output.contains(
-            "NexaPickerPrimitive(selection: $nexa_priority, items: [\"High\"], icon: \"flag.fill\", tint: nexaColor(hex: nexa_priorityTint), hasLabel: false) {"
+            "NexaPickerPrimitive(selection: $nexa_priority, items: [\"High\"], itemIcons: [], icon: \"flag.fill\", tint: nexaColor(hex: nexa_priorityTint), hasLabel: false) {"
         ));
         assert!(output.contains("EmptyView()"));
     }
 
     #[test]
-    fn date_pickers_use_the_shared_native_primitive() {
+    fn picker_generates_icons_for_each_menu_row() {
+        let items = Expr::Array(vec![
+            Expr::String("Due date".to_owned()),
+            Expr::String("Priority".to_owned()),
+            Expr::String("Title".to_owned()),
+        ]);
+        let item_icons = vec![
+            SystemIcon::Shared("calendar".to_owned()),
+            SystemIcon::Shared("flag_filled".to_owned()),
+            SystemIcon::Shared("edit".to_owned()),
+        ];
         let mut output = SourceWriter::new();
 
-        render_date_picker("dueAt", "includeTime", 0, &mut output);
-
-        assert_eq!(
-            output.as_str().trim(),
-            "NexaDatePickerPrimitive(timestamp: $nexa_dueAt, includesTime: $nexa_includeTime)"
+        render_picker(
+            &items,
+            "priority",
+            PickerOptions {
+                icon: None,
+                item_icons: &item_icons,
+                label: Some(&Expr::String("Priority".to_owned())),
+                tint: None,
+                comment: None,
+            },
+            0,
+            &mut output,
         );
+
+        assert!(output.contains("itemIcons: [\"calendar\", \"flag.fill\", \"pencil\"]"));
     }
 
     #[test]

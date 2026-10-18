@@ -19,6 +19,7 @@ struct SectionedPieces<'a> {
     collection: &'a Expr,
     element_type: &'a nexa_ir::Type,
     native: bool,
+    show_dividers: bool,
     item_extent: Option<f32>,
     spacing: f32,
     scroll_enabled: Option<&'a Expr>,
@@ -33,6 +34,10 @@ struct SectionedPieces<'a> {
 }
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    imports.add(
+        features.facts.ui.lists.refresh_fused,
+        "androidx.compose.material3.pulltorefresh.PullToRefreshBox",
+    );
     imports.add(features.uses_fast_list, "androidx.compose.ui.Modifier");
     imports.add(features.uses_fast_list, "androidx.compose.ui.Alignment");
     imports.add(
@@ -125,6 +130,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_horizontal_list,
         "androidx.compose.foundation.lazy.LazyRow",
+    );
+    imports.add(
+        features.uses_horizontal_list,
+        "androidx.compose.ui.input.nestedscroll.nestedScroll",
     );
     imports.add(
         features.uses_grid_list,
@@ -250,6 +259,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 struct FlatPieces<'a> {
     axis: ListAxis,
     native: bool,
+    show_dividers: bool,
     count: FlatCount<'a>,
     index: &'a str,
     item: Option<&'a str>,
@@ -291,8 +301,12 @@ enum FlatCount<'a> {
     },
 }
 
-fn scroll_enabled_expression(state: &str, enabled: Option<&Expr>) -> String {
-    let scroll_range = format!("({state}.canScrollForward || {state}.canScrollBackward)");
+fn scroll_enabled_expression(state: &str, enabled: Option<&Expr>, refresh_enabled: bool) -> String {
+    let scroll_range = if refresh_enabled {
+        "true".to_owned()
+    } else {
+        format!("({state}.canScrollForward || {state}.canScrollBackward)")
+    };
     enabled.map_or(scroll_range.clone(), |value| {
         format!("{scroll_range} && {}", expression(value))
     })
@@ -321,6 +335,7 @@ pub(crate) fn render_virtualized_list(
                     collection,
                     element_type,
                     native: common.native,
+                    show_dividers: common.show_dividers,
                     item_extent: common.item_extent,
                     spacing: common.spacing,
                     scroll_enabled: common.scroll_enabled.as_ref(),
@@ -342,6 +357,7 @@ pub(crate) fn render_virtualized_list(
         ListPlan::Count { count, common } => FlatPieces {
             axis: common.axis,
             native: common.native,
+            show_dividers: common.show_dividers,
             count: FlatCount::Count(count),
             index: &common.index,
             item: None,
@@ -368,6 +384,7 @@ pub(crate) fn render_virtualized_list(
         } => FlatPieces {
             axis: common.axis,
             native: common.native,
+            show_dividers: common.show_dividers,
             count: FlatCount::Items {
                 collection,
                 element_type,
@@ -441,7 +458,10 @@ pub(crate) fn render_virtualized_list(
     let spacing = format_float(pieces.spacing);
     let container = if pieces.axis == ListAxis::Horizontal {
         let scroll_state = list_state.as_deref().unwrap_or_default();
-        let mut arguments = vec!["modifier = Modifier.fillMaxWidth()".to_owned()];
+        let mut arguments = vec![
+            "modifier = Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary)"
+                .to_owned(),
+        ];
         if pieces.spacing > 0.0 {
             arguments.push(format!(
                 "horizontalArrangement = Arrangement.spacedBy({spacing}.dp)"
@@ -450,7 +470,11 @@ pub(crate) fn render_virtualized_list(
         arguments.extend(state_argument);
         arguments.push(format!(
             "userScrollEnabled = {}",
-            scroll_enabled_expression(scroll_state, pieces.scroll_enabled)
+            scroll_enabled_expression(
+                scroll_state,
+                pieces.scroll_enabled,
+                pieces.refresh.is_some(),
+            )
         ));
         format!("LazyRow({})", arguments.join(", "))
     } else {
@@ -469,7 +493,11 @@ pub(crate) fn render_virtualized_list(
         let scroll_state = list_state.as_deref().unwrap_or_default();
         arguments.push(format!(
             "userScrollEnabled = {}",
-            scroll_enabled_expression(scroll_state, pieces.scroll_enabled)
+            scroll_enabled_expression(
+                scroll_state,
+                pieces.scroll_enabled,
+                pieces.refresh.is_some(),
+            )
         ));
         if pieces.reverse_layout {
             arguments.push("reverseLayout = true".to_owned());
@@ -601,20 +629,25 @@ pub(crate) fn render_virtualized_list(
     if pieces.axis == ListAxis::Vertical {
         out.push('\n');
         if pieces.native {
-            out.line_at(
-                list_depth + 3,
-                format_args!(
-                    "if ({} + 1 < {native_list_count}) NexaNativeListDividerPrimitive()",
-                    state_name(pieces.index)
-                ),
-            );
-            out.push('\n');
+            if pieces.show_dividers {
+                out.line_at(
+                    list_depth + 3,
+                    format_args!(
+                        "if ({} + 1 < {native_list_count}) NexaNativeListDividerPrimitive()",
+                        state_name(pieces.index)
+                    ),
+                );
+                out.push('\n');
+            }
             indent(out, list_depth + 2);
             out.push('}');
-        } else {
+        } else if pieces.show_dividers {
             out.line_at(
                 list_depth + 2,
-                format_args!("NexaFastListDividerPrimitive()"),
+                format_args!(
+                    "if ({} + 1 < {native_list_count}) NexaFastListDividerPrimitive()",
+                    state_name(pieces.index)
+                ),
             );
         }
     }
@@ -662,7 +695,7 @@ fn render_page_snap_list(
         list_depth + 1,
         format_args!(
             "userScrollEnabled = {},",
-            scroll_enabled_expression(list_state, pieces.scroll_enabled)
+            scroll_enabled_expression(list_state, pieces.scroll_enabled, pieces.refresh.is_some(),)
         ),
     );
     out.line_at(
@@ -735,6 +768,7 @@ fn render_sectioned_list(
         collection,
         element_type,
         native,
+        show_dividers,
         item_extent,
         spacing,
         scroll_enabled,
@@ -763,6 +797,7 @@ fn render_sectioned_list(
     let list_depth = render_refresh_open(refresh, depth, out);
     indent(out, list_depth);
     out.push_str(&format!("LazyColumn(state = {list_state}, "));
+    out.push_str(&format!("modifier = {}, ", sectioned_list_modifier(native)));
     if spacing > 0.0 {
         out.push_str(&format!(
             "verticalArrangement = Arrangement.spacedBy({}.dp), ",
@@ -771,11 +806,8 @@ fn render_sectioned_list(
     }
     out.push_str(&format!(
         "userScrollEnabled = {}",
-        scroll_enabled_expression(&list_state, scroll_enabled)
+        scroll_enabled_expression(&list_state, scroll_enabled, refresh.is_some())
     ));
-    if native {
-        out.push_str(", modifier = NexaNativeListContainerModifier()");
-    }
     out.push_str(") {\n");
     out.line_at(
         list_depth + 1,
@@ -874,15 +906,25 @@ fn render_sectioned_list(
     );
     out.push('\n');
     if native {
+        if show_dividers {
+            out.line_at(
+                list_depth + 4,
+                format_args!(
+                    "if (itemPosition + 1 < sectionItems.size) NexaNativeListDividerPrimitive()"
+                ),
+            );
+            out.push('\n');
+        }
+        indent(out, list_depth + 3);
+        out.push_str("}\n");
+    } else if show_dividers {
         out.line_at(
-            list_depth + 4,
+            list_depth + 3,
             format_args!(
-                "if (itemPosition + 1 < sectionItems.size) NexaNativeListDividerPrimitive()"
+                "if (itemPosition + 1 < sectionItems.size) NexaFastListDividerPrimitive()"
             ),
         );
         out.push('\n');
-        indent(out, list_depth + 3);
-        out.push_str("}\n");
     }
     indent(out, list_depth + 2);
     out.push_str("}\n");
@@ -945,7 +987,11 @@ fn render_grid_list(
         list_depth,
         format_args!(
             "LazyVerticalGrid({state_parameter}userScrollEnabled = {}, columns = {grid_cells}{}{}) {{",
-            scroll_enabled_expression(scroll_state, pieces.scroll_enabled),
+            scroll_enabled_expression(
+                scroll_state,
+                pieces.scroll_enabled,
+                pieces.refresh.is_some(),
+            ),
             if pieces.spacing > 0.0 {
                 format!(", horizontalArrangement = Arrangement.spacedBy({spacing}.dp)")
             } else {
@@ -1216,7 +1262,14 @@ fn render_list_observers(
             out.line_at(depth + 2, format_args!("if (firstVisiblePosition >= 0) {{"));
             indent(out, depth + 3);
         } else {
-            out.line_at(depth + 1, format_args!("snapshotFlow {{ {list_state}.firstVisibleItemIndex }}.distinctUntilChanged().collect {{ firstVisiblePosition ->"
+            let first_visible_expression = if pieces.reverse_layout {
+                format!(
+                    "{list_state}.layoutInfo.visibleItemsInfo.maxOfOrNull {{ it.index }} ?: {list_state}.firstVisibleItemIndex"
+                )
+            } else {
+                format!("{list_state}.firstVisibleItemIndex")
+            };
+            out.line_at(depth + 1, format_args!("snapshotFlow {{ {first_visible_expression} }}.distinctUntilChanged().collect {{ firstVisiblePosition ->"
             ));
             indent(out, depth + 2);
         }
@@ -1274,6 +1327,8 @@ fn render_list_observers(
             out.line_at(depth + 1, format_args!("val target = {target}"));
             let current_position = if pieces.page_snap {
                 format!("{list_state}.settledPage")
+            } else if pieces.reverse_layout {
+                format!("{list_state}.layoutInfo.visibleItemsInfo.maxOfOrNull {{ it.index }} ?: -1")
             } else {
                 format!("{list_state}.firstVisibleItemIndex")
             };
@@ -1559,6 +1614,14 @@ fn format_float(value: f32) -> String {
     formatted
 }
 
+fn sectioned_list_modifier(native: bool) -> &'static str {
+    if native {
+        "NexaNativeListContainerModifier()"
+    } else {
+        "Modifier.fillMaxWidth()"
+    }
+}
+
 fn render_key(
     key: &Expr,
     index: &str,
@@ -1621,4 +1684,34 @@ fn replace_identifier(source: &str, identifier: &str, replacement: &str) -> Stri
     }
     result.push_str(&source[cursor..]);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_ir::Expr;
+
+    use super::{scroll_enabled_expression, sectioned_list_modifier};
+
+    #[test]
+    fn sectioned_lists_expand_to_the_available_width_in_both_modes() {
+        assert_eq!(sectioned_list_modifier(false), "Modifier.fillMaxWidth()");
+        assert_eq!(
+            sectioned_list_modifier(true),
+            "NexaNativeListContainerModifier()"
+        );
+    }
+
+    #[test]
+    fn refreshable_short_lists_keep_gesture_dispatch_enabled() {
+        assert_eq!(scroll_enabled_expression("state", None, true), "true");
+        assert_eq!(
+            scroll_enabled_expression("state", Some(&Expr::Bool(false)), true),
+            "true && false",
+            "an explicit scrollEnabled=false still disables list gestures"
+        );
+        assert_eq!(
+            scroll_enabled_expression("state", None, false),
+            "(state.canScrollForward || state.canScrollBackward)"
+        );
+    }
 }

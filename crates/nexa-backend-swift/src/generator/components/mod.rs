@@ -10,6 +10,7 @@ pub(crate) struct RenderScope<'a> {
 }
 
 pub(crate) mod accessibility;
+pub(crate) mod appearance;
 pub(crate) mod bottom_bar;
 pub(crate) mod content_unavailable;
 pub(crate) mod controls;

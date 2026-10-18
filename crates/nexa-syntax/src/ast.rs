@@ -483,6 +483,7 @@ pub enum Node {
         then_body: Vec<Node>,
         else_body: Option<Vec<Node>>,
         transition: Option<ViewTransition>,
+        transition_animation: Option<Expr>,
         span: Span,
     },
     When {
@@ -490,6 +491,7 @@ pub enum Node {
         cases: Vec<WhenCase>,
         else_body: Vec<Node>,
         transition: Option<ViewTransition>,
+        transition_animation: Option<Expr>,
         span: Span,
     },
     ComponentCall {
@@ -647,6 +649,7 @@ pub struct TabDecl {
 #[derive(Clone, Debug, Default)]
 pub struct LayoutStyle {
     pub alignment: Option<Expr>,
+    pub horizontal_arrangement: Option<Expr>,
     pub padding: Option<Expr>,
     pub width: Option<Expr>,
     pub height: Option<Expr>,

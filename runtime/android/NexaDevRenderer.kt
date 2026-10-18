@@ -16,12 +16,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -52,7 +46,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -65,24 +58,18 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.Icons
 __NEXA_SHARED_ICON_AUTO_MIRRORED_IMPORTS__
@@ -188,6 +175,12 @@ __NEXA_SHARED_ICON_MATERIAL_CASES__
     else -> Icons.Filled.Star
 }
 
+private fun nexaDevIconAccessibilityLabel(name: String): String = name
+    .split('_')
+    .filter(String::isNotEmpty)
+    .joinToString(" ") { part -> part.replaceFirstChar(Char::uppercase) }
+    .ifBlank { "Icon" }
+
 private fun nexaDevSfAliasMaterialIcon(name: String) = when (name) {
 __NEXA_SHARED_ICON_SF_ALIAS_CASES__
     else -> null
@@ -219,6 +212,42 @@ private fun nexaDevFormRowButton(node: JSONObject): JSONObject =
 
 private fun JSONObject.nexaDevTransition(): String =
     opt("transition")?.takeUnless { it === JSONObject.NULL }?.toString().orEmpty()
+
+private fun nexaDevContentTransform(
+    transition: String,
+    floatAnimation: androidx.compose.animation.core.FiniteAnimationSpec<Float>?,
+    offsetAnimation: androidx.compose.animation.core.FiniteAnimationSpec<androidx.compose.ui.unit.IntOffset>?,
+): androidx.compose.animation.ContentTransform {
+    val enter = when (transition) {
+        "Fade" -> floatAnimation?.let { fadeIn(animationSpec = it) } ?: fadeIn()
+        "SlideFromBottom" -> offsetAnimation?.let { spec ->
+            slideInVertically(animationSpec = spec) { height -> height }
+        } ?: slideInVertically { height -> height }
+        "SlideFromLeft" -> offsetAnimation?.let { spec ->
+            slideInHorizontally(animationSpec = spec) { width -> -width }
+        } ?: slideInHorizontally { width -> -width }
+        "SlideFromRight" -> offsetAnimation?.let { spec ->
+            slideInHorizontally(animationSpec = spec) { width -> width }
+        } ?: slideInHorizontally { width -> width }
+        "Scale" -> floatAnimation?.let { scaleIn(animationSpec = it) } ?: scaleIn()
+        else -> fadeIn()
+    }
+    val exit = when (transition) {
+        "Fade" -> floatAnimation?.let { fadeOut(animationSpec = it) } ?: fadeOut()
+        "SlideFromBottom" -> offsetAnimation?.let { spec ->
+            slideOutVertically(animationSpec = spec) { height -> height }
+        } ?: slideOutVertically { height -> height }
+        "SlideFromLeft" -> offsetAnimation?.let { spec ->
+            slideOutHorizontally(animationSpec = spec) { width -> width }
+        } ?: slideOutHorizontally { width -> width }
+        "SlideFromRight" -> offsetAnimation?.let { spec ->
+            slideOutHorizontally(animationSpec = spec) { width -> -width }
+        } ?: slideOutHorizontally { width -> -width }
+        "Scale" -> floatAnimation?.let { scaleOut(animationSpec = it) } ?: scaleOut()
+        else -> fadeOut()
+    }
+    return enter togetherWith exit
+}
 
 private fun JSONObject.nexaDevOptionalString(name: String): String? =
     opt(name)?.takeUnless { it === JSONObject.NULL }?.toString()
@@ -278,7 +307,7 @@ internal fun NexaDevNodeList(
     when (nodes.length()) {
         0 -> Unit
         1 -> NexaDevNode(nexaDevNodeObject(nodes.opt(0)), module, store, locals, scope, modifier)
-        else -> Column(
+        else -> NexaColumnPrimitive(
             modifier = modifier,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -356,7 +385,13 @@ internal fun ColumnScope.RenderColumnChildren(
                     child.has("NavigationStack") -> Modifier.fillMaxSize()
                     else -> Modifier
                 }
-                NexaDevNode(child, module, store, locals, scope, modifier)
+                if (child.has("ContentUnavailable")) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        NexaDevNode(child, module, store, locals, scope, Modifier.fillMaxSize())
+                    }
+                } else {
+                    NexaDevNode(child, module, store, locals, scope, modifier)
+                }
             }
         }
     }
@@ -371,6 +406,8 @@ internal fun NexaDevNode(
     locals: Map<String, Any>,
     scope: String,
     modifier: Modifier = Modifier,
+    firstFormSection: Boolean = false,
+    formShowDividers: Boolean = true,
 ) {
     val kind = node.keys().asSequence().firstOrNull() ?: return
     val fields = node.optJSONObject(kind) ?: JSONObject()
@@ -388,13 +425,27 @@ internal fun NexaDevNode(
             }
         }
         "Form" -> {
-            NexaFormPrimitive {
+            val showDividers = fields.optBoolean("show_dividers", true)
+            NexaFormPrimitive(
+                background = nexaDevColor(fields.optJSONObject("background"), isSystemInDarkTheme()),
+            ) {
                 val children = fields.optJSONArray("children") ?: JSONArray()
+                val firstSectionIndex = (0 until children.length()).firstOrNull { index ->
+                    nexaDevNodeObject(children.opt(index)).has("FormSection")
+                }
                 for (index in 0 until children.length()) {
                     androidx.compose.runtime.key(index) {
                         val child = nexaDevNodeObject(children.opt(index))
                         if (child.has("FormSection")) {
-                            NexaDevNode(child, module, store, locals, scope)
+                            NexaDevNode(
+                                child,
+                                module,
+                                store,
+                                locals,
+                                scope,
+                                firstFormSection = index == firstSectionIndex,
+                                formShowDividers = showDividers,
+                            )
                         } else {
                             NexaFormRowPrimitive(
                                 minHeight = nexaDevFormRowMinHeight.toFloat(),
@@ -402,15 +453,27 @@ internal fun NexaDevNode(
                             ) {
                                 NexaDevNode(nexaDevFormRowButton(child), module, store, locals, scope)
                             }
+                            val next = children.optJSONObject(index + 1)
+                            if (showDividers && next != null && !next.has("FormSection")) {
+                                NexaFormDividerPrimitive()
+                            }
                         }
                     }
                 }
             }
         }
         "FormSection" -> {
+            val rawShowDividers = fields.opt("show_dividers")
+            val showDividers = if (rawShowDividers == null || rawShowDividers == JSONObject.NULL) {
+                formShowDividers
+            } else {
+                rawShowDividers as? Boolean ?: formShowDividers
+            }
             NexaFormSectionPrimitive(
                 title = if (fields.isNull("title")) null else store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope)),
                 footer = if (fields.isNull("footer")) null else store.stringify(store.evaluatePresented(fields.opt("footer"), locals, scope)),
+                firstSection = firstFormSection,
+                background = nexaDevColor(fields.optJSONObject("background"), isSystemInDarkTheme()),
             ) {
                 val children = fields.optJSONArray("children") ?: JSONArray()
                 for (index in 0 until children.length()) {
@@ -418,7 +481,7 @@ internal fun NexaDevNode(
                         val rowNode = nexaDevFormRowButton(nexaDevNodeObject(children.opt(index)))
                         NexaFormRowPrimitive(
                             minHeight = nexaDevFormRowMinHeight.toFloat(),
-                            horizontalInset = nexaDevFormRowHorizontalInset.toFloat(),
+                            horizontalInset = 0f,
                         ) {
                             NexaDevNode(
                                 rowNode,
@@ -428,7 +491,7 @@ internal fun NexaDevNode(
                                 scope,
                             )
                         }
-                        if (index + 1 < children.length()) {
+                        if (showDividers && index + 1 < children.length()) {
                             NexaFormDividerPrimitive()
                         }
                     }
@@ -527,26 +590,9 @@ internal fun NexaDevNode(
             var modifier: Modifier = modifier
             val effects = style.optJSONObject("effects") ?: JSONObject()
             if (!style.isNull("animation")) {
-                val springConfig = style.optJSONObject("animation")?.optJSONObject("Spring")
-                if (springConfig != null) {
-                    val response = springConfig.optDouble("response", 0.5)
-                    val damping = springConfig.optDouble("damping", 0.825).toFloat()
-                    val stiffness = (100.0 / (response * response)).toFloat()
-                    modifier = modifier.animateContentSize(
-                        animationSpec = spring(
-                            dampingRatio = damping,
-                            stiffness = stiffness,
-                        ),
-                    )
-                } else {
-                    val easing = when (style.optString("animation")) {
-                        "EaseIn" -> FastOutLinearInEasing
-                        "EaseOut" -> LinearOutSlowInEasing
-                        "EaseInOut" -> FastOutSlowInEasing
-                        else -> LinearEasing
-                    }
-                    modifier = modifier.animateContentSize(animationSpec = tween(easing = easing))
-                }
+                modifier = modifier.animateContentSize(
+                    animationSpec = store.devAnimationSpec(style.opt("animation")),
+                )
             }
             // Dev IR serializes unset Option fields as JSON null, and JSONObject.has()
             // still returns true for a key mapped to null. Only apply optional styles
@@ -582,18 +628,6 @@ internal fun NexaDevNode(
                     modifier = modifier.border(style.optDouble("border_width").dp, it, RoundedCornerShape(cornerRadius))
                 }
             }
-            if (!style.isNull("padding")) modifier = modifier.padding(style.optDouble("padding").dp)
-            if (!style.isNull("width")) modifier = modifier.width(style.optDouble("width").dp)
-            if (!style.isNull("height")) modifier = modifier.height(style.optDouble("height").dp)
-            if (!style.isNull("min_width") || !style.isNull("max_width")) modifier = modifier.widthIn(
-                min = style.optDouble("min_width").takeIf { !style.isNull("min_width") }?.dp ?: Dp.Unspecified,
-                max = style.optDouble("max_width").takeIf { !style.isNull("max_width") }?.dp ?: Dp.Unspecified,
-            )
-            if (!style.isNull("min_height") || !style.isNull("max_height")) modifier = modifier.heightIn(
-                min = style.optDouble("min_height").takeIf { !style.isNull("min_height") }?.dp ?: Dp.Unspecified,
-                max = style.optDouble("max_height").takeIf { !style.isNull("max_height") }?.dp ?: Dp.Unspecified,
-            )
-            if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
             effects.optJSONObject("glass")?.let { glass ->
                 val shapeFields = glass.optJSONObject("shape") ?: JSONObject()
                 val glassShape: androidx.compose.ui.graphics.Shape = when {
@@ -610,6 +644,18 @@ internal fun NexaDevNode(
                     .clip(glassShape)
                     .background(surfaceColor, glassShape)
             }
+            if (!style.isNull("padding")) modifier = modifier.padding(style.optDouble("padding").dp)
+            if (!style.isNull("width")) modifier = modifier.width(style.optDouble("width").dp)
+            if (!style.isNull("height")) modifier = modifier.height(style.optDouble("height").dp)
+            if (!style.isNull("min_width") || !style.isNull("max_width")) modifier = modifier.widthIn(
+                min = style.optDouble("min_width").takeIf { !style.isNull("min_width") }?.dp ?: Dp.Unspecified,
+                max = style.optDouble("max_width").takeIf { !style.isNull("max_width") }?.dp ?: Dp.Unspecified,
+            )
+            if (!style.isNull("min_height") || !style.isNull("max_height")) modifier = modifier.heightIn(
+                min = style.optDouble("min_height").takeIf { !style.isNull("min_height") }?.dp ?: Dp.Unspecified,
+                max = style.optDouble("max_height").takeIf { !style.isNull("max_height") }?.dp ?: Dp.Unspecified,
+            )
+            if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
             val rawAlignment = fields.opt("alignment")
             val alignment = rawAlignment as? String
                 ?: (rawAlignment as? JSONObject)?.keys()?.asSequence()?.firstOrNull()
@@ -618,6 +664,12 @@ internal fun NexaDevNode(
                 "Row" -> NexaRowPrimitive(
                     modifier = modifier,
                     spacing = spacing.value,
+                    horizontalArrangement = when (style.optString("horizontal_arrangement")) {
+                        "Start" -> androidx.compose.foundation.layout.Arrangement.Start
+                        "Center" -> androidx.compose.foundation.layout.Arrangement.Center
+                        "End" -> androidx.compose.foundation.layout.Arrangement.End
+                        else -> null
+                    },
                     verticalAlignment = when (alignment) {
                         "Start" -> Alignment.Top
                         "End" -> Alignment.Bottom
@@ -646,15 +698,38 @@ internal fun NexaDevNode(
         }
         "ContentUnavailable" -> {
             val title = store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope))
-            val description = store.stringify(store.evaluatePresented(fields.opt("description"), locals, scope))
+            val description = fields.opt("description")
+                ?.takeUnless { it === JSONObject.NULL }
+                ?.let { store.stringify(store.evaluatePresented(it, locals, scope)) }
             val icon = fields.optJSONObject("icon") ?: JSONObject()
-            val image = nexaDevSharedMaterialIcon(icon.optString("shared"))
-            NexaContentUnavailablePrimitive(title = title, description = description, icon = image)
+            val sharedIcon = icon.optString("shared")
+            val image = nexaDevSharedMaterialIcon(sharedIcon)
+            val dark = isSystemInDarkTheme()
+            @Composable
+            fun color(name: String): Color? {
+                val value = fields.optJSONObject(name) ?: return null
+                val dynamic = value.opt("Dynamic")
+                return if (dynamic != null && dynamic != JSONObject.NULL) {
+                    nexaDevHexColor(store.stringify(store.evaluatePresented(dynamic, locals, scope)))
+                } else {
+                    nexaDevColor(value, dark)
+                }
+            }
+            NexaContentUnavailablePrimitive(
+                title = title,
+                description = description,
+                icon = image,
+                iconDescription = nexaDevIconAccessibilityLabel(sharedIcon),
+                titleColor = color("title_color"),
+                descriptionColor = color("description_color"),
+                iconTint = color("icon_tint"),
+                background = color("background"),
+            )
         }
         "Text", "Spacer", "Divider", "SystemIcon", "LinearGradient" ->
             NexaDevRenderTextNode(kind, fields, module, store, locals, scope, modifier)
         "Button", "Pressable", "TextInput", "FastList", "Switch", "Slider",
-        "ProgressBar", "ProgressRing", "SegmentedControl", "Picker", "DatePicker" ->
+        "ProgressBar", "ProgressRing", "SegmentedControl", "Picker", "PickerDate" ->
             NexaDevRenderControlNode(kind, fields, module, store, locals, scope, modifier)
         "Image", "RefreshControl" ->
             NexaDevRenderListNode(kind, fields, module, store, locals, scope, modifier)
@@ -743,16 +818,13 @@ private fun NexaDevRenderTextNode(
                     modifier = modifier.graphicsLayer(scaleX = scale, scaleY = scale, rotationZ = rotation)
                 }
                 if (!effects.isNull("blur")) modifier = modifier.blur(effects.optDouble("blur").dp)
-                effects.optJSONObject("shadow")?.let { shadow ->
-                    val radius = effects.optDouble("clip_rounded", 0.0).dp
+                val textShadow = effects.optJSONObject("shadow")?.let { shadow ->
                     val color = nexaDevColor(shadow.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Black
-                    modifier = modifier.dropShadow(
-                        RoundedCornerShape(radius),
-                        Shadow(
-                            radius = shadow.optDouble("radius", 0.0).dp,
-                            color = color,
-                            offset = DpOffset(shadow.optDouble("x", 0.0).dp, shadow.optDouble("y", 0.0).dp),
-                        ),
+                    NexaGlyphShadow(
+                        color = color,
+                        radius = shadow.optDouble("radius", 0.0).dp,
+                        x = shadow.optDouble("x", 0.0).dp,
+                        y = shadow.optDouble("y", 0.0).dp,
                     )
                 }
                 if (!effects.isNull("clip_rounded")) modifier = modifier.clip(RoundedCornerShape(effects.optDouble("clip_rounded").dp))
@@ -772,6 +844,7 @@ private fun NexaDevRenderTextNode(
                     italic = style.optBoolean("italic"),
                     underline = style.optBoolean("underline"),
                     selectable = style.optBoolean("selectable"),
+                    textShadow = textShadow,
                 )
             }
             content()
@@ -837,7 +910,9 @@ private fun NexaDevRenderControlNode(
         "Button" -> {
             val loading = store.evaluatePresented(fields.opt("loading"), locals, scope) as? Boolean ?: false
             val disabled = store.evaluatePresented(fields.opt("disabled"), locals, scope) as? Boolean ?: false
-            val style = fields.optString("style").takeIf { it.isNotEmpty() }
+            val style = fields.opt("style")
+                ?.toString()
+                ?.takeIf { it.isNotBlank() && it != "null" }
             val tintValue = fields.optJSONObject("tint") ?: JSONObject()
             val dynamicTint = tintValue.opt("Dynamic")
             val tint = if (dynamicTint != null && dynamicTint != JSONObject.NULL) {
@@ -877,7 +952,14 @@ private fun NexaDevRenderControlNode(
             )
         }
         "Pressable" -> NexaDevRenderPressableNode(fields, module, store, locals, scope, modifier)
-        "TextInput" -> NexaDevRenderTextInputNode(fields, module, store, locals, scope, modifier)
+        "TextInput" -> NexaDevRenderTextInputNode(
+            fields,
+            module,
+            store,
+            locals,
+            scope,
+            if (fields.optBoolean("searchable")) modifier else modifier.fillMaxWidth(),
+        )
         "FastList" -> NexaDevRenderFastListNode(fields, module, store, locals, scope, modifier)
         "Switch" -> {
             val state = fields.optString("state")
@@ -897,10 +979,12 @@ private fun NexaDevRenderControlNode(
         }
         "Slider" -> {
             val state = fields.optString("state")
-            val min = fields.optDouble("min").toFloat()
-            val max = fields.optDouble("max").toFloat()
-            val step = fields.optDouble("step").toFloat()
-            val intervals = if (step > 0f) ((max - min) / step).roundToInt().coerceAtLeast(1) else 1
+            val minValue = fields.optDouble("min")
+            val maxValue = fields.optDouble("max")
+            val min = minValue.toFloat()
+            val max = maxValue.toFloat()
+            val step = fields.optDouble("step")
+            val intervals = if (step > 0.0) ((maxValue - minValue) / step).roundToInt().coerceAtLeast(1) else 1
             val rawValue = if (fields.optBoolean("animated")) {
                 store.animatedFloatState(state, scope)
             } else {
@@ -911,7 +995,14 @@ private fun NexaDevRenderControlNode(
                 value = value,
                 onValueChange = {
                     store.clearAnimationSpec(state, scope)
-                    store.setState(state, it.toDouble(), scope)
+                    val nextValue = if (step > 0.0) {
+                        minValue + kotlin.math.round(
+                            (it.toDouble() - minValue) / step,
+                        ) * step
+                    } else {
+                        it.toDouble()
+                    }
+                    store.setState(state, nextValue, scope)
                 },
                 valueRange = min..max,
                 steps = intervals - 1,
@@ -931,9 +1022,41 @@ private fun NexaDevRenderControlNode(
             val options = (store.evaluatePresented(fields.opt("items"), locals, scope) as? List<*>)
                 ?.filterIsInstance<String>()
                 ?: emptyList()
+            val dark = isSystemInDarkTheme()
+            @Composable
+            fun color(name: String): Color? {
+                val value = fields.optJSONObject(name) ?: return null
+                val dynamic = value.opt("Dynamic")
+                return if (dynamic != null && dynamic != JSONObject.NULL) {
+                    nexaDevHexColor(store.stringify(store.evaluatePresented(dynamic, locals, scope)))
+                } else {
+                    nexaDevColor(value, dark)
+                }
+            }
             NexaSegmentedControlPrimitive(
                 items = options,
                 selected = selected,
+                animation = if (fields.isNull("animation")) {
+                    null
+                } else {
+                    store.devAnimationSpec(fields.opt("animation"))
+                },
+                tint = color("tint"),
+                background = color("background"),
+                textColor = color("text_color"),
+                selectedTextColor = color("selected_text_color"),
+                fontSize = if (fields.isNull("font_size")) null else fields.optDouble("font_size").toFloat().sp,
+                fontWeight = when (fields.optString("font_weight")) {
+                    "Normal" -> androidx.compose.ui.text.font.FontWeight.Normal
+                    "Medium" -> androidx.compose.ui.text.font.FontWeight.Medium
+                    "Semibold" -> androidx.compose.ui.text.font.FontWeight.SemiBold
+                    "Bold" -> androidx.compose.ui.text.font.FontWeight.Bold
+                    else -> null
+                },
+                height = if (fields.isNull("height")) null else fields.optDouble("height").toFloat().dp,
+                cornerRadius = if (fields.isNull("corner_radius")) null else fields.optDouble("corner_radius").toFloat().dp,
+                borderColor = color("border_color"),
+                borderWidth = if (fields.isNull("border_width")) null else fields.optDouble("border_width").toFloat().dp,
                 onSelected = { store.setState(state, it, scope) },
             )
         }
@@ -959,8 +1082,23 @@ private fun NexaDevRenderControlNode(
                 iconSelection.has("sf_symbol") -> nexaDevSfAliasMaterialIcon(iconSelection.optString("sf_symbol"))
                 else -> null
             }
+            val itemIconEntries = fields.optJSONArray("item_icons") ?: JSONArray()
+            val pickerItemIcons = buildList<androidx.compose.ui.graphics.vector.ImageVector?> {
+                for (index in 0 until itemIconEntries.length()) {
+                    val selection = itemIconEntries.optJSONObject(index) ?: JSONObject()
+                    add(
+                        when {
+                            selection.has("shared") -> nexaDevSharedMaterialIcon(selection.optString("shared"))
+                            selection.has("sf_symbol") -> nexaDevSfAliasMaterialIcon(selection.optString("sf_symbol"))
+                            selection.has("material_symbol") -> nexaDevSpecificMaterialIcon(selection.optString("material_symbol"))
+                            else -> null
+                        },
+                    )
+                }
+            }
             NexaPickerPrimitive(
                 items = options,
+                itemIcons = pickerItemIcons,
                 selected = selected,
                 icon = pickerIcon,
                 label = label,
@@ -970,15 +1108,64 @@ private fun NexaDevRenderControlNode(
                 onSelectionChanged = { store.setState(state, it, scope) },
             )
         }
-        "DatePicker" -> {
-            val timestampName = fields.optString("timestamp_state")
-            val hasTimeName = fields.optString("has_time_state")
+        "PickerDate" -> {
+            val pickerFields = fields.optJSONObject("props") ?: fields
+            @Composable
+            fun expression(name: String): Any? {
+                val value = pickerFields.opt(name)
+                return if (value == null || value == JSONObject.NULL) null
+                else store.evaluatePresented(value, locals, scope)
+            }
+            @Composable
+            fun color(name: String): androidx.compose.ui.graphics.Color? {
+                val value = pickerFields.optJSONObject(name) ?: return null
+                val dynamic = value.opt("Dynamic")
+                return if (dynamic != null && dynamic != JSONObject.NULL) {
+                    nexaDevHexColor(store.stringify(store.evaluatePresented(dynamic, locals, scope)))
+                } else {
+                    nexaDevColor(value, isSystemInDarkTheme())
+                }
+            }
+            @Composable
+            fun long(name: String): Long? = (expression(name) as? Number)?.toLong()
+            @Composable
+            fun string(name: String): String? = expression(name)?.let(store::stringify)
+            @Composable
+            fun boolean(name: String): Boolean? = expression(name) as? Boolean
+
+            val timestampState = pickerFields.optString("timestamp_state").takeIf(String::isNotBlank)
+            val startState = pickerFields.optString("start_timestamp_state").takeIf(String::isNotBlank)
+            val endState = pickerFields.optString("end_timestamp_state").takeIf(String::isNotBlank)
             NexaDatePickerPrimitive(
-                timestamp = (store.state(timestampName, scope) as? Number)?.toLong() ?: 0L,
-                includesTime = store.state(hasTimeName, scope) as? Boolean ?: false,
-                identity = "$scope::$timestampName",
-                onTimestampChanged = { store.setState(timestampName, it, scope) },
-                onIncludesTimeChanged = { store.setState(hasTimeName, it, scope) },
+                timestamp = timestampState?.let { (store.state(it, scope) as? Number)?.toLong() },
+                startTimestamp = startState?.let { (store.state(it, scope) as? Number)?.toLong() },
+                endTimestamp = endState?.let { (store.state(it, scope) as? Number)?.toLong() },
+                pickerType = pickerFields.optString("picker_type", "Date"),
+                style = pickerFields.optString("style", "Automatic"),
+                selection = pickerFields.optString("selection", "Single"),
+                minimum = long("minimum"),
+                maximum = long("maximum"),
+                tint = color("tint"),
+                textColor = color("text_color"),
+                backgroundColor = color("background_color"),
+                pickerBackgroundColor = color("picker_background_color"),
+                borderColor = color("border_color"),
+                borderWidth = (expression("border_width") as? Number)?.toFloat()?.dp,
+                cornerRadius = (expression("corner_radius") as? Number)?.toFloat()?.dp,
+                localeTag = string("locale"),
+                timeZoneId = string("time_zone"),
+                is24Hour = boolean("is_24_hour"),
+                enabled = boolean("enabled"),
+                accessibilityLabel = string("accessibility_label"),
+                onTimestampChanged = timestampState?.let { state ->
+                    { value -> store.setState(state, value, scope) }
+                },
+                onRangeChanged = if (startState != null && endState != null) {
+                    { start, finish ->
+                        store.setState(startState, start, scope)
+                        store.setState(endState, finish, scope)
+                    }
+                } else null,
             )
         }
     }
@@ -1083,20 +1270,18 @@ private fun NexaDevRenderNavigationNode(
         "If" -> {
             val condition = store.evaluatePresented(fields.opt("condition"), locals, scope) as? Boolean ?: false
             val transition = fields.nexaDevTransition()
+            val rawAnimation = fields.opt("transition_animation")
+            val floatAnimation = if (rawAnimation == null || rawAnimation === JSONObject.NULL) null
+            else store.devAnimationSpec<Float>(rawAnimation)
+            val offsetAnimation = if (rawAnimation == null || rawAnimation === JSONObject.NULL) null
+            else store.devAnimationSpec<androidx.compose.ui.unit.IntOffset>(rawAnimation)
             if (transition.isEmpty()) {
                 RenderChildren(fields.optJSONArray(if (condition) "then_body" else "else_body") ?: JSONArray(), module, store, locals, scope)
             } else {
                 AnimatedContent(
                     targetState = condition,
                     transitionSpec = {
-                        when (transition) {
-                            "Fade" -> fadeIn() togetherWith fadeOut()
-                            "SlideFromBottom" -> slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }
-                            "SlideFromLeft" -> slideInHorizontally { width -> -width } togetherWith slideOutHorizontally { width -> width }
-                            "SlideFromRight" -> slideInHorizontally { width -> width } togetherWith slideOutHorizontally { width -> -width }
-                            "Scale" -> scaleIn() togetherWith scaleOut()
-                            else -> fadeIn() togetherWith fadeOut()
-                        }
+                        nexaDevContentTransform(transition, floatAnimation, offsetAnimation)
                     },
                     label = "dev-if-transition",
                 ) { target ->
@@ -1107,20 +1292,18 @@ private fun NexaDevRenderNavigationNode(
         "When" -> {
             val value = store.stringify(store.evaluatePresented(fields.opt("value"), locals, scope))
             val transition = fields.nexaDevTransition()
+            val rawAnimation = fields.opt("transition_animation")
+            val floatAnimation = if (rawAnimation == null || rawAnimation === JSONObject.NULL) null
+            else store.devAnimationSpec<Float>(rawAnimation)
+            val offsetAnimation = if (rawAnimation == null || rawAnimation === JSONObject.NULL) null
+            else store.devAnimationSpec<androidx.compose.ui.unit.IntOffset>(rawAnimation)
             if (transition.isEmpty()) {
                 renderWhenTarget(value, fields, module, store, locals, scope)
             } else {
                 AnimatedContent(
                     targetState = value,
                     transitionSpec = {
-                        when (transition) {
-                            "Fade" -> fadeIn() togetherWith fadeOut()
-                            "SlideFromBottom" -> slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }
-                            "SlideFromLeft" -> slideInHorizontally { width -> -width } togetherWith slideOutHorizontally { width -> width }
-                            "SlideFromRight" -> slideInHorizontally { width -> width } togetherWith slideOutHorizontally { width -> -width }
-                            "Scale" -> scaleIn() togetherWith scaleOut()
-                            else -> fadeIn() togetherWith fadeOut()
-                        }
+                        nexaDevContentTransform(transition, floatAnimation, offsetAnimation)
                     },
                     label = "dev-when-transition",
                 ) { target ->
@@ -1158,14 +1341,8 @@ private fun NexaDevRenderNavigationNode(
             }
         }
         "KeyboardAware" -> {
-            val baseModifier = Modifier.imePadding()
-            val keyboardModifier = if (fields.optString("dismiss") == "Interactive") {
-                baseModifier.imeNestedScroll()
-            } else {
-                baseModifier
-            }
-            Column(
-                keyboardModifier.verticalScroll(rememberScrollState()),
+            NexaKeyboardAwareColumnPrimitive(
+                interactiveDismiss = fields.optString("dismiss") == "Interactive",
             ) {
                 RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
             }
@@ -1239,6 +1416,7 @@ private fun NexaDevRenderNavigationNode(
                 isPresented = isPresented,
                 partial = partial,
                 largeOnly = fields.optBoolean("large_only", false),
+                showDragHandle = fields.optBoolean("show_drag_handle", true),
                 title = title,
                 hasNavigationIcon = leading.length() > 0,
                 hasActions = trailing.length() > 0,
@@ -1263,6 +1441,16 @@ private fun NexaDevRenderNavigationNode(
                         child.has("Button") -> actions.put(child)
                     }
                 }
+                val dismissActions = JSONArray()
+                val confirmActions = JSONArray()
+                if (actions.length() == 2) {
+                    dismissActions.put(actions.getJSONObject(0))
+                    confirmActions.put(actions.getJSONObject(1))
+                } else {
+                    for (index in 0 until actions.length()) {
+                        confirmActions.put(actions.getJSONObject(index))
+                    }
+                }
                 val hasMessage = nexaDevHasDialogMessage(fields.opt("message"))
                 NexaAlertDialogPrimitive(
                     onDismissRequest = { store.setState(state, false, scope) },
@@ -1277,8 +1465,11 @@ private fun NexaDevRenderNavigationNode(
                             }
                         }
                     },
+                    dismissButton = {
+                        RenderChildren(dismissActions, module, store, locals, scope)
+                    },
                     confirmButton = {
-                        RenderChildren(actions, module, store, locals, scope)
+                        RenderChildren(confirmActions, module, store, locals, scope)
                     },
                 )
             }
@@ -1368,39 +1559,7 @@ private fun NexaDevRenderNavigationNode(
     }
 }
 
-private fun nexaDevContainsForm(nodes: JSONArray): Boolean {
-    for (index in 0 until nodes.length()) {
-        val node = nodes.optJSONObject(index) ?: continue
-        val kind = node.keys().asSequence().firstOrNull() ?: continue
-        if (kind == "Form") return true
-        val children = node.optJSONObject(kind)?.optJSONArray("children") ?: continue
-        if (nexaDevContainsForm(children)) return true
-    }
-    return false
-}
-
-private fun nexaDevContainsNativeList(nodes: JSONArray): Boolean {
-    for (index in 0 until nodes.length()) {
-        val node = nodes.optJSONObject(index) ?: continue
-        val kind = node.keys().asSequence().firstOrNull() ?: continue
-        val fields = node.optJSONObject(kind) ?: continue
-        if (kind == "FastList" && fields.optJSONObject("options")?.optBoolean("native", false) == true) {
-            return true
-        }
-        for (childKey in arrayOf("children", "then_body", "else_body", "body")) {
-            val children = fields.optJSONArray(childKey) ?: continue
-            if (nexaDevContainsNativeList(children)) return true
-        }
-        val cases = fields.optJSONArray("cases") ?: continue
-        for (caseIndex in 0 until cases.length()) {
-            val body = cases.optJSONObject(caseIndex)?.optJSONArray("body") ?: continue
-            if (nexaDevContainsNativeList(body)) return true
-        }
-    }
-    return false
-}
-
-private fun nexaDevTabToolbars(nodes: JSONArray): List<Pair<String, JSONArray>> {
+internal fun nexaDevTabToolbars(nodes: JSONArray): List<Pair<String, JSONArray>> {
     val toolbars = mutableListOf<Pair<String, JSONArray>>()
     for (index in 0 until nodes.length()) {
         val node = nodes.optJSONObject(index) ?: continue
@@ -1520,7 +1679,7 @@ private fun nexaDevActiveBranchNodes(
     return result
 }
 
-private fun nexaDevWithoutTabToolbars(nodes: JSONArray): JSONArray {
+internal fun nexaDevWithoutTabToolbars(nodes: JSONArray): JSONArray {
     val result = JSONArray()
     for (index in 0 until nodes.length()) {
         val node = nodes.optJSONObject(index) ?: continue
@@ -1603,7 +1762,7 @@ private fun nexaDevWithoutSheetToolbars(nodes: JSONArray): JSONArray {
 }
 
 @Composable
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 private fun NexaDevRenderPressableNode(
     fields: JSONObject,
     module: JSONObject,
@@ -1626,6 +1785,11 @@ private fun NexaDevRenderPressableNode(
         val pinchParameter = fields.nexaDevOptionalString(NexaDevKeys.PINCH_PARAMETER)
             ?.takeIf(String::isNotEmpty)
         val pinchActions = fields.optJSONArray(NexaDevKeys.PINCH_ACTIONS) ?: JSONArray()
+        val gestureConsumedTap = if (dragParameters.length() == 4 || pinchParameter != null) {
+            remember(scope) { mutableStateOf(false) }
+        } else {
+            null
+        }
         val hapticStyle = fields.nexaDevOptionalString("haptic")?.takeIf(String::isNotEmpty)
         val fillMaxSize = fields.optBoolean("fill_max_size", false)
         val haptic = LocalHapticFeedback.current
@@ -1645,6 +1809,7 @@ private fun NexaDevRenderPressableNode(
                     val gestureLocals = locals.toMutableMap()
                     detectTransformGestures { _, pan, zoomChange, _ ->
                         if (dragParameters.length() == 4 && (pan.x != 0f || pan.y != 0f)) {
+                            gestureConsumedTap?.value = true
                             translationX += pan.x
                             translationY += pan.y
                             val now = SystemClock.uptimeMillis()
@@ -1665,6 +1830,7 @@ private fun NexaDevRenderPressableNode(
                             store.perform(dragActions, scope, gestureLocals)
                         }
                         if (zoomChange != 1f) {
+                            gestureConsumedTap?.value = true
                             gestureLocals[pinchParameter] = zoomChange.toDouble()
                             store.perform(pinchActions, scope, gestureLocals)
                         }
@@ -1688,6 +1854,7 @@ private fun NexaDevRenderPressableNode(
                         onDragEnd = { velocityTracker.resetTracking() },
                         onDragCancel = { velocityTracker.resetTracking() },
                         onDrag = { change, dragAmount ->
+                            gestureConsumedTap?.value = true
                             translationX += dragAmount.x
                             translationY += dragAmount.y
                             velocityTracker.addPointerInputChange(change)
@@ -1711,13 +1878,17 @@ private fun NexaDevRenderPressableNode(
         }
         val pressableModifier = if (fillMaxSize) dragModifier.fillMaxSize() else dragModifier
         val pressableCore: @Composable () -> Unit = {
-            Box(pressableModifier.combinedClickable(
+            Box(
+                modifier = pressableModifier.combinedClickable(
                     enabled = !disabled,
                     interactionSource = null,
-                    indication = null,
                     onClick = {
-                        if (hapticType != null) haptic.performHapticFeedback(hapticType)
-                        store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
+                        if (gestureConsumedTap?.value == true) {
+                            gestureConsumedTap.value = false
+                        } else {
+                            if (hapticType != null) haptic.performHapticFeedback(hapticType)
+                            store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
+                        }
                     },
                     onLongClick = {
                         contextMenuExpanded?.value = true
@@ -1727,7 +1898,9 @@ private fun NexaDevRenderPressableNode(
                         if (hapticType != null) haptic.performHapticFeedback(hapticType)
                         store.perform(doubleTapActions, scope, locals)
                     },
-            )) {
+                ),
+                contentAlignment = if (fillMaxSize) Alignment.Center else Alignment.TopStart,
+            ) {
                 RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
             }
         }
@@ -1737,23 +1910,59 @@ private fun NexaDevRenderPressableNode(
             } else {
                 Box {
                     pressableCore()
-                    DropdownMenu(
-                        expanded = contextMenuExpanded?.value == true,
-                        onDismissRequest = { contextMenuExpanded?.value = false },
+                    androidx.compose.material3.MaterialExpressiveTheme(
+                        colorScheme = MaterialTheme.colorScheme,
                     ) {
-                        for (index in 0 until contextMenuActions.length()) {
-                            val menuNode = contextMenuActions.optJSONObject(index) ?: continue
-                            val menuButton = menuNode.optJSONObject("Button") ?: continue
-                            val label = store.stringify(store.evaluatePresented(menuButton.opt("label"), locals, scope))
-                            val disabledAction = store.evaluatePresented(menuButton.opt("disabled"), locals, scope) as? Boolean ?: false
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                enabled = !disabledAction,
-                                onClick = {
-                                    store.perform(menuButton.optJSONArray("actions") ?: JSONArray(), scope, locals)
-                                    contextMenuExpanded?.value = false
-                                },
-                            )
+                        DropdownMenu(
+                            expanded = contextMenuExpanded?.value == true,
+                            onDismissRequest = { contextMenuExpanded?.value = false },
+                            shape = androidx.compose.material3.MenuDefaults.standaloneGroupShape,
+                            containerColor = androidx.compose.material3.MenuDefaults.groupStandardContainerColor,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 8.dp,
+                        ) {
+                            val menuButtons = buildList {
+                                for (index in 0 until contextMenuActions.length()) {
+                                    val menuNode = contextMenuActions.optJSONObject(index) ?: continue
+                                    val menuButton = menuNode.optJSONObject("Button") ?: continue
+                                    add(menuButton)
+                                }
+                            }
+                            if (menuButtons.isNotEmpty()) {
+                                menuButtons.forEachIndexed { itemIndex, menuButton ->
+                                    val label = store.stringify(
+                                        store.evaluatePresented(menuButton.opt("label"), locals, scope),
+                                    )
+                                    val disabledAction = store.evaluatePresented(
+                                        menuButton.opt("disabled"), locals, scope,
+                                    ) as? Boolean ?: false
+                                    val iconSelection = menuButton.optJSONObject("icon") ?: JSONObject()
+                                    val itemIcon = when {
+                                        iconSelection.has("shared") ->
+                                            nexaDevSharedMaterialIcon(iconSelection.optString("shared"))
+                                        iconSelection.has("sf_symbol") ->
+                                            nexaDevSfAliasMaterialIcon(iconSelection.optString("sf_symbol"))
+                                        iconSelection.has("material_symbol") ->
+                                            nexaDevSpecificMaterialIcon(iconSelection.optString("material_symbol"))
+                                        else -> null
+                                    }
+                                    DropdownMenuItem(
+                                        shape = androidx.compose.material3.MenuDefaults.itemShape(
+                                            index = itemIndex,
+                                            count = menuButtons.size,
+                                        ).shape,
+                                        text = { Text(label) },
+                                        leadingIcon = itemIcon?.let { image ->
+                                            { Icon(imageVector = image, contentDescription = null) }
+                                        },
+                                        enabled = !disabledAction,
+                                        onClick = {
+                                            store.perform(menuButton.optJSONArray("actions") ?: JSONArray(), scope, locals)
+                                            contextMenuExpanded?.value = false
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1928,6 +2137,7 @@ private fun NexaDevRenderFastListNode(
             ?.let { store.evaluatePresented(it, locals, scope) as? Boolean }
             ?: true
         val native = options?.optBoolean("native", false) ?: false
+        val showDividers = options?.optBoolean("show_dividers", true) ?: true
         val keyExpression = options?.opt("key")?.takeUnless { it == JSONObject.NULL }
         val animateStableRows = keyExpression != null
         if (options == null || countExpression == null && sourceItems == null && sourceSections == null) {
@@ -2098,7 +2308,7 @@ private fun NexaDevRenderFastListNode(
                         verticalArrangement = Arrangement.spacedBy(spacing),
                         state = listState,
                         userScrollEnabled = scrollEnabled &&
-                            (listState.canScrollForward || listState.canScrollBackward),
+                            (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
                         modifier = modifier.fillMaxWidth(),
                     ) {
                         gridItems(items = itemIndices, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
@@ -2151,7 +2361,7 @@ private fun NexaDevRenderFastListNode(
                             state = listState,
                             horizontalArrangement = Arrangement.spacedBy(spacing),
                             userScrollEnabled = scrollEnabled &&
-                                (listState.canScrollForward || listState.canScrollBackward),
+                                (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
                             modifier = modifier.fillMaxWidth(),
                         ) {
                             items(count = count, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
@@ -2163,7 +2373,7 @@ private fun NexaDevRenderFastListNode(
                             state = listState,
                             verticalArrangement = Arrangement.spacedBy(spacing),
                             userScrollEnabled = scrollEnabled &&
-                                (listState.canScrollForward || listState.canScrollBackward),
+                                (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
                             reverseLayout = reverseLayout,
                             flingBehavior = if (pageSnap) {
                                 rememberSnapFlingBehavior(
@@ -2213,7 +2423,7 @@ private fun NexaDevRenderFastListNode(
                                                     rowLocals,
                                                     rowParentModifier.then(rowModifier),
                                                 )
-                                                if (itemIndex + 1 < sectionItems.size) {
+                                                if (showDividers && itemIndex + 1 < sectionItems.size) {
                                                     NexaNativeListDividerPrimitive()
                                                 }
                                             }
@@ -2223,6 +2433,9 @@ private fun NexaDevRenderFastListNode(
                                                 rowLocals,
                                                 rowParentModifier.then(rowModifier),
                                             )
+                                            if (showDividers && itemIndex + 1 < sectionItems.size) {
+                                                NexaFastListDividerPrimitive()
+                                            }
                                         }
                                     }
                                     if (native && axis == "Vertical" && sectionIndex + 1 < sourceSections.size) {
@@ -2250,13 +2463,15 @@ private fun NexaDevRenderFastListNode(
                                     } else if (native && axis == "Vertical") {
                                         NexaNativeListRowPrimitive(position = itemPosition, count = count) {
                                             renderItem(itemIndex, axis, rowParentModifier)
-                                            if (itemPosition + 1 < count) {
+                                            if (showDividers && itemPosition + 1 < count) {
                                                 NexaNativeListDividerPrimitive()
                                             }
                                         }
                                     } else {
                                         renderItem(itemIndex, axis, rowParentModifier)
-                                        NexaFastListDividerPrimitive()
+                                        if (showDividers && itemPosition + 1 < count) {
+                                            NexaFastListDividerPrimitive()
+                                        }
                                     }
                                 }
                             }
@@ -2268,7 +2483,7 @@ private fun NexaDevRenderFastListNode(
                 PullToRefreshBox(
                     isRefreshing = store.state(refreshState, scope) as? Boolean ?: false,
                     onRefresh = { store.perform(refreshActions, scope, locals) },
-                    modifier = modifier.fillMaxWidth(),
+                    modifier = modifier.fillMaxSize(),
                 ) { listContent() }
             } else {
                 listContent()
@@ -2349,9 +2564,6 @@ private fun NexaDevRenderAppBottomBarNode(
                         val children = activeTab.optJSONArray("children") ?: JSONArray()
                         val toolbarItems = nexaDevTabToolbars(children)
                         val contentChildren = nexaDevWithoutTabToolbars(children)
-                        val containsForm = nexaDevContainsForm(children)
-                        val containsNativeList = nexaDevContainsNativeList(children)
-                        val hasGroupedSurface = containsForm || containsNativeList
                         if (title == null && toolbarItems.isEmpty()) {
                             NexaDevNodeList(
                                 children,
@@ -2361,15 +2573,7 @@ private fun NexaDevRenderAppBottomBarNode(
                                 scope = scope,
                             )
                         } else {
-                            val contentBackground = if (hasGroupedSurface) {
-                                if (MaterialTheme.colorScheme.background == Color.Black) {
-                                    MaterialTheme.colorScheme.background
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                }
-                            } else {
-                                MaterialTheme.colorScheme.background
-                            }
+                            val contentBackground = MaterialTheme.colorScheme.background
                             val hasKeyboardInset = activeTab
                                 .nexaDevOptionalString("search_state")
                                 ?.isNotEmpty() == true
@@ -2378,16 +2582,16 @@ private fun NexaDevRenderAppBottomBarNode(
                                     .fillMaxSize()
                                     .background(contentBackground)
                                     .imePadding()
-                                hasGroupedSurface -> Modifier
-                                    .fillMaxSize()
-                                    .background(contentBackground)
                                 else -> Modifier.fillMaxSize()
                             }
-                            if (activeTab.optBoolean("large_title") && title != null) {
-                                NexaLargeTitlePrimitive(
+                            if (title != null || toolbarItems.isNotEmpty()) {
+                                NexaNavigationChrome(
                                     identity = "nexa-tab-title-$activeIndex",
-                                    title = title,
-                                    centerCollapsedTitle = toolbarItems.isEmpty(),
+                                    title = title ?: "",
+                                    largeTitle = activeTab.optBoolean("large_title") && title != null,
+                                    centerTitle = toolbarItems.none {
+                                        it.first == "Leading"
+                                    },
                                     containerColor = contentBackground,
                                     modifier = contentModifier,
                                     navigationIcon = {
@@ -2422,43 +2626,6 @@ private fun NexaDevRenderAppBottomBarNode(
                                 }
                             } else {
                                 Column(contentModifier) {
-                                    if (title != null || toolbarItems.isNotEmpty()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(
-                                                start = 16.dp,
-                                                top = 8.dp,
-                                                end = 16.dp,
-                                                bottom = 8.dp,
-                                            ),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            RenderTabToolbarItems(
-                                                toolbarItems,
-                                                "Leading",
-                                                module,
-                                                store,
-                                                locals,
-                                                scope,
-                                            )
-                                            if (title != null) {
-                                                if (toolbarItems.any { it.first == "Leading" }) {
-                                                    Spacer(Modifier.width(8.dp))
-                                                }
-                                                Text(title, style = MaterialTheme.typography.titleLarge)
-                                            }
-                                            if (title != null || toolbarItems.any { it.first == "Leading" }) {
-                                                Spacer(Modifier.weight(1f))
-                                            }
-                                            RenderTabToolbarItems(
-                                                toolbarItems,
-                                                "Trailing",
-                                                module,
-                                                store,
-                                                locals,
-                                                scope,
-                                            )
-                                        }
-                                    }
                                     RenderTabSearchInput(activeTab, module, store, locals, scope)
                                     NexaDevNodeList(
                                         contentChildren,
@@ -2494,7 +2661,7 @@ private fun NexaDevRenderAppBottomBarNode(
 }
 
 @Composable
-private fun RenderTabToolbarItems(
+internal fun RenderTabToolbarItems(
     toolbars: List<Pair<String, JSONArray>>,
     placement: String,
     module: JSONObject,

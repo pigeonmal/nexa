@@ -11,7 +11,18 @@ fn temporary_project() -> nexa_testkit::VacantDir {
         .output()
         .expect("run create");
     assert!(output.status.success(), "{output:?}");
+    let config_path = root.path().join("nexa.config.nx");
+    let config = fs::read_to_string(&config_path).expect("read scaffolded project config");
+    assert!(config.contains("minSdk: 24"), "{config}");
     root
+}
+
+#[test]
+fn created_project_supports_the_android_dev_runtime_minimum_sdk() {
+    let root = temporary_project();
+    let config = fs::read_to_string(root.path().join("nexa.config.nx"))
+        .expect("read scaffolded project config");
+    assert!(config.contains("minSdk: 24"), "{config}");
 }
 
 #[test]
@@ -84,6 +95,38 @@ fn dev_rejects_conflicting_once_and_compile_only_modes() {
         String::from_utf8_lossy(&output.stderr).contains("choose only one"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn ios_dev_single_root_preserves_native_text_alignment() {
+    let runtime = include_str!("../../../runtime/ios/NexaDevRuntime.swift");
+    let renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+
+    assert!(runtime.contains("NexaDevNodeList(\n                    nodes: module[\"body\"]"));
+    assert!(
+        !runtime.contains("NexaColumnPrimitive(alignment: .center, textAlignment: .center"),
+        "the DevRuntime host must not force centered text alignment on native root components"
+    );
+
+    let screen_start = renderer
+        .find("private func renderScreen(")
+        .expect("find the DevRuntime screen renderer");
+    let screen_end = renderer[screen_start..]
+        .find("\n    }\n}")
+        .map(|offset| screen_start + offset)
+        .expect("find the end of the DevRuntime screen renderer");
+    let screen_renderer = &renderer[screen_start..screen_end];
+    assert!(screen_renderer.contains("NexaDevNodeList("));
+    assert!(
+        !screen_renderer.contains("textAlignment: .center"),
+        "a screen with one native root component must inherit that component's text alignment"
+    );
+
+    assert!(
+        renderer.contains(
+            "NexaColumnPrimitive(alignment: .center, textAlignment: .center, spacing: 0) {"
+        )
     );
 }
 
@@ -260,7 +303,7 @@ fn development_runtime_generates_typed_bridges_for_declared_plugin_services() {
     project.write(
         "nexa.config.nx",
         format!(
-            "config {{ dependencies {{ FastMath {{ id: \"dev.nexa.fast-math\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+            "config {{ android {{ minSdk: 24 }} dependencies {{ FastMath {{ id: \"dev.nexa.fast-math\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
         ),
     );
     project.write(
@@ -330,7 +373,7 @@ fn optional_generic_compound_values_generate_aot_and_dev_codecs() {
     project.write(
         "nexa.config.nx",
         format!(
-            "config {{ dependencies {{ CodecProbe {{ id: \"dev.nexa.codec-probe\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+            "config {{ android {{ minSdk: 24 }} dependencies {{ CodecProbe {{ id: \"dev.nexa.codec-probe\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
         ),
     );
     project.write(
@@ -508,7 +551,7 @@ fn hot_reload_can_add_a_module_and_use_a_preconfigured_plugin_after_host_build()
     project.write(
         "nexa.config.nx",
         format!(
-            "config {{ dependencies {{ FastMath {{ id: \"dev.nexa.fast-math\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+            "config {{ android {{ minSdk: 24 }} dependencies {{ FastMath {{ id: \"dev.nexa.fast-math\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
         ),
     );
     project.write(
@@ -617,7 +660,7 @@ fn hot_reload_can_add_preconfigured_plugin_classes_events_properties_and_compone
     project.write(
         "nexa.config.nx",
         format!(
-            "config {{ dependencies {{ VideoPlayer {{ id: \"dev.nexa.video-player\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+        "config {{ android {{ minSdk: 24 }} dependencies {{ VideoPlayer {{ id: \"dev.nexa.video-player\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
         ),
     );
     project.write(
@@ -743,7 +786,7 @@ fn android_cronet_config_selects_provider_and_cache_for_dev_and_aot_hosts() {
     .expect("write network app source");
     fs::write(
         root.join("nexa.config.nx"),
-        r#"config { android { cronet { provider: "embedded", diskCacheSizeMb: 32 } } }"#,
+        r#"config { android { minSdk: 24, applicationId: "dev.nexa.runtimesmoke", cronet { provider: "embedded", diskCacheSizeMb: 32 } } }"#,
     )
     .expect("write Android Cronet config");
     let output = root.join("build");
@@ -758,7 +801,7 @@ fn android_cronet_config_selects_provider_and_cache_for_dev_and_aot_hosts() {
     )
     .expect("generate embedded Cronet Dev host");
 
-    let source_directory = output.join("android/app/src/main/java/com/nexa/runtimesmoke");
+    let source_directory = output.join("android/app/src/main/java/dev/nexa/runtimesmoke");
     let activity = fs::read_to_string(source_directory.join("MainActivity.kt"))
         .expect("read embedded Cronet Dev activity");
     assert!(!activity.contains("CronetProviderInstaller"));
@@ -898,8 +941,9 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     )
     .expect("read Android activity edge-to-edge layout");
     assert!(activity.contains("enableEdgeToEdge()"));
-    assert!(activity.contains("WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)"));
-    assert!(!activity.contains("WindowInsetsSides.Top"));
+    assert!(activity.contains(
+        "WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)"
+    ));
 
     let kotlin_primitives =
         fs::read_to_string(output.join(
@@ -1054,6 +1098,12 @@ fn development_async_network_calls_use_release_native_adapters() {
     assert!(kotlin.contains("\"NativeCall\" -> invokeNativeAsync"));
     assert!(kotlin.contains("NexaNetwork.fetch("));
     assert!(kotlin.contains("action.optJSONObject(\"TryCatch\")"));
+    assert!(kotlin.contains(
+        "internal fun NexaDevStateStore.nativeCall(namespace: String, name: String, arguments: JSONArray): JSONObject =\n    JSONObject()\n        .put(\"namespace\", namespace)\n        .put(\"name\", name)\n        .put(\"arguments\", arguments)"
+    ));
+    assert!(
+        !kotlin.contains("internal fun NexaDevStateStore.nativeCall(namespace: String, name: String, arguments: JSONArray): JSONObject =\n    JSONObject().put(\"NativeCall\"")
+    );
     let generated_kotlin =
         fs::read_to_string(output.join(
             "android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_native_library.kt",
@@ -1520,6 +1570,7 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms() {
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"BottomSheet\":"));
     assert!(swift.contains("NexaBottomSheetPrimitive("));
+    assert!(swift.contains("fields[\"show_drag_handle\"] as? Bool ?? true"));
     assert!(!swift.contains("devBottomSheet(in: module[\"body\"]"));
 
     let swift_primitives =
@@ -1529,17 +1580,23 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms() {
     assert!(swift_primitives.contains("host.sheet(isPresented: $isPresented)"));
     assert!(swift_primitives.contains("host.fullScreenCover(isPresented: $isPresented)"));
     assert!(swift_primitives.contains(".presentationDetents("));
+    assert!(
+        swift_primitives
+            .contains(".presentationDragIndicator(showDragHandle ? .visible : .hidden)")
+    );
     assert!(swift_primitives.contains("largeOnly ? [.large] : [.medium, .large]"));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"BottomSheet\" ->"));
     assert!(kotlin.contains("NexaBottomSheetPrimitive("));
+    assert!(kotlin.contains("fields.optBoolean(\"show_drag_handle\", true)"));
     let kotlin_primitives = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
     )
     .expect("read generated Android sheet primitive");
     assert!(kotlin_primitives.contains("internal fun NexaBottomSheetPrimitive("));
     assert!(kotlin_primitives.contains("ModalBottomSheet("));
+    assert!(kotlin_primitives.contains("dragHandle = if (showDragHandle)"));
     assert!(kotlin_primitives.contains("DialogProperties(usePlatformDefaultWidth = false)"));
 }
 
@@ -1608,70 +1665,51 @@ fn development_runtime_renders_segmented_controls_on_both_platforms() {
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"SegmentedControl\":"));
     assert!(swift.contains("NexaSegmentedControlPrimitive(items: items, selection: Binding("));
+    assert!(swift.contains("animation: nexaDevAnimation(fields[\"animation\"])"));
+    assert!(swift.contains("tint: color(\"tint\")"));
+    assert!(swift.contains("textColor: color(\"text_color\")"));
+    assert!(swift.contains("selectedTextColor: color(\"selected_text_color\")"));
+    assert!(swift.contains("fontWeight: fontWeight"));
+    assert!(swift.contains("borderWidth: fields[\"border_width\"] as? CGFloat"));
+    assert!(swift.contains("fields[\"delay\"] as? Double ?? 0.0"));
+    assert!(swift.contains("easing[\"CubicBezier\"] as? [String: Any]"));
     let swift_primitives =
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
             .expect("read generated iOS component primitives");
     assert!(swift_primitives.contains("struct NexaSegmentedControlPrimitive: View"));
+    assert!(swift_primitives.contains("if items.isEmpty {"));
+    assert!(swift_primitives.contains("EmptyView()"));
+    assert!(swift_primitives.contains("var selectedTextColor: Color? = nil"));
+    assert!(swift_primitives.contains("var fontWeight: Font.Weight? = nil"));
+    assert!(swift_primitives.contains("struct NexaNativeSegmentedControl: UIViewRepresentable"));
+    assert!(swift_primitives.contains("UISegmentedControl"));
+    assert!(swift_primitives.contains("NexaNativeSegmentedControl("));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"SegmentedControl\" ->"));
     assert!(kotlin.contains("NexaSegmentedControlPrimitive("));
+    assert!(kotlin.contains("animation = if (fields.isNull(\"animation\")) {"));
+    assert!(kotlin.contains("store.devAnimationSpec(fields.opt(\"animation\"))"));
+    assert!(kotlin.contains("tint = color(\"tint\")"));
+    assert!(kotlin.contains("textColor = color(\"text_color\")"));
+    assert!(kotlin.contains("selectedTextColor = color(\"selected_text_color\")"));
+    assert!(kotlin.contains("fontWeight = when (fields.optString(\"font_weight\"))"));
+    assert!(kotlin.contains("borderWidth = if (fields.isNull(\"border_width\")) null"));
+    assert!(kotlin.contains("fields.optDouble(\"delay\", 0.0)"));
+    assert!(kotlin.contains("androidx.compose.animation.core.CubicBezierEasing("));
     let kotlin_primitives = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
     )
     .expect("read generated Android component primitives");
     assert!(kotlin_primitives.contains("internal fun NexaSegmentedControlPrimitive("));
-}
-
-#[test]
-fn development_runtime_renders_pickers_on_both_platforms() {
-    let root = temporary_project();
-    let entry = root.join("App.nx");
-    fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dev_picker.nx"),
-        &entry,
-    )
-    .expect("write picker smoke app");
-    let output = root.join("build");
-
-    nexa_cli::generate_dev_project(
-        &entry,
-        "all",
-        &output,
-        "RuntimeSmoke",
-        "ws://127.0.0.1:43210",
-        "0123456789abcdef0123456789abcdef",
-    )
-    .expect("generate picker dev hosts");
-
-    let swift = read_ios_dev_runtime(&output);
-    assert!(swift.contains("case \"Picker\":"));
-    assert!(swift.contains("NexaPickerPrimitive(selection: Binding("));
-    assert!(swift.contains("NexaDatePickerPrimitive(timestamp: Binding("));
-    let swift_primitives =
-        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
-            .expect("read generated iOS picker primitive");
-    assert!(swift_primitives.contains("struct NexaPickerPrimitive<LabelContent: View>"));
-    assert!(swift_primitives.contains(".pickerStyle(.menu)"));
-    assert!(swift_primitives.contains("struct NexaDatePickerPrimitive: View"));
-    assert!(swift_primitives.contains(".datePickerStyle(.compact)"));
-    assert!(swift_primitives.contains("Toggle(\"Include time\""));
-
-    let kotlin = read_android_dev_runtime(&output);
-    assert!(kotlin.contains("\"Picker\" ->"));
-    assert!(kotlin.contains("NexaPickerPrimitive("));
-    assert!(kotlin.contains("onSelectionChanged = { store.setState(state, it, scope) }"));
-    assert!(kotlin.contains("NexaDatePickerPrimitive("));
-    let kotlin_primitives = fs::read_to_string(
-        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
-    )
-    .expect("read generated Android picker primitive");
-    assert!(kotlin_primitives.contains("internal fun NexaPickerPrimitive("));
-    assert!(kotlin_primitives.contains("DropdownMenuItem("));
-    assert!(kotlin_primitives.contains("internal fun NexaDatePickerPrimitive("));
-    assert!(kotlin_primitives.contains("DatePickerDialog("));
-    assert!(kotlin_primitives.contains("AlertDialog("));
-    assert!(kotlin_primitives.contains("Include time"));
+    assert!(kotlin_primitives.contains("if (items.isEmpty()) return"));
+    assert!(
+        kotlin_primitives.contains("selectedTextColor: androidx.compose.ui.graphics.Color? = null")
+    );
+    assert!(
+        kotlin_primitives.contains("fontWeight: androidx.compose.ui.text.font.FontWeight? = null")
+    );
+    assert!(kotlin_primitives.contains("height: androidx.compose.ui.unit.Dp? = null"));
 }
 
 #[test]
@@ -1706,13 +1744,14 @@ fn development_runtime_renders_bottom_tabs_on_both_platforms() {
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),
     )
     .expect("read Android bottom-bar activity");
-    assert!(activity.contains("WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)"));
-    assert!(!activity.contains("WindowInsetsSides.Top"));
+    assert!(activity.contains(
+        "WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)"
+    ));
     assert!(activity.contains("color = Color.Transparent"));
 }
 
 #[test]
-fn android_aot_activity_draws_under_status_bar_by_default() {
+fn android_aot_content_starts_below_status_bar_with_edge_to_edge_background() {
     let root = temporary_project();
     let source = root.path().join("edge-to-edge-app");
     fs::create_dir(&source).expect("create isolated app source directory");
@@ -1733,7 +1772,7 @@ fn android_aot_activity_draws_under_status_bar_by_default() {
     .expect("read generated Android AOT activity");
     assert!(activity.contains("enableEdgeToEdge()"));
     assert!(activity.contains(
-        "WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)"
+        "WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)"
     ));
     assert!(!activity.contains("safeDrawingPadding()"));
 }

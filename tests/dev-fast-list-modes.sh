@@ -24,6 +24,21 @@ fi
 
 "$nexa" create FastListModesSmoke --directory "$project"
 cp "$fixture" "$project/App.nx"
+python3 - "$project/nexa.config.nx" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+config = path.read_text()
+pattern = re.compile(r"(\bandroid\s*\{\s*minSdk:\s*)(\d+)")
+config, count = pattern.subn(
+    lambda match: match.group(1) + str(max(24, int(match.group(2)))), config, count=1
+)
+if count != 1:
+    raise SystemExit(f"could not set the DevRuntime Android minSdk in {path}")
+path.write_text(config)
+PY
 mkfifo "$project/dev-stdin"
 exec 3<>"$project/dev-stdin"
 cd "$project"
@@ -62,7 +77,7 @@ wait_for_log "Nexa $( [[ "$platform" == ios ]] && echo iOS || echo Android ) dev
 if [[ "$platform" == android ]]; then
     wait_for_accessibility_text() {
         local expected=$1
-        for _ in $(seq 1 30); do
+        for _ in $(seq 1 12); do
             adb shell uiautomator dump /sdcard/nexa-fast-list-modes.xml >/dev/null 2>&1
             adb exec-out cat /sdcard/nexa-fast-list-modes.xml >"$project/build/nexa-fast-list-modes.xml"
             if grep -Eq "$expected" "$project/build/nexa-fast-list-modes.xml"; then return 0; fi
@@ -81,13 +96,39 @@ if [[ "$platform" == android ]]; then
         fi
         sleep 1
     done
-    wait_for_accessibility_text 'Events [0-9]+ pages 0 refreshes 0' || { cat "$project/build/nexa-fast-list-modes.xml" >&2; exit 1; }
-    adb shell input swipe 360 240 360 1200 300
+    wait_for_accessibility_text 'Events [0-9]+ pages 0 refreshes 0 refreshing false' || {
+        cat "$project/build/nexa-fast-list-modes.xml" >&2
+        exit 1
+    }
+    # Use the center of the full-width refresh container and derive its
+    # vertical bounds from the row nodes. A header label's accessibility
+    # rectangle is much narrower than the actual gesture surface.
+    refresh_bounds=$(python3 - "$project/build/nexa-fast-list-modes.xml" <<'PY'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+nodes = {node.attrib.get("text", ""): node for node in root.iter("node")}
+first_row = nodes.get("Section 0 row 0: A1")
+last_row = nodes.get("Section 1 row 1: B2")
+if first_row is None or last_row is None:
+    raise SystemExit("sectioned-list bounds are missing from Android accessibility output")
+parse = lambda node: tuple(map(int, re.findall(r"\d+", node.attrib["bounds"])))
+_, top, _, _ = parse(first_row)
+_, _, _, list_bottom = parse(last_row)
+screen_bounds = parse(next(root.iter("node")))
+print(screen_bounds[2] // 2, top, min(list_bottom + 36, screen_bounds[3] - 16))
+PY
+    )
+    read -r refresh_x refresh_start_y refresh_end_y <<< "$refresh_bounds"
+    adb shell input swipe "$refresh_x" "$refresh_start_y" "$refresh_x" "$refresh_end_y" 500
     wait_for_accessibility_text 'refreshes 1' || { cat "$project/build/nexa-fast-list-modes.xml" >&2; exit 1; }
-    adb shell input swipe 360 1400 360 300 250
-    adb shell input swipe 360 1400 360 300 250
+    wait_for_accessibility_text 'refreshing true' || { cat "$project/build/nexa-fast-list-modes.xml" >&2; exit 1; }
+    adb shell input swipe 360 1400 360 600 250
+    adb shell input swipe 360 1400 360 600 250
     wait_for_accessibility_text 'pages 1' || { cat "$project/build/nexa-fast-list-modes.xml" >&2; exit 1; }
-    grep -Eq 'Events [1-9][0-9]* pages 1 refreshes 1' "$project/build/nexa-fast-list-modes.xml" || {
+    grep -Eq 'Events [1-9][0-9]* pages 1 refreshes 1 refreshing true' "$project/build/nexa-fast-list-modes.xml" || {
         cat "$project/build/nexa-fast-list-modes.xml" >&2
         exit 1
     }

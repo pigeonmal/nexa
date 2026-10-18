@@ -76,7 +76,31 @@ fn image_scale(scale: ImageScale) -> &'static str {
 }
 
 pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: &mut SourceWriter) {
-    out.push_str("enum NexaImageScale { case fit; case fill }\n\n");
+    out.push_str(
+        r#"enum NexaImageScale { case fit; case fill }
+
+struct NexaImageSizingModifier: ViewModifier {
+    let scale: NexaImageScale
+    let maxHeight: CGFloat?
+    let fillMaxSize: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if fillMaxSize {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let maxHeight {
+            content
+                .frame(maxWidth: scale == .fill ? .infinity : nil)
+                .frame(height: maxHeight)
+                .clipped()
+        } else {
+            content.frame(maxWidth: scale == .fill ? .infinity : nil)
+        }
+    }
+}
+
+"#,
+    );
     out.push_str(
         r#"struct NexaImagePlaceholderPrimitive: View {
     let name: String
@@ -105,8 +129,7 @@ pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: 
         Image(name)
             .resizable()
             .aspectRatio(contentMode: scale == .fit ? .fit : .fill)
-            .frame(maxWidth: fillMaxSize || scale == .fill ? .infinity : nil, maxHeight: fillMaxSize ? .infinity : nil)
-            .frame(maxHeight: maxHeight)
+            .modifier(NexaImageSizingModifier(scale: scale, maxHeight: maxHeight, fillMaxSize: fillMaxSize))
             .accessibilityLabel(description)
             .accessibilityHidden(description.isEmpty)
     }
@@ -129,8 +152,7 @@ pub(crate) fn render_primitives(include_asset: bool, include_remote: bool, out: 
 
     var body: some View {
         NexaRemoteImage(url: url, scale: scale, placeholder: placeholder, showLoadingIndicator: showLoadingIndicator, allowsFile: allowsFile)
-            .frame(maxWidth: fillMaxSize || scale == .fill ? .infinity : nil, maxHeight: fillMaxSize ? .infinity : nil)
-            .frame(maxHeight: maxHeight)
+            .modifier(NexaImageSizingModifier(scale: scale, maxHeight: maxHeight, fillMaxSize: fillMaxSize))
             .accessibilityLabel(description)
             .accessibilityHidden(description.isEmpty)
     }
@@ -178,5 +200,17 @@ mod tests {
         );
 
         assert!(output.finish().contains("showLoadingIndicator: true"));
+    }
+
+    #[test]
+    fn bounded_images_use_a_clipped_fixed_height_frame_on_swiftui() {
+        let mut output = SourceWriter::new();
+        render_primitives(true, true, &mut output);
+        let output = output.finish();
+
+        assert!(output.contains("struct NexaImageSizingModifier: ViewModifier"));
+        assert!(output.contains(".frame(height: maxHeight)"));
+        assert!(output.contains(".clipped()"));
+        assert!(output.matches(".modifier(NexaImageSizingModifier(").count() == 2);
     }
 }

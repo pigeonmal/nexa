@@ -66,6 +66,7 @@ pub fn extract_bottom_sheet_children(nodes: &[Node]) -> BottomSheetChildren {
                 then_body,
                 else_body,
                 transition,
+                transition_animation,
             } => {
                 let then_parts = extract_bottom_sheet_children(then_body);
                 let else_parts = else_body
@@ -93,6 +94,7 @@ pub fn extract_bottom_sheet_children(nodes: &[Node]) -> BottomSheetChildren {
                         then_body: then_content,
                         else_body: else_content,
                         transition: *transition,
+                        transition_animation: *transition_animation,
                     });
                 }
 
@@ -102,6 +104,7 @@ pub fn extract_bottom_sheet_children(nodes: &[Node]) -> BottomSheetChildren {
                         then_body: then_toolbars,
                         else_body: else_toolbars,
                         transition: *transition,
+                        transition_animation: *transition_animation,
                     });
                 }
             }
@@ -110,6 +113,7 @@ pub fn extract_bottom_sheet_children(nodes: &[Node]) -> BottomSheetChildren {
                 cases,
                 else_body,
                 transition,
+                transition_animation,
             } => {
                 let case_parts = cases
                     .iter()
@@ -155,6 +159,7 @@ pub fn extract_bottom_sheet_children(nodes: &[Node]) -> BottomSheetChildren {
                         cases: content_cases,
                         else_body: else_content,
                         transition: *transition,
+                        transition_animation: *transition_animation,
                     });
                 }
 
@@ -164,6 +169,7 @@ pub fn extract_bottom_sheet_children(nodes: &[Node]) -> BottomSheetChildren {
                         cases: toolbar_cases,
                         else_body: else_toolbars,
                         transition: *transition,
+                        transition_animation: *transition_animation,
                     });
                 }
             }
@@ -188,6 +194,7 @@ fn toolbar_slot(nodes: &[Node], placement: ToolbarPlacement) -> Vec<Node> {
                 then_body,
                 else_body,
                 transition,
+                transition_animation,
             } => {
                 let then_body = toolbar_slot(then_body, placement);
                 let else_body = else_body.as_ref().map(|body| toolbar_slot(body, placement));
@@ -198,6 +205,7 @@ fn toolbar_slot(nodes: &[Node], placement: ToolbarPlacement) -> Vec<Node> {
                         then_body,
                         else_body,
                         transition: *transition,
+                        transition_animation: *transition_animation,
                     });
                 }
             }
@@ -206,6 +214,7 @@ fn toolbar_slot(nodes: &[Node], placement: ToolbarPlacement) -> Vec<Node> {
                 cases,
                 else_body,
                 transition,
+                transition_animation,
             } => {
                 let cases = cases
                     .iter()
@@ -221,6 +230,7 @@ fn toolbar_slot(nodes: &[Node], placement: ToolbarPlacement) -> Vec<Node> {
                         cases,
                         else_body,
                         transition: *transition,
+                        transition_animation: *transition_animation,
                     });
                 }
             }
@@ -297,6 +307,7 @@ mod tests {
                 text("Editor"),
             ])]),
             transition: None,
+            transition_animation: None,
         }]);
 
         assert!(matches!(
@@ -332,6 +343,7 @@ mod tests {
             ],
             else_body: vec![text("Unknown mode")],
             transition: None,
+            transition_animation: None,
         }]);
 
         let slot = children.toolbar_slot(ToolbarPlacement::Trailing);

@@ -30,12 +30,39 @@ pub(crate) fn render(
     out.push_str(&format!(
         "{indent}val nexaStatusBarView = LocalView.current\n"
     ));
-    out.push_str(&format!("{indent}SideEffect {{\n"));
     out.push_str(&format!(
-        "{nested_indent}val nexaWindow = (nexaStatusBarView.context as? Activity)?.window\n"
+        "{indent}val nexaStatusBarWindow = (nexaStatusBarView.context as? Activity)?.window\n"
     ));
     out.push_str(&format!(
-        "{nested_indent}nexaWindow?.let {{ nexaWindow ->\n{deeply_nested_indent}val nexaController = WindowCompat.getInsetsController(nexaWindow, nexaStatusBarView)\n"
+        "{indent}androidx.compose.runtime.DisposableEffect(nexaStatusBarWindow, nexaStatusBarView) {{\n"
+    ));
+    out.push_str(&format!(
+        "{nested_indent}val nexaStatusBarController = nexaStatusBarWindow?.let {{ WindowCompat.getInsetsController(it, nexaStatusBarView) }}\n"
+    ));
+    out.push_str(&format!(
+        "{nested_indent}val nexaInitialStatusBarStyle = nexaStatusBarController?.isAppearanceLightStatusBars\n"
+    ));
+    out.push_str(&format!(
+        "{nested_indent}val nexaInitialStatusBarVisibility = androidx.core.view.ViewCompat.getRootWindowInsets(nexaStatusBarView)?.isVisible(WindowInsetsCompat.Type.statusBars())\n"
+    ));
+    out.push_str(&format!("{nested_indent}onDispose {{\n"));
+    out.push_str(&format!(
+        "{deeply_nested_indent}nexaStatusBarController?.let {{ controller ->\n"
+    ));
+    out.push_str(&format!(
+        "{}nexaInitialStatusBarVisibility?.let {{ visible -> if (visible) controller.show(WindowInsetsCompat.Type.statusBars()) else controller.hide(WindowInsetsCompat.Type.statusBars()) }}\n",
+        "    ".repeat(depth + 3)
+    ));
+    out.push_str(&format!(
+        "{}nexaInitialStatusBarStyle?.let {{ controller.isAppearanceLightStatusBars = it }}\n",
+        "    ".repeat(depth + 3)
+    ));
+    out.push_str(&format!("{deeply_nested_indent}}}\n"));
+    out.push_str(&format!("{nested_indent}}}\n"));
+    out.push_str(&format!("{indent}}}\n"));
+    out.push_str(&format!("{indent}SideEffect {{\n"));
+    out.push_str(&format!(
+        "{nested_indent}nexaStatusBarWindow?.let {{ nexaWindow ->\n{deeply_nested_indent}val nexaController = WindowCompat.getInsetsController(nexaWindow, nexaStatusBarView)\n"
     ));
     if config.hidden {
         out.push_str(&format!(
@@ -117,5 +144,9 @@ mod tests {
 
         assert!(generated.contains("isAppearanceLightStatusBars = true"));
         assert!(!generated.contains("statusBarColor"));
+        assert!(generated.contains("DisposableEffect(nexaStatusBarWindow, nexaStatusBarView)"));
+        assert!(generated.contains("ViewCompat.getRootWindowInsets(nexaStatusBarView)?.isVisible"));
+        assert!(generated.contains("nexaInitialStatusBarStyle?.let"));
+        assert!(generated.contains("onDispose"));
     }
 }

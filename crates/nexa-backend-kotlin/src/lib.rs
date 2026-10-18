@@ -34,6 +34,8 @@ pub struct KotlinProjectFeatures {
     pub uses_permission_request: bool,
     pub uses_navigation: bool,
     pub uses_bottom_bar: bool,
+    pub uses_expressive_menus: bool,
+    pub uses_expressive_motion: bool,
     pub uses_compose_animation: bool,
     pub uses_compose_graphics: bool,
     pub uses_lifecycle_events: bool,
