@@ -1211,12 +1211,19 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             | Node::Slider { state, .. }
             | Node::SegmentedControl { state, .. }
             | Node::Picker { state, .. }
-            | Node::BottomSheet { state, .. }
             | Node::Dialog { state, .. }
             | Node::ConfirmationDialog { state, .. }
             | Node::AppBottomBar { state, .. }
             | Node::PagePager { state, .. } => {
                 bindings.push(state.clone());
+            }
+            Node::BottomSheet {
+                state,
+                selected_snap_point,
+                ..
+            } => {
+                bindings.push(state.clone());
+                bindings.extend(selected_snap_point.iter().cloned());
             }
             Node::PickerDate { props } => {
                 bindings.extend(props.timestamp_state.iter().cloned());

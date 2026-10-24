@@ -1,19 +1,67 @@
 app BottomSheetSmoke {
     state showSheet: Bool = false
+    state showNestedSheet: Bool = false
+    state didDismiss: Bool = false
+    state didSave: Bool = false
+    state selectedSnapPoint: Float64 = 0.6
 
     body {
         Column {
             Text("Bottom sheet smoke")
+            Text(didDismiss ? "Dismiss callback ran" : "Dismiss callback waiting")
             Button("Open sheet") {
-                showSheet = true
+                BottomSheet.present(showSheet)
             }
-            BottomSheet(isPresented: showSheet, partial: true, showDragHandle: false) {
+            BottomSheet(
+                isPresented: showSheet,
+                contentPadding: 20,
+                snapPoints: [0.3, 0.6, 0.9],
+                selectedSnapPoint: selectedSnapPoint,
+                showDragIndicator: false,
+                allowsDismissal: true,
+                allowsBackgroundInteraction: true,
+                shouldDismissOnBackPress: false,
+                backgroundColor: "#00000000",
+                scrimColor: "#00000000"
+            ) {
                 Column {
+                    Row {
+                        Text("Edit task")
+                        Spacer()
+                        Button("Save", icon: "save", style: Borderless) {
+                            didSave = true
+                        }
+                        Button("Close", icon: "close", style: Plain) {
+                            BottomSheet.dismiss(showSheet)
+                        }
+                    }
+                    Text(didSave ? "Header saved" : "Not saved")
                     Text("Sheet content")
+                    Button("Open nested sheet") {
+                        BottomSheet.present(showNestedSheet)
+                    }
+                    BottomSheet(
+                        isPresented: showNestedSheet,
+                        detents: [Medium, Expanded],
+                        initialDetent: Medium
+                    ) {
+                        Column {
+                            Text("Nested sheet content")
+                            Button("Return to parent") {
+                                BottomSheet.dismiss(showNestedSheet)
+                            }
+                        }
+                    }
+                    Button("Expand sheet") {
+                        BottomSheet.snapTo(selectedSnapPoint, 0.9)
+                    }
                     Button("Close sheet") {
-                        showSheet = false
+                        BottomSheet.dismiss(showSheet)
                     }
                 }
+            }
+            .onDismiss {
+                didDismiss = true
             }
         }
     }

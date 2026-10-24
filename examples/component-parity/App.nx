@@ -7,6 +7,11 @@ component ParityCard(title: String) {
     }
 }
 
+struct SheetAuditItem {
+    id: Int32,
+    title: String,
+}
+
 app ComponentParity {
     state appActivations: Int32 = 0
     state appDeactivations: Int32 = 0
@@ -15,8 +20,8 @@ app ComponentParity {
     screen Catalog {
         Form {
             Section(title: "Featured") {
-                NavigationLink(destination: PickerDateCases) {
-                    Text("Date and time picker")
+                NavigationLink(destination: FastListCases) {
+                    Text("FastList parity")
                 }
             }
             Section(title: "Layout") {
@@ -69,6 +74,9 @@ app ComponentParity {
                 }
             }
             Section(title: "Content and lists") {
+                NavigationLink(destination: FastListCases) {
+                    Text("FastList parameters")
+                }
                 NavigationLink(destination: FormCases) {
                     Text("Form and section")
                 }
@@ -80,9 +88,6 @@ app ComponentParity {
                 }
                 NavigationLink(destination: ProgressRingCases) {
                     Text("Progress ring values")
-                }
-                NavigationLink(destination: FastListCases) {
-                    Text("FastList row sizing")
                 }
                 NavigationLink(destination: RefreshCases) {
                     Text("Pull to refresh")
@@ -974,6 +979,9 @@ app ComponentParity {
 
     screen TextCases {
         state textTestPage: Int32 = 0
+        state textInterpolationFloat64: Float64 = 0.25
+        state textInterpolationFloat32: Float32 = 0.125
+        state textInterpolationInteger: Int32 = 42
         Column(spacing: 10, padding: 16) {
             Text("Text", fontSize: 28, fontWeight: Bold)
             Row(spacing: 12) {
@@ -1007,6 +1015,23 @@ app ComponentParity {
                     Text("Serif 18", fontSize: 18, fontDesign: Serif, comment: "Serif typeface at a custom size")
                     Text("Rounded design", fontDesign: Rounded)
                     Text("Monospaced design", fontDesign: Monospaced)
+                }
+                ParityCard(title: "Typed numeric interpolation · device locale") {
+                    Text("Float64: \(textInterpolationFloat64)")
+                    Text("Float32: \(textInterpolationFloat32)")
+                    Text("Int32: \(textInterpolationInteger)")
+                    Row(spacing: 8) {
+                        Button("Use boundary values") {
+                            textInterpolationFloat64 = - 0.2
+                            textInterpolationFloat32 = 1.5
+                            textInterpolationInteger = - 7
+                        }
+                        Button("Reset values") {
+                            textInterpolationFloat64 = 0.25
+                            textInterpolationFloat32 = 0.125
+                            textInterpolationInteger = 42
+                        }
+                    }
                 }
             }
             if textTestPage == 1 {
@@ -1230,16 +1255,95 @@ app ComponentParity {
     screen TextInputCases {
         state shortText: String = ""
         state email: String = ""
+        state emailNext: String = ""
         state notes: String = ""
         state password: String = ""
+        state numberValue: String = ""
+        state phoneValue: String = ""
+        state urlValue: String = ""
+        state oneTimeCode: String = ""
+        state wordCapitalization: String = ""
+        state characterCapitalization: String = ""
+        state titleText: String = ""
+        state minimumLinesText: String = ""
+        state maximumLinesText: String = ""
+        state lastChanged: String = ""
+        state changeCount: Int32 = 0
+        state lastSubmitted: String = "Not submitted"
         state emailFocused: Bool = false
-        Column(spacing: 12, padding: 16) {
-            Text("TextInput", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Placeholder, keyboard, and multiline") {
-                TextInput(value: shortText, placeholder: "Task name", maxLength: 40)
-                TextInput(value: email, placeholder: "Email search", comment: "Searchable autofill input", keyboardType: Email, autofill: Username, returnKeyType: Next, capitalization: None, autocorrect: false, focused: emailFocused, font: Body, searchable: true)
-                TextInput(value: password, placeholder: "Password", comment: "Secure password input", keyboardType: Text, isSecure: true, autofill: Password, returnKeyType: Done, autocorrect: false, capitalization: None, font: Body)
-                TextInput(value: notes, placeholder: "Notes", multiline: true, minLines: 3, maxLines: 5)
+        KeyboardAware(dismiss: Interactive) {
+            Column(spacing: 12, padding: 16) {
+                Text("TextInput", fontSize: 28, fontWeight: Bold)
+                Text("No field is focused when this screen opens.", fontSize: 13, color: "#777780")
+                Button("Reset inputs") {
+                    shortText = ""
+                    email = ""
+                    emailNext = ""
+                    notes = ""
+                    password = ""
+                    numberValue = ""
+                    phoneValue = ""
+                    urlValue = ""
+                    oneTimeCode = ""
+                    wordCapitalization = ""
+                    characterCapitalization = ""
+                    titleText = ""
+                    minimumLinesText = ""
+                    maximumLinesText = ""
+                    lastChanged = ""
+                    changeCount = 0
+                    lastSubmitted = "Not submitted"
+                    emailFocused = false
+                }
+                ParityCard(title: "Default text, placeholder, comment, length, and onChange") {
+                    TextInput(value: shortText, placeholder: "Task name", comment: "Task name for the parity audit", keyboardType: Text, isSecure: false, autocorrect: true, capitalization: Sentences, maxLength: 12, font: Body, searchable: false, returnKeyType: Done) {
+                        lastSubmitted = "Text · Done"
+                    }.onChange {
+                        changed ->
+                        lastChanged = changed
+                        changeCount = changeCount + 1
+                    }
+                    Text("Value: $shortText · last change: $lastChanged · edits: $changeCount", fontSize: 13)
+                    Text("Last submitted: $lastSubmitted", fontSize: 13)
+                }
+                ParityCard(title: "Keyboard, return key, and focus") {
+                    TextInput(value: email, placeholder: "Search email", comment: "Username autofill and searchable input", keyboardType: Email, autofill: Username, returnKeyType: Search, capitalization: None, autocorrect: false, focused: emailFocused, font: Body, searchable: true)
+                    TextInput(value: emailNext, placeholder: "Email · Next", keyboardType: Email, returnKeyType: Next, capitalization: None, autocorrect: false) {
+                        lastSubmitted = "Email · Next"
+                    }
+                    TextInput(value: numberValue, placeholder: "Number · Search", keyboardType: Number, returnKeyType: Search, capitalization: None, autocorrect: false, searchable: false) {
+                        lastSubmitted = "Number · Search"
+                    }
+                    TextInput(value: phoneValue, placeholder: "Phone · Send", keyboardType: Phone, returnKeyType: Send, capitalization: Characters, autocorrect: false) {
+                        lastSubmitted = "Phone · Send"
+                    }
+                    TextInput(value: urlValue, placeholder: "URL · Done", keyboardType: Url, returnKeyType: Done, capitalization: Words) {
+                        lastSubmitted = "URL · Done"
+                    }
+                    Button("Focus email") {
+                        emailFocused = true
+                    }
+                    Button("Clear email focus") {
+                        emailFocused = false
+                    }
+                    Text("Email focused: $emailFocused · last submitted: $lastSubmitted", fontSize: 13)
+                }
+                ParityCard(title: "Secure entry and autofill types") {
+                    TextInput(value: password, placeholder: "Password", keyboardType: Text, isSecure: true, autofill: Password, returnKeyType: Done, autocorrect: false, capitalization: None, font: Body) {
+                        lastSubmitted = "Password · Done"
+                    }
+                    TextInput(value: oneTimeCode, placeholder: "One-time code", keyboardType: Number, autofill: OneTimeCode, returnKeyType: Done, autocorrect: false, capitalization: None)
+                }
+                ParityCard(title: "Capitalization and font variants") {
+                    TextInput(value: wordCapitalization, placeholder: "Words · Title 3", keyboardType: Text, capitalization: Words, autocorrect: false, font: Title3)
+                    TextInput(value: characterCapitalization, placeholder: "Characters", keyboardType: Text, capitalization: Characters, autocorrect: false, font: Body)
+                    TextInput(value: titleText, placeholder: "Default capitalization", font: Title3)
+                }
+                ParityCard(title: "Multiline line limits") {
+                    TextInput(value: notes, placeholder: "3–5 lines", multiline: true, minLines: 3, maxLines: 5, font: Body)
+                    TextInput(value: minimumLinesText, placeholder: "At least 2 lines", multiline: true, minLines: 2)
+                    TextInput(value: maximumLinesText, placeholder: "At most 4 lines", multiline: true, maxLines: 4)
+                }
             }
         }
     }
@@ -1386,9 +1490,9 @@ app ComponentParity {
     screen PickerCases {
         state sort: String = Locale.localized("Due date")
         state sortOptions: Array<String> = [
-            Locale.localized("Due date"),
-            Locale.localized("Priority"),
-            Locale.localized("Title")
+        Locale.localized("Due date"),
+        Locale.localized("Priority"),
+        Locale.localized("Title")
         ]
         state labelOnlySort: String = Locale.localized("Priority")
         state iconOnlySort: String = Locale.localized("Title")
@@ -1428,10 +1532,12 @@ app ComponentParity {
         state rangeEnd: Int64 = 1792454400000
         state earliestDate: Int64 = 1791763200000
         state latestDate: Int64 = 1792454400000
+        state rangeEarliestDate: Int64 = 1788220800000
+        state rangeLatestDate: Int64 = 1795996800000
         Form(showDividers: false, background: "#FFFFFF") {
             Section(title: "Date styles") {
                 Text("Range selection · one native calendar")
-                PickerDate(type: Date, style: Compact, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: earliestDate, maximum: latestDate, tint: "#2563EB", locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Compact travel dates")
+                PickerDate(type: Date, style: Compact, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: rangeEarliestDate, maximum: rangeLatestDate, tint: "#2563EB", locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Compact travel dates")
                 Text("Default · inline graphical calendar")
                 PickerDate(type: Date, timestamp: selectedDate, locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Due date")
                 Text("Automatic · explicit native style")
@@ -1457,7 +1563,7 @@ app ComponentParity {
             }
             Section(title: "Date range") {
                 Text("Select a bounded date range")
-                PickerDate(type: Date, style: Graphical, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: earliestDate, maximum: latestDate, tint: "#2563EB", locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Travel dates")
+                PickerDate(type: Date, style: Graphical, selection: Range, startTimestamp: rangeStart, endTimestamp: rangeEnd, minimum: rangeEarliestDate, maximum: rangeLatestDate, tint: "#2563EB", locale: "en-GB", timeZone: "Europe/Paris", accessibilityLabel: "Travel dates")
             }
             Section(title: "Visual parameters and disabled state") {
                 Text("Accent, text, surfaces, border, and radius")
@@ -1510,6 +1616,13 @@ app ComponentParity {
     }
 
     screen ProgressBarCases {
+        state barTint: String = "#7C3AED"
+        state barTrack: String = "#EDE9FE"
+        state barCustomProgress: Float64 = 0.45
+        state barAccessibleLabel: String = "Upload progress"
+        state barAccessibleHint: String = "Announces the upload completion percentage"
+        state barAccessibleValue: String = "45 percent"
+        state barAndroidWave: Bool = true
         state barUnderflow: Float64 = - 0.25
         state barZero: Float64 = 0.0
         state barMiddle: Float64 = 0.45
@@ -1517,13 +1630,68 @@ app ComponentParity {
         state barOverflow: Float64 = 1.25
         Column(spacing: 12, padding: 16) {
             Text("ProgressBar", fontSize: 28, fontWeight: Bold)
-            ParityCard(title: "Clamp below zero, partial, complete, and above one") {
+            ParityCard(title: "Omitted progress uses the native indeterminate animation") {
+                Column(spacing: 12) {
+                    ProgressBar()
+                    ProgressBar(
+                    tint: barTint,
+                    trackColor: barTrack,
+                    thickness: 12,
+                    cornerRadius: 6,
+                    android_wave: barAndroidWave
+                    )
+                }
+            }
+            ParityCard(title: "Native default style and clamped progress values") {
                 Column(spacing: 12) {
                     ProgressBar(progress: barUnderflow, accessibilityLabel: "Underflow clamps to zero")
                     ProgressBar(progress: barZero, accessibilityLabel: "No progress")
                     ProgressBar(progress: barMiddle, accessibilityLabel: "Partial progress")
                     ProgressBar(progress: barFull, accessibilityLabel: "Complete progress")
                     ProgressBar(progress: barOverflow, accessibilityLabel: "Overflow clamps to complete")
+                }
+            }
+            ParityCard(title: "Custom fill, track, thickness, and corner treatment") {
+                ProgressBar(
+                progress: barCustomProgress,
+                tint: barTint,
+                trackColor: barTrack,
+                thickness: 12,
+                cornerRadius: 6,
+                accessibilityLabel: barAccessibleLabel,
+                accessibilityHint: barAccessibleHint,
+                accessibilityValue: barAccessibleValue,
+                accessibilityRole: None,
+                android_wave: barAndroidWave
+                )
+                Text("Progress value: $barAccessibleValue", fontSize: 12, color: "#777780")
+                Text("Tint: $barTint · trackColor: $barTrack", fontSize: 12, color: "#777780")
+                Text("Thickness: 12 · cornerRadius: 6", fontSize: 12, color: "#777780")
+                Text("Label: $barAccessibleLabel", fontSize: 12, color: "#777780")
+                Text("Hint: $barAccessibleHint", fontSize: 12, color: "#777780")
+                Text("Role: None (native progress role)", fontSize: 12, color: "#777780")
+                Text("Android wave: $barAndroidWave (iOS ignores this parameter)", fontSize: 12, color: "#777780")
+                Row(spacing: 8) {
+                    Button("45%", accessibilityLabel: "Set upload progress to 45 percent") {
+                        barCustomProgress = 0.45
+                        barAccessibleValue = "45 percent"
+                    }
+                    Button("75%", accessibilityLabel: "Set upload progress to 75 percent") {
+                        barCustomProgress = 0.75
+                        barAccessibleValue = "75 percent"
+                    }
+                    Button("Colors", accessibilityLabel: "Toggle progress bar colors") {
+                        if barTint == "#7C3AED" {
+                            barTint = "#2563EB"
+                            barTrack = "#DBEAFE"
+                        } else {
+                            barTint = "#7C3AED"
+                            barTrack = "#EDE9FE"
+                        }
+                    }
+                    Button("Wave", accessibilityLabel: "Toggle Android wavy progress style") {
+                        barAndroidWave =!barAndroidWave
+                    }
                 }
             }
         }
@@ -1535,8 +1703,10 @@ app ComponentParity {
         state ringMiddle: Float64 = 0.45
         state ringFull: Float64 = 1.0
         state ringOverflow: Float64 = 1.25
+        state ringTint: String = "#2563EB"
+        state ringAndroidWave: Bool = false
         Column(spacing: 12, padding: 16) {
-            Text("ProgressRing", fontSize: 28, fontWeight: Bold)
+            Text("ProgressRing parameters", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Clamp below zero, partial, complete, and above one") {
                 Row(spacing: 16, alignment: Center) {
                     ProgressRing(progress: ringUnderflow, accessibilityLabel: "Underflow clamps to zero")
@@ -1546,13 +1716,64 @@ app ComponentParity {
                     ProgressRing(progress: ringOverflow, accessibilityLabel: "Overflow clamps to complete")
                 }
             }
+            ParityCard(title: "Omitted progress is indeterminate") {
+                Row(spacing: 20, alignment: Center) {
+                    ProgressRing()
+                    ProgressRing(android_wave: ringAndroidWave)
+                    Button("Toggle Android wave") {
+                        ringAndroidWave =!ringAndroidWave
+                    }
+                }
+            }
+            ParityCard(title: "Tint, track, size, and thickness") {
+                Row(spacing: 16, alignment: Center) {
+                    ProgressRing(
+                    progress: ringMiddle,
+                    tint: ringTint,
+                    trackColor: "#DBEAFE",
+                    size: 28,
+                    thickness: 3,
+                    accessibilityLabel: "Active upload",
+                    accessibilityHint: "Shows upload completion",
+                    accessibilityValue: "45 percent",
+                    accessibilityRole: None
+                    )
+                    ProgressRing(
+                    progress: ringFull,
+                    tint: "#EA580C",
+                    trackColor: "#FFEDD5",
+                    size: 56,
+                    thickness: 8,
+                    accessibilityLabel: "Completed upload",
+                    accessibilityHint: "Upload is complete",
+                    accessibilityValue: "100 percent",
+                    accessibilityRole: None
+                    )
+                }
+                Button("Change dynamic tint") {
+                    if ringTint == "#2563EB" {
+                        ringTint = "#7C3AED"
+                    } else {
+                        ringTint = "#2563EB"
+                    }
+                }
+            }
         }
     }
 
     screen FastListCases {
         state listPosition: Int32 = 0
+        state reverseListPosition: Int32 = 0
         state allowGridScroll: Bool = true
-        state listPage: Int32 = 0
+        state listScrollEnabled: Bool = true
+        state listPage: Int32 = 9
+        state listScrollCount: Int32 = 0
+        state listEndReachedCount: Int32 = 0
+        state listSectionItems: Array<Array<String>> = [["First section row", "Second section row"], ["Third section row"]]
+        state listMovableItems: Array<SheetAuditItem> = [SheetAuditItem(1, "Move task one"), SheetAuditItem(2, "Move task two"), SheetAuditItem(3, "Move task three")]
+        state listMoveEnabled: Bool = true
+        state listMoveCount: Int32 = 0
+        state listDeleteCount: Int32 = 0
         PagePager(selected: listPage, accessibilityLabel: "FastList cases") {
             Tab(index: 0) {
                 Column(spacing: 12, padding: 16) {
@@ -1570,8 +1791,8 @@ app ComponentParity {
             Tab(index: 1) {
                 Column(spacing: 12, padding: 16) {
                     Text("FastList · reverse and position", fontSize: 24, fontWeight: Bold)
-                    Text("Scroll position: \(listPosition)")
-                    FastList(count: 24, scrollPosition: listPosition, reverseLayout: true, rowHeight: 48, spacing: 4, accessibilityLabel: "Reversed rows") {
+                    Text("Scroll position: \(reverseListPosition)")
+                    FastList(count: 24, scrollPosition: reverseListPosition, reverseLayout: true, rowHeight: 48, spacing: 4, accessibilityLabel: "Reversed rows") {
                         index in
                         Text("Reverse row \(index)")
                     }
@@ -1579,22 +1800,22 @@ app ComponentParity {
             }
             Tab(index: 2) {
                 Column(spacing: 12, padding: 16) {
-                    Text("FastList · native", fontSize: 24, fontWeight: Bold)
-                    Text("Platform-native vertical list rows")
-                    FastList(count: 12, native: true, showDividers: false, accessibilityLabel: "Native rows") {
+                    Text("FastList · vertical", fontSize: 24, fontWeight: Bold)
+                    Text("Virtualized rows · consistent full-width container")
+                    FastList(count: 12, showDividers: false, accessibilityLabel: "Vertical rows") {
                         index in
-                        Text("Native row \(index)")
+                        Text("Vertical row \(index)")
                     }
                 }
             }
             Tab(index: 3) {
                 Column(spacing: 12, padding: 16) {
                     Text("FastList · horizontal", fontSize: 24, fontWeight: Bold)
-                    Text("Four 96 dp items with 12 dp spacing")
+                    Text("140 dp content · 96 dp row · 12 dp gap")
                     Column(height: 128) {
                         FastList(count: 4, axis: Horizontal, rowHeight: 96, spacing: 12, accessibilityLabel: "Horizontal rows") {
                             index in
-                            Column(width: 120, height: 96, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
+                            Column(width: 140, height: 80, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
                                 Text("Horizontal row \(index)")
                             }
                         }
@@ -1616,9 +1837,9 @@ app ComponentParity {
             Tab(index: 5) {
                 Column(spacing: 12, padding: 16) {
                     Text("FastList · responsive grid", fontSize: 24, fontWeight: Bold)
-                    Text("Minimum cell width 160 dp · 92 dp cell height")
+                    Text("24 cells · minimum width 160 dp · 92 dp high")
                     Switch(value: allowGridScroll, label: "Allow adaptive grid scrolling")
-                    FastList(count: 12, axis: AutoGrid(160), rowHeight: 92, spacing: 4, scrollEnabled: allowGridScroll, accessibilityLabel: "Adaptive grid") {
+                    FastList(count: 24, axis: AutoGrid(160), rowHeight: 92, spacing: 4, scrollEnabled: allowGridScroll, accessibilityLabel: "Adaptive grid") {
                         index in
                         Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
                             Text("Adaptive grid \(index)")
@@ -1634,6 +1855,78 @@ app ComponentParity {
                         index in
                         Column(padding: 24, background: "#E8F0FF", cornerRadius: 16) {
                             Text("Page \(index)", fontSize: 28, fontWeight: Bold)
+                        }
+                    }
+                }
+            }
+            Tab(index: 7) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · scroll callbacks", fontSize: 24, fontWeight: Bold)
+                    Text("Scroll callbacks: \(listScrollCount) · end reached: \(listEndReachedCount) · position: \(listPosition)")
+                    Switch(value: listScrollEnabled, label: "Scrolling enabled")
+                    Button("Reset scroll callbacks") {
+                        listScrollCount = 0
+                        listPosition = 0
+                    }
+                    FastList(count: 24, rowHeight: 48, spacing: 8, scrollPosition: listPosition, scrollEnabled: listScrollEnabled, showDividers: true, accessibilityLabel: "FastList callback rows") {
+                        index in
+                        Row(spacing: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
+                            Text("Scroll row \(index)")
+                            Spacer()
+                        }
+                    }.onScroll {
+                        listScrollCount += 1
+                    }.onEndReached {
+                        listEndReachedCount += 1
+                    }.stickyHeader {
+                        Column(padding: 8, background: "#E8F0FF") {
+                            Text("Pinned list header")
+                        }
+                    }
+                }
+            }
+            Tab(index: 8) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · sections and headers", fontSize: 24, fontWeight: Bold)
+                    Text("Section source · sectionHeader · dividers")
+                    FastList(sections: listSectionItems, rowHeight: 48, spacing: 4, showDividers: true, accessibilityLabel: "FastList section rows") {
+                        item, index, section in
+                        Row(padding: 8, background: "#FFFFFF") {
+                            Text("Section \(section) · row \(index): \(item)")
+                        }
+                    }.sectionHeader {
+                        Column(padding: 8, background: "#E8F0FF") {
+                            Text("Section header", fontWeight: Semibold)
+                        }
+                    }
+                }
+            }
+            Tab(index: 9) {
+                Column(spacing: 12, padding: 16) {
+                    Text("FastList · keyed collection and actions", fontSize: 24, fontWeight: Bold)
+                    Text("Move events: \(listMoveCount) · delete actions: \(listDeleteCount)")
+                    Switch(value: listMoveEnabled, label: "Allow row reordering")
+                    Button("Reset movable tasks") {
+                        listMovableItems = [SheetAuditItem(1, "Move task one"), SheetAuditItem(2, "Move task two"), SheetAuditItem(3, "Move task three")]
+                        listMoveCount = 0
+                        listDeleteCount = 0
+                    }
+                    Text("Android: long-press + drag. iOS: drag the row handle.")
+                    Text("Turn reordering off to use swipe actions on either platform.")
+                    FastList(listMovableItems, key:.id, showDividers: true, accessibilityLabel: "FastList keyed movable tasks") {
+                        item, index in
+                        Row(spacing: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
+                            Text("\(index + 1). \(item.title)")
+                            Spacer()
+                        }
+                    }.onMove(enabled: listMoveEnabled) {
+                        from, to ->
+                        listMoveCount += 1
+                        listMovableItems.move(from, to)
+                    }.swipeActions {
+                        Button("Delete", icon: "delete", style: Borderless) {
+                            listDeleteCount += 1
+                            listMovableItems.remove(index)
                         }
                     }
                 }
@@ -1820,51 +2113,524 @@ app ComponentParity {
 
     screen SheetCases {
         state sheetPresented: Bool = false
-        state largeSheetPresented: Bool = false
-        state noHandleSheetPresented: Bool = false
+        state nestedSheetPresented: Bool = false
+        state headerSheetPresented: Bool = false
+        state headerSheetSaved: Bool = false
+        state expandedSheetPresented: Bool = false
+        state defaultSheetPresented: Bool = false
+        state morePaddingSheetPresented: Bool = false
+        state mapSheetPresented: Bool = false
+        state mapSheetDismissed: Bool = false
+        state mapSheetSelectedSnapPoint: Float64 = 0.5
+        state backgroundActionCount: Int32 = 0
+        state sheetSurface: String = "#F1F5F9"
+        state sheetNote: String = ""
+        state layoutAuditPresented: Bool = false
+        state listAuditPresented: Bool = false
+        state sheetLayoutPage: Int32 = 0
+        state sheetLayoutNote: String = ""
+        state sheetLayoutEnabled: Bool = true
+        state sheetLayoutSlider: Float64 = 0.5
+        state sheetListPage: Int32 = 0
+        state sheetListPosition: Int32 = 0
+        state sheetAllowGridScroll: Bool = true
+        state sheetSectionItems: Array<Array<String>> = [["First section row", "Second section row"], ["Third section row"]]
+        state sheetMovableItems: Array<SheetAuditItem> = [SheetAuditItem(1, "Move task one"), SheetAuditItem(2, "Move task two"), SheetAuditItem(3, "Move task three")]
+        state sheetMoveEnabled: Bool = true
+        state sheetMoveCount: Int32 = 0
+        state sheetListScrollEnabled: Bool = true
+        state sheetListScrollCount: Int32 = 0
+        state sheetListEndCount: Int32 = 0
+        state sheetListDeleteCount: Int32 = 0
+        state sheetRefreshing: Bool = false
+        state sheetRefreshCount: Int32 = 0
         Column(spacing: 12, padding: 16) {
             Text("BottomSheet", fontSize: 28, fontWeight: Bold)
-            Button("Open partial sheet") {
+            Button("Open medium and expanded sheet") {
                 sheetPresented = true
             }
-            Button("Open large-only sheet") {
-                largeSheetPresented = true
+            Button("Open sheet header actions") {
+                headerSheetSaved = false
+                BottomSheet.present(headerSheetPresented)
             }
-            Button("Open sheet without drag handle") {
-                noHandleSheetPresented = true
+            Button("Open locked expanded sheet") {
+                expandedSheetPresented = true
             }
-            BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet") {
-                Toolbar(placement: Trailing) {
-                    Button("Dismiss") {
+            Button("Open compact half-height sheet") {
+                defaultSheetPresented = true
+            }
+            Button("Open sheet with more content padding") {
+                morePaddingSheetPresented = true
+            }
+            Button("Open layout parity inside sheet") {
+                layoutAuditPresented = true
+            }
+            Button("Open FastList parity inside sheet") {
+                listAuditPresented = true
+            }
+            Button("Background action: \(backgroundActionCount)") {
+                backgroundActionCount += 1
+            }
+            Button("Open custom map sheet") {
+                mapSheetDismissed = false
+                BottomSheet.present(mapSheetPresented)
+            }
+            BottomSheet(
+            isPresented: sheetPresented,
+            detents: [Medium, Expanded],
+            initialDetent: Medium,
+            showDragIndicator: true,
+            allowsDismissal: true,
+            allowsBackgroundInteraction: false,
+            shouldDismissOnBackPress: true,
+            backgroundColor: sheetSurface
+            ) {
+                Column(spacing: 12) {
+                    Text("Task details", fontSize: 20, fontWeight: Semibold)
+                    Text("Medium and expanded native resting sizes")
+                    TextInput(value: sheetNote, placeholder: "Add an optional note", accessibilityLabel: "Task note")
+                    Button("Open nested sheet") {
+                        BottomSheet.present(nestedSheetPresented)
+                    }
+                    BottomSheet(
+                    isPresented: nestedSheetPresented,
+                    detents: [Medium, Expanded],
+                    initialDetent: Medium
+                    ) {
+                        Column(spacing: 12) {
+                            Text("Nested quick actions", fontSize: 20, fontWeight: Semibold)
+                            Text("The task details sheet stays open underneath.")
+                            Button("Return to task details") {
+                                BottomSheet.dismiss(nestedSheetPresented)
+                            }
+                        }
+                    }
+                    Button("Done", style: BorderedProminent, tint: "#2563EB") {
                         sheetPresented = false
                     }
-                    Button("Prominent", style: BorderedProminent, tint: "#E11D48") {
-                        sheetPresented = false
-                    }
                 }
-                Column(spacing: 12, padding: 24) {
-                    Text("Sheet content")
-                    Button("Dismiss") {
-                        sheetPresented = false
+            }
+            BottomSheet(
+            isPresented: headerSheetPresented,
+            detents: [Medium, Expanded],
+            initialDetent: Medium
+            ) {
+                Column(spacing: 16, alignment: Start) {
+                    Row(spacing: 12) {
+                        Text("Edit task", fontSize: 20, fontWeight: Semibold)
+                        Spacer()
+                        Button("Save", icon: "save", style: Borderless) {
+                            headerSheetSaved = true
+                        }
+                        Button("Close", icon: "close", style: Plain) {
+                            BottomSheet.dismiss(headerSheetPresented)
+                        }
+                    }
+                    Text("Update the launch plan")
+                    Text(headerSheetSaved?"Changes saved": "Unsaved changes")
+                    Text("Save keeps this sheet open. Close dismisses it.")
+                }
+            }
+            BottomSheet(
+            isPresented: expandedSheetPresented,
+            detents: [Expanded],
+            initialDetent: Expanded,
+            showDragIndicator: false,
+            allowsDismissal: false
+            ) {
+                Column(spacing: 12) {
+                    Text("Expanded and locked", fontSize: 20, fontWeight: Semibold)
+                    Text("The drag handle, Back, and outside dismissal are disabled.")
+                    Button("Close from content") {
+                        expandedSheetPresented = false
                     }
                 }
             }
-            BottomSheet(isPresented: largeSheetPresented, partial: false, largeOnly: true, title: "Large-only parity sheet") {
-                Column(spacing: 12, padding: 24) {
-                    Text("Large-only sheet content")
-                    Button("Dismiss") {
-                        largeSheetPresented = false
+            BottomSheet(
+            isPresented: defaultSheetPresented,
+            snapPoints: [0.5],
+            initialSnapPoint: 0.5,
+            scrimColor: "#00000033"
+            ) {
+                Column(spacing: 12) {
+                    Text("Half-height · compact default inset", fontSize: 20, fontWeight: Semibold)
+                    Row(spacing: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Default: 8 pt/dp")
+                        Spacer()
+                    }
+                    Button("Close") {
+                        defaultSheetPresented = false
                     }
                 }
             }
-            BottomSheet(isPresented: noHandleSheetPresented, partial: true, title: "No drag handle", showDragHandle: false) {
-                Column(spacing: 12, padding: 24) {
-                    Text("The native drag handle is hidden")
-                    Button("Dismiss") {
-                        noHandleSheetPresented = false
+            BottomSheet(
+            isPresented: morePaddingSheetPresented,
+            contentPadding: 24,
+            detents: [Medium, Expanded]
+            ) {
+                Column(spacing: 12) {
+                    Text("More content padding", fontSize: 20, fontWeight: Semibold)
+                    Row(spacing: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Override: 24 pt/dp")
+                        Spacer()
+                    }
+                    Button("Close") {
+                        morePaddingSheetPresented = false
                     }
                 }
             }
+            BottomSheet(
+            isPresented: layoutAuditPresented,
+            contentPadding: 0,
+            detents: [Expanded],
+            initialDetent: Expanded,
+            showDragIndicator: true
+            ) {
+                PagePager(selected: sheetLayoutPage, accessibilityLabel: "Sheet layout parity pages") {
+                    Tab(index: 0) {
+                        Column(spacing: 10, padding: 16) {
+                            Text("Column · start / center / end", fontSize: 20, fontWeight: Semibold)
+                            Text("Column default: centered, top-first")
+                            Column(width: 280, spacing: 8, padding: 8, background: "#F2F2F7", cornerRadius: 12) {
+                                Row(spacing: 8, alignment: Center) {
+                                    Column(width: 74, height: 76, spacing: 6, padding: 6, alignment: Start, background: "#DDEBFF", cornerRadius: 8) {
+                                        Text("Start", fontSize: 12, fontWeight: Semibold)
+                                        Text("left", alignment: Leading)
+                                    }
+                                    Column(width: 74, height: 76, spacing: 6, padding: 6, alignment: Center, background: "#E8F0FF", cornerRadius: 8) {
+                                        Text("Center", fontSize: 12, fontWeight: Semibold)
+                                        Text("middle", alignment: Center)
+                                    }
+                                    Column(width: 74, height: 76, spacing: 6, padding: 6, alignment: End, background: "#DDEBFF", cornerRadius: 8) {
+                                        Text("End", fontSize: 12, fontWeight: Semibold)
+                                        Text("right", alignment: Trailing)
+                                    }
+                                }
+                            }
+                            Column(width: 280, spacing: 0, padding: 0, alignment: Start, background: "#FFF1E8", cornerRadius: 8) {
+                                Text("spacing 0 · padding 0", padding: 0)
+                                Text("second child starts below first", padding: 0)
+                            }
+                            Column(width: 280, spacing: 12, padding: 16, alignment: Start, background: "#E8F0FF", cornerRadius: 8) {
+                                Text("spacing 12 · padding 16", padding: 8)
+                                Text("nested padding 8", padding: 8)
+                            }
+                            Text("Text padding 16", padding: 16)
+                            TextInput(value: sheetLayoutNote, placeholder: "TextInput fills its sheet column", accessibilityLabel: "Sheet parity sheetLayoutNote")
+                            Button("Sheet child button") {
+                                sheetLayoutEnabled =!sheetLayoutEnabled
+                            }
+                        }
+                    }
+                    Tab(index: 1) {
+                        Column(spacing: 10, padding: 16, alignment: Start) {
+                            Text("Row · cross and main axis", fontSize: 20, fontWeight: Semibold)
+                            Text("Horizontal: Start / Center / End")
+                            Row(width: 280, height: 54, spacing: 8, padding: 6, alignment: Center, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                                Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("A", alignment: Center)
+                                }
+                                Column(width: 48, height: 28, background: "#E8F0FF", cornerRadius: 4) {
+                                    Text("B", alignment: Center)
+                                }
+                                Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("C", alignment: Center)
+                                }
+                            }
+                            Row(width: 280, height: 54, spacing: 8, padding: 6, alignment: Center, horizontalArrangement: Center, background: "#F2F2F7", cornerRadius: 8) {
+                                Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("A", alignment: Center)
+                                }
+                                Column(width: 48, height: 28, background: "#E8F0FF", cornerRadius: 4) {
+                                    Text("B", alignment: Center)
+                                }
+                                Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("C", alignment: Center)
+                                }
+                            }
+                            Row(width: 280, height: 54, spacing: 8, padding: 6, alignment: Center, horizontalArrangement: End, background: "#F2F2F7", cornerRadius: 8) {
+                                Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("A", alignment: Center)
+                                }
+                                Column(width: 48, height: 28, background: "#E8F0FF", cornerRadius: 4) {
+                                    Text("B", alignment: Center)
+                                }
+                                Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("C", alignment: Center)
+                                }
+                            }
+                            Text("Vertical alignment: Start / Center / End")
+                            Row(width: 280, height: 60, spacing: 8, padding: 6, alignment: Start, background: "#F2F2F7", cornerRadius: 8) {
+                                Column(width: 48, height: 20, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("Top", fontSize: 11, alignment: Center)
+                                }
+                                Column(width: 48, height: 40, background: "#E8F0FF", cornerRadius: 4) {
+                                    Text("Tall", fontSize: 11, alignment: Center)
+                                }
+                            }
+                            Row(width: 280, height: 60, spacing: 8, padding: 6, alignment: Center, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                                Column(width: 48, height: 20, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("Top", fontSize: 11, alignment: Center)
+                                }
+                                Column(width: 48, height: 40, background: "#E8F0FF", cornerRadius: 4) {
+                                    Text("Tall", fontSize: 11, alignment: Center)
+                                }
+                            }
+                            Row(width: 280, height: 60, spacing: 8, padding: 6, alignment: End, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                                Column(width: 48, height: 20, background: "#DDEBFF", cornerRadius: 4) {
+                                    Text("Top", fontSize: 11, alignment: Center)
+                                }
+                                Column(width: 48, height: 40, background: "#E8F0FF", cornerRadius: 4) {
+                                    Text("Tall", fontSize: 11, alignment: Center)
+                                }
+                            }
+                            Switch(value: sheetLayoutEnabled, label: "Switch remains interactive")
+                            Slider(value: sheetLayoutSlider, min: 0, max: 1, step: 0.1)
+                        }
+                    }
+                    Tab(index: 2) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("Stack · overlay and Spacer", fontSize: 20, fontWeight: Semibold)
+                            Row(width: 280, height: 92, spacing: 8, padding: 4, alignment: Center, background: "#F2F2F7", cornerRadius: 8) {
+                                Stack(width: 78, height: 76, padding: 4, alignment: Start, background: "#DDEBFF", cornerRadius: 8) {
+                                    Text("Top start", fontSize: 11)
+                                }
+                                Stack(width: 78, height: 76, padding: 4, alignment: Center, background: "#E8F0FF", cornerRadius: 8) {
+                                    Text("Center", fontSize: 11)
+                                }
+                                Stack(width: 78, height: 76, padding: 4, alignment: End, background: "#DDEBFF", cornerRadius: 8) {
+                                    Text("Bottom end", fontSize: 11)
+                                }
+                            }
+                            Row(width: 280, height: 56, spacing: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                                Text("Leading", padding: 4)
+                                Spacer()
+                                Text("Trailing", padding: 4)
+                            }
+                            Column(width: 280, minHeight: 56, maxHeight: 96, spacing: 8, padding: 8, alignment: Start, background: "#F2F2F7", cornerRadius: 8) {
+                                Text("Width + min/max height constraints", fontSize: 12)
+                                ProgressBar(progress: sheetLayoutSlider, thickness: 8, cornerRadius: 4)
+                                ProgressRing(progress: sheetLayoutSlider, size: 32, thickness: 4)
+                            }
+                        }
+                    }
+                }
+            }
+            BottomSheet(
+            isPresented: listAuditPresented,
+            contentPadding: 0,
+            detents: [Expanded],
+            initialDetent: Expanded,
+            showDragIndicator: true
+            ) {
+                PagePager(selected: sheetListPage, accessibilityLabel: "FastList parity pages inside sheet") {
+                    Tab(index: 0) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · vertical", fontSize: 24, fontWeight: Bold)
+                            Text("Fixed row height 56 dp · spacing 8 dp · 12 rows")
+                            FastList(count: 12, rowHeight: 56, spacing: 8, showDividers: false, accessibilityLabel: "Component parity rows") {
+                                index in
+                                Row(spacing: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
+                                    Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
+                                    Text("Parity row \(index)")
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 1) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · reverse and position", fontSize: 24, fontWeight: Bold)
+                            Text("Scroll position: \(sheetListPosition)")
+                            FastList(count: 24, scrollPosition: sheetListPosition, reverseLayout: true, rowHeight: 48, spacing: 4, accessibilityLabel: "Reversed rows") {
+                                index in
+                                Text("Reverse row \(index)")
+                            }
+                        }
+                    }
+                    Tab(index: 2) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · vertical", fontSize: 24, fontWeight: Bold)
+                            Text("Virtualized rows · consistent full-width container")
+                            FastList(count: 12, showDividers: false, accessibilityLabel: "Vertical rows") {
+                                index in
+                                Text("Vertical row \(index)")
+                            }
+                        }
+                    }
+                    Tab(index: 3) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · horizontal", fontSize: 24, fontWeight: Bold)
+                            Text("140 dp content · 96 dp row · 12 dp gap")
+                            Column(height: 128) {
+                                FastList(count: 4, axis: Horizontal, rowHeight: 96, spacing: 12, accessibilityLabel: "Horizontal rows") {
+                                    index in
+                                    Column(width: 140, height: 80, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
+                                        Text("Horizontal row \(index)")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 4) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · fixed grid", fontSize: 24, fontWeight: Bold)
+                            Text("Two columns · 92 dp cells · 4 dp spacing")
+                            FastList(count: 12, axis: Grid(2), rowHeight: 92, spacing: 4, accessibilityLabel: "Fixed two-column grid") {
+                                index in
+                                Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
+                                    Text("Fixed grid \(index)")
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 5) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · responsive grid", fontSize: 24, fontWeight: Bold)
+                            Text("24 cells · minimum width 160 dp · 92 dp high")
+                            Switch(value: sheetAllowGridScroll, label: "Allow adaptive grid scrolling")
+                            FastList(count: 24, axis: AutoGrid(160), rowHeight: 92, spacing: 4, scrollEnabled: sheetAllowGridScroll, accessibilityLabel: "Adaptive grid") {
+                                index in
+                                Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
+                                    Text("Adaptive grid \(index)")
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 6) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · page snap", fontSize: 24, fontWeight: Bold)
+                            Text("Swipe vertically to move one full viewport per page")
+                            FastList(count: 3, pageSnap: true, accessibilityLabel: "Paged vertical rows") {
+                                index in
+                                Column(padding: 24, background: "#E8F0FF", cornerRadius: 16) {
+                                    Text("Page \(index)", fontSize: 28, fontWeight: Bold)
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 7) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · sections and headers", fontSize: 24, fontWeight: Bold)
+                            Text("Section source · sectionHeader · dividers")
+                            FastList(sections: sheetSectionItems, rowHeight: 48, spacing: 4, showDividers: true, accessibilityLabel: "Sheet sectioned rows") {
+                                item, index, section in
+                                Row(padding: 8, background: "#FFFFFF") {
+                                    Text("Section \(section) · row \(index): \(item)")
+                                }
+                            }.sectionHeader {
+                                Column(padding: 8, background: "#E8F0FF") {
+                                    Text("Section header", fontWeight: Semibold)
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 8) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · keyed collection and actions", fontSize: 24, fontWeight: Bold)
+                            Text("Move enabled: \(sheetMoveEnabled)")
+                            Text("Move events: \(sheetMoveCount)")
+                            Text("Delete actions: \(sheetListDeleteCount)")
+                            Switch(value: sheetMoveEnabled, label: "Allow row reordering")
+                            Text("Android: long-press + drag. iOS: drag the row handle.")
+                            FastList(sheetMovableItems, key:.id, showDividers: true, accessibilityLabel: "Keyed movable tasks") {
+                                item, index in
+                                Row(spacing: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
+                                    Text("\(index + 1). \(item.title)")
+                                    Spacer()
+                                }
+                            }.onMove(enabled: sheetMoveEnabled) {
+                                from, to ->
+                                sheetMoveCount += 1
+                                sheetMovableItems.move(from, to)
+                            }.swipeActions {
+                                Button("Delete", icon: "delete", style: Borderless) {
+                                    sheetListDeleteCount += 1
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 9) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · scroll callbacks", fontSize: 24, fontWeight: Bold)
+                            Text("Scroll callbacks: \(sheetListScrollCount) · end reached: \(sheetListEndCount) · position: \(sheetListPosition)")
+                            Button("Reset scroll callbacks") {
+                                sheetListScrollCount = 0
+                                sheetListPosition = 0
+                            }
+                            Switch(value: sheetListScrollEnabled, label: "Scrolling enabled")
+                            FastList(count: 24, rowHeight: 48, spacing: 8, scrollPosition: sheetListPosition, scrollEnabled: sheetListScrollEnabled, showDividers: true, accessibilityLabel: "Sheet scroll callback rows") {
+                                index in
+                                Row(spacing: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
+                                    Text("Scroll row \(index)")
+                                    Spacer()
+                                }
+                            }.onScroll {
+                                sheetListScrollCount += 1
+                            }.onEndReached {
+                                sheetListEndCount += 1
+                            }.stickyHeader {
+                                Column(padding: 8, background: "#E8F0FF") {
+                                    Text("Pinned list header")
+                                }
+                            }
+                        }
+                    }
+                    Tab(index: 10) {
+                        Column(spacing: 12, padding: 16) {
+                            Text("FastList · pull to refresh", fontSize: 24, fontWeight: Bold)
+                            Text("Refreshes: \(sheetRefreshCount)")
+                            Text("Pull down inside the list to exercise refresh")
+                            RefreshControl(isRefreshing: sheetRefreshing) {
+                                FastList(count: 8, rowHeight: 56, spacing: 8, accessibilityLabel: "Pull to refresh sheet rows") {
+                                    index in
+                                    Text("Refresh row \(index)")
+                                }
+                            }.onRefresh {
+                                sheetRefreshing = false
+                                sheetRefreshCount += 1
+                            }
+                        }
+                    }
+                }
+            }
+            BottomSheet(
+            isPresented: mapSheetPresented,
+            snapPoints: [0.25, 0.5, 0.85],
+            selectedSnapPoint: mapSheetSelectedSnapPoint,
+            showDragIndicator: true,
+            allowsDismissal: true,
+            allowsBackgroundInteraction: true,
+            shouldDismissOnBackPress: false
+            ) {
+                Column(spacing: 4) {
+                    Row(spacing: 8) {
+                        Text("Map sheet", fontSize: 20, fontWeight: Semibold)
+                        Spacer()
+                        Button("Close") {
+                            BottomSheet.dismiss(mapSheetPresented)
+                        }
+                    }
+                    Text(mapSheetSelectedSnapPoint == 0.25
+                    ?"Selected snap point: Compact (25%)"
+                    : (mapSheetSelectedSnapPoint == 0.5
+                    ?"Selected snap point: Half (50%)"
+                    : "Selected snap point: Expanded (85%)"))
+                    Row(spacing: 8) {
+                        Button("Compact") {
+                            BottomSheet.snapTo(mapSheetSelectedSnapPoint, 0.25)
+                        }
+                        Button("Half") {
+                            BottomSheet.snapTo(mapSheetSelectedSnapPoint, 0.5)
+                        }
+                        Button("Expand") {
+                            BottomSheet.snapTo(mapSheetSelectedSnapPoint, 0.85)
+                        }
+                    }
+                }
+            }.onDismiss {
+                mapSheetDismissed = true
+            }
+            Text(mapSheetDismissed?"Dismiss callback ran": "Dismiss callback waiting")
         }
     }
 

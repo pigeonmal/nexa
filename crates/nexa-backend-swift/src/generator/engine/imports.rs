@@ -36,6 +36,7 @@ pub(crate) fn render_with_dev_runtime(features: &Features, dev_runtime: bool) ->
     imports.add(true, "Foundation");
     imports.add(features.facts.ui.bottom_sheet.present, "Combine");
     imports.add(features.uses_widgets, "WidgetKit");
+    imports.add(features.facts.ui.lists.reorderable, "Observation");
     crate::generator::components::controls::imports(features, &mut imports);
     crate::generator::components::list_runtime::imports(features, &mut imports);
     crate::generator::components::links::imports(features, &mut imports);

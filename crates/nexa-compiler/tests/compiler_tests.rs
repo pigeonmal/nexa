@@ -7,7 +7,9 @@ use nexa_ir::{
 };
 
 use nexa_codegen::Backend;
-use nexa_compiler::{Target, compile, compile_file_with_warnings_for_target};
+use nexa_compiler::{
+    Target, compile, compile_file_with_warnings_for_target, compile_with_warnings_for_target,
+};
 use nexa_testkit::TestProject;
 
 fn source_text(expression: &Expr) -> Option<&str> {
@@ -88,6 +90,54 @@ fn fast_list_reverse_layout_is_typed_for_flat_vertical_lists() {
 }
 
 #[test]
+fn refresh_control_wraps_accessible_fast_list_with_native_refresh_behavior() {
+    let module = compile(
+        r#"
+        app RefreshAccessibleFastList {
+            state refreshing: Bool = false
+            state refreshCount: Int32 = 0
+            body {
+                RefreshControl(isRefreshing: refreshing) {
+                    FastList(count: 8, rowHeight: 56, accessibilityLabel: "Refresh rows") { index in
+                        Text(index)
+                    }
+                }.onRefresh {
+                    refreshing = false
+                    refreshCount = refreshCount + 1
+                }
+            }
+        }
+        "#,
+    )
+    .expect("RefreshControl around an accessible FastList should compile");
+
+    let Some(Node::Accessibility {
+        label, children, ..
+    }) = module.body.first()
+    else {
+        panic!("FastList accessibility options should remain a typed wrapper");
+    };
+    assert_eq!(source_text(label), Some("Refresh rows"));
+    let Some(Node::FastList { plan }) = children.first() else {
+        panic!("RefreshControl should specialize its FastList child");
+    };
+    let refresh = plan
+        .refresh()
+        .expect("the native FastList should own the RefreshControl action");
+    assert_eq!(refresh.state, "refreshing");
+    assert_eq!(refresh.actions.len(), 2);
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("isRefreshing: nexa_refreshing"));
+    assert!(swift.contains("onRefresh: {"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("PullToRefreshBox("));
+    assert!(kotlin.contains("isRefreshing = nexa_refreshing"));
+    assert!(kotlin.contains("userScrollEnabled = true"));
+}
+
+#[test]
 fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
     let module = compile(
         r#"
@@ -101,8 +151,8 @@ fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
 
             body {
                 FastList(count: 2, showDividers: false) { index in Text(index) }
-                FastList(rows, key: .id, native: true, showDividers: false) { row, index in Text(row.id) }
-                FastList(sections: groups, native: true, showDividers: false) { row, index, section in Text(row.id) }
+                FastList(rows, key: .id, showDividers: false) { row, index in Text(row.id) }
+                FastList(sections: groups, showDividers: false) { row, index, section in Text(row.id) }
             }
         }
         "#,
@@ -130,9 +180,24 @@ fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
         .map(|unit| unit.contents)
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(swift.contains("showDividers: false"));
-    assert!(swift.contains("NexaNativeListRowPrimitive(showDividers: false)"));
-    assert!(swift.contains("List {"));
+    assert_eq!(swift.matches("NexaFastListPrimitive(rowCount:").count(), 2);
+    assert_eq!(
+        swift
+            .matches(", showDividers: false, scrollEnabled: true")
+            .count(),
+        2
+    );
+    assert!(swift.contains(
+        "NexaFastListPrimitive(rowCount: max(0, Int(2)), rowHeight: nil, showDividers: false, scrollEnabled: true)"
+    ));
+    let sectioned_start = swift
+        .find("NexaFastSectionedListPrimitive")
+        .expect("sectioned FastList uses the shared sectioned primitive");
+    let sectioned_parameters = swift[sectioned_start..]
+        .split("rowContent:")
+        .next()
+        .unwrap_or_default();
+    assert!(sectioned_parameters.contains("showDividers: false"));
 
     let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
     assert!(!kotlin.contains("NexaFastListDividerPrimitive()"));
@@ -140,6 +205,45 @@ fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
         kotlin.matches("NexaNativeListDividerPrimitive()").count(),
         1
     );
+
+    let sectioned = compile(
+        r#"
+        app SectionedSpacing {
+            let groups: Array<Array<String>> = [["First", "Second"], ["Third"]]
+
+            body {
+                FastList(sections: groups, rowHeight: 48, spacing: 4, showDividers: true) { item, index, section in
+                    Text(item)
+                }.sectionHeader {
+                    Text("Section")
+                }
+            }
+        }
+        "#,
+    )
+    .expect("sectioned lists may combine row sizing, spacing, and dividers");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&sectioned);
+    let sectioned_call = swift
+        .find("NexaFastSectionedListPrimitive(")
+        .map(|start| &swift[start..])
+        .expect("Swift should emit the sectioned-list primitive");
+    let row_height = sectioned_call
+        .find("rowHeight: 48")
+        .expect("rowHeight should be emitted");
+    let spacing = sectioned_call
+        .find("spacing: 4")
+        .expect("spacing should be emitted");
+    let dividers = sectioned_call
+        .find("showDividers: true")
+        .expect("showDividers should be emitted");
+    assert!(row_height < spacing && spacing < dividers);
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&sectioned);
+    assert!(kotlin.contains("Arrangement.spacedBy(4.dp)"));
+    assert!(kotlin.contains("Modifier.fillMaxWidth().height(48.dp)"));
+    assert!(kotlin.contains("key = { itemPosition -> sectionPosition to itemPosition },"));
+    assert!(kotlin.contains("NexaFastListDividerPrimitive()"));
 }
 
 #[test]
@@ -378,7 +482,7 @@ fn flat_map_flattens_typed_arrays_in_collection_closures() {
             let results: Array<Record> = sections.flatMap { rows -> rows }
 
             body {
-                FastList(results, key: .id, native: true) { record, index in
+                FastList(results, key: .id) { record, index in
                     Text(record.title)
                 }
             }
@@ -408,7 +512,7 @@ fn flat_map_flattens_typed_arrays_in_collection_closures() {
 }
 
 #[test]
-fn native_fast_list_mode_is_typed_and_rejects_custom_scroll_behavior() {
+fn platform_fast_list_behavior_is_selected_automatically_for_row_actions() {
     let module = compile(
         r#"
         struct Record {
@@ -416,26 +520,28 @@ fn native_fast_list_mode_is_typed_and_rejects_custom_scroll_behavior() {
             title: String,
         }
 
-        app NativeRecordList {
+        app SwipeActionRecordList {
             let records: Array<Record> = [Record("one", "One")]
 
             body {
-                FastList(records, key: .id, native: true) { record, index in
+                FastList(records, key: .id) { record, index in
                     Text(record.title)
+                }.swipeActions {
+                    Button("Delete") { }
                 }
             }
         }
         "#,
     )
-    .expect("flat vertical lists may opt into native platform styling");
+    .expect("swipe actions select the platform list surface automatically");
 
     let Some(Node::FastList { plan }) = module.body.first() else {
         panic!("expected the collection-backed FastList plan");
     };
-    let ListPlan::Items { common, .. } = plan.as_ref() else {
+    let ListPlan::Items { .. } = plan.as_ref() else {
         panic!("expected the collection-backed FastList plan");
     };
-    assert!(common.native);
+    assert!(plan.uses_platform_list());
     let list_facts = nexa_ir::facts::ModuleFacts::analyze(&module).ui.lists;
     assert!(list_facts.any);
     assert!(!list_facts.virtualized);
@@ -447,12 +553,12 @@ fn native_fast_list_mode_is_typed_and_rejects_custom_scroll_behavior() {
             title: String,
         }
 
-        app NativeSectionedRecordList {
+        app SectionedRecordList {
             let records: Array<Record> = [Record("one", "One")]
             let sections: Array<Array<Record>> = records.groupedBy { record -> record.title }
 
             body {
-                FastList(sections: sections, native: true) { record, index, section in
+                FastList(sections: sections) { record, index, section in
                     Text(record.title)
                 }.sectionHeader {
                     Text(sectionItems[0].title)
@@ -461,33 +567,29 @@ fn native_fast_list_mode_is_typed_and_rejects_custom_scroll_behavior() {
         }
         "#,
     )
-    .expect("sectioned vertical lists may opt into native platform styling");
+    .expect("sectioned lists keep the shared virtualized presentation by default");
     let Some(Node::FastList { plan }) = sectioned.body.first() else {
         panic!("expected a sectioned FastList plan");
     };
     let ListPlan::Sections { common, .. } = plan.as_ref() else {
         panic!("expected a sectioned FastList plan");
     };
-    assert!(common.native);
+    assert!(!plan.uses_platform_list());
     assert!(common.section_header.is_some());
 
     let unsupported = compile(
         r#"
-        app InvalidNativeList {
+        app RemovedFastListNativeOption {
             body {
-                FastList(count: 3, native: true, pageSnap: true) { index in
+                FastList(count: 3, native: true) { index in
                     Text(index)
                 }
             }
         }
         "#,
     )
-    .expect_err("native lists do not accept custom page snapping");
-    assert!(
-        unsupported
-            .to_string()
-            .contains("native` requires a vertical list")
-    );
+    .expect_err("the removed native parameter must no longer parse");
+    assert!(unsupported.to_string().contains("native"));
 }
 
 #[test]
@@ -1585,7 +1687,7 @@ fn toolbar_lowers_placement_and_native_action_content() {
 }
 
 #[test]
-fn bottom_sheet_drag_handle_defaults_visible_and_accepts_explicit_hide() {
+fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration() {
     let default_sheet = compile(
         r#"
         app DefaultSheetHandle {
@@ -1598,27 +1700,368 @@ fn bottom_sheet_drag_handle_defaults_visible_and_accepts_explicit_hide() {
     assert!(matches!(
         default_sheet.body.as_slice(),
         [Node::BottomSheet {
-            show_drag_handle: true,
+            detents,
+            content_padding,
+            initial_detent: None,
+            show_drag_indicator: true,
+            allows_dismissal: true,
+            allows_background_interaction: false,
+            should_dismiss_on_back_press: true,
             ..
         }]
+            if *content_padding == 8.0
+                && detents == &[nexa_ir::BottomSheetDetent::Medium, nexa_ir::BottomSheetDetent::Expanded]
     ));
 
-    let hidden_sheet = compile(
-        r#"
-        app HiddenSheetHandle {
+    let configured_sheet = compile(
+        r##"
+        app ConfiguredSheet {
             state presented: Bool = false
-            body { BottomSheet(isPresented: presented, showDragHandle: false) { Text("No handle") } }
+            body {
+                BottomSheet(
+                    isPresented: presented,
+                    contentPadding: 20,
+                    detents: [Expanded],
+                    initialDetent: Expanded,
+                    showDragIndicator: false,
+                    allowsDismissal: false,
+                    allowsBackgroundInteraction: true,
+                    shouldDismissOnBackPress: false,
+                    backgroundColor: "#F2F4F8"
+                ) { Text("Details") }
+            }
+        }
+        "##,
+    )
+    .expect("BottomSheet should lower all shared presentation parameters");
+    assert!(matches!(
+        configured_sheet.body.as_slice(),
+        [Node::BottomSheet {
+            detents,
+            content_padding,
+            initial_detent: Some(nexa_ir::BottomSheetDetent::Expanded),
+            show_drag_indicator: false,
+            allows_dismissal: false,
+            allows_background_interaction: true,
+            should_dismiss_on_back_press: false,
+            background_color: Some(_),
+            ..
+        }] if *content_padding == 20.0
+            && detents == &[nexa_ir::BottomSheetDetent::Expanded]
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&configured_sheet);
+    assert!(swift.contains("detents: [.large]"));
+    assert!(swift.contains("contentPadding: 20"));
+    assert!(swift.contains("initialDetent: .large"));
+    assert!(swift.contains("showDragIndicator: false"));
+    assert!(swift.contains("allowsDismissal: false"));
+    assert!(swift.contains("allowsBackgroundInteraction: true"));
+    assert!(swift.contains("shouldDismissOnBackPress: false"));
+    assert!(swift.contains("backgroundColor: Color(red:"));
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&configured_sheet);
+    assert!(kotlin.contains("SheetValue.Expanded"));
+    assert!(kotlin.contains("contentPadding = 20f.dp"));
+    assert!(kotlin.contains("showDragIndicator = false"));
+    assert!(kotlin.contains("allowsDismissal = false"));
+    assert!(kotlin.contains("allowsBackgroundInteraction = true"));
+    assert!(kotlin.contains("shouldDismissOnBackPress = false"));
+    assert!(kotlin.contains("backgroundColor = Color(0xFFF2F4F8)"));
+}
+
+#[test]
+fn bottom_sheet_rejects_empty_duplicate_and_unconfigured_initial_detents() {
+    for source in [
+        r#"app Empty { state shown: Bool = false body { BottomSheet(isPresented: shown, detents: []) { Text("x") } } }"#,
+        r#"app NegativePadding { state shown: Bool = false body { BottomSheet(isPresented: shown, contentPadding: -1) { Text("x") } } }"#,
+        r#"app Duplicate { state shown: Bool = false body { BottomSheet(isPresented: shown, detents: [Medium, Medium]) { Text("x") } } }"#,
+        r#"app Missing { state shown: Bool = false body { BottomSheet(isPresented: shown, detents: [Medium], initialDetent: Expanded) { Text("x") } } }"#,
+    ] {
+        assert!(
+            compile(source).is_err(),
+            "invalid detent configuration must fail"
+        );
+    }
+}
+
+#[test]
+fn bottom_sheet_lowers_custom_snap_points_and_dismiss_actions_for_both_backends() {
+    let module = compile(
+        r##"
+        app CustomSnapSheet {
+            state presented: Bool = false
+            state dismissed: Bool = false
+            body {
+                BottomSheet(
+                    isPresented: presented,
+                    snapPoints: [0.25, 0.5, 0.85],
+                    initialSnapPoint: 0.5,
+                    showDragIndicator: false,
+                    backgroundColor: "#00000000",
+                    scrimColor: "#00000000"
+                ) { Text("Map details") }.onDismiss {
+                    dismissed = true
+                }
+            }
+        }
+        "##,
+    )
+    .expect("BottomSheet should lower fractional snaps and dismissal actions");
+    assert!(matches!(
+        module.body.as_slice(),
+        [Node::BottomSheet {
+            detents,
+            snap_points,
+            initial_snap_point: Some(0.5),
+            show_drag_indicator: false,
+            background_color: Some(_),
+            scrim_color: Some(_),
+            on_dismiss,
+            ..
+        }] if detents.is_empty()
+            && snap_points == &[0.25, 0.5, 0.85]
+            && matches!(on_dismiss.as_slice(), [nexa_ir::Action::Assign { name, value: nexa_ir::Expr::Bool(true) }] if name == "dismissed")
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("snapPoints: [0.25, 0.5, 0.85]"));
+    assert!(swift.contains("initialSnapPoint: 0.5"));
+    assert!(swift.contains("showDragIndicator: false"));
+    assert!(swift.contains("onDismiss: {"));
+    assert!(swift.contains(
+        "scrimColor: Color(red: 0.000000, green: 0.000000, blue: 0.000000, opacity: 0.000000)"
+    ));
+    assert!(swift.contains("dismissed = true"));
+    assert!(
+        swift.contains("Color(red: 0.000000, green: 0.000000, blue: 0.000000, opacity: 0.000000)")
+    );
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("snapPoints = listOf(0.25f, 0.5f, 0.85f)"));
+    assert!(kotlin.contains("initialSnapPoint = 0.5f"));
+    assert!(kotlin.contains("showDragIndicator = false"));
+    assert!(kotlin.contains("onDismiss = {"));
+    assert!(kotlin.contains("dismissed = true"));
+    assert!(kotlin.contains("backgroundColor = Color(0x00000000)"));
+    assert!(kotlin.contains("scrimColor = Color(0x00000000)"));
+    assert!(kotlin.contains("import kotlinx.coroutines.launch"));
+}
+
+#[test]
+fn bottom_sheet_actions_drive_presentation_and_bound_snap_selection() {
+    let module = compile(
+        r#"
+        app ProgrammaticSheet {
+            state presented: Bool = false
+            state selectedPoint: Float64 = 0.5
+            body {
+                Button("Open") { BottomSheet.present(presented) }
+                Button("Close") { BottomSheet.dismiss(presented) }
+                Button("Expand") { BottomSheet.snapTo(selectedPoint, 0.85) }
+                BottomSheet(
+                    isPresented: presented,
+                    snapPoints: [0.25, 0.5, 0.85],
+                    selectedSnapPoint: selectedPoint
+                ) { Text("Programmatic sheet") }
+            }
         }
         "#,
     )
-    .expect("BottomSheet should accept showDragHandle: false");
+    .expect("BottomSheet action helpers and selected snap state should compile");
+
     assert!(matches!(
-        hidden_sheet.body.as_slice(),
-        [Node::BottomSheet {
-            show_drag_handle: false,
+        module.body.last(),
+        Some(Node::BottomSheet {
+            state,
+            snap_points,
+            selected_snap_point: Some(selected),
+            initial_snap_point: None,
             ..
-        }]
+        }) if state == "presented"
+            && snap_points == &[0.25, 0.5, 0.85]
+            && selected == "selectedPoint"
     ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("nexa_presented = true"));
+    assert!(swift.contains("nexa_presented = false"));
+    assert!(swift.contains("nexa_selectedPoint = Double(0.85)"));
+    assert!(swift.contains("selectedSnapPoint: $nexa_selectedPoint"));
+    assert!(swift.contains(".onChange(of: selectedSnapPoint?.wrappedValue)"));
+    assert!(swift.contains("selectedSnapPoint.wrappedValue = value"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("nexa_presented = true"));
+    assert!(kotlin.contains("nexa_presented = false"));
+    assert!(kotlin.contains("nexa_selectedPoint = 0.85"));
+    assert!(kotlin.contains("selectedSnapPoint = nexa_selectedPoint.toFloat()"));
+    assert!(
+        kotlin.contains("onSnapPointChange = { point -> nexa_selectedPoint = point.toDouble() }")
+    );
+    assert!(kotlin.contains("LaunchedEffect(isPresented, selectedSnapPoint, sheetState)"));
+    assert!(kotlin.contains("if (currentValue == lastReportedSheetValue.floatValue)"));
+    assert!(kotlin.contains("currentOnSnapPointChange?.invoke(currentValue)"));
+
+    let binding_only = compile(
+        r#"
+        app SelectedSnapPointIsLiveState {
+            state presented: Bool = false
+            state selectedPoint: Float64 = 0.5
+            body {
+                BottomSheet(
+                    isPresented: presented,
+                    snapPoints: [0.25, 0.5, 0.85],
+                    selectedSnapPoint: selectedPoint
+                ) { Text("Bound selection") }
+            }
+        }
+        "#,
+    )
+    .expect("the selected point must stay live when it has no other references");
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&binding_only);
+    assert!(
+        kotlin.contains("var nexa_selectedPoint by rememberSaveable { mutableDoubleStateOf(0.5) }")
+    );
+}
+
+#[test]
+fn bottom_sheet_header_save_and_close_actions_compile_for_both_platforms() {
+    let module = compile(
+        r#"
+        app BottomSheetHeaderActions {
+            state presented: Bool = false
+            state saved: Bool = false
+            body {
+                BottomSheet(isPresented: presented) {
+                    Column {
+                        Row {
+                            Text("Edit task")
+                            Spacer()
+                            Button("Save", icon: "save", style: Borderless) { saved = true }
+                            Button("Close", icon: "close", style: Plain) {
+                                BottomSheet.dismiss(presented)
+                            }
+                        }
+                        Text(saved ? "Changes saved" : "Unsaved changes")
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("buttons in a custom BottomSheet header should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("Label(\"Save\", systemImage: \"square.and.arrow.down\")"));
+    assert!(swift.contains("Label(\"Close\", systemImage: \"xmark\")"));
+    assert!(swift.contains("nexa_saved = true"));
+    assert!(swift.contains("nexa_presented = false"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("icon = Icons.Filled.Save,"));
+    assert!(kotlin.contains("icon = Icons.Filled.Close,"));
+    assert!(kotlin.contains("nexa_saved = true"));
+    assert!(kotlin.contains("nexa_presented = false"));
+}
+
+#[test]
+fn nested_bottom_sheets_keep_the_parent_presented_on_both_platforms() {
+    let module = compile(
+        r#"
+        app NestedBottomSheets {
+            state parentPresented: Bool = false
+            state childPresented: Bool = false
+            body {
+                BottomSheet(isPresented: parentPresented) {
+                    Column {
+                        Button("Open child") { BottomSheet.present(childPresented) }
+                        BottomSheet(isPresented: childPresented) {
+                            Button("Close child") { BottomSheet.dismiss(childPresented) }
+                        }
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("a BottomSheet can be nested in another sheet's content");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    let swift_parent = swift
+        .find("isPresented: $nexa_parentPresented")
+        .expect("emit the parent native SwiftUI sheet");
+    let swift_child = swift
+        .find("isPresented: $nexa_childPresented")
+        .expect("emit the nested native SwiftUI sheet");
+    assert!(swift_parent < swift_child);
+    assert!(swift.contains(".sheet(isPresented: $isPresented, onDismiss: {"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    let kotlin_parent = kotlin
+        .find("isPresented = nexa_parentPresented,")
+        .expect("emit the parent Material 3 sheet");
+    let kotlin_child = kotlin
+        .find("isPresented = nexa_childPresented,")
+        .expect("emit the nested Material 3 sheet");
+    assert!(kotlin_parent < kotlin_child);
+    assert!(kotlin.contains("ModalBottomSheet("));
+}
+
+#[test]
+fn bottom_sheet_dynamic_surface_and_dismiss_callback_count_as_state_uses() {
+    let compilation = compile_with_warnings_for_target(
+        r##"
+        app BottomSheetStateUses {
+            state presented: Bool = false
+            state surface: String = "#00000000"
+            state scrim: String = "#00000000"
+            state dismissed: Bool = false
+            body {
+                BottomSheet(isPresented: presented, backgroundColor: surface, scrimColor: scrim) {
+                    Text("Map details")
+                }.onDismiss {
+                    dismissed = true
+                }
+            }
+        }
+        "##,
+        Target::Kotlin,
+    )
+    .expect("dynamic sheet surface and dismissal callback should compile");
+
+    for state in ["surface", "scrim", "dismissed"] {
+        assert!(
+            compilation
+                .warnings
+                .iter()
+                .all(|warning| !warning.message.contains(&format!("unused state `{state}`"))),
+            "BottomSheet must count `{state}` as used"
+        );
+    }
+}
+
+#[test]
+fn bottom_sheet_rejects_invalid_custom_snap_point_combinations() {
+    for source in [
+        r#"app Empty { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: []) { Text("x") } } }"#,
+        r#"app Duplicate { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [0.5, 0.5]) { Text("x") } } }"#,
+        r#"app Unsorted { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [0.75, 0.5]) { Text("x") } } }"#,
+        r#"app OutOfRange { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [1.2]) { Text("x") } } }"#,
+        r#"app MissingInitial { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [0.25, 0.75], initialSnapPoint: 0.5) { Text("x") } } }"#,
+        r#"app Combined { state shown: Bool = false body { BottomSheet(isPresented: shown, detents: [Medium], snapPoints: [0.5]) { Text("x") } } }"#,
+        r#"app RequiresPoints { state shown: Bool = false body { BottomSheet(isPresented: shown, initialSnapPoint: 0.5) { Text("x") } } }"#,
+        r#"app MixedInitial { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [0.5], initialDetent: Medium) { Text("x") } } }"#,
+        r#"app SelectedWithoutPoints { state shown: Bool = false state point: Float64 = 0.5 body { BottomSheet(isPresented: shown, selectedSnapPoint: point) { Text("x") } } }"#,
+        r#"app SelectedAndInitial { state shown: Bool = false state point: Float64 = 0.5 body { BottomSheet(isPresented: shown, snapPoints: [0.5], initialSnapPoint: 0.5, selectedSnapPoint: point) { Text("x") } } }"#,
+        r#"app SelectedNotMutable { state shown: Bool = false let point: Float64 = 0.5 body { BottomSheet(isPresented: shown, snapPoints: [0.5], selectedSnapPoint: point) { Text("x") } } }"#,
+        r#"app SnapToUnknownState { body { Button("Snap") { BottomSheet.snapTo(missing, 0.5) } } }"#,
+        r#"app PresentWrongType { state point: Float64 = 0.5 body { Button("Open") { BottomSheet.present(point) } } }"#,
+    ] {
+        assert!(
+            compile(source).is_err(),
+            "invalid custom snap-point configuration must fail: {source}"
+        );
+    }
 }
 
 #[test]
@@ -2454,7 +2897,8 @@ fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
     assert!(matches!(
         module.body.iter().find(|node| matches!(node, Node::ProgressBar { .. })).expect("progress bar should remain in the app body"),
         Node::ProgressBar {
-            progress: Expr::AnimatedState(name, Type::Numeric(NumericType::Float64))
+            progress: Some(Expr::AnimatedState(name, Type::Numeric(NumericType::Float64))),
+            ..
         } if name == "progress"
     ));
 
@@ -3139,29 +3583,210 @@ fn slider_lowers_a_mutable_float64_binding_and_static_range() {
 #[test]
 fn progress_controls_lower_float64_expressions() {
     let module = compile(
-        r#"
+        r##"
         app ProgressControls {
             state progress: Float64 = 0.5
+            state tint: String = "#2563EB"
+            state wave: Bool = true
             body {
                 ProgressBar(progress: progress)
-                ProgressRing(progress: progress + 0.1)
+                ProgressRing(progress: progress + 0.1, tint: tint, trackColor: "#DBEAFE", size: 48, thickness: 5, android_wave: wave)
             }
         }
-        "#,
+        "##,
     )
     .expect("native progress controls should accept Float64 expressions");
 
     assert!(matches!(
         &module.body[0],
-        Node::ProgressBar { progress: Expr::State(name, Type::Numeric(NumericType::Float64)) }
+        Node::ProgressBar { progress: Some(Expr::State(name, Type::Numeric(NumericType::Float64))), .. }
             if name == "progress"
     ));
     assert!(matches!(
         &module.body[1],
         Node::ProgressRing {
-            progress: Expr::Add(_, _, NumericType::Float64)
+            progress: Some(Expr::Add(_, _, NumericType::Float64)),
+            style: Some(style),
         }
+            if matches!(style.tint.as_ref(), Some(ColorExpression::Dynamic(expression)) if matches!(expression.as_ref(), Expr::State(name, Type::String) if name == "tint"))
+                && matches!(style.track_color.as_ref(), Some(ColorExpression::Static(_)))
+                && style.size == Some(48.0)
+                && style.thickness == Some(5.0)
+                && matches!(style.android_wave.as_ref(), Some(Expr::State(name, Type::Bool)) if name == "wave")
     ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("NexaProgressRingPrimitive(progress:"));
+    assert!(swift.contains("tint: nexaColor(hex: nexa_tint)"));
+    assert!(swift.contains("trackColor: Color(red:"));
+    assert!(swift.contains("size: 48, thickness: 5)"));
+    assert!(!swift.contains("androidWave"));
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("NexaProgressRingPrimitive(progress ="));
+    assert!(kotlin.contains("tint = nexaColorFromHex(nexa_tint)"));
+    assert!(kotlin.contains("trackColor = Color(0xFFDBEAFE)"));
+    assert!(kotlin.contains("size = 48f, thickness = 5f, androidWave = nexa_wave)"));
+    assert!(kotlin.contains("androidWave = nexa_wave"));
+}
+
+#[test]
+fn progress_ring_rejects_negative_dimensions() {
+    for dimension in ["size: -1", "thickness: -1"] {
+        let source = format!(
+            "app InvalidProgressRing {{ body {{ ProgressRing(progress: 0.5, {dimension}) }} }}"
+        );
+        let error = compile(&source).expect_err("negative ring dimensions must be rejected");
+        assert!(error.to_string().contains("non-negative"), "{error}");
+    }
+
+    let error = compile("app InvalidProgressRingWave { body { ProgressRing(android_wave: 1) } }")
+        .expect_err("android_wave must be a Bool");
+    assert!(error.to_string().contains("Bool"), "{error}");
+}
+
+#[test]
+fn omitted_progress_compiles_to_native_indeterminate_indicators() {
+    let module = compile("app LoadingState { body { ProgressBar() } }")
+        .expect("ProgressBar without a value should use indeterminate mode");
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::ProgressBar {
+            progress: None,
+            style: None
+        })
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains(
+        "NexaProgressBarPrimitive(progress: nil, tint: nil, trackColor: nil, thickness: nil, cornerRadius: nil)"
+    ));
+    assert!(swift.contains("indeterminateBar(tint: Color.accentColor)"));
+    assert!(swift.contains(".accessibilityRepresentation { ProgressView() }"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains(
+        "NexaProgressBarPrimitive(progress = null, tint = null, trackColor = null, thickness = null, cornerRadius = null)"
+    ));
+    assert!(kotlin.contains("if (normalizedProgress == null) {\n        androidx.compose.material3.LinearProgressIndicator("));
+
+    let ring_module = compile("app LoadingRing { body { ProgressRing() } }")
+        .expect("ProgressRing without a value should use indeterminate mode");
+    assert!(matches!(
+        ring_module.body.first(),
+        Some(Node::ProgressRing {
+            progress: None,
+            style: None
+        })
+    ));
+    let swift = nexa_backend_swift::SwiftBackend.generate(&ring_module);
+    assert!(swift.contains(
+        "NexaProgressRingPrimitive(progress: nil, tint: nil, trackColor: nil, size: nil, thickness: nil)"
+    ));
+    assert!(swift.contains(".trim(from: 0, to: 0.25)"));
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&ring_module);
+    assert!(kotlin.contains(
+        "NexaProgressRingPrimitive(progress = null, tint = null, trackColor = null, size = null, thickness = null)"
+    ));
+    assert!(kotlin.contains("val normalizedProgress = progress?.let"));
+}
+
+#[test]
+fn progress_bar_style_is_typed_and_reaches_both_native_backends() {
+    let module = compile(
+        r##"
+        app StyledProgress {
+            state progress: Float64 = 0.45
+            state fill: String = "#7C3AED"
+            state label: String = "Upload progress"
+            state hint: String = "Shows task completion"
+            state value: String = "45 percent"
+            state wave: Bool = true
+            body {
+                ProgressBar(
+                    progress: progress,
+                    tint: fill,
+                    trackColor: "#EDE9FE",
+                    thickness: 12,
+                    cornerRadius: 6,
+                    accessibilityLabel: label,
+                    accessibilityHint: hint,
+                    accessibilityValue: value,
+                    accessibilityRole: None,
+                    android_wave: wave
+                )
+            }
+        }
+        "##,
+    )
+    .expect("typed progress styles should compile");
+
+    let Some(Node::Accessibility {
+        label,
+        hint: Some(hint),
+        value: Some(value),
+        role,
+        children,
+    }) = module.body.first()
+    else {
+        panic!("ProgressBar accessibility parameters should lower to a typed wrapper");
+    };
+    assert!(matches!(label, Expr::State(name, Type::String) if name == "label"));
+    assert!(matches!(hint, Expr::State(name, Type::String) if name == "hint"));
+    assert!(matches!(value, Expr::State(name, Type::String) if name == "value"));
+    assert!(matches!(role, AccessibilityRole::None));
+    assert!(matches!(
+        children.first(),
+        Some(Node::ProgressBar {
+            style: Some(style),
+            ..
+        }) if matches!(style.tint.as_ref(), Some(ColorExpression::Dynamic(_)))
+            && matches!(style.track_color.as_ref(), Some(ColorExpression::Static(_)))
+            && style.thickness == Some(12.0)
+            && style.corner_radius == Some(6.0)
+            && matches!(style.android_wave.as_ref(), Some(Expr::State(name, Type::Bool)) if name == "wave")
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("NexaProgressBarPrimitive(progress: nexa_progress"));
+    assert!(swift.contains("trackColor: Color(red:"));
+    assert!(swift.contains("thickness: 12, cornerRadius: 6)"));
+    assert!(swift.contains("NexaAccessibilityPrimitive("));
+    assert!(swift.contains("hint: Text(nexa_hint)"));
+    assert!(swift.contains("value: Text(nexa_value)"));
+    assert!(swift.contains("role: \"None\""));
+    assert!(!swift.contains("androidWave"));
+    assert!(!swift.contains("android_wave"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("NexaProgressBarPrimitive(progress = nexa_progress.toFloat()"));
+    assert!(kotlin.contains(
+        "trackColor = Color(0xFFEDE9FE), thickness = 12f, cornerRadius = 6f, androidWave = nexa_wave)"
+    ));
+    assert!(kotlin.contains("import androidx.compose.ui.graphics.Color"));
+    assert!(kotlin.contains("NexaAccessibilityPrimitive("));
+    assert!(kotlin.contains("hint = nexa_hint"));
+    assert!(kotlin.contains("value = nexa_value"));
+    assert!(kotlin.contains("role = null"));
+    assert!(kotlin.contains("androidWave = nexa_wave"));
+    assert!(kotlin.contains("if (androidWave) {"));
+    assert!(kotlin.contains("androidx.compose.material3.LinearWavyProgressIndicator("));
+    let (_, project_features) =
+        nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(project_features.uses_wavy_progress_bar);
+
+    let invalid_wave = compile(
+        r#"app InvalidProgressWave { body { ProgressBar(progress: 0.5, android_wave: "yes") } }"#,
+    )
+    .expect_err("android_wave must be a typed Boolean expression");
+    assert!(invalid_wave.to_string().contains("Bool"), "{invalid_wave}");
+
+    for dimension in ["thickness: -1", "cornerRadius: -1"] {
+        let source = format!(
+            "app InvalidProgressStyle {{ body {{ ProgressBar(progress: 0.5, {dimension}) }} }}"
+        );
+        let error = compile(&source).expect_err("negative visual dimensions must be rejected");
+        assert!(error.to_string().contains("non-negative"), "{error}");
+    }
 }
 
 #[test]
@@ -3810,6 +4435,16 @@ fn nested_borrowed_components_keep_the_owner_instance_live() {
 
 #[test]
 fn plugin_package_calls_lower_to_typed_instances_and_qualified_components() {
+    std::thread::Builder::new()
+        .name("plugin-package-compiler-test".to_owned())
+        .stack_size(4 * 1024 * 1024)
+        .spawn(plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner)
+        .expect("plugin compiler test thread should start")
+        .join()
+        .expect("plugin compiler test should not panic");
+}
+
+fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner() {
     let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../plugins/video-player/tests/demo/app/App.nx");
 

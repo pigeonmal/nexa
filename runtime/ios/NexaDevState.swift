@@ -64,6 +64,9 @@ final class NexaDevStateStore: ObservableObject {
     private var hotTranslations: [String: [String: Any]] = [:]
     private var scopeRevisions: [String: NexaDevScopeRevision] = [:]
     private var stateReaders: [String: Set<String>] = [:]
+    private var stateCommandRevisions: [String: Int] = [:]
+    private var fastListEndReachedCounts: [String: Int] = [:]
+    private var fastListEndReachedKeys = Set<String>()
 
     func revisionObserver(for scope: String) -> NexaDevScopeRevision {
         if let observer = scopeRevisions[scope] { return observer }
@@ -74,6 +77,23 @@ final class NexaDevStateStore: ObservableObject {
 
     func invalidateScope(_ scope: String) {
         scopeRevisions[scope]?.invalidate()
+    }
+
+    func updateFastListEndReachedCount(identity: String, scope: String, count: Int) {
+        let key = "\(scope)|\(identity)"
+        guard fastListEndReachedCounts[key] != count else { return }
+        fastListEndReachedCounts[key] = count
+        fastListEndReachedKeys.remove(key)
+    }
+
+    func claimFastListEndReached(identity: String, scope: String, count: Int) -> Bool {
+        guard count > 0 else { return false }
+        let key = "\(scope)|\(identity)"
+        if fastListEndReachedCounts[key] != count {
+            fastListEndReachedCounts[key] = count
+            fastListEndReachedKeys.remove(key)
+        }
+        return fastListEndReachedKeys.insert(key).inserted
     }
 
     private func invalidateAllScopes() {
@@ -120,7 +140,7 @@ final class NexaDevStateStore: ObservableObject {
         }
         guard let translated else { return fallback }
         let arguments = localizedArguments(sourceExpression, locals: locals, scope: scope)
-        let count = arguments.first { $0.0 == "count" }.map { Int(number($0.1)) }
+        let count = arguments.first { $0.name == "count" }.map { Int(number($0.value)) }
         let template: String
         if let value = translated as? String {
             template = value
@@ -132,23 +152,80 @@ final class NexaDevStateStore: ObservableObject {
             return fallback
         }
         return arguments.reduce(template) { value, argument in
-            value.replacingOccurrences(of: "{\(argument.0)}", with: stringify(argument.1))
+            value.replacingOccurrences(of: "{\(argument.name)}", with: argument.formatted)
         }
+    }
+
+    private func localizedInterpolationText(
+        _ sourceExpression: Any,
+        locals: [String: Any],
+        scope: String
+    ) -> String {
+        guard let tagged = sourceExpression as? [String: Any],
+              let parts = tagged["Interpolation"] as? [[String: Any]]
+        else { return stringify(evaluate(sourceExpression, locals: locals, scope: scope)) }
+        return parts.map { part in
+            if let literal = part["Literal"] as? String { return literal }
+            guard let raw = part["Value"] else { return "" }
+            let value = evaluate(raw, locals: locals, scope: scope)
+            return localizedArgumentText(raw, value: value)
+        }.joined()
     }
 
     private func localizedArguments(
         _ sourceExpression: Any?,
         locals: [String: Any],
         scope: String
-    ) -> [(String, Any)] {
+    ) -> [(name: String, value: Any, formatted: String)] {
         guard let tagged = sourceExpression as? [String: Any],
               let parts = tagged["Interpolation"] as? [[String: Any]]
         else { return [] }
         return parts.enumerated().compactMap { index, part in
             guard let raw = part["Value"] else { return nil }
             let name = Self.localizedArgumentName(raw, index: index)
-            return (name, evaluate(raw, locals: locals, scope: scope))
+            let value = evaluate(raw, locals: locals, scope: scope)
+            return (name, value, localizedArgumentText(raw, value: value))
         }
+    }
+
+    private func localizedArgumentText(_ expression: Any, value: Any) -> String {
+        guard let type = Self.localizedNumericType(expression) else { return stringify(value) }
+        let numeric = number(value)
+        let formatted = type == "Float32" ? Double(Float(numeric)) : numeric
+        return String(format: "%f", locale: Locale.current, arguments: [formatted])
+    }
+
+    private static func localizedNumericType(_ raw: Any) -> String? {
+        guard let tagged = raw as? [String: Any], let (kind, payload) = tagged.first else { return nil }
+        let typeName: String?
+        switch kind {
+        case "Number":
+            typeName = (payload as? [String: Any])?["ty"] as? String
+        case "State", "AnimatedState":
+            let fields = payload as? [Any] ?? []
+            typeName = fields.count > 1 ? localizedNumericTypeName(fields[1]) : nil
+        case "Member":
+            typeName = localizedNumericTypeName((payload as? [String: Any])?["field_type"])
+        case "Index":
+            typeName = localizedNumericTypeName((payload as? [String: Any])?["element_type"])
+        case "Call", "NativeCall", "TimeCall":
+            typeName = localizedNumericTypeName((payload as? [String: Any])?["return_type"])
+        case "Conditional":
+            typeName = localizedNumericTypeName((payload as? [String: Any])?["value_type"])
+        case "Add":
+            let fields = payload as? [Any] ?? []
+            typeName = fields.count > 2 ? fields[2] as? String : nil
+        case "Arithmetic", "Negate":
+            typeName = (payload as? [String: Any])?["ty"] as? String
+        default:
+            typeName = nil
+        }
+        return typeName == "Float32" || typeName == "Float64" ? typeName : nil
+    }
+
+    private static func localizedNumericTypeName(_ raw: Any?) -> String? {
+        if let raw = raw as? String { return raw }
+        return (raw as? [String: Any])?["Numeric"] as? String
     }
 
     private static func localizedArgumentName(_ raw: Any, index: Int) -> String {
@@ -195,6 +272,8 @@ final class NexaDevStateStore: ObservableObject {
 
     func install(module: [String: Any]) {
         let isHotReplacement = hasInstalledModule
+        fastListEndReachedCounts.removeAll(keepingCapacity: true)
+        fastListEndReachedKeys.removeAll(keepingCapacity: true)
         if isHotReplacement { clearNativeTasks() }
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
@@ -352,6 +431,21 @@ final class NexaDevStateStore: ObservableObject {
         return NSNull()
     }
 
+    private func stateStorageKey(_ name: String, scope: String) -> String {
+        let scopedKey = "\(scope)/state/\(name)"
+        return values[scopedKey] != nil || !scope.starts(with: "screen/")
+            ? scopedKey
+            : "app/state/\(name)"
+    }
+
+    func stateCommandRevision(_ name: String, scope: String) -> Int {
+        stateCommandRevisions[stateStorageKey(name, scope: scope), default: 0]
+    }
+
+    func pagePagerRestoreRevision(forState name: String, scope: String) -> Int {
+        stateCommandRevision(name, scope: scope)
+    }
+
     func locals(scope: String, parameters: [String: Any]) -> [String: Any] {
         parameters
     }
@@ -387,13 +481,7 @@ final class NexaDevStateStore: ObservableObject {
     }
 
     func setValue(_ name: String, value: Any, scope: String) {
-        let key = "\(scope)/state/\(name)"
-        let storageKey: String
-        if values[key] != nil || !scope.starts(with: "screen/") {
-            storageKey = key
-        } else {
-            storageKey = "app/state/\(name)"
-        }
+        let storageKey = stateStorageKey(name, scope: scope)
         if let current = values[storageKey] as? NSObject,
            let next = value as? NSObject,
            type(of: current) == type(of: next),
@@ -401,6 +489,7 @@ final class NexaDevStateStore: ObservableObject {
             return
         }
         values[storageKey] = value
+        stateCommandRevisions[storageKey, default: 0] += 1
         if let focused = value as? Bool,
            let focusIdentity = focusBindings.first(where: { _, binding in
                binding.scope == scope && binding.state == name
@@ -411,6 +500,19 @@ final class NexaDevStateStore: ObservableObject {
                 focusedFieldKey = nil
             }
         }
+        invalidateReaders(of: storageKey, sourceScope: scope)
+    }
+
+    func setScrollPositionFromNative(
+        _ name: String,
+        value: Int,
+        scope: String,
+        expectedCommandRevision: Int
+    ) {
+        let storageKey = stateStorageKey(name, scope: scope)
+        guard stateCommandRevisions[storageKey, default: 0] == expectedCommandRevision else { return }
+        if let current = values[storageKey] as? NSNumber, current.intValue == value { return }
+        values[storageKey] = value
         invalidateReaders(of: storageKey, sourceScope: scope)
     }
 
@@ -488,7 +590,7 @@ final class NexaDevStateStore: ObservableObject {
             let fields = payload as? [String: Any] ?? [:]
             let key = fields["key"] as? String ?? ""
             let source = fields["value"]
-            let fallback = source.map { stringify(evaluate($0, locals: locals, scope: scope)) } ?? key
+            let fallback = source.map { localizedInterpolationText($0, locals: locals, scope: scope) } ?? key
             return localizedText(
                 key: key,
                 fallback: fallback,

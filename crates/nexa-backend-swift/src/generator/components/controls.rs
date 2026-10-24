@@ -141,6 +141,52 @@ pub(crate) fn render_confirmation_action_button(
     }
 }
 
+pub(crate) fn render_swipe_action_button(button: &Node, depth: usize, out: &mut SourceWriter) {
+    let Node::Button {
+        label,
+        icon,
+        loading,
+        disabled,
+        tint,
+        actions,
+        ..
+    } = button
+    else {
+        return;
+    };
+
+    out.line_at(depth, format_args!("Button(action: {{"));
+    render_actions(actions, depth + 1, out);
+    out.line_at(depth, format_args!("}}) {{"));
+    if let Some(loading) = loading {
+        out.line_at(depth + 1, format_args!("if {} {{", expression(loading)));
+        out.line_at(depth + 2, format_args!("ProgressView()"));
+        out.line_at(depth + 1, format_args!("}} else {{"));
+        render_button_label(label, None, icon.as_ref(), depth + 2, out);
+        out.line_at(depth + 1, format_args!("}}"));
+    } else {
+        render_button_label(label, None, icon.as_ref(), depth + 1, out);
+    }
+    indent(out, depth);
+    out.push('}');
+
+    if disabled.is_some() || loading.is_some() {
+        let disabled = disabled
+            .as_ref()
+            .map_or_else(|| "false".to_owned(), expression);
+        let loading = loading
+            .as_ref()
+            .map_or_else(|| "false".to_owned(), expression);
+        out.push_str(&format!(".disabled(({disabled}) || ({loading}))"));
+    }
+    if let Some(tint) = tint {
+        out.push_str(&format!(
+            ".tint({})",
+            crate::generator::colors::expression_for_color(tint)
+        ));
+    }
+}
+
 fn render_button_label(
     label: &nexa_ir::Expr,
     comment: Option<&str>,
@@ -239,22 +285,62 @@ pub(crate) fn render_slider(
     );
 }
 
-pub(crate) fn render_progress_bar(progress: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_progress_bar(
+    progress: Option<&nexa_ir::Expr>,
+    style: Option<&nexa_ir::ProgressBarStyle>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let tint = style.and_then(|style| style.tint.as_ref());
+    let track_color = style.and_then(|style| style.track_color.as_ref());
+    let thickness = style.and_then(|style| style.thickness);
+    let corner_radius = style.and_then(|style| style.corner_radius);
+    let tint = tint.map_or_else(
+        || "nil".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
+    let track_color = track_color.map_or_else(
+        || "nil".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
+    let thickness = thickness.map_or_else(|| "nil".to_owned(), |value| value.to_string());
+    let corner_radius = corner_radius.map_or_else(|| "nil".to_owned(), |value| value.to_string());
     out.line_at(
         depth,
         format_args!(
-            "NexaProgressBarPrimitive(progress: {})",
-            expression(progress)
+            "NexaProgressBarPrimitive(progress: {}, tint: {}, trackColor: {}, thickness: {}, cornerRadius: {})",
+            progress.map_or_else(|| "nil".to_owned(), expression), tint, track_color, thickness, corner_radius
         ),
     );
 }
 
-pub(crate) fn render_progress_ring(progress: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_progress_ring(
+    progress: Option<&nexa_ir::Expr>,
+    style: Option<&nexa_ir::ProgressRingStyle>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let tint = style.and_then(|style| style.tint.as_ref()).map_or_else(
+        || "nil".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
+    let track_color = style
+        .and_then(|style| style.track_color.as_ref())
+        .map_or_else(
+            || "nil".to_owned(),
+            crate::generator::colors::expression_for_color,
+        );
+    let size = style
+        .and_then(|style| style.size)
+        .map_or_else(|| "nil".to_owned(), |value| value.to_string());
+    let thickness = style
+        .and_then(|style| style.thickness)
+        .map_or_else(|| "nil".to_owned(), |value| value.to_string());
     out.line_at(
         depth,
         format_args!(
-            "NexaProgressRingPrimitive(progress: {})",
-            expression(progress)
+            "NexaProgressRingPrimitive(progress: {}, tint: {}, trackColor: {}, size: {}, thickness: {})",
+            progress.map_or_else(|| "nil".to_owned(), expression), tint, track_color, size, thickness
         ),
     );
 }
@@ -1422,11 +1508,33 @@ mod tests {
             nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64),
         );
         let mut output = SourceWriter::new();
-        render_progress_bar(&progress, 0, &mut output);
-        render_progress_ring(&progress, 0, &mut output);
+        render_progress_bar(Some(&progress), None, 0, &mut output);
+        render_progress_ring(Some(&progress), None, 0, &mut output);
         assert_eq!(
             output.as_str(),
-            "NexaProgressBarPrimitive(progress: nexa_progress)\nNexaProgressRingPrimitive(progress: nexa_progress)\n"
+            "NexaProgressBarPrimitive(progress: nexa_progress, tint: nil, trackColor: nil, thickness: nil, cornerRadius: nil)\nNexaProgressRingPrimitive(progress: nexa_progress, tint: nil, trackColor: nil, size: nil, thickness: nil)\n"
+        );
+    }
+
+    #[test]
+    fn omitted_progress_generates_the_native_indeterminate_bar_call() {
+        let mut output = SourceWriter::new();
+        render_progress_bar(None, None, 0, &mut output);
+
+        assert_eq!(
+            output.as_str(),
+            "NexaProgressBarPrimitive(progress: nil, tint: nil, trackColor: nil, thickness: nil, cornerRadius: nil)\n"
+        );
+    }
+
+    #[test]
+    fn omitted_ring_progress_generates_the_native_indeterminate_ring_call() {
+        let mut output = SourceWriter::new();
+        render_progress_ring(None, None, 0, &mut output);
+
+        assert_eq!(
+            output.as_str(),
+            "NexaProgressRingPrimitive(progress: nil, tint: nil, trackColor: nil, size: nil, thickness: nil)\n"
         );
     }
 

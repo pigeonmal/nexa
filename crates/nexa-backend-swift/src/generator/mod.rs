@@ -124,18 +124,6 @@ private struct NexaDragGestureView<Content: View>: View {
 
 "#;
 
-const NEXA_LIMITED_TEXT_BINDING_HELPER: &str = r#"private func nexaLimitedTextBinding(
-    _ binding: Binding<String>,
-    _ limit: Int
-) -> Binding<String> {
-    Binding(
-        get: { binding.wrappedValue },
-        set: { binding.wrappedValue = String($0.prefix(limit)) }
-    )
-}
-
-"#;
-
 const NEXA_DYNAMIC_COLOR_HELPER: &str = r##"private func nexaColor(hex: String) -> Color {
     let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
     guard let value = UInt64(digits, radix: 16) else { return __NEXA_SWIFT_DEFAULT_ACCENT_COLOR__ }
@@ -413,20 +401,69 @@ struct NexaTextInputPrimitive: View {
     let secure: Bool
     let multiline: Bool
     let searchable: Bool
+    let maxLength: Int?
+    let keepsFocusOnNext: Bool
+    let onSubmitAction: (() -> Void)?
+    let onChange: ((String) -> Void)?
+    @State private var correctionRevision = 0
+    @FocusState private var nextSubmissionFocused: Bool
+
+    private var inputText: Binding<String> {
+        Binding(
+            get: { text },
+            set: { nextValue in
+                let limitedValue = maxLength.map { String(nextValue.prefix(max(0, $0))) } ?? nextValue
+                let previousValue = text
+                text = limitedValue
+                if previousValue != limitedValue {
+                    onChange?(limitedValue)
+                }
+                if limitedValue != nextValue {
+                    correctionRevision &+= 1
+                }
+            }
+        )
+    }
 
     @ViewBuilder
     private var field: some View {
         if secure {
-            SecureField(text: $text, prompt: placeholder) { placeholder }
+            SecureField(text: inputText, prompt: placeholder) { placeholder }
         } else if multiline {
-            TextField(text: $text, prompt: placeholder, axis: .vertical) { placeholder }
+            TextField(text: inputText, prompt: placeholder, axis: .vertical) { placeholder }
         } else {
-            TextField(text: $text, prompt: placeholder) { placeholder }
+            TextField(text: inputText, prompt: placeholder) { placeholder }
+        }
+    }
+
+    @ViewBuilder
+    private var focusRetainingField: some View {
+        if keepsFocusOnNext {
+            field
+                .focused($nextSubmissionFocused)
+                .onSubmit {
+                    onSubmitAction?()
+                    // SwiftUI dismisses a lone field after its .next submit
+                    // action unless focus is explicitly restored. Keep the
+                    // native keyboard available when there is no focus target
+                    // supplied by the caller.
+                    DispatchQueue.main.async {
+                        nextSubmissionFocused = true
+                    }
+                }
+        } else {
+            field
         }
     }
 
     @ViewBuilder
     var body: some View {
+        // A rejected insertion can leave SwiftUI's native text control holding
+        // the overlong editing buffer when the bound value is already at its
+        // limit. Reading this revision makes the field reconcile from the
+        // bounded binding after each rejected edit without replacing the
+        // focused native control.
+        let _ = correctionRevision
         if searchable {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -443,7 +480,7 @@ struct NexaTextInputPrimitive: View {
     // SwiftUI TextField otherwise measures to its placeholder's ideal width. Compose fields fill
     // the available parent width, so keep the SwiftUI primitive leading-aligned and equally wide.
     private var leadingField: some View {
-        field
+        focusRetainingField
             .frame(maxWidth: .infinity, alignment: .leading)
             .multilineTextAlignment(.leading)
     }
@@ -820,44 +857,144 @@ struct NexaSliderPrimitive: View {
 
 // nexa-codegen: NexaProgressBarPrimitive
 struct NexaProgressBarPrimitive: View {
-    let progress: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
 
-    var body: some View {
-        ProgressView(value: min(max(progress, 0), 1), total: 1)
+    let progress: Double?
+    let tint: Color?
+    let trackColor: Color?
+    let thickness: CGFloat?
+    let cornerRadius: CGFloat?
+
+    private var normalizedProgress: Double? {
+        guard let progress else { return nil }
+        guard progress.isFinite else { return 0 }
+        return min(max(progress, 0), 1)
+    }
+
+    @ViewBuilder var body: some View {
+        if let normalizedProgress {
+            if trackColor == nil && thickness == nil && cornerRadius == nil {
+                if let tint {
+                    ProgressView(value: normalizedProgress, total: 1).tint(tint)
+                } else {
+                    ProgressView(value: normalizedProgress, total: 1)
+                }
+            } else {
+                let barHeight = thickness ?? 4
+                let radius = cornerRadius ?? barHeight / 2
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: radius)
+                            .fill(trackColor ?? Color.primary.opacity(0.1))
+                        RoundedRectangle(cornerRadius: radius)
+                            .fill(tint ?? Color.accentColor)
+                            .frame(width: max(geometry.size.width * CGFloat(normalizedProgress), 0))
+                    }
+                }
+                .frame(height: barHeight)
+                .accessibilityValue(Text("\(Int((normalizedProgress * 100).rounded()))%"))
+            }
+        } else {
+            if let tint {
+                indeterminateBar(tint: tint)
+            } else {
+                indeterminateBar(tint: Color.accentColor)
+            }
+        }
+    }
+
+    private func indeterminateBar(tint: Color) -> some View {
+        let barHeight = thickness ?? 4
+        let radius = cornerRadius ?? barHeight / 2
+        return GeometryReader { geometry in
+            let segmentWidth = min(max(geometry.size.width * 0.25, barHeight * 2), geometry.size.width)
+            let shouldAnimate = isVisible && !reduceMotion
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(trackColor ?? Color.primary.opacity(0.1))
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(tint)
+                    .frame(width: segmentWidth)
+                    .offset(x: reduceMotion
+                        ? (geometry.size.width - segmentWidth) / 2
+                        : isVisible ? geometry.size.width : -segmentWidth)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: radius))
+            .animation(
+                reduceMotion ? nil : .linear(duration: 1.2).repeatForever(autoreverses: false),
+                value: shouldAnimate,
+            )
+            .onAppear { isVisible = true }
+            .onDisappear { isVisible = false }
+            .accessibilityRepresentation { ProgressView() }
+        }
+        .frame(height: barHeight)
     }
 }
 
 // nexa-codegen: NexaProgressRingPrimitive
 struct NexaProgressRingPrimitive: View {
-    let progress: Double
+    let progress: Double?
+    let tint: Color?
+    let trackColor: Color?
+    let size: CGFloat?
+    let thickness: CGFloat?
 
-    private var normalizedProgress: Double {
-        min(max(progress, 0), 1)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isAnimating = false
+
+    private var normalizedProgress: Double? {
+        guard let progress else { return nil }
+        guard progress.isFinite else { return 0 }
+        return min(max(progress, 0), 1)
     }
+
+    private var indicatorColor: Color { tint ?? Color.accentColor }
+    private var indicatorSize: CGFloat { max(size ?? 40, 0) }
+    private var indicatorThickness: CGFloat { min(max(thickness ?? 4, 0), indicatorSize) }
+    private var pathSize: CGFloat { max(indicatorSize - indicatorThickness, 0) }
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.accentColor.opacity(0.16), lineWidth: 4)
+                .stroke(trackColor ?? indicatorColor.opacity(0.16), lineWidth: indicatorThickness)
 
-            if normalizedProgress >= 1 {
+            if let normalizedProgress {
+                if normalizedProgress >= 1 {
+                    Circle()
+                        .stroke(indicatorColor, lineWidth: indicatorThickness)
+                } else if normalizedProgress > 0 {
+                    Circle()
+                        .trim(from: 0, to: normalizedProgress)
+                        .stroke(
+                            indicatorColor,
+                            style: StrokeStyle(lineWidth: indicatorThickness, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                }
+            } else {
                 Circle()
-                    .stroke(Color.accentColor, lineWidth: 4)
-            } else if normalizedProgress > 0 {
-                Circle()
-                    .trim(from: 0, to: normalizedProgress)
+                    .trim(from: 0, to: 0.25)
                     .stroke(
-                        Color.accentColor,
-                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                        indicatorColor,
+                        style: StrokeStyle(lineWidth: indicatorThickness, lineCap: .round)
                     )
-                    .rotationEffect(.degrees(-90))
+                    .rotationEffect(.degrees(isAnimating ? 270 : -90))
             }
         }
-        .frame(width: 40, height: 40)
+        .frame(width: pathSize, height: pathSize)
+        .frame(width: indicatorSize, height: indicatorSize)
         .animation(.easeInOut(duration: 0.2), value: normalizedProgress)
+        .animation(
+            reduceMotion ? nil : .linear(duration: 1).repeatForever(autoreverses: false),
+            value: isAnimating,
+        )
+        .onAppear { isAnimating = !reduceMotion }
+        .onDisappear { isAnimating = false }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Progress")
-        .accessibilityValue("\(Int((normalizedProgress * 100).rounded()))%")
+        .accessibilityValue(normalizedProgress.map { "\(Int(($0 * 100).rounded()))%" } ?? "In Progress")
     }
 }
 
@@ -1322,23 +1459,162 @@ struct NexaStackLayer<Content: View>: View {
 }
 
 // nexa-codegen: NexaNativeListPrimitive
-struct NexaNativeListPrimitive<Content: View>: View {
-    private let spacing: CGFloat
-    private let scrollEnabled: Bool
+@Observable
+@MainActor
+private final class NexaFastListReorderSession {
+    private(set) var activeIndex: Int?
+    private(set) var dragOffset: CGFloat = 0
+    @ObservationIgnored private var rowFrames: [Int: CGRect] = [:]
+    @ObservationIgnored private var startY: CGFloat = 0
+    @ObservationIgnored private var accumulatedLayoutShift: CGFloat = 0
+    @ObservationIgnored private var lastInsertionIndex: Int?
+
+    func updateFrames(_ frames: [Int: CGRect]) {
+        rowFrames = frames
+    }
+
+    func begin(at index: Int, startY: CGFloat) {
+        activeIndex = index
+        self.startY = startY
+        accumulatedLayoutShift = 0
+        dragOffset = 0
+        lastInsertionIndex = nil
+    }
+
+    func update(to location: CGPoint, perform onMove: (Int, Int) -> Void) {
+        guard let source = activeIndex,
+              let sourceFrame = rowFrames[source],
+              let target = rowFrames.min(by: {
+                  abs($0.value.midY - location.y) < abs($1.value.midY - location.y)
+              })
+        else { return }
+
+        let insertionIndex = target.key + (location.y >= target.value.midY ? 1 : 0)
+        guard lastInsertionIndex != insertionIndex else {
+            dragOffset = location.y - startY - accumulatedLayoutShift
+            return
+        }
+        lastInsertionIndex = insertionIndex
+
+        let destination = insertionIndex > source ? insertionIndex - 1 : insertionIndex
+        guard destination != source else {
+            dragOffset = location.y - startY - accumulatedLayoutShift
+            return
+        }
+
+        let targetCenter = rowFrames[destination]?.midY ?? target.value.midY
+        accumulatedLayoutShift += targetCenter - sourceFrame.midY
+        withAnimation(.default) {
+            onMove(source, insertionIndex)
+        }
+        activeIndex = destination
+        dragOffset = location.y - startY - accumulatedLayoutShift
+    }
+
+    func finish() {
+        activeIndex = nil
+        dragOffset = 0
+        accumulatedLayoutShift = 0
+        lastInsertionIndex = nil
+    }
+}
+
+private struct NexaFastListRowFramesKey: PreferenceKey {
+    static let defaultValue: [Int: CGRect] = [:]
+
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
+@MainActor
+private struct NexaFastListReorderableRow<Content: View>: View {
+    let index: Int
+    let onReorder: (Int, Int) -> Void
     private let content: Content
+    @Bindable private var session: NexaFastListReorderSession
 
     init(
-        spacing: CGFloat = 0,
-        scrollEnabled: Bool = true,
+        index: Int,
+        session: NexaFastListReorderSession,
+        onReorder: @escaping (Int, Int) -> Void,
         @ViewBuilder content: () -> Content
     ) {
-        self.spacing = spacing
-        self.scrollEnabled = scrollEnabled
+        self.index = index
+        self.onReorder = onReorder
+        self._session = Bindable(wrappedValue: session)
         self.content = content()
     }
 
     var body: some View {
-        List { content }
+        let isDragging = session.activeIndex == index
+        ZStack {
+            content.offset(y: isDragging ? session.dragOffset : 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: NexaFastListRowFramesKey.self,
+                    value: [index: geometry.frame(in: .global)]
+                )
+            }
+        }
+        .contentShape(Rectangle())
+        .zIndex(isDragging ? 1 : 0)
+        .highPriorityGesture(
+            LongPressGesture(minimumDuration: 0.35)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+                .onChanged { value in
+                    guard case let .second(true, drag?) = value else { return }
+                    if session.activeIndex == nil {
+                        session.begin(at: index, startY: drag.startLocation.y)
+                    }
+                    session.update(to: drag.location, perform: onReorder)
+                }
+                .onEnded { _ in session.finish() }
+        )
+    }
+}
+
+private struct NexaFastListReorderSessionKey: EnvironmentKey {
+    static let defaultValue: NexaFastListReorderSession? = nil
+}
+
+private extension EnvironmentValues {
+    var nexaFastListReorderSession: NexaFastListReorderSession? {
+        get { self[NexaFastListReorderSessionKey.self] }
+        set { self[NexaFastListReorderSessionKey.self] = newValue }
+    }
+}
+
+struct NexaNativeListPrimitive<Content: View>: View {
+    private let spacing: CGFloat
+    private let scrollEnabled: Bool
+    private let content: Content
+    @State private var reorderSession: NexaFastListReorderSession?
+
+    init(
+        spacing: CGFloat = 0,
+        scrollEnabled: Bool = true,
+        reorderEnabled: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.spacing = spacing
+        self.scrollEnabled = scrollEnabled
+        _reorderSession = State(
+            initialValue: reorderEnabled ? NexaFastListReorderSession() : nil
+        )
+        self.content = content()
+    }
+
+    var body: some View {
+        List {
+            content.environment(\.nexaFastListReorderSession, reorderSession)
+        }
+            .onPreferenceChange(NexaFastListRowFramesKey.self) { frames in
+                reorderSession?.updateFrames(frames)
+            }
             .listRowSpacing(spacing)
             .scrollDisabled(!scrollEnabled)
             .modifier(NexaNativeListStyleModifier())
@@ -1346,22 +1622,203 @@ struct NexaNativeListPrimitive<Content: View>: View {
 }
 
 // nexa-codegen: NexaNativeListRowPrimitive
+@MainActor
+private struct NexaFastListSwipePagerGestureBridge: UIViewRepresentable {
+    func makeUIView(context: Context) -> NexaFastListSwipePagerGestureView {
+        NexaFastListSwipePagerGestureView()
+    }
+
+    func updateUIView(_ view: NexaFastListSwipePagerGestureView, context: Context) {
+        view.connectToContainingPager()
+    }
+}
+
+@MainActor
+private final class NexaFastListSwipePagerGestureView: UIView, UIGestureRecognizerDelegate {
+    private weak var connectedRowCell: UIView?
+    private weak var connectedPagerScrollView: UIScrollView?
+    private weak var connectedListScrollView: UIScrollView?
+    private var rowTouchRecognizer: UILongPressGestureRecognizer?
+    private var connectionCheckPending = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            disconnectFromContainingPager()
+            return
+        }
+        connectToContainingPager()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        connectToContainingPager()
+    }
+
+    func connectToContainingPager() {
+        guard !connectionCheckPending else { return }
+        connectionCheckPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.connectionCheckPending = false
+            guard self.window != nil else { return }
+
+            var ancestor = self.superview
+            var rowCell: UIView?
+            var listScrollView: UIScrollView?
+            var pagerScrollView: UIScrollView?
+            while let view = ancestor {
+                if rowCell == nil,
+                   view is UITableViewCell || view is UICollectionViewCell {
+                    rowCell = view
+                }
+                if let scrollView = view as? UIScrollView {
+                    if listScrollView == nil {
+                        listScrollView = scrollView
+                    } else if isHorizontalPageContainer(scrollView) {
+                        // SwiftUI's page TabView is backed by a horizontal UICollectionView.
+                        // On current iOS versions it does not consistently set isPagingEnabled,
+                        // even though its collection content spans the pages horizontally.
+                        pagerScrollView = scrollView
+                        break
+                    }
+                }
+                ancestor = view.superview
+            }
+            guard let rowCell, let listScrollView, let pagerScrollView else { return }
+            guard connectedRowCell !== rowCell
+                    || connectedListScrollView !== listScrollView
+                    || connectedPagerScrollView !== pagerScrollView
+            else { return }
+            disconnectFromContainingPager()
+
+            // A zero-duration, non-cancelling recognizer claims the row touch
+            // before SwiftUI's ancestor page TabView can start paging. It
+            // recognizes simultaneously with the native List gestures, so
+            // SwiftUI still owns and renders the row swipe action.
+            let rowTouchRecognizer = UILongPressGestureRecognizer(
+                target: self,
+                action: #selector(rowTouchRecognized(_:))
+            )
+            rowTouchRecognizer.minimumPressDuration = 0
+            rowTouchRecognizer.allowableMovement = .greatestFiniteMagnitude
+            rowTouchRecognizer.cancelsTouchesInView = false
+            rowTouchRecognizer.delaysTouchesBegan = false
+            rowTouchRecognizer.delaysTouchesEnded = false
+            rowTouchRecognizer.delegate = self
+            rowCell.addGestureRecognizer(rowTouchRecognizer)
+            pagerScrollView.panGestureRecognizer.require(toFail: rowTouchRecognizer)
+
+            connectedRowCell = rowCell
+            connectedListScrollView = listScrollView
+            connectedPagerScrollView = pagerScrollView
+            self.rowTouchRecognizer = rowTouchRecognizer
+        }
+    }
+
+    private func isHorizontalPageContainer(_ scrollView: UIScrollView) -> Bool {
+        guard let collectionView = scrollView as? UICollectionView else {
+            return scrollView.isPagingEnabled
+        }
+        return scrollView.isPagingEnabled
+            || (collectionView.contentSize.width > collectionView.bounds.width + 1
+                && collectionView.contentSize.height <= collectionView.bounds.height + 1)
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        guard gestureRecognizer === rowTouchRecognizer || otherGestureRecognizer === rowTouchRecognizer else {
+            return false
+        }
+        guard let rowCell = connectedRowCell else { return false }
+        let peer = gestureRecognizer === rowTouchRecognizer ? otherGestureRecognizer : gestureRecognizer
+        var view = peer.view
+        while let current = view {
+            if current === rowCell { return true }
+            if current === connectedListScrollView { return true }
+            view = current.superview
+        }
+        return false
+    }
+
+    @objc private func rowTouchRecognized(_ recognizer: UIGestureRecognizer) {
+        // The recognizer exists only to establish the failure dependency with
+        // the outer pager. Native List recognizers handle the actual gesture.
+        guard recognizer.state == .ended
+                || recognizer.state == .cancelled
+                || recognizer.state == .failed
+        else { return }
+    }
+
+    private func disconnectFromContainingPager() {
+        if let rowCell = connectedRowCell, let rowTouchRecognizer {
+            rowCell.removeGestureRecognizer(rowTouchRecognizer)
+        }
+        rowTouchRecognizer = nil
+        connectedRowCell = nil
+        connectedListScrollView = nil
+        connectedPagerScrollView = nil
+    }
+}
+
 struct NexaNativeListRowPrimitive<Content: View>: View {
     let showDividers: Bool
+    let prioritizeSwipeActions: Bool
+    let reorderIndex: Int?
+    let reorderEnabled: Bool
+    let onReorder: ((Int, Int) -> Void)?
     private let content: Content
+    @Environment(\.nexaFastListReorderSession) private var reorderSession
 
-    init(showDividers: Bool = true, @ViewBuilder content: () -> Content) {
+    init(
+        showDividers: Bool = true,
+        prioritizeSwipeActions: Bool = false,
+        reorderIndex: Int? = nil,
+        reorderEnabled: Bool = false,
+        onReorder: ((Int, Int) -> Void)? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
         self.showDividers = showDividers
+        self.prioritizeSwipeActions = prioritizeSwipeActions
+        self.reorderIndex = reorderIndex
+        self.reorderEnabled = reorderEnabled
+        self.onReorder = onReorder
         self.content = content()
     }
 
     var body: some View {
-        content
+        let row = Group {
+            if prioritizeSwipeActions {
+                content.background {
+                    NexaFastListSwipePagerGestureBridge()
+                        .frame(width: 1, height: 1)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                content
+            }
+        }
+        Group {
+            if reorderEnabled, let reorderIndex, let onReorder, let reorderSession {
+                NexaFastListReorderableRow(
+                    index: reorderIndex,
+                    session: reorderSession,
+                    onReorder: onReorder
+                ) {
+                    row
+                    }
+            } else {
+                row
+            }
+        }
             .listRowInsets(EdgeInsets(
                 top: CGFloat(__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__),
-                leading: CGFloat(__NEXA_NATIVE_LIST_CONTENT_HORIZONTAL_INSET__),
+                leading: CGFloat(__NEXA_NATIVE_LIST_ROW_HORIZONTAL_INSET__),
                 bottom: CGFloat(__NEXA_NATIVE_LIST_ROW_VERTICAL_INSET__),
-                trailing: CGFloat(__NEXA_NATIVE_LIST_CONTENT_HORIZONTAL_INSET__)
+                trailing: CGFloat(__NEXA_NATIVE_LIST_ROW_HORIZONTAL_INSET__)
             ))
             .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
             .listRowSeparatorTint(Color(uiColor: .separator))
@@ -1372,10 +1829,30 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
 // nexa-codegen: NexaNativeListStyleModifier
 struct NexaNativeListStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
-        content
+        let groupedList = content
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Color(uiColor: .systemGroupedBackground))
+        if #available(iOS 17.0, *) {
+            groupedList.contentMargins(
+                .horizontal,
+                CGFloat(__NEXA_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__),
+                for: .scrollContent
+            )
+            .contentMargins(
+                .vertical,
+                CGFloat(__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__),
+                for: .scrollContent
+            )
+        } else {
+            // Before iOS 17, insetGrouped List has no public contentMargins API.
+            // Expand only the container so its system inset cancels out; row
+            // content keeps the explicit listRowInsets above.
+            groupedList.padding(
+                .horizontal,
+                -CGFloat(__NEXA_IOS_LEGACY_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__)
+            )
+        }
     }
 }
 
@@ -1618,73 +2095,180 @@ private struct NexaRefreshBounceModifier: ViewModifier {
 // nexa-codegen: NexaBottomSheetPrimitive
 struct NexaBottomSheetPrimitive<Content: View>: View {
     @Binding var isPresented: Bool
-    let partial: Bool
-    let largeOnly: Bool
-    let showDragHandle: Bool
-    @State private var isKeyboardVisible = false
+    let contentPadding: CGFloat
+    let detents: Set<PresentationDetent>
+    let snapPoints: [CGFloat]
+    let initialSnapPoint: CGFloat?
+    let selectedSnapPoint: Binding<Double>?
+    let initialDetent: PresentationDetent
+    let showDragIndicator: Bool
+    let allowsDismissal: Bool
+    let allowsBackgroundInteraction: Bool
+    let shouldDismissOnBackPress: Bool
+    let backgroundColor: Color?
+    let onDismissRequest: () -> Void
+    let onDismiss: () -> Void
     @State private var selectedDetent: PresentationDetent
-    @State private var detentBeforeKeyboard: PresentationDetent
     private let content: Content
 
     init(
         isPresented: Binding<Bool>,
-        partial: Bool,
-        largeOnly: Bool,
-        showDragHandle: Bool,
+        contentPadding: CGFloat,
+        detents: Set<PresentationDetent>,
+        snapPoints: [CGFloat],
+        initialSnapPoint: CGFloat?,
+        selectedSnapPoint: Binding<Double>?,
+        initialDetent: PresentationDetent,
+        showDragIndicator: Bool,
+        allowsDismissal: Bool,
+        allowsBackgroundInteraction: Bool,
+        shouldDismissOnBackPress: Bool,
+        backgroundColor: Color?,
+        scrimColor: Color?,
+        onDismissRequest: @escaping () -> Void,
+        onDismiss: @escaping () -> Void,
         @ViewBuilder content: () -> Content
     ) {
         self._isPresented = isPresented
-        self.partial = partial
-        self.largeOnly = largeOnly
-        self.showDragHandle = showDragHandle
-        let initialDetent: PresentationDetent = largeOnly ? .large : .medium
-        _selectedDetent = State(initialValue: initialDetent)
-        _detentBeforeKeyboard = State(initialValue: initialDetent)
+        self.contentPadding = contentPadding
+        self.detents = detents
+        self.snapPoints = snapPoints
+        self.initialSnapPoint = initialSnapPoint
+        self.selectedSnapPoint = selectedSnapPoint
+        self.initialDetent = initialDetent
+        self.showDragIndicator = showDragIndicator
+        self.allowsDismissal = allowsDismissal
+        self.allowsBackgroundInteraction = allowsBackgroundInteraction
+        self.shouldDismissOnBackPress = shouldDismissOnBackPress
+        self.backgroundColor = backgroundColor
+        self.onDismissRequest = onDismissRequest
+        self.onDismiss = onDismiss
+        let selectedInitialPoint = selectedSnapPoint.flatMap { binding in
+            snapPoints.min {
+                abs(Double($0) - binding.wrappedValue)
+                    < abs(Double($1) - binding.wrappedValue)
+            }
+        }
+        _selectedDetent = State(
+            initialValue: selectedInitialPoint.map { .fraction($0) }
+                ?? initialSnapPoint.map { .fraction($0) }
+                ?? initialDetent
+        )
         self.content = content()
     }
 
+    private var configuredDetents: Set<PresentationDetent> {
+        snapPoints.isEmpty ? detents : Set(snapPoints.map { .fraction($0) })
+    }
+
+    private var configuredInitialDetent: PresentationDetent {
+        if let selectedSnapPoint,
+           let point = closestSnapPoint(to: selectedSnapPoint.wrappedValue) {
+            return .fraction(point)
+        }
+        return initialSnapPoint.map { .fraction($0) } ?? initialDetent
+    }
+
+    private func closestSnapPoint(to requested: Double) -> CGFloat? {
+        snapPoints.min { abs(Double($0) - requested) < abs(Double($1) - requested) }
+    }
+
     @ViewBuilder var body: some View {
-        let host = Color.clear.frame(width: 0, height: 0)
-        if partial {
-            host.sheet(isPresented: $isPresented) {
-                content
-                    .presentationDetents(
-                        isKeyboardVisible && !largeOnly
-                            ? [.height(280)]
-                            : (largeOnly ? [.large] : [.medium, .large]),
-                        selection: $selectedDetent
-                    )
-                    .presentationDragIndicator(showDragHandle ? .visible : .hidden)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-                guard !largeOnly, !isKeyboardVisible else { return }
-                detentBeforeKeyboard = selectedDetent
-                let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-                withAnimation(.easeInOut(duration: duration)) {
-                    isKeyboardVisible = true
-                    selectedDetent = .height(280)
+        Color.clear
+            .frame(width: 0, height: 0)
+            .sheet(isPresented: $isPresented, onDismiss: {
+                onDismissRequest()
+                onDismiss()
+            }) {
+                NexaBottomSheetContentPrimitive(contentPadding: contentPadding) {
+                    content
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
-                guard !largeOnly, isKeyboardVisible else { return }
-                let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-                withAnimation(.easeInOut(duration: duration)) {
-                    isKeyboardVisible = false
-                    selectedDetent = detentBeforeKeyboard
-                }
+                    .presentationDetents(configuredDetents, selection: $selectedDetent)
+                    .presentationDragIndicator(showDragIndicator ? .visible : .hidden)
+                    .interactiveDismissDisabled(!allowsDismissal)
+                    .modifier(NexaBottomSheetBackground(
+                        color: backgroundColor ?? Color(uiColor: .systemBackground)
+                    ))
+                    .modifier(NexaBottomSheetBackgroundInteraction(
+                        allowsBackgroundInteraction: allowsBackgroundInteraction
+                    ))
             }
             .onChange(of: isPresented) { presented in
-                guard presented else { return }
-                let initialDetent: PresentationDetent = largeOnly ? .large : .medium
-                withAnimation(.default) {
-                    selectedDetent = initialDetent
-                    detentBeforeKeyboard = initialDetent
+                if presented {
+                    selectedDetent = configuredInitialDetent
                 }
             }
-        } else {
-            host.fullScreenCover(isPresented: $isPresented) {
-                content
+            .onChange(of: selectedSnapPoint?.wrappedValue) { value in
+                guard let value, let point = closestSnapPoint(to: value) else { return }
+                selectedDetent = .fraction(point)
+                let snappedValue = Double(point)
+                if snappedValue != value {
+                    selectedSnapPoint?.wrappedValue = snappedValue
+                }
             }
+            .onChange(of: selectedDetent) { detent in
+                guard let selectedSnapPoint,
+                      let point = snapPoints.first(where: { detent == .fraction($0) })
+                else { return }
+                let value = Double(point)
+                if selectedSnapPoint.wrappedValue != value {
+                    selectedSnapPoint.wrappedValue = value
+                }
+            }
+    }
+}
+
+// nexa-codegen: NexaBottomSheetContentPrimitive
+private struct NexaBottomSheetContentPrimitive<Content: View>: View {
+    let contentPadding: CGFloat
+    private let content: Content
+
+    init(contentPadding: CGFloat, @ViewBuilder content: () -> Content) {
+        self.contentPadding = contentPadding
+        self.content = content()
+    }
+
+    var body: some View {
+        NexaColumnPrimitive(
+            spacing: 0
+        ) {
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(contentPadding)
+    }
+}
+
+// SwiftUI owns a native sheet's dim layer. Background interaction is the
+// explicit cross-platform opt-in for an undimmed, interactive backdrop.
+// nexa-codegen: NexaBottomSheetBackgroundInteraction
+private struct NexaBottomSheetBackgroundInteraction: ViewModifier {
+    let allowsBackgroundInteraction: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *), allowsBackgroundInteraction {
+            content.presentationBackgroundInteraction(.enabled)
+        } else {
+            content
+        }
+    }
+}
+
+// nexa-codegen: NexaBottomSheetBackground
+private struct NexaBottomSheetBackground: ViewModifier {
+    let color: Color?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let color {
+            if #available(iOS 16.4, *) {
+                content.presentationBackground(color)
+            } else {
+                content.background(color)
+            }
+        } else {
+            content
         }
     }
 }
@@ -2069,8 +2653,21 @@ fn shared_component_primitives_with_animation(
             nexa_codegen::design_system::NATIVE_LIST_ROW_VERTICAL_INSET.to_string(),
         ),
         (
-            "__NEXA_NATIVE_LIST_CONTENT_HORIZONTAL_INSET__",
-            nexa_codegen::design_system::NATIVE_LIST_CONTENT_HORIZONTAL_INSET.to_string(),
+            "__NEXA_NATIVE_LIST_ROW_HORIZONTAL_INSET__",
+            nexa_codegen::design_system::NATIVE_LIST_ROW_HORIZONTAL_INSET.to_string(),
+        ),
+        (
+            "__NEXA_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__",
+            nexa_codegen::design_system::NATIVE_LIST_CONTAINER_HORIZONTAL_INSET.to_string(),
+        ),
+        (
+            "__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__",
+            nexa_codegen::design_system::NATIVE_LIST_CONTENT_VERTICAL_INSET.to_string(),
+        ),
+        (
+            "__NEXA_IOS_LEGACY_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__",
+            nexa_codegen::design_system::IOS_LEGACY_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET
+                .to_string(),
         ),
         (
             "__NEXA_SWIFT_DEFAULT_ACCENT_COLOR__",
@@ -2255,8 +2852,8 @@ private func nexaRegexReplace(_ pattern: String, in text: String, with replaceme
 pub(super) use api::{crypto, network, number, permissions, time};
 use components::node_renderer as component_renderer;
 pub(super) use components::{
-    accessibility, bottom_bar, controls, custom_components, direction, images, input, keyboard,
-    layout, lifecycle, links, list_runtime, lists, navigation, refresh, sheets, status_bar,
+    accessibility, bottom_bar, bottom_sheet, controls, custom_components, direction, images, input,
+    keyboard, layout, lifecycle, links, list_runtime, lists, navigation, refresh, status_bar,
     system_icons,
 };
 pub(super) use engine::state::{
@@ -2345,9 +2942,6 @@ fn generate_with_analysis_mode(
     // Each unit becomes its own file, so every file needs the full import
     // block and the shared native-object storage helper.
     let mut preamble = String::new();
-    if features.facts.ui.text_input.present {
-        preamble.push_str(NEXA_LIMITED_TEXT_BINDING_HELPER);
-    }
     if module_has_native_object_state(module) {
         preamble.push_str(
             "@MainActor\nprivate final class NexaNativeObjectStorage<Value>: ObservableObject {\n    @Published var value: Value\n\n    init(makeValue: () -> Value) {\n        value = makeValue()\n    }\n}\n\n",
@@ -2566,7 +3160,6 @@ fn generate_with_analysis_mode(
             out.push_str("\n        .modifier(NexaAnimationAccessibilityModifier())");
         }
         out.push_str("\n    }\n");
-        components::sheets::render_bottom_sheet_helpers(&module.body, module, &features, out);
         components::bottom_bar::render_bottom_bar_helpers(&module.body, module, &features, out);
         if !module.screens.is_empty() {
             for screen in &module.screens {
@@ -2822,9 +3415,9 @@ fn module_has_native_object_state(module: &Module) -> bool {
 mod tests {
     use super::{NEXA_SHARED_COMPONENT_PRIMITIVES, generate, shared_component_primitives};
     use nexa_ir::{
-        Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
-        ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
-        SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        Action, AnimationSpec, Component, Expr, FastListMove, Function, ImageScale, ImageSource,
+        LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId,
+        State, SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
 
     #[test]
@@ -2954,6 +3547,8 @@ mod tests {
 
         assert!(input.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
         assert!(input.contains(".multilineTextAlignment(.leading)"));
+        assert!(input.contains("let onSubmitAction: (() -> Void)?"));
+        assert!(input.contains("onSubmitAction?()"));
         assert!(input.contains("leadingField"));
     }
 
@@ -3060,43 +3655,110 @@ mod tests {
             .nth(1)
             .unwrap_or_default();
 
-        assert!(ring.contains("private var normalizedProgress: Double"));
+        assert!(ring.contains("private var normalizedProgress: Double?"));
+        assert!(ring.contains("guard let progress else { return nil }"));
+        assert!(ring.contains("guard progress.isFinite else { return 0 }"));
         assert!(ring.contains(".trim(from: 0, to: normalizedProgress)"));
         assert!(ring.contains("if normalizedProgress >= 1"));
-        assert!(ring.contains(".frame(width: 40, height: 40)"));
+        assert!(ring.contains("private var indicatorSize: CGFloat { max(size ?? 40, 0) }"));
+        assert!(ring.contains(
+            "private var indicatorThickness: CGFloat { min(max(thickness ?? 4, 0), indicatorSize) }"
+        ));
+        assert!(ring.contains(
+            "private var pathSize: CGFloat { max(indicatorSize - indicatorThickness, 0) }"
+        ));
+        assert!(ring.contains(".trim(from: 0, to: 0.25)"));
+        assert!(ring.contains(".frame(width: pathSize, height: pathSize)"));
+        assert!(ring.contains(".frame(width: indicatorSize, height: indicatorSize)"));
+        assert!(ring.contains("trackColor ?? indicatorColor.opacity(0.16)"));
+        assert!(ring.contains("let tint: Color?"));
+        assert!(ring.contains("let trackColor: Color?"));
         assert!(ring.contains(".accessibilityLabel(\"Progress\")"));
-        assert!(
-            ring.contains(
-                ".accessibilityValue(\"\\(Int((normalizedProgress * 100).rounded()))%\")"
-            )
-        );
+        assert!(ring.contains(".accessibilityValue(normalizedProgress.map"));
         assert!(!ring.contains(".progressViewStyle(.circular)"));
     }
 
     #[test]
-    fn shared_presentation_primitives_own_sheet_and_dialog_modifiers() {
+    fn shared_progress_bar_uses_native_determinate_and_indeterminate_styles() {
         let primitives = shared_component_primitives(false);
-        for declaration in [
-            "struct NexaBottomSheetPrimitive<Content: View>",
-            "struct NexaAlertDialogPrimitive<Actions: View>",
-            "struct NexaConfirmationDialogPrimitive<Actions: View>",
-        ] {
-            assert!(primitives.contains(declaration), "missing {declaration}");
-        }
+        let bar = primitives
+            .split("// nexa-codegen: NexaProgressBarPrimitive")
+            .nth(1)
+            .unwrap_or_default()
+            .split("// nexa-codegen: NexaProgressRingPrimitive")
+            .next()
+            .unwrap_or_default();
+
+        assert!(bar.contains("private var normalizedProgress: Double?"));
+        assert!(bar.contains("guard let progress else { return nil }"));
+        assert!(bar.contains("guard progress.isFinite else { return 0 }"));
+        assert!(bar.contains("ProgressView(value: normalizedProgress, total: 1)"));
+        assert!(bar.contains("private func indeterminateBar(tint: Color) -> some View"));
+        assert!(bar.contains("let shouldAnimate = isVisible && !reduceMotion"));
+        assert!(bar.contains(".accessibilityRepresentation { ProgressView() }"));
+        assert!(bar.contains("if let normalizedProgress {"));
+        assert!(bar.contains("if trackColor == nil && thickness == nil && cornerRadius == nil"));
+        assert!(bar.contains("ProgressView(value: normalizedProgress, total: 1).tint(tint)"));
+        assert!(bar.contains("trackColor ?? Color.primary.opacity(0.1)"));
+        assert!(bar.contains("tint ?? Color.accentColor"));
+    }
+
+    #[test]
+    fn shared_presentation_primitives_use_native_swiftui_sheets() {
+        let primitives = shared_component_primitives(false);
+        let bottom_sheet = primitives
+            .split("// nexa-codegen: NexaBottomSheetPrimitive")
+            .nth(1)
+            .unwrap_or_default()
+            .split("// nexa-codegen: NexaAlertDialogPrimitive")
+            .next()
+            .unwrap_or_default();
+        assert!(bottom_sheet.contains("struct NexaBottomSheetPrimitive<Content: View>"));
         assert!(
-            primitives.contains("isKeyboardVisible && !largeOnly")
-                && primitives.contains("selectedDetent = .height(280)")
-                && primitives.contains("detentBeforeKeyboard")
+            bottom_sheet
+                .contains("NexaBottomSheetContentPrimitive(contentPadding: contentPadding) {")
+        );
+        assert!(bottom_sheet.contains("backgroundColor ?? Color(uiColor: .systemBackground)"));
+        assert!(
+            bottom_sheet.contains("private struct NexaBottomSheetContentPrimitive<Content: View>")
+        );
+        assert!(bottom_sheet.contains("NexaColumnPrimitive(\n            spacing: 0"));
+        assert!(bottom_sheet.contains(".padding(contentPadding)"));
+        assert!(!bottom_sheet.contains(".padding(.top"));
+        assert!(
+            bottom_sheet
+                .contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)")
+        );
+        assert!(bottom_sheet.contains(".sheet(isPresented: $isPresented, onDismiss: {"));
+        assert!(bottom_sheet.contains(
+            "Color.clear\n            .frame(width: 0, height: 0)\n            .sheet(isPresented:"
+        ));
+        assert!(bottom_sheet.contains("onDismissRequest()"));
+        assert!(bottom_sheet.contains("onDismiss()"));
+        assert!(
+            bottom_sheet.contains(
+                "NexaBottomSheetBackgroundInteraction(\n                        allowsBackgroundInteraction: allowsBackgroundInteraction\n                    )"
+            )
+        );
+        assert!(bottom_sheet.contains("content.presentationBackgroundInteraction(.enabled)"));
+        assert!(bottom_sheet.contains("if #available(iOS 16.4, *), allowsBackgroundInteraction"));
+        assert!(!bottom_sheet.contains("scrimColor == .clear"));
+        assert!(bottom_sheet.contains("Set(snapPoints.map { .fraction($0) })"));
+        assert!(
+            bottom_sheet
+                .contains(".presentationDetents(configuredDetents, selection: $selectedDetent)")
         );
         assert!(
-            primitives
-                .contains("let initialDetent: PresentationDetent = largeOnly ? .large : .medium")
+            bottom_sheet
+                .contains(".presentationDragIndicator(showDragIndicator ? .visible : .hidden)")
         );
-        assert!(primitives.contains("_selectedDetent = State(initialValue: initialDetent)"));
-        assert!(primitives.contains(".onChange(of: isPresented) { presented in"));
-        assert!(
-            primitives.contains(".presentationDragIndicator(showDragHandle ? .visible : .hidden)")
-        );
+        assert!(bottom_sheet.contains(".interactiveDismissDisabled(!allowsDismissal)"));
+        assert!(bottom_sheet.contains("content.presentationBackground(color)"));
+        assert!(bottom_sheet.contains("selectedDetent = configuredInitialDetent"));
+        assert!(!bottom_sheet.contains("fullScreenCover"));
+        assert!(!bottom_sheet.contains("keyboardWillShowNotification"));
+        assert!(!bottom_sheet.contains("detentBeforeKeyboard"));
+
         assert!(primitives.contains("host.alert(title, isPresented: $isPresented)"));
         assert!(primitives.contains(".confirmationDialog(title, isPresented: $isPresented"));
     }
@@ -3455,7 +4117,6 @@ mod tests {
                     },
                     common: ListCommon {
                         axis: ListAxis::Vertical,
-                        native: false,
                         show_dividers: true,
                         reverse_layout: false,
                         page_snap: true,
@@ -3463,6 +4124,9 @@ mod tests {
                         index: "index".to_owned(),
                         key: None,
                         scroll_position: Some("currentPage".to_owned()),
+                        scroll_to_top: None,
+                        scroll_to_end: None,
+                        scroll_to_offset: None,
                         children: vec![Node::Text {
                             value: Expr::String("Feed page".to_owned()),
                             style: TextStyle::default(),
@@ -3529,6 +4193,11 @@ mod tests {
         common.reverse_layout = true;
         let reverse_swift = generate(&reverse_module);
         assert!(reverse_swift.contains("if pageSnap || reverseLayout {"));
+        assert!(reverse_swift.contains("let row = indexPath.row"));
+        assert!(
+            !reverse_swift
+                .contains("let row = reverseLayout ? rowCount - 1 - indexPath.row : indexPath.row")
+        );
         assert!(
             reverse_swift.contains("coordinator.applyScrollPosition(to: tableView, force: true)")
         );
@@ -3544,7 +4213,7 @@ mod tests {
     }
 
     #[test]
-    fn native_flat_lists_emit_swiftui_list_without_the_custom_uikit_runtime() {
+    fn swipe_action_lists_select_swiftui_list_without_the_custom_uikit_runtime() {
         let module = Module {
             widgets: Vec::new(),
             app_name: "NativeList".to_owned(),
@@ -3555,18 +4224,24 @@ mod tests {
             functions: Vec::new(),
             background_tasks: Vec::new(),
             globals: Vec::new(),
-            states: Vec::new(),
+            states: vec![State {
+                name: "moveEnabled".to_owned(),
+                ty: Type::Bool,
+                initial: Expr::Bool(true),
+                mutable: true,
+            }],
             screens: Vec::new(),
             components: Vec::new(),
             body: vec![Node::FastList {
-                plan: Box::new(ListPlan::Count {
-                    count: Expr::Number {
-                        raw: "3".to_owned(),
-                        ty: NumericType::Int32,
-                    },
+                plan: Box::new(ListPlan::Items {
+                    collection: Expr::State(
+                        "tasks".to_owned(),
+                        Type::Array(Box::new(Type::String)),
+                    ),
+                    element_type: Type::String,
+                    item: "task".to_owned(),
                     common: ListCommon {
                         axis: ListAxis::Vertical,
-                        native: true,
                         show_dividers: true,
                         reverse_layout: false,
                         page_snap: false,
@@ -3574,14 +4249,33 @@ mod tests {
                         index: "index".to_owned(),
                         key: None,
                         scroll_position: None,
+                        scroll_to_top: None,
+                        scroll_to_end: None,
+                        scroll_to_offset: None,
                         children: vec![Node::Text {
                             value: Expr::String("Task".to_owned()),
                             style: TextStyle::default(),
                         }],
                         on_end_reached: None,
                         on_scroll: None,
-                        on_move: None,
-                        swipe_actions: None,
+                        on_move: Some(FastListMove {
+                            from: "from".to_owned(),
+                            to: "to".to_owned(),
+                            enabled: Expr::State("moveEnabled".to_owned(), Type::Bool),
+                            actions: Vec::new(),
+                        }),
+                        swipe_actions: Some(vec![Node::Button {
+                            label: Expr::String("Delete".to_owned()),
+                            icon: None,
+                            loading: None,
+                            disabled: None,
+                            style: None,
+                            size: None,
+                            shape: None,
+                            tint: None,
+                            glass: false,
+                            actions: Vec::new(),
+                        }]),
                         sticky_header: None,
                         refresh: None,
                         spacing: 0.0,
@@ -3601,20 +4295,63 @@ mod tests {
 
         let swift = generate(&module);
         assert!(swift.contains("List {"));
-        assert!(swift.contains("ForEach(0..<(max(0, Int(3))), id: \\.self)"));
+        assert!(swift.contains(
+            ".contentMargins(\n                .horizontal,\n                CGFloat(0),\n                for: .scrollContent\n            )"
+        ));
+        assert!(swift.contains(
+            ".contentMargins(\n                .vertical,\n                CGFloat(16),\n                for: .scrollContent\n            )"
+        ));
+        assert!(swift.contains(
+            "groupedList.padding(\n                .horizontal,\n                -CGFloat(16)\n            )"
+        ));
+        assert!(swift.contains("leading: CGFloat(16)"));
+        assert!(swift.contains("trailing: CGFloat(16)"));
         assert!(!swift.contains("NexaFastList("));
-        assert!(!swift.contains("import UIKit"));
+        assert!(swift.contains(
+            "private func isHorizontalPageContainer(_ scrollView: UIScrollView) -> Bool"
+        ));
+        assert!(
+            swift.contains("collectionView.contentSize.width > collectionView.bounds.width + 1")
+        );
+        assert!(swift.contains(
+            "NexaNativeListRowPrimitive(showDividers: true, prioritizeSwipeActions: true, reorderIndex: listPosition, reorderEnabled: nexa_moveEnabled, onReorder: { source, destination in"
+        ));
+        assert!(swift.contains("LongPressGesture(minimumDuration: 0.35)"));
+        assert!(swift.contains(
+            ".sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))"
+        ));
+        assert!(swift.contains("NexaFastListRowFramesKey.self"));
+        assert!(swift.contains("rowFrames.min(by:"));
+        assert!(swift.contains("session.update(to: drag.location, perform: onReorder)"));
+        assert!(swift.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
+        assert!(swift.contains(".zIndex(isDragging ? 1 : 0)"));
+        assert!(!swift.contains(".onDrag {"));
+        assert!(!swift.contains(".onDrop("));
+        assert!(!swift.contains("NexaFastListReorderDropDelegate"));
+        assert!(!swift.contains("UniformTypeIdentifiers"));
+        assert!(
+            swift.contains("NexaNativeListPrimitive(scrollEnabled: true, reorderEnabled: true)")
+        );
+        assert!(swift.contains("let nexa_from: Int32 = Int32(source)"));
+        assert!(!swift.contains("isReorderable"));
+        assert!(!swift.contains(".onMove {"));
+        assert!(!swift.contains("\\.editMode"));
+        // Swipe actions can still require UIKit-backed control styling; the
+        // native List assertion above is the reliable renderer check.
 
         let mut disabled_module = module.clone();
         let Node::FastList { plan } = &mut disabled_module.body[0] else {
-            panic!("expected the count-backed FastList plan");
+            panic!("expected the items-backed FastList plan");
         };
-        let ListPlan::Count { common, .. } = plan.as_mut() else {
-            panic!("expected the count-backed FastList plan");
+        let ListPlan::Items { common, .. } = plan.as_mut() else {
+            panic!("expected the items-backed FastList plan");
         };
         common.scroll_enabled = Some(Expr::Bool(false));
         let disabled_swift = generate(&disabled_module);
-        assert!(disabled_swift.contains("NexaNativeListPrimitive(scrollEnabled: false)"));
+        assert!(
+            disabled_swift
+                .contains("NexaNativeListPrimitive(scrollEnabled: false, reorderEnabled: true)")
+        );
         assert!(disabled_swift.contains(".scrollDisabled(!scrollEnabled)"));
     }
 

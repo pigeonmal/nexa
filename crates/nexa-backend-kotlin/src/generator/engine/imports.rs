@@ -67,6 +67,26 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     let uses_date_picker =
         context.include_all_shared_primitives || context.features.uses_date_picker;
     imports.add(uses_date_picker, "androidx.compose.ui.unit.dp");
+    let uses_bottom_sheet =
+        context.include_all_shared_primitives || context.features.uses_bottom_sheet;
+    imports.add(uses_bottom_sheet, "androidx.compose.ui.unit.dp");
+    imports.add(
+        uses_bottom_sheet,
+        "androidx.compose.foundation.gestures.anchoredDraggable",
+    );
+    imports.add(
+        uses_bottom_sheet,
+        "androidx.compose.foundation.gestures.detectVerticalDragGestures",
+    );
+    imports.add(
+        uses_bottom_sheet,
+        "androidx.compose.foundation.gestures.animateTo",
+    );
+    imports.add(
+        uses_bottom_sheet,
+        "androidx.compose.foundation.layout.imePadding",
+    );
+    imports.add(uses_bottom_sheet, "kotlinx.coroutines.launch");
     imports.add(
         uses_date_picker,
         "androidx.compose.foundation.gestures.awaitEachGesture",
@@ -131,6 +151,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.ui.draw.clip");
     imports.add(true, "androidx.compose.ui.draw.alpha");
     imports.add(true, "androidx.compose.ui.Alignment");
+    imports.add(true, "androidx.compose.ui.layout.layout");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
     imports.add(true, "androidx.compose.foundation.layout.fillMaxSize");
     imports.add(true, "androidx.compose.ui.graphics.luminance");
@@ -194,7 +215,6 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::navigation::imports(&context, &mut imports);
     crate::generator::components::split_view::imports(&context, &mut imports);
     crate::generator::components::refresh::imports(context.features, &mut imports);
-    crate::generator::components::sheets::imports(context.features, &mut imports);
     crate::generator::components::shared_elements::imports(context.features, &mut imports);
     crate::generator::api::network::imports(context.features, &mut imports);
     crate::generator::api::json::imports(context.features, &mut imports);
@@ -451,6 +471,27 @@ mod tests {
         assert!(
             launch_imports.contains("import androidx.compose.runtime.rememberCoroutineScope\n")
         );
+    }
+
+    #[test]
+    fn bottom_sheet_imports_cover_fractional_native_drag_anchors() {
+        let mut features = Features::default();
+        features.uses_bottom_sheet = true;
+        let imports = render_features(&features);
+
+        assert!(
+            imports.contains("import androidx.compose.foundation.gestures.anchoredDraggable\n")
+        );
+        assert!(
+            imports.contains(
+                "import androidx.compose.foundation.gestures.detectVerticalDragGestures\n"
+            )
+        );
+        assert!(imports.contains("import androidx.compose.foundation.gestures.animateTo\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.imePadding\n"));
+        assert!(imports.contains("import androidx.compose.ui.unit.dp\n"));
+        assert!(imports.contains("import kotlinx.coroutines.launch\n"));
+        assert!(!render_features(&Features::default()).contains("kotlinx.coroutines.launch"));
     }
 
     #[test]

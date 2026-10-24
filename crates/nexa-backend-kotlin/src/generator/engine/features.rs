@@ -6,8 +6,6 @@ use nexa_ir::{Module, Permission};
 pub(crate) struct Features {
     pub(crate) uses_status_bar: bool,
     pub(crate) uses_bottom_sheet: bool,
-    pub(crate) uses_bottom_sheet_partial: bool,
-    pub(crate) uses_bottom_sheet_full_screen: bool,
     pub(crate) uses_dialog: bool,
     pub(crate) uses_content_unavailable: bool,
     pub(crate) uses_refresh_control: bool,
@@ -78,6 +76,8 @@ pub(crate) struct Features {
     pub(crate) uses_switch: bool,
     pub(crate) uses_slider: bool,
     pub(crate) uses_progress_bar: bool,
+    pub(crate) uses_wavy_progress_bar: bool,
+    pub(crate) uses_wavy_progress_ring: bool,
     pub(crate) uses_progress_ring: bool,
     pub(crate) uses_segmented_control: bool,
     pub(crate) uses_picker: bool,
@@ -195,8 +195,6 @@ impl Features {
         self.uses_adaptive_tabs = ui.bottom_bar.adaptive_tabs;
         self.uses_page_pager = ui.page_pager;
         self.uses_bottom_sheet = ui.bottom_sheet.present;
-        self.uses_bottom_sheet_partial = ui.bottom_sheet.partial;
-        self.uses_bottom_sheet_full_screen = ui.bottom_sheet.full_screen;
         self.uses_dialog = ui.dialog_present;
         self.uses_content_unavailable = ui.content_unavailable;
         self.uses_refresh_control = ui.refresh.present || ui.lists.refresh_fused;
@@ -258,6 +256,8 @@ impl Features {
         self.uses_modifier |= ui.switch_present;
         self.uses_slider = ui.slider_present;
         self.uses_progress_bar = ui.progress_bar_present;
+        self.uses_wavy_progress_bar = ui.progress_bar_android_wave;
+        self.uses_wavy_progress_ring = ui.progress_ring_android_wave;
         self.uses_progress_ring = ui.progress_ring_present;
         self.uses_segmented_control = ui.segmented_control_present;
         self.uses_picker = ui.picker_present;

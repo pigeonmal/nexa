@@ -223,6 +223,7 @@ pub(crate) fn render_layout(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let preserve_row_child_widths = row_has_only_fixed_width_layout_children(kind, children);
     let layout = match kind {
         LayoutKind::Column => "NexaColumnPrimitive",
         LayoutKind::Row => "NexaRowPrimitive",
@@ -252,6 +253,10 @@ pub(crate) fn render_layout(
         out.push_str(&format!(
             "horizontalArrangement = androidx.compose.foundation.layout.Arrangement.{arrangement},\n"
         ));
+    }
+    if preserve_row_child_widths {
+        indent(out, depth + 1);
+        out.push_str("preserveChildWidths = true,\n");
     }
     let alignment = match (kind, style.alignment.unwrap_or(Alignment::Center)) {
         (LayoutKind::Row, Alignment::Start) => ("verticalAlignment", "Top"),
@@ -307,6 +312,14 @@ pub(crate) fn render_layout(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+fn row_has_only_fixed_width_layout_children(kind: LayoutKind, children: &[Node]) -> bool {
+    matches!(kind, LayoutKind::Row)
+        && !children.is_empty()
+        && children
+            .iter()
+            .all(|child| matches!(child, Node::Layout { style, .. } if style.width.is_some()))
 }
 
 fn render_toolbar_row(
@@ -501,7 +514,67 @@ pub(crate) fn render_form(
     out.line_at(depth, format_args!("}}"));
 }
 
+fn render_required_outer_width(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
+    if let Some(width) = style.width {
+        // SwiftUI applies `.frame(width:).padding(...)`, so the requested
+        // frame remains fixed and the padding adds to its outer size. Compose's
+        // `width` is normally constrained by the parent's available width;
+        // require the equivalent outer width to preserve the same geometry.
+        let outer_width = width + style.padding.unwrap_or(0.0) * 2.0;
+        out.push_str(&format!(
+            "\n{}.requiredWidth({}.dp)",
+            spaces(depth),
+            number(outer_width)
+        ));
+    }
+}
+
 fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
+    if let Some(animation) = style.animation {
+        let spec = match animation {
+            AnimationSpec::Spring { response, damping } => {
+                let physics = nexa_codegen::animation::spring_physics(response, damping);
+                format!(
+                    "spring(dampingRatio = {damping}f, stiffness = {}f)",
+                    physics.stiffness
+                )
+            }
+            AnimationSpec::Tween {
+                duration,
+                delay,
+                easing,
+            } => {
+                let duration_millis = (duration * 1000.0).round() as u32;
+                let delay_millis = (delay * 1000.0).round() as u32;
+                let delay_parameter = if delay_millis > 0 {
+                    format!(", delayMillis = {delay_millis}")
+                } else {
+                    String::new()
+                };
+                format!(
+                    "tween(durationMillis = {duration_millis}{delay_parameter}, easing = {})",
+                    easing_name(easing)
+                )
+            }
+            AnimationSpec::EaseIn => {
+                "tween(durationMillis = 300, easing = FastOutLinearInEasing)".to_owned()
+            }
+            AnimationSpec::EaseOut => {
+                "tween(durationMillis = 300, easing = LinearOutSlowInEasing)".to_owned()
+            }
+            AnimationSpec::EaseInOut => {
+                "tween(durationMillis = 300, easing = FastOutSlowInEasing)".to_owned()
+            }
+            AnimationSpec::Linear => {
+                "tween(durationMillis = 300, easing = LinearEasing)".to_owned()
+            }
+        };
+        out.push_str(&format!(
+            "\n{}.animateContentSize(animationSpec = {spec})",
+            spaces(depth)
+        ));
+    }
+    render_required_outer_width(style, depth, out);
     let effects = &style.effects;
     if let Some(opacity) = style.opacity {
         out.push_str(&format!(
@@ -584,50 +657,6 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             spaces(depth),
         ));
     }
-    if let Some(animation) = style.animation {
-        let spec = match animation {
-            AnimationSpec::Spring { response, damping } => {
-                let physics = nexa_codegen::animation::spring_physics(response, damping);
-                format!(
-                    "spring(dampingRatio = {damping}f, stiffness = {}f)",
-                    physics.stiffness
-                )
-            }
-            AnimationSpec::Tween {
-                duration,
-                delay,
-                easing,
-            } => {
-                let duration_millis = (duration * 1000.0).round() as u32;
-                let delay_millis = (delay * 1000.0).round() as u32;
-                let delay_parameter = if delay_millis > 0 {
-                    format!(", delayMillis = {delay_millis}")
-                } else {
-                    String::new()
-                };
-                format!(
-                    "tween(durationMillis = {duration_millis}{delay_parameter}, easing = {})",
-                    easing_name(easing)
-                )
-            }
-            AnimationSpec::EaseIn => {
-                "tween(durationMillis = 300, easing = FastOutLinearInEasing)".to_owned()
-            }
-            AnimationSpec::EaseOut => {
-                "tween(durationMillis = 300, easing = LinearOutSlowInEasing)".to_owned()
-            }
-            AnimationSpec::EaseInOut => {
-                "tween(durationMillis = 300, easing = FastOutSlowInEasing)".to_owned()
-            }
-            AnimationSpec::Linear => {
-                "tween(durationMillis = 300, easing = LinearEasing)".to_owned()
-            }
-        };
-        out.push_str(&format!(
-            "\n{}.animateContentSize(animationSpec = {spec})",
-            spaces(depth)
-        ));
-    }
     if let Some(padding) = style.padding {
         out.push_str(&format!(
             "\n{}.padding({}.dp)",
@@ -694,8 +723,8 @@ fn easing_name(easing: AnimationEasing) -> String {
 mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{
-        Color, ColorValue, Expr, GlassShape, KeyboardType, LayoutKind, Module, Node, SystemIcon,
-        TextStyle, ToolbarPlacement, ViewGlass, ViewStyle,
+        Alignment, Color, ColorValue, Expr, GlassShape, KeyboardType, LayoutKind, Module, Node,
+        SystemIcon, TextStyle, ToolbarPlacement, ViewGlass, ViewStyle,
     };
 
     use crate::generator::features::Features;
@@ -727,6 +756,45 @@ mod tests {
                 .unwrap_or_else(|| panic!("emit {sizing_modifier}"));
             assert!(animation < sizing, "animation must wrap {sizing_modifier}");
         }
+    }
+
+    #[test]
+    fn explicit_width_keeps_swiftui_frame_size_outside_padding() {
+        let style = ViewStyle {
+            width: Some(320.0),
+            padding: Some(8.0),
+            background: Some(ColorValue::Static(Color {
+                red: 242,
+                green: 242,
+                blue: 247,
+                alpha: 255,
+            })),
+            corner_radius: Some(12.0),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        let required_width = generated
+            .find(".requiredWidth(336.dp)")
+            .expect("preserve the frame width plus horizontal padding");
+        let clip = generated
+            .find(".clip(RoundedCornerShape(12.dp))")
+            .expect("retain rounded clipping");
+        let background = generated
+            .find(".background(Color(0xFFF2F2F7))")
+            .expect("retain the rounded panel background");
+        let padding = generated
+            .find(".padding(8.dp)")
+            .expect("retain the requested padding");
+        let width = generated
+            .find(".width(320.dp)")
+            .expect("retain the requested inner frame width");
+        assert!(
+            required_width < clip && clip < background && background < padding && padding < width
+        );
     }
 
     #[test]
@@ -959,6 +1027,70 @@ mod tests {
         assert!(output.contains("searchable = false"));
         assert!(output.contains("modifier = Modifier.weight(1f)"));
         assert!(output.contains("NexaTextPrimitive(text = \"Trailing action\""));
+    }
+
+    #[test]
+    fn rows_with_explicitly_sized_layout_children_preserve_their_intrinsic_widths() {
+        let module = Module {
+            app_name: "RowFixedChildren".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let children = (0..3)
+            .map(|_| Node::Layout {
+                kind: LayoutKind::Column,
+                spacing: 0.0,
+                style: ViewStyle {
+                    width: Some(96.0),
+                    padding: Some(6.0),
+                    ..ViewStyle::default()
+                },
+                children: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        let mut output = SourceWriter::new();
+
+        render_layout(
+            LayoutKind::Row,
+            8.0,
+            &ViewStyle {
+                width: Some(320.0),
+                height: Some(60.0),
+                padding: Some(6.0),
+                alignment: Some(Alignment::Start),
+                ..ViewStyle::default()
+            },
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("preserveChildWidths = true"));
+        assert!(output.contains("verticalAlignment = Alignment.Top"));
     }
 
     #[test]

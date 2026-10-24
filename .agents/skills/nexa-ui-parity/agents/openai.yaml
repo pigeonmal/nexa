@@ -1,0 +1,3 @@
+interface:
+  display_name: "Nexa UI Parity"
+  short_description: "Investigate and fix Nexa iOS and Android UI mismatches"

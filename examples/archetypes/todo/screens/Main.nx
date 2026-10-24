@@ -105,7 +105,7 @@ screen Main {
                             if todoFilter(tasks, 0, "").isEmpty {
                                 ContentUnavailable(title: "Inbox is empty", icon: "inbox", description: "Tasks you add will appear here.")
                             } else {
-                                FastList(todoSort(todoFilter(tasks, 0, ""), sortSelection), key:.id, native: true) {
+                                FastList(todoSort(todoFilter(tasks, 0, ""), sortSelection), key:.id) {
                                     task, index in
                                     TaskListRow() {
                                         Row(spacing: 12) {
@@ -232,7 +232,7 @@ screen Main {
                             if todoFilter(tasks, 1, "").isEmpty {
                                 ContentUnavailable(title: "Nothing due today", icon: "sun_filled", description: "Enjoy your free day or plan something new.")
                             } else {
-                                FastList(todoSort(todoFilter(tasks, 1, ""), sortSelection), key:.id, native: true) {
+                                FastList(todoSort(todoFilter(tasks, 1, ""), sortSelection), key:.id) {
                                     task, index in
                                     TaskListRow() {
                                         Row(spacing: 12) {
@@ -361,7 +361,7 @@ screen Main {
                             } else {
                                 FastList(sections: todoSort(todoFilter(tasks, 2, ""), sortSelection).groupedBy {
                                     task - > Time.startOfDay(task.dueTimestamp ?? 0)
-                                }, key:.id, native: true) {
+                                }, key:.id) {
                                     task, index, section in
                                     TaskListRow() {
                                         Row(spacing: 12) {
@@ -565,7 +565,7 @@ screen Main {
                             } else if todoFilter(tasks, 4, searchQuery).isEmpty {
                                 ContentUnavailable(title: "No Results", icon: "search", description: "No tasks match \"\(searchQuery)\"")
                             } else {
-                                FastList(todoSort(todoFilter(tasks, 4, searchQuery), sortSelection), key:.id, native: true) {
+                                FastList(todoSort(todoFilter(tasks, 4, searchQuery), sortSelection), key:.id) {
                                     task, index in
                                     TaskListRow() {
                                         Row(spacing: 12) {
@@ -660,9 +660,10 @@ screen Main {
                     }
                 }
 
-                BottomSheet(isPresented: showingTaskEditor, partial: true, title: showingDatePicker ? "Pick Date" : (editingID < 0?"New Task": "Edit Task")) {
+                BottomSheet(isPresented: showingTaskEditor, detents: [Medium, Expanded]) {
                     if showingDatePicker {
                         Column {
+                            Text("Pick Date", fontSize: 20, fontWeight: Semibold)
                             Row(spacing: 8) {
                                 Button("Cancel", style: Borderless) {
                                     showingDatePicker = false
@@ -687,10 +688,10 @@ screen Main {
                     } else {
                         KeyboardAware {
                             Column(spacing: 12, padding: 16) {
-                                Toolbar(placement: Leading) {
+                                Text("Task details", fontSize: 20, fontWeight: Semibold)
+                                Row(spacing: 12, alignment: Center) {
                                     Picker(items: ["None", "Highest", "High", "Normal", "Low"], selected: priority, icon: "flag_filled", tint: priority == "None"?"#8E8E93": taskPriorityTint(priority), accessibilityLabel: "Priority", accessibilityValue: priority)
-                                }
-                                Toolbar(placement: Trailing) {
+                                    Spacer()
                                     Button("", icon: "submit", style: Plain, size: Large, accessibilityLabel: "Save task", disabled: taskTitle.trimmed == "") {
                                         if taskTitle.trimmed != "" {
                                             if editingID < 0 {
@@ -847,9 +848,11 @@ screen Main {
                     }
                 }
 
-                BottomSheet(isPresented: showingComments, partial: true, title: "Comments") {
+                BottomSheet(isPresented: showingComments, detents: [Medium, Expanded]) {
                     Column {
-                        Toolbar(placement: Trailing) {
+                        Row(spacing: 8, alignment: Center) {
+                            Text("Comments", fontSize: 20, fontWeight: Semibold)
+                            Spacer()
                             Button("Done", style: Borderless) {
                                 Task.launch(executor: TaskExecutor.Main) {
                                     tasks = await todoPersistence.loadTasks()
@@ -867,16 +870,16 @@ screen Main {
                     }
                 }
 
-                BottomSheet(isPresented: showingReminders, partial: true, title: addingReminder?"Add Reminder": "Reminders") {
+                BottomSheet(isPresented: showingReminders, detents: [Medium, Expanded]) {
                     if addingReminder {
                         Column {
-                            Toolbar(placement: Leading) {
+                            Text("Add Reminder", fontSize: 20, fontWeight: Semibold)
+                            Row(spacing: 12, alignment: Center) {
                                 Button("Cancel", style: Borderless) {
                                     addingReminder = false
                                     reminderStatus = ""
                                 }
-                            }
-                            Toolbar(placement: Trailing) {
+                                Spacer()
                                 Button("Save", icon: "submit", style: BorderedProminent, disabled: reminderTimestamp <= Time.now()) {
                                     let reminderIdentifier = "todo-reminder-\(nextReminderID)"
                                     let normalizedTitle = reminderTitle.trimmed
@@ -935,7 +938,7 @@ screen Main {
                         }
                     } else {
                         Column {
-                            Toolbar(placement: Leading) {
+                            Row(spacing: 12, alignment: Center) {
                                 Button("Back", icon: "back", style: Borderless) {
                                     Task.launch(executor: TaskExecutor.Main) {
                                         tasks = await todoPersistence.loadTasks()
@@ -948,8 +951,8 @@ screen Main {
                                         }
                                     }
                                 }
-                            }
-                            Toolbar(placement: Trailing) {
+                                Text("Reminders", fontSize: 20, fontWeight: Semibold)
+                                Spacer()
                                 Button("", icon: "add", accessibilityLabel: "Add reminder", style: Borderless) {
                                     reminderTitle = ""
                                     reminderStatus = ""
@@ -967,7 +970,7 @@ screen Main {
                             } else {
                                 FastList(activeTaskReminders(reminders, selectedTaskID).sortedBy {
                                     reminder - > reminder.timestamp
-                                }, native: true) {
+                                }) {
                                     reminder, index in
                                     Row(spacing: 8, padding: 8) {
                                         Column(spacing: 4, accessibilityLabel: reminderAccessibilityLabel(reminder)) {

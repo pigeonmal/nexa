@@ -16,6 +16,7 @@ app RenderParity {
     state toolbarActionCount: Int32 = 0
     state sliderValue: Float64 = 0.35
     state progress: Float64 = 0.72
+    state ringTint: String = "#2563EB"
     state period: String = "Week"
     state periods: Array<String> = ["Day", "Week", "Month"]
     state segmentTint: String = "#0088FF"
@@ -45,6 +46,8 @@ app RenderParity {
     state largeSheetPresented: Bool = false
     state inputFocused: Bool = false
     state sheetPresented: Bool = false
+    state controlledSheetPresented: Bool = false
+    state controlledSheetSnapPoint: Float64 = 0.5
     state dialogPresented: Bool = false
     state confirmationPresented: Bool = false
     state emptyStateIconTint: String = "#0088FF"
@@ -119,8 +122,10 @@ app RenderParity {
                                     }
                                 }
                             }
-                            ProgressBar(progress: progress, accessibilityLabel: "Task progress")
-                            ProgressRing(progress: progress, accessibilityLabel: "Circular task progress")
+                            ProgressBar()
+                            ProgressBar(progress: progress, tint: "#7C3AED", trackColor: "#EDE9FE", thickness: 12, cornerRadius: 6, accessibilityLabel: "Task progress", accessibilityHint: "Shows task completion", accessibilityValue: "72 percent", accessibilityRole: None, android_wave: true)
+                            ProgressRing(progress: progress, tint: ringTint, trackColor: "#DBEAFE", size: 48, thickness: 5, android_wave: true, accessibilityLabel: "Circular task progress", accessibilityHint: "Shows task completion", accessibilityValue: "72 percent", accessibilityRole: None)
+                            ProgressRing()
                             SegmentedControl(items: periods, selected: period, animation: Spring(response: 0.35, damping: 0.82), tint: segmentTint, background: "#E9EAF0", selectedTextColor: "#17171A", textColor: "#68686F", fontSize: 14, fontWeight: Medium, height: 36, cornerRadius: 18, borderColor: "#D2D3DA", borderWidth: 1, comment: "Task date range", accessibilityLabel: "Period")
                             Picker(items: sortOptions, selected: sort, itemIcons: ["calendar", "flag_filled", "edit"], icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Sort tasks by", accessibilityLabel: "Sort tasks")
                             PickerDate(type: DateTime, style: Graphical, selection: Single, timestamp: timestamp, minimum: minimumTimestamp, maximum: maximumTimestamp, tint: segmentTint, textColor: "#FFFFFF", backgroundColor: "#202124", pickerBackgroundColor: "#303134", borderColor: "#60646C", borderWidth: 1, cornerRadius: 12, locale: pickerLocale, timeZone: pickerTimeZone, is24Hour: pickerUses24Hour, enabled: pickerEnabled, accessibilityLabel: "Task due date")
@@ -205,7 +210,7 @@ app RenderParity {
                             refreshCount = refreshCount + 1
                         }
                         Stack(height: 180) {
-                            FastList(count: 24, native: true, spacing: 4, showDividers: false, accessibilityLabel: "Parity task list") { index in
+                            FastList(count: 24, spacing: 4, showDividers: false, accessibilityLabel: "Parity task list") { index in
                                 Row(spacing: 8, padding: 8) {
                                     Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
                                     Text("Virtual row \(index)")
@@ -235,12 +240,12 @@ app RenderParity {
                         FastList(count: 8, axis: Grid(2), rowHeight: 92, scrollEnabled: enabled) { index in
                             Text("Grid row \(index)")
                         }
-                        FastList(sections: sectionItems, native: true) { item, index, section in
+                        FastList(sections: sectionItems) { item, index, section in
                             Text("Section \(section), row \(index): \(item)")
                         }.sectionHeader {
                             Text("Sectioned list header")
                         }
-                        FastList(movableItems, native: true) { item, index in
+                        FastList(movableItems) { item, index in
                             Text(item)
                         }.onMove { from, to ->
                             movableItems.move(from, to)
@@ -284,10 +289,20 @@ app RenderParity {
                 }
                 }
 
-                BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet", showDragHandle: false) {
+                BottomSheet(isPresented: sheetPresented, contentPadding: 20, snapPoints: [0.25, 0.5, 0.85], initialSnapPoint: 0.5, showDragIndicator: false, allowsDismissal: true, allowsBackgroundInteraction: false, shouldDismissOnBackPress: true, backgroundColor: "#F1F5F9", scrimColor: "#00000000") {
                     Column(spacing: 12, padding: 24) {
+                        Text("Parity sheet")
                         Text("Sheet content", accessibilityLabel: "Sheet content")
                         Button("Close sheet") { sheetPresented = false }
+                    }
+                }.onDismiss {
+                    sheetPresented = false
+                }
+                BottomSheet(isPresented: controlledSheetPresented, snapPoints: [0.25, 0.5, 0.85], selectedSnapPoint: controlledSheetSnapPoint) {
+                    Column(spacing: 12, padding: 24) {
+                        Text("Programmatically controlled sheet")
+                        Button("Expand") { BottomSheet.snapTo(controlledSheetSnapPoint, 0.85) }
+                        Button("Close") { BottomSheet.dismiss(controlledSheetPresented) }
                     }
                 }
                 Dialog(isPresented: dialogPresented, title: "Parity dialog", message: "Dialog content", comment: "Dialog localization coverage") {
@@ -551,8 +566,9 @@ app RenderParity {
                 }
             }
         }
-        BottomSheet(isPresented: largeSheetPresented, partial: false, largeOnly: true, title: "Large parity sheet") {
+        BottomSheet(isPresented: largeSheetPresented, detents: [Expanded], initialDetent: Expanded) {
             Column(spacing: 12, padding: 24) {
+                Text("Large parity sheet")
                 Text("Large sheet content")
                 Button("Close large sheet") { largeSheetPresented = false }
             }

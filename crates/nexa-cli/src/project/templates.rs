@@ -2206,8 +2206,11 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
     } else {
         ""
     };
-    let uses_expressive_material3 =
-        dev_runtime || features.uses_expressive_menus || features.uses_expressive_motion;
+    let uses_expressive_material3 = dev_runtime
+        || features.uses_expressive_menus
+        || features.uses_expressive_motion
+        || features.uses_wavy_progress_bar
+        || features.uses_wavy_progress_ring;
     let material3_version = if uses_expressive_material3 {
         "1.5.0-beta01"
     } else {
@@ -2218,13 +2221,17 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
     );
     if dev_runtime {
         dependencies.push_str(
-            "    implementation(\"androidx.compose.foundation:foundation\")\n    implementation(\"androidx.compose.runtime:runtime\")\n    implementation(\"androidx.core:core\")\n",
+            "    implementation(\"androidx.compose.foundation:foundation\")\n    implementation(\"androidx.compose.runtime:runtime\")\n    implementation(\"androidx.core:core\")\n    implementation(\"androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0\")\n",
         );
     }
     if dev_runtime || features.uses_bottom_bar {
         dependencies.push_str(&format!(
-            "    implementation(\"androidx.compose.material3:material3-adaptive-navigation-suite:{material3_version}\")\n    implementation(\"androidx.compose.runtime:runtime-saveable\")\n",
+            "    implementation(\"androidx.compose.material3:material3-adaptive-navigation-suite:{material3_version}\")\n",
         ));
+    }
+    if dev_runtime || features.uses_bottom_bar || features.uses_saveable_state {
+        dependencies
+            .push_str("    implementation(\"androidx.compose.runtime:runtime-saveable\")\n");
     }
     if dev_runtime || features.uses_compose_graphics {
         dependencies.push_str("    implementation(\"androidx.compose.ui:ui-graphics\")\n");

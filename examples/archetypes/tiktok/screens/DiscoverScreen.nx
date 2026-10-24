@@ -80,8 +80,9 @@ component DiscoverScreen() {
             Column(height: 62) {}
         }
 
-        BottomSheet(isPresented: creatorSheet, partial: true, title: "Creator") {
+        BottomSheet(isPresented: creatorSheet, detents: [Medium, Expanded]) {
             Column(spacing: 14, padding: 18, background: "#17171B") {
+                Text("Creator", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 Row(spacing: 13, alignment: Center) {
                     CreatorAvatar(assetName: if openedCreator == "@mira.cooks" { "mira" } else { if openedCreator == "@noah.outside" { "noah" } else { if openedCreator == "@jules.city" { "jules" } else { "alex" } } }, scale: "medium")
                     Column(spacing: 4) {

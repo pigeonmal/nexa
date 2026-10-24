@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use nexa_ir::{Module, Node};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 46;
+pub const DEV_IR_FORMAT_VERSION: u16 = 55;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevModule {

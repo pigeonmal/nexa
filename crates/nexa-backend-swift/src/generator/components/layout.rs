@@ -96,7 +96,11 @@ pub(crate) fn render_layout(
     }
     let content_children = children
         .iter()
-        .filter(|child| !matches!(child, Node::Toolbar { .. }))
+        .filter(|child| !matches!(child, Node::Toolbar { .. } | Node::BottomSheet { .. }))
+        .collect::<Vec<_>>();
+    let bottom_sheets = children
+        .iter()
+        .filter(|child| matches!(child, Node::BottomSheet { .. }))
         .collect::<Vec<_>>();
     let overlay_start = if matches!(kind, LayoutKind::Stack) {
         stack_overlay_start(&content_children, scope.module)
@@ -143,6 +147,21 @@ pub(crate) fn render_layout(
         }
     }
     append_style(out, depth, style, frame_alignment);
+
+    if !bottom_sheets.is_empty() {
+        out.push('\n');
+        out.line_at(depth, format_args!(".background {{"));
+        out.line_at(depth + 1, format_args!("ZStack {{"));
+        for (index, bottom_sheet) in bottom_sheets.iter().enumerate() {
+            render_node(bottom_sheet, scope.module, scope.features, depth + 2, out);
+            if index + 1 < bottom_sheets.len() {
+                out.push('\n');
+            }
+        }
+        out.push('\n');
+        out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(depth, format_args!("}}"));
+    }
 
     let toolbars = children
         .iter()
@@ -741,6 +760,88 @@ mod tests {
         ));
         assert!(generated.contains("ToolbarItem(placement: .topBarTrailing)"));
         assert!(!generated.contains("EmptyView()"));
+    }
+
+    #[test]
+    fn bottom_sheets_attach_to_the_layout_background_without_spacing_gaps() {
+        let module = Module {
+            app_name: "BottomSheetLayout".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+        let features = Features::default();
+        let scope = RenderScope {
+            module: &module,
+            features: &features,
+        };
+        let children = [
+            Node::Text {
+                value: Expr::String("Before sheet".to_owned()),
+                style: TextStyle::default(),
+            },
+            Node::BottomSheet {
+                state: "sheetPresented".to_owned(),
+                content_padding: 8.0,
+                detents: Vec::new(),
+                snap_points: Vec::new(),
+                initial_snap_point: None,
+                selected_snap_point: None,
+                initial_detent: None,
+                show_drag_indicator: true,
+                allows_dismissal: true,
+                allows_background_interaction: false,
+                should_dismiss_on_back_press: true,
+                background_color: None,
+                scrim_color: None,
+                on_dismiss: Vec::new(),
+                children: Vec::new(),
+            },
+            Node::Text {
+                value: Expr::String("After sheet".to_owned()),
+                style: TextStyle::default(),
+            },
+        ];
+        let mut output = SourceWriter::new();
+
+        render_layout(
+            LayoutKind::Column,
+            12.0,
+            &ViewStyle::default(),
+            &children,
+            &scope,
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        let background = generated
+            .find(".background {\n    ZStack {")
+            .expect("sheet anchors attach outside the spaced column content");
+        let sheet = generated
+            .find("NexaBottomSheetPrimitive(")
+            .expect("sheet presentation anchor is still generated");
+        assert!(!generated[..background].contains("NexaBottomSheetPrimitive("));
+        assert!(sheet > background);
+        assert!(generated[..background].contains("Before sheet"));
+        assert!(generated[..background].contains("After sheet"));
     }
 
     #[test]

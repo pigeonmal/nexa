@@ -74,7 +74,7 @@ component ActivityScreen() {
             Column(height: 64) {}
         }
 
-        BottomSheet(isPresented: messageOpen, partial: true, title: selectedMessage) {
+        BottomSheet(isPresented: messageOpen, detents: [Medium, Expanded]) {
             Column(spacing: 16, padding: 16, background: "#17171B") {
                 Row(spacing: 10, alignment: Center) {
                     CreatorAvatar(assetName: if selectedMessage == "Mira Chen" { "mira" } else { if selectedMessage == "Noah Kim" { "noah" } else { "jules" } }, scale: "small")

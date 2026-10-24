@@ -3,14 +3,15 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::walk::any_node;
 use nexa_ir::{
-    AccessibilityRole, Action, AutofillType, BottomBarTab, ButtonShape, ButtonSize, ButtonStyle,
-    Capitalization, CollectionMutation, ColorExpression, ColorValue, DirectionConfig,
-    DirectionStyle, Expr, FastListMove, FastListRefresh, FontWeight, GradientDirection,
-    HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis,
-    ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType, PickerDateSelection,
-    PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId, SectionedListCommon, StatusBarConfig,
-    StatusBarStyle, SystemIcon, TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle,
-    TextInputFont, TextStyle, ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
+    AccessibilityRole, Action, AutofillType, BottomBarTab, BottomSheetDetent, ButtonShape,
+    ButtonSize, ButtonStyle, Capitalization, CollectionMutation, ColorExpression, ColorValue,
+    DirectionConfig, DirectionStyle, Expr, FastListMove, FastListRefresh, FontWeight,
+    GradientDirection, HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType,
+    LayoutKind, ListAxis, ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType,
+    PickerDateSelection, PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId,
+    SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
+    TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle, TextInputFont, TextStyle,
+    ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -29,6 +30,33 @@ use super::{
 use crate::Target;
 
 type AccessibilityOptions = (Expr, Option<Expr>, Option<Expr>, AccessibilityRole);
+
+/// Move a RefreshControl callback onto a single FastList child, even when
+/// FastList's own accessibility options have lowered to a one-child wrapper.
+/// Keeping the refresh action on the native list lets each platform use its
+/// native scroll container and keeps short lists refreshable on Android.
+fn attach_refresh_to_fast_list(
+    node: &mut Node,
+    refresh: &FastListRefresh,
+    span: Span,
+) -> Result<bool, CompileError> {
+    match node {
+        Node::FastList { plan } => {
+            if plan.reverse_layout() {
+                return Err(CompileError::new(
+                    span,
+                    "`RefreshControl` cannot be combined with FastList `reverseLayout`",
+                ));
+            }
+            *plan.refresh_slot() = Some(refresh.clone());
+            Ok(true)
+        }
+        Node::Accessibility { children, .. } if children.len() == 1 => {
+            attach_refresh_to_fast_list(&mut children[0], refresh, span)
+        }
+        _ => Ok(false),
+    }
+}
 
 pub(super) fn lower_nodes(
     nodes: Vec<ast::Node>,
@@ -112,6 +140,92 @@ fn enum_argument(value: &ast::Expr, context: &str) -> Result<String, CompileErro
             format!("{context} must be a named enum value or string"),
         )),
     }
+}
+
+fn bottom_sheet_detent(value: &ast::Expr) -> Result<BottomSheetDetent, CompileError> {
+    match enum_argument(value, "BottomSheet detent")?.as_str() {
+        "Medium" => Ok(BottomSheetDetent::Medium),
+        "Expanded" => Ok(BottomSheetDetent::Expanded),
+        _ => Err(CompileError::new(
+            value.span(),
+            "BottomSheet detents must be `Medium` or `Expanded`",
+        )),
+    }
+}
+
+fn bottom_sheet_detents(value: Option<ast::Expr>) -> Result<Vec<BottomSheetDetent>, CompileError> {
+    let Some(value) = value else {
+        return Ok(vec![BottomSheetDetent::Medium, BottomSheetDetent::Expanded]);
+    };
+    let values = match &value {
+        ast::Expr::Array(values, _) => values,
+        _ => {
+            return Err(CompileError::new(
+                value.span(),
+                "BottomSheet detents must be an array such as `[Medium, Expanded]`",
+            ));
+        }
+    };
+    if values.is_empty() {
+        return Err(CompileError::new(
+            value.span(),
+            "BottomSheet requires at least one detent",
+        ));
+    }
+    let mut detents = Vec::with_capacity(values.len());
+    for value in values {
+        let detent = bottom_sheet_detent(value)?;
+        if detents.contains(&detent) {
+            return Err(CompileError::new(
+                value.span(),
+                "BottomSheet detents cannot contain duplicates",
+            ));
+        }
+        detents.push(detent);
+    }
+    Ok(detents)
+}
+
+fn bottom_sheet_snap_points(value: Option<ast::Expr>) -> Result<Option<Vec<f32>>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let values = match &value {
+        ast::Expr::Array(values, _) => values,
+        _ => {
+            return Err(CompileError::new(
+                value.span(),
+                "BottomSheet snapPoints must be an array such as `[0.25, 0.5, 1.0]`",
+            ));
+        }
+    };
+    if values.is_empty() {
+        return Err(CompileError::new(
+            value.span(),
+            "BottomSheet requires at least one snap point",
+        ));
+    }
+    let mut snap_points = Vec::with_capacity(values.len());
+    for value in values {
+        let point = number_value(value, "BottomSheet snap point")?;
+        if point <= 0.0 || point > 1.0 {
+            return Err(CompileError::new(
+                value.span(),
+                "BottomSheet snap points must be greater than 0 and at most 1.0",
+            ));
+        }
+        if snap_points
+            .last()
+            .is_some_and(|previous| *previous >= point)
+        {
+            return Err(CompileError::new(
+                value.span(),
+                "BottomSheet snap points must be unique and ordered from smallest to largest",
+            ));
+        }
+        snap_points.push(point);
+    }
+    Ok(Some(snap_points))
 }
 
 fn take_translator_comment(
@@ -243,6 +357,54 @@ fn lower_color_expression(
     }
     lower_expr(&value, Some(&Type::String), &cx.exprs(false))
         .map(|expression| ColorExpression::Dynamic(Box::new(expression)))
+}
+
+fn lower_progress_bar(
+    progress: Option<Expr>,
+    mut args: BTreeMap<String, ast::Expr>,
+    cx: &SemanticContext<'_>,
+) -> Result<Node, CompileError> {
+    let tint = args
+        .remove("tint")
+        .map(|value| lower_color_expression(value, "ProgressBar tint", cx))
+        .transpose()?;
+    let track_color = args
+        .remove("trackColor")
+        .map(|value| lower_color_expression(value, "ProgressBar trackColor", cx))
+        .transpose()?;
+    let thickness = optional_dimension(
+        args.remove("thickness"),
+        "ProgressBar thickness",
+        None,
+        cx.themes,
+    )?;
+    let corner_radius = optional_dimension(
+        args.remove("cornerRadius"),
+        "ProgressBar cornerRadius",
+        None,
+        cx.themes,
+    )?;
+    let android_wave = args
+        .remove("android_wave")
+        .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
+        .transpose()?;
+    let style = if tint.is_some()
+        || track_color.is_some()
+        || thickness.is_some()
+        || corner_radius.is_some()
+        || android_wave.is_some()
+    {
+        Some(Box::new(nexa_ir::ProgressBarStyle {
+            tint,
+            track_color,
+            thickness,
+            corner_radius,
+            android_wave,
+        }))
+    } else {
+        None
+    };
+    Ok(Node::ProgressBar { progress, style })
 }
 
 /// Validated FastList source bindings collected during lowering, before the
@@ -854,18 +1016,67 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         ast::Node::ComponentInvocation(inv)
             if inv.name == "ProgressBar" || inv.name == "ProgressRing" =>
         {
-            let span = inv.span;
             let mut args = inv.arguments;
-            let progress = take_required_arg(&mut args, &inv.name, "progress", span)?;
-            let progress = lower_expr(
-                &progress,
-                Some(&Type::Numeric(NumericType::Float64)),
-                &cx.exprs(false),
-            )?;
             if inv.name == "ProgressBar" {
-                Ok(Node::ProgressBar { progress })
+                let progress = args
+                    .remove("progress")
+                    .map(|progress| {
+                        lower_expr(
+                            &progress,
+                            Some(&Type::Numeric(NumericType::Float64)),
+                            &cx.exprs(false),
+                        )
+                    })
+                    .transpose()?;
+                lower_progress_bar(progress, args, cx)
             } else {
-                Ok(Node::ProgressRing { progress })
+                let progress = args
+                    .remove("progress")
+                    .map(|progress| {
+                        lower_expr(
+                            &progress,
+                            Some(&Type::Numeric(NumericType::Float64)),
+                            &cx.exprs(false),
+                        )
+                    })
+                    .transpose()?;
+                let tint = args
+                    .remove("tint")
+                    .map(|value| lower_color_expression(value, "ProgressRing tint", cx))
+                    .transpose()?;
+                let track_color = args
+                    .remove("trackColor")
+                    .map(|value| lower_color_expression(value, "ProgressRing trackColor", cx))
+                    .transpose()?;
+                let size =
+                    optional_dimension(args.remove("size"), "ProgressRing size", None, cx.themes)?;
+                let thickness = optional_dimension(
+                    args.remove("thickness"),
+                    "ProgressRing thickness",
+                    None,
+                    cx.themes,
+                )?;
+                let android_wave = args
+                    .remove("android_wave")
+                    .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
+                    .transpose()?;
+                let style = if tint.is_some()
+                    || track_color.is_some()
+                    || size.is_some()
+                    || thickness.is_some()
+                    || android_wave.is_some()
+                {
+                    Some(Box::new(nexa_ir::ProgressRingStyle {
+                        tint,
+                        track_color,
+                        size,
+                        thickness,
+                        android_wave,
+                    }))
+                } else {
+                    None
+                };
+                Ok(Node::ProgressRing { progress, style })
             }
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "SegmentedControl" => {
@@ -2285,16 +2496,126 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let span = inv.span;
             let mut args = inv.arguments;
             let is_presented = take_required_arg(&mut args, &inv.name, "isPresented", span)?;
-            let partial = args.remove("partial");
-            let large_only = args.remove("largeOnly");
-            let show_drag_handle = args.remove("showDragHandle");
-            let title = args
-                .remove("title")
-                .map(|title| {
-                    let title = lower_expr(&title, Some(&Type::String), &cx.exprs(false))?;
-                    Ok::<_, CompileError>(localize_ui_text(title, None))
-                })
+            let content_padding = args
+                .remove("contentPadding")
+                .map(|value| number_value(&value, "BottomSheet contentPadding"))
+                .transpose()?
+                .unwrap_or(8.0);
+            if !content_padding.is_finite() || content_padding < 0.0 {
+                return Err(CompileError::new(
+                    span,
+                    "BottomSheet contentPadding must be a finite non-negative number",
+                ));
+            }
+            let detents_arg = args.remove("detents");
+            let snap_points = bottom_sheet_snap_points(args.remove("snapPoints"))?;
+            let selected_snap_point_arg = args.remove("selectedSnapPoint");
+            if snap_points.is_some() && detents_arg.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "BottomSheet `snapPoints` cannot be combined with `detents`",
+                ));
+            }
+            let detents = if snap_points.is_some() {
+                Vec::new()
+            } else {
+                bottom_sheet_detents(detents_arg)?
+            };
+            let initial_detent = args
+                .remove("initialDetent")
+                .as_ref()
+                .map(bottom_sheet_detent)
                 .transpose()?;
+            let initial_snap_point = args
+                .remove("initialSnapPoint")
+                .as_ref()
+                .map(|value| number_value(value, "BottomSheet initialSnapPoint"))
+                .transpose()?;
+            if initial_detent.is_some() && snap_points.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "BottomSheet `initialDetent` cannot be combined with `snapPoints`; use `initialSnapPoint`",
+                ));
+            }
+            if initial_snap_point.is_some() && snap_points.is_none() {
+                return Err(CompileError::new(
+                    span,
+                    "BottomSheet `initialSnapPoint` requires `snapPoints`",
+                ));
+            }
+            if let Some(initial_snap_point) = initial_snap_point {
+                if !(0.0 < initial_snap_point && initial_snap_point <= 1.0) {
+                    return Err(CompileError::new(
+                        span,
+                        "BottomSheet initialSnapPoint must be greater than 0 and at most 1.0",
+                    ));
+                }
+                if !snap_points
+                    .as_ref()
+                    .is_some_and(|points| points.contains(&initial_snap_point))
+                {
+                    return Err(CompileError::new(
+                        span,
+                        "BottomSheet initialSnapPoint must be included in snapPoints",
+                    ));
+                }
+            }
+            let selected_snap_point = if let Some(selected_snap_point) = selected_snap_point_arg {
+                if snap_points.is_none() {
+                    return Err(CompileError::new(
+                        span,
+                        "BottomSheet `selectedSnapPoint` requires `snapPoints`",
+                    ));
+                }
+                if initial_snap_point.is_some() {
+                    return Err(CompileError::new(
+                        span,
+                        "BottomSheet `selectedSnapPoint` cannot be combined with `initialSnapPoint`; initialize the selected state instead",
+                    ));
+                }
+                Some(require_mutable_binding(
+                    &selected_snap_point,
+                    &Type::Numeric(NumericType::Float64),
+                    symbols,
+                    span,
+                    "BottomSheet selectedSnapPoint",
+                )?)
+            } else {
+                None
+            };
+            if let Some(initial_detent) = initial_detent
+                && !detents.contains(&initial_detent)
+            {
+                return Err(CompileError::new(
+                    span,
+                    "BottomSheet initialDetent must be included in detents",
+                ));
+            }
+            let show_drag_indicator = args.remove("showDragIndicator");
+            let allows_dismissal = args.remove("allowsDismissal");
+            let allows_background_interaction = args.remove("allowsBackgroundInteraction");
+            let should_dismiss_on_back_press = args.remove("shouldDismissOnBackPress");
+            let background_color = args
+                .remove("backgroundColor")
+                .map(|color| lower_color_expression(color, "BottomSheet backgroundColor", cx))
+                .transpose()?;
+            let scrim_color = args
+                .remove("scrimColor")
+                .map(|color| lower_color_expression(color, "BottomSheet scrimColor", cx))
+                .transpose()?;
+            let mut modifiers = inv.modifiers;
+            let on_dismiss = match take_modifier(&mut modifiers, "onDismiss") {
+                Some(ast::ModifierBody::Actions(actions)) => lower_actions_with_aliases(
+                    actions,
+                    cx.symbols,
+                    cx.functions,
+                    false,
+                    cx.native_aliases,
+                    cx.type_registries(),
+                )?,
+                Some(_) => return Err(child_mismatch(span)),
+                None => Vec::new(),
+            };
             let children = match inv.children {
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
@@ -2304,14 +2625,35 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let lowered_children = lower_nodes(children, &child_cx)?;
             Ok(Node::BottomSheet {
                 state,
-                partial: optional_bool(partial, false, "BottomSheet partial")?,
-                large_only: optional_bool(large_only, false, "BottomSheet largeOnly")?,
-                show_drag_handle: optional_bool(
-                    show_drag_handle,
+                content_padding,
+                detents,
+                snap_points: snap_points.unwrap_or_default(),
+                initial_snap_point,
+                selected_snap_point,
+                initial_detent,
+                show_drag_indicator: optional_bool(
+                    show_drag_indicator,
                     true,
-                    "BottomSheet showDragHandle",
+                    "BottomSheet showDragIndicator",
                 )?,
-                title,
+                allows_dismissal: optional_bool(
+                    allows_dismissal,
+                    true,
+                    "BottomSheet allowsDismissal",
+                )?,
+                allows_background_interaction: optional_bool(
+                    allows_background_interaction,
+                    false,
+                    "BottomSheet allowsBackgroundInteraction",
+                )?,
+                should_dismiss_on_back_press: optional_bool(
+                    should_dismiss_on_back_press,
+                    true,
+                    "BottomSheet shouldDismissOnBackPress",
+                )?,
+                background_color,
+                scrim_color,
+                on_dismiss,
                 children: lowered_children,
             })
         }
@@ -2450,14 +2792,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             )?;
             if lowered_children.len() == 1 {
                 let mut child = lowered_children.pop().expect("one lowered refresh child");
-                if let Node::FastList { plan } = &mut child {
-                    if plan.reverse_layout() {
-                        return Err(CompileError::new(
-                            span,
-                            "`RefreshControl` cannot be combined with FastList `reverseLayout`",
-                        ));
-                    }
-                    *plan.refresh_slot() = Some(FastListRefresh { state, actions });
+                let refresh = FastListRefresh {
+                    state: state.clone(),
+                    actions: actions.clone(),
+                };
+                if attach_refresh_to_fast_list(&mut child, &refresh, span)? {
                     return Ok(child);
                 }
                 lowered_children.push(child);
@@ -2640,12 +2979,133 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 "FastList reverseLayout",
             )?;
             let page_snap = optional_bool(args.remove("pageSnap"), false, "FastList pageSnap")?;
-            let native = optional_bool(args.remove("native"), false, "FastList native")?;
             let show_dividers =
                 optional_bool(args.remove("showDividers"), true, "FastList showDividers")?;
             let mut modifiers = inv.modifiers;
             let on_end_reached = take_modifier_actions(&mut modifiers, span, "onEndReached")?;
             let on_scroll = take_modifier_actions(&mut modifiers, span, "onScroll")?;
+            let scroll_to = match take_modifier_decl(&mut modifiers, "scrollToIndex") {
+                Some(mut modifier) => {
+                    let index = modifier.arguments.remove("index").ok_or_else(|| {
+                        CompileError::new(
+                            modifier.span,
+                            "FastList `.scrollToIndex` requires `index`",
+                        )
+                    })?;
+                    if let Some(unknown) = modifier.arguments.keys().next() {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            format!(
+                                "unknown `.scrollToIndex` argument `{unknown}`; expected `index`"
+                            ),
+                        ));
+                    }
+                    if !matches!(modifier.body, ast::ModifierBody::None) {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            "FastList `.scrollToIndex` does not take a body",
+                        ));
+                    }
+                    Some(index)
+                }
+                None => None,
+            };
+            let scroll_to_top = match take_modifier_decl(&mut modifiers, "scrollToTop") {
+                Some(mut modifier) => {
+                    let trigger = modifier.arguments.remove("trigger").ok_or_else(|| {
+                        CompileError::new(
+                            modifier.span,
+                            "FastList `.scrollToTop` requires `trigger`",
+                        )
+                    })?;
+                    if let Some(unknown) = modifier.arguments.keys().next() {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            format!(
+                                "unknown `.scrollToTop` argument `{unknown}`; expected `trigger`"
+                            ),
+                        ));
+                    }
+                    if !matches!(modifier.body, ast::ModifierBody::None) {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            "FastList `.scrollToTop` does not take a body",
+                        ));
+                    }
+                    Some(require_mutable_binding(
+                        &trigger,
+                        &Type::Numeric(NumericType::Int32),
+                        symbols,
+                        modifier.span,
+                        "FastList `.scrollToTop`",
+                    )?)
+                }
+                None => None,
+            };
+            let scroll_to_end = match take_modifier_decl(&mut modifiers, "scrollToEnd") {
+                Some(mut modifier) => {
+                    let trigger = modifier.arguments.remove("trigger").ok_or_else(|| {
+                        CompileError::new(
+                            modifier.span,
+                            "FastList `.scrollToEnd` requires `trigger`",
+                        )
+                    })?;
+                    if let Some(unknown) = modifier.arguments.keys().next() {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            format!(
+                                "unknown `.scrollToEnd` argument `{unknown}`; expected `trigger`"
+                            ),
+                        ));
+                    }
+                    if !matches!(modifier.body, ast::ModifierBody::None) {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            "FastList `.scrollToEnd` does not take a body",
+                        ));
+                    }
+                    Some(require_mutable_binding(
+                        &trigger,
+                        &Type::Numeric(NumericType::Int32),
+                        symbols,
+                        modifier.span,
+                        "FastList `.scrollToEnd`",
+                    )?)
+                }
+                None => None,
+            };
+            let scroll_to_offset = match take_modifier_decl(&mut modifiers, "scrollToOffset") {
+                Some(mut modifier) => {
+                    let offset = modifier.arguments.remove("offset").ok_or_else(|| {
+                        CompileError::new(
+                            modifier.span,
+                            "FastList `.scrollToOffset` requires `offset`",
+                        )
+                    })?;
+                    if let Some(unknown) = modifier.arguments.keys().next() {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            format!(
+                                "unknown `.scrollToOffset` argument `{unknown}`; expected `offset`"
+                            ),
+                        ));
+                    }
+                    if !matches!(modifier.body, ast::ModifierBody::None) {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            "FastList `.scrollToOffset` does not take a body",
+                        ));
+                    }
+                    Some(require_mutable_binding(
+                        &offset,
+                        &Type::Numeric(NumericType::Float64),
+                        symbols,
+                        modifier.span,
+                        "FastList `.scrollToOffset`",
+                    )?)
+                }
+                None => None,
+            };
             let on_move = match take_modifier_decl(&mut modifiers, "onMove") {
                 Some(mut modifier) => {
                     let enabled = match modifier.arguments.remove("enabled") {
@@ -2718,12 +3178,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let section_header = take_modifier_nodes(&mut modifiers, span, "sectionHeader")?;
             let swipe_actions = take_modifier_nodes(&mut modifiers, span, "swipeActions")?;
             let sections_source = matches!(&source, ast::ListSource::Sections(_));
-            if swipe_actions.is_some() && !native {
-                return Err(CompileError::new(
-                    span,
-                    "FastList `.swipeActions` currently requires `native: true`",
-                ));
-            }
+            let array_source = matches!(&source, ast::ListSource::Items(_));
+            let uses_platform_list = on_move.is_some() || swipe_actions.is_some();
             let axis = match axis {
                 None => ListAxis::Vertical,
                 Some(ast::Expr::Name(name, axis_span)) => match name.as_str() {
@@ -2732,7 +3188,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     _ => {
                         return Err(CompileError::new(
                             axis_span,
-                            "FastList `axis` must be `Vertical`, `Horizontal`, `Grid(columns)`, or `AutoGrid(minCellWidth)`",
+                            "FastList `axis` must be `Vertical`, `Horizontal`, `Grid(columns)`, `AutoGrid(minCellWidth)`, or `Masonry(columns)`",
                         ));
                     }
                 },
@@ -2786,33 +3242,60 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         }
                     }
                 }
+                Some(ast::Expr::Call(name, _, arguments, axis_span)) if name == "Masonry" => {
+                    match arguments.as_slice() {
+                        [ast::Expr::Number(raw, columns_span)] => {
+                            let Ok(columns) = raw.parse::<u32>() else {
+                                return Err(CompileError::new(
+                                    *columns_span,
+                                    "FastList Masonry columns must be a positive integer literal",
+                                ));
+                            };
+                            if columns == 0 {
+                                return Err(CompileError::new(
+                                    *columns_span,
+                                    "FastList Masonry columns must be greater than zero",
+                                ));
+                            }
+                            ListAxis::Masonry { columns }
+                        }
+                        _ => {
+                            return Err(CompileError::new(
+                                axis_span,
+                                "FastList `Masonry` requires one positive integer column count",
+                            ));
+                        }
+                    }
+                }
                 Some(expression) => {
                     return Err(CompileError::new(
                         expression.span(),
-                        "FastList `axis` must be `Vertical`, `Horizontal`, `Grid(columns)`, or `AutoGrid(minCellWidth)`",
+                        "FastList `axis` must be `Vertical`, `Horizontal`, `Grid(columns)`, `AutoGrid(minCellWidth)`, or `Masonry(columns)`",
                     ));
                 }
             };
-            if native
+            if uses_platform_list
                 && (!matches!(axis, ListAxis::Vertical)
                     || reverse_layout
                     || page_snap
                     || item_extent.is_some()
                     || scroll_position.is_some()
+                    || scroll_to_top.is_some()
+                    || scroll_to_end.is_some()
+                    || scroll_to_offset.is_some()
                     || on_end_reached.is_some()
                     || on_scroll.is_some()
                     || sticky_header.is_some())
             {
                 return Err(CompileError::new(
                     span,
-                    "FastList `native` requires a vertical list without custom scroll behavior",
+                    "FastList `.onMove` and `.swipeActions` require a vertical list without custom scroll behavior",
                 ));
             }
-            let array_source = matches!(&source, ast::ListSource::Items(_));
-            if on_move.is_some() && (!native || !array_source) {
+            if on_move.is_some() && !array_source {
                 return Err(CompileError::new(
                     span,
-                    "FastList `.onMove` requires `native: true` and an array source",
+                    "FastList `.onMove` requires an array source",
                 ));
             }
             if sticky_header.is_some() && !matches!(axis, ListAxis::Vertical) {
@@ -2825,6 +3308,20 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 return Err(CompileError::new(
                     span,
                     "FastList `sections` is supported only for vertical lists",
+                ));
+            }
+            if matches!(axis, ListAxis::Masonry { .. })
+                && (sections_source
+                    || reverse_layout
+                    || page_snap
+                    || item_extent.is_some()
+                    || sticky_header.is_some()
+                    || on_move.is_some()
+                    || swipe_actions.is_some())
+            {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `Masonry` requires flat variable-height rows without reverseLayout, pageSnap, rowHeight, stickyHeader, reorder, or swipe actions",
                 ));
             }
             if reverse_layout && !matches!(axis, ListAxis::Vertical) {
@@ -2875,6 +3372,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     "FastList `pageSnap` sets each row to the viewport height; omit `rowHeight`",
                 ));
             }
+            if page_snap && scroll_to_offset.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `.scrollToOffset` cannot be combined with `pageSnap`",
+                ));
+            }
             if sections_source && sticky_header.is_some() {
                 return Err(CompileError::new(
                     span,
@@ -2894,7 +3397,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ));
             }
             if sections_source
-                && (scroll_position.is_some() || on_end_reached.is_some() || on_scroll.is_some())
+                && (scroll_position.is_some()
+                    || scroll_to_top.is_some()
+                    || scroll_to_end.is_some()
+                    || scroll_to_offset.is_some()
+                    || on_end_reached.is_some()
+                    || on_scroll.is_some())
             {
                 return Err(CompileError::new(
                     span,
@@ -2932,14 +3440,21 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let has_section_binding = section.is_some();
             let section_name = binding_name(section, "section", "FastList section")?;
             let index = binding_name(index, "index", "FastList index")?;
+            if scroll_position.is_some() && scroll_to.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "FastList accepts either `scrollPosition` or `.scrollToIndex(index:)`, not both",
+                ));
+            }
             let scroll_position = scroll_position
+                .or(scroll_to)
                 .map(|position| {
                     require_mutable_binding(
                         &position,
                         &row_index_type,
                         symbols,
                         position.span(),
-                        "FastList scrollPosition",
+                        "FastList scroll position",
                     )
                 })
                 .transpose()?;
@@ -3195,7 +3710,6 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         count,
                         common: ListCommon {
                             axis,
-                            native,
                             show_dividers,
                             reverse_layout,
                             page_snap,
@@ -3205,6 +3719,9 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             index,
                             key,
                             scroll_position,
+                            scroll_to_top: scroll_to_top.clone(),
+                            scroll_to_end: scroll_to_end.clone(),
+                            scroll_to_offset: scroll_to_offset.clone(),
                             children: lowered_children,
                             on_end_reached,
                             on_scroll,
@@ -3224,7 +3741,6 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         item,
                         common: ListCommon {
                             axis,
-                            native,
                             show_dividers,
                             reverse_layout,
                             page_snap,
@@ -3234,6 +3750,9 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             index,
                             key,
                             scroll_position,
+                            scroll_to_top: scroll_to_top.clone(),
+                            scroll_to_end: scroll_to_end.clone(),
+                            scroll_to_offset: scroll_to_offset.clone(),
                             children: lowered_children,
                             on_end_reached,
                             on_scroll,
@@ -3264,7 +3783,6 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             section,
                             item,
                             common: SectionedListCommon {
-                                native,
                                 show_dividers,
                                 item_extent,
                                 spacing,
@@ -4040,6 +4558,16 @@ fn lower_actions_with_disposal_state(
     for action in actions {
         match action {
             ast::Stmt::Expression { expression, span } => {
+                if let Some(action) = lower_bottom_sheet_action(
+                    &expression,
+                    symbols,
+                    functions,
+                    allow_await,
+                    registries,
+                )? {
+                    lowered.push(action);
+                    continue;
+                }
                 let expression = lower_expr(
                     &expression,
                     None,
@@ -4929,6 +5457,121 @@ fn lower_actions_with_disposal_state(
         }
     }
     Ok(lowered)
+}
+
+/// BottomSheet presentation commands are Nexa state writes. Lowering them to
+/// ordinary typed assignments keeps generated Swift, Compose, and DevRuntime
+/// behavior on the same state-update path and preserves native sheet motion.
+fn lower_bottom_sheet_action(
+    expression: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    registries: TypeRegistries<'_>,
+) -> Result<Option<Action>, CompileError> {
+    let ast::Expr::QualifiedCall {
+        namespace,
+        name,
+        type_arguments,
+        arguments,
+        named_arguments,
+        span,
+    } = expression
+    else {
+        return Ok(None);
+    };
+    if namespace != "BottomSheet" || !matches!(name.as_str(), "present" | "dismiss" | "snapTo") {
+        return Ok(None);
+    }
+    if !type_arguments.is_empty() {
+        return Err(CompileError::new(
+            *span,
+            "BottomSheet actions do not accept type arguments",
+        ));
+    }
+
+    let mut positional = arguments.iter();
+    let mut named = named_arguments.clone();
+    let mut take_argument = |parameter: &str| -> Result<ast::Expr, CompileError> {
+        let positional_value = positional.next();
+        let named_value = named.remove(parameter);
+        match (positional_value, named_value) {
+            (Some(_), Some(_)) => Err(CompileError::new(
+                *span,
+                format!("BottomSheet `{name}` received `{parameter}` more than once"),
+            )),
+            (Some(value), None) => Ok(value.clone()),
+            (None, Some(value)) => Ok(value),
+            (None, None) => Err(CompileError::new(
+                *span,
+                format!("BottomSheet `{name}` requires `{parameter}`"),
+            )),
+        }
+    };
+
+    let action = match name.as_str() {
+        "present" | "dismiss" => {
+            if arguments.len() > 1 || named_arguments.keys().any(|key| key != "isPresented") {
+                return Err(CompileError::new(
+                    *span,
+                    format!("BottomSheet `{name}` accepts one `isPresented` state"),
+                ));
+            }
+            let presented = take_argument("isPresented")?;
+            if positional.next().is_some() || !named.is_empty() {
+                return Err(CompileError::new(
+                    *span,
+                    format!("BottomSheet `{name}` accepts one `isPresented` state"),
+                ));
+            }
+            let state = require_mutable_binding(
+                &presented,
+                &Type::Bool,
+                symbols,
+                *span,
+                "BottomSheet presentation",
+            )?;
+            Action::Assign {
+                name: state,
+                value: Expr::Bool(name == "present"),
+            }
+        }
+        "snapTo" => {
+            if arguments.len() > 2
+                || named_arguments
+                    .keys()
+                    .any(|key| !matches!(key.as_str(), "selectedSnapPoint" | "snapPoint"))
+            {
+                return Err(CompileError::new(
+                    *span,
+                    "BottomSheet `snapTo` accepts a selected snap-point state and a target snap point",
+                ));
+            }
+            let selected = take_argument("selectedSnapPoint")?;
+            let snap_point = take_argument("snapPoint")?;
+            if positional.next().is_some() || !named.is_empty() {
+                return Err(CompileError::new(
+                    *span,
+                    "BottomSheet `snapTo` accepts a selected snap-point state and a target snap point",
+                ));
+            }
+            let state = require_mutable_binding(
+                &selected,
+                &Type::Numeric(NumericType::Float64),
+                symbols,
+                *span,
+                "BottomSheet selectedSnapPoint",
+            )?;
+            let value = lower_expr(
+                &snap_point,
+                Some(&Type::Numeric(NumericType::Float64)),
+                &registries.expr_context(symbols, functions, allow_await),
+            )?;
+            Action::Assign { name: state, value }
+        }
+        _ => unreachable!("the BottomSheet command was checked above"),
+    };
+    Ok(Some(action))
 }
 
 fn collect_animation_targets(

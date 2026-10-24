@@ -250,6 +250,17 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
             .expect("read Android activity")
             .contains("NexaDevRuntimeRoot")
     );
+    let android_runtime = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt"),
+    )
+    .expect("read Android DevRuntime");
+    assert!(android_runtime.contains("AndroidViewModel(application)"));
+    assert!(android_runtime.contains("ViewModelProvider(viewModelStoreOwner)"));
+    assert!(android_runtime.contains("override fun onCleared()"));
+    assert!(android_runtime.contains("store.dispose()"));
+    let android_gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("read Android Gradle dependencies");
+    assert!(android_gradle.contains("androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0"));
     assert!(
         ios_plugin_bridge.is_file(),
         "Dev build should generate its iOS plugin bridge"
@@ -1491,6 +1502,16 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
     assert!(kotlin.contains("NavHost(\n            navController = navController"));
     assert!(kotlin.contains("modifier = modifier.fillMaxSize()"));
     assert!(kotlin.contains("navigationEpoch"));
+    for (parameter, transition, direction) in [
+        ("enterTransition", "slideIntoContainer", "Start"),
+        ("exitTransition", "slideOutOfContainer", "Start"),
+        ("popEnterTransition", "slideIntoContainer", "End"),
+        ("popExitTransition", "slideOutOfContainer", "End"),
+    ] {
+        assert!(kotlin.contains(&format!(
+            "{parameter} = {{\n                {transition}(\n                    towards = AnimatedContentTransitionScope.SlideDirection.{direction},\n                    animationSpec = tween(durationMillis = 350),"
+        )));
+    }
     assert!(
         fs::read_to_string(output.join("android/app/build.gradle.kts"))
             .expect("read Android navigation dependencies")
@@ -1516,7 +1537,8 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
     .expect("generate text input dev hosts");
 
     let swift = read_ios_dev_runtime(&output);
-    assert!(swift.contains("if fields[\"focused\"] as? String != nil"));
+    assert!(swift.contains("let focusBindingName = fields[\"focused\"] as? String"));
+    assert!(swift.contains("if focusBindingName != nil"));
     assert!(swift.contains("input.focused(focusedField, equals: identity)"));
     assert!(swift.contains("return values[identity] as? Bool == true"));
     assert!(swift.contains("store.hotRestart(module: module)"));
@@ -1548,6 +1570,16 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
 
 #[test]
 fn development_runtime_renders_bottom_sheets_on_both_platforms() {
+    std::thread::Builder::new()
+        .name("development_runtime_renders_bottom_sheets_on_both_platforms".to_owned())
+        .stack_size(4 * 1024 * 1024)
+        .spawn(development_runtime_renders_bottom_sheets_on_both_platforms_inner)
+        .expect("spawn bottom-sheet generation test with adequate stack")
+        .join()
+        .expect("bottom-sheet generation test thread should not panic");
+}
+
+fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
     let root = temporary_project();
     let entry = root.join("App.nx");
     fs::copy(
@@ -1567,37 +1599,105 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms() {
     )
     .expect("generate bottom-sheet dev hosts");
 
+    let dev_module = nexa_compiler::compile_file_for_target(&entry, nexa_compiler::Target::Kotlin)
+        .expect("compile parent and nested bottom sheets for DevRuntime");
+    let dev_payload = serde_json::to_string(&nexa_dev_ir::lower(&dev_module, "nested-sheet-test"))
+        .expect("serialize nested BottomSheet nodes to Dev IR");
+    assert_eq!(
+        dev_payload.matches("\"BottomSheet\":").count(),
+        2,
+        "the DevRuntime module should retain both the parent and nested sheet"
+    );
+    assert!(
+        dev_payload.contains("\"content_padding\":20.0"),
+        "the DevRuntime module should preserve the custom sheet content inset"
+    );
+    assert!(
+        dev_payload.contains("Save")
+            && dev_payload.contains("Close")
+            && dev_payload.contains("didSave")
+            && dev_payload.contains("Edit task")
+            && !dev_payload.contains("\"Toolbar\":"),
+        "the DevRuntime module should retain the sheet header buttons and their save action"
+    );
+
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"BottomSheet\":"));
     assert!(swift.contains("NexaBottomSheetPrimitive("));
-    assert!(swift.contains("fields[\"show_drag_handle\"] as? Bool ?? true"));
+    assert!(swift.contains("fields[\"show_drag_indicator\"] as? Bool ?? true"));
+    assert!(swift.contains("fields[\"content_padding\"] as? NSNumber"));
+    assert!(swift.contains("fields[\"detents\"] as? [String]"));
+    assert!(swift.contains("fields[\"initial_detent\"] as? String"));
+    assert!(swift.contains("fields[\"snap_points\"] as? [NSNumber]"));
+    assert!(swift.contains("fields[\"initial_snap_point\"] as? NSNumber"));
+    assert!(swift.contains("fields[\"selected_snap_point\"] as? String"));
+    assert!(swift.contains("fields[\"scrim_color\"] as? [String: Any]"));
+    assert!(swift.contains("fields[\"on_dismiss\"] as? [Any] ?? []"));
+    assert!(swift.contains("fields[\"allows_dismissal\"] as? Bool ?? true"));
+    assert!(swift.contains("fields[\"allows_background_interaction\"] as? Bool ?? false"));
+    assert!(swift.contains("fields[\"should_dismiss_on_back_press\"] as? Bool ?? true"));
     assert!(!swift.contains("devBottomSheet(in: module[\"body\"]"));
 
     let swift_primitives =
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
             .expect("read generated iOS sheet primitive");
     assert!(swift_primitives.contains("struct NexaBottomSheetPrimitive<Content: View>"));
-    assert!(swift_primitives.contains("host.sheet(isPresented: $isPresented)"));
-    assert!(swift_primitives.contains("host.fullScreenCover(isPresented: $isPresented)"));
-    assert!(swift_primitives.contains(".presentationDetents("));
+    assert!(swift_primitives.contains("struct NexaBottomSheetContentPrimitive<Content: View>"));
     assert!(
         swift_primitives
-            .contains(".presentationDragIndicator(showDragHandle ? .visible : .hidden)")
+            .contains("NexaBottomSheetContentPrimitive(contentPadding: contentPadding) {")
     );
-    assert!(swift_primitives.contains("largeOnly ? [.large] : [.medium, .large]"));
+    assert!(swift_primitives.contains("NexaColumnPrimitive("));
+    assert!(swift_primitives.contains("alignment: .top"));
+    assert!(swift_primitives.contains(".sheet(isPresented: $isPresented, onDismiss: {"));
+    assert!(swift_primitives.contains("allowsBackgroundInteraction: allowsBackgroundInteraction"));
+    assert!(swift_primitives.contains("presentationBackgroundInteraction(.enabled)"));
+    assert!(!swift_primitives.contains("fullScreenCover"));
+    assert!(
+        swift_primitives
+            .contains(".presentationDetents(configuredDetents, selection: $selectedDetent)")
+    );
+    assert!(
+        swift_primitives
+            .contains(".presentationDragIndicator(showDragIndicator ? .visible : .hidden)")
+    );
+    assert!(swift_primitives.contains(".interactiveDismissDisabled(!allowsDismissal)"));
+    assert!(swift_primitives.contains("selectedSnapPoint: Binding<Double>?"));
+    assert!(swift_primitives.contains(".onChange(of: selectedSnapPoint?.wrappedValue)"));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"BottomSheet\" ->"));
     assert!(kotlin.contains("NexaBottomSheetPrimitive("));
-    assert!(kotlin.contains("fields.optBoolean(\"show_drag_handle\", true)"));
+    assert!(kotlin.contains("fields.optBoolean(\"show_drag_indicator\", true)"));
+    assert!(kotlin.contains("fields.optDouble(\"content_padding\", 8.0).toFloat().dp"));
+    assert!(kotlin.contains("fields.optJSONArray(\"detents\")"));
+    assert!(kotlin.contains("fields.optJSONArray(\"snap_points\")"));
+    assert!(kotlin.contains("fields.optDouble(\"initial_snap_point\")"));
+    assert!(kotlin.contains("fields.optString(\"selected_snap_point\")"));
+    assert!(kotlin.contains("fields.isNull(\"selected_snap_point\")"));
+    assert!(kotlin.contains("fields.optJSONObject(\"scrim_color\")"));
+    assert!(kotlin.contains("fields.optJSONArray(\"on_dismiss\") ?: JSONArray()"));
+    assert!(kotlin.contains("fields.optBoolean(\"allows_dismissal\", true)"));
+    assert!(kotlin.contains("fields.optBoolean(\"allows_background_interaction\", false)"));
+    assert!(kotlin.contains("fields.optBoolean(\"should_dismiss_on_back_press\", true)"));
     let kotlin_primitives = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
     )
     .expect("read generated Android sheet primitive");
     assert!(kotlin_primitives.contains("internal fun NexaBottomSheetPrimitive("));
+    assert!(kotlin_primitives.contains("fun NexaBottomSheetContentPrimitive("));
+    assert!(kotlin_primitives.contains("NexaColumnPrimitive("));
+    assert!(
+        kotlin_primitives.contains("modifier = modifier.fillMaxWidth().padding(contentPadding)")
+    );
     assert!(kotlin_primitives.contains("ModalBottomSheet("));
-    assert!(kotlin_primitives.contains("dragHandle = if (showDragHandle)"));
-    assert!(kotlin_primitives.contains("DialogProperties(usePlatformDefaultWidth = false)"));
+    assert!(kotlin_primitives.contains("sheetState.hide()"));
+    assert!(kotlin_primitives.contains("retainedInComposition.value = false"));
+    assert!(kotlin_primitives.contains("dragHandle = if (showDragIndicator)"));
+    assert!(kotlin_primitives.contains("ModalBottomSheetProperties("));
+    assert!(kotlin_primitives.contains("NexaNonModalBottomSheetPrimitive("));
+    assert!(kotlin_primitives.contains("selectedSnapPoint: Float?"));
+    assert!(kotlin_primitives.contains("sheetState.animateTo(selectedTarget)"));
 }
 
 #[test]

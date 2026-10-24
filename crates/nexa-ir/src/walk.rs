@@ -36,11 +36,19 @@ pub fn walk_ir(
                 walk_ir(children, visit_node, visit_expression);
             }
             Node::BottomSheet {
-                title, children, ..
+                background_color,
+                scrim_color,
+                on_dismiss,
+                children,
+                ..
             } => {
-                if let Some(title) = title {
-                    walk_expression(title, visit_expression);
+                if let Some(crate::ColorExpression::Dynamic(color)) = background_color {
+                    walk_expression(color, visit_expression);
                 }
+                if let Some(crate::ColorExpression::Dynamic(color)) = scrim_color {
+                    walk_expression(color, visit_expression);
+                }
+                walk_actions(on_dismiss, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
             Node::FormSection {
@@ -229,8 +237,47 @@ pub fn walk_ir(
                     }
                 }
             }
-            Node::ProgressBar { progress } | Node::ProgressRing { progress } => {
-                walk_expression(progress, visit_expression)
+            Node::ProgressBar {
+                progress, style, ..
+            } => {
+                if let Some(progress) = progress {
+                    walk_expression(progress, visit_expression);
+                }
+                for color in style
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|style| [style.tint.as_ref(), style.track_color.as_ref()])
+                    .flatten()
+                {
+                    if let crate::ColorExpression::Dynamic(expression) = color {
+                        walk_expression(expression, visit_expression);
+                    }
+                }
+                if let Some(android_wave) =
+                    style.as_ref().and_then(|style| style.android_wave.as_ref())
+                {
+                    walk_expression(android_wave, visit_expression);
+                }
+            }
+            Node::ProgressRing { progress, style } => {
+                if let Some(progress) = progress {
+                    walk_expression(progress, visit_expression);
+                }
+                for color in style
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|style| [style.tint.as_ref(), style.track_color.as_ref()])
+                    .flatten()
+                {
+                    if let crate::ColorExpression::Dynamic(expression) = color {
+                        walk_expression(expression, visit_expression);
+                    }
+                }
+                if let Some(android_wave) =
+                    style.as_ref().and_then(|style| style.android_wave.as_ref())
+                {
+                    walk_expression(android_wave, visit_expression);
+                }
             }
             Node::SegmentedControl {
                 items,
@@ -463,6 +510,7 @@ pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) 
                     None
                 }
                 Node::RefreshControl { actions, .. } => Some(actions.as_slice()),
+                Node::BottomSheet { on_dismiss, .. } => Some(on_dismiss.as_slice()),
                 Node::FastList { plan } => {
                     if let Some(actions) = plan.on_end_reached() {
                         visit(actions);
@@ -1093,8 +1141,23 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         | Node::Form { children, .. }
         | Node::Toolbar { children, .. }
         | Node::KeyboardAware { children, .. }
-        | Node::BottomSheet { children, .. }
         | Node::Dialog { children, .. } => visitor.visit_nodes(children),
+        Node::BottomSheet {
+            background_color,
+            scrim_color,
+            on_dismiss,
+            children,
+            ..
+        } => {
+            if let Some(crate::ColorExpression::Dynamic(color)) = background_color {
+                visitor.visit_expr(color);
+            }
+            if let Some(crate::ColorExpression::Dynamic(color)) = scrim_color {
+                visitor.visit_expr(color);
+            }
+            visitor.visit_actions(on_dismiss);
+            visitor.visit_nodes(children);
+        }
         Node::ConfirmationDialog { children, .. } => visitor.visit_nodes(children),
         Node::Pressable {
             disabled,
@@ -1286,8 +1349,45 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 }
             }
         }
-        Node::ProgressBar { progress } | Node::ProgressRing { progress } => {
-            visitor.visit_expr(progress)
+        Node::ProgressBar {
+            progress, style, ..
+        } => {
+            if let Some(progress) = progress {
+                visitor.visit_expr(progress);
+            }
+            for color in style
+                .as_ref()
+                .into_iter()
+                .flat_map(|style| [style.tint.as_ref(), style.track_color.as_ref()])
+                .flatten()
+            {
+                if let crate::ColorExpression::Dynamic(expression) = color {
+                    visitor.visit_expr(expression);
+                }
+            }
+            if let Some(android_wave) = style.as_ref().and_then(|style| style.android_wave.as_ref())
+            {
+                visitor.visit_expr(android_wave);
+            }
+        }
+        Node::ProgressRing { progress, style } => {
+            if let Some(progress) = progress {
+                visitor.visit_expr(progress);
+            }
+            for color in style
+                .as_ref()
+                .into_iter()
+                .flat_map(|style| [style.tint.as_ref(), style.track_color.as_ref()])
+                .flatten()
+            {
+                if let crate::ColorExpression::Dynamic(expression) = color {
+                    visitor.visit_expr(expression);
+                }
+            }
+            if let Some(android_wave) = style.as_ref().and_then(|style| style.android_wave.as_ref())
+            {
+                visitor.visit_expr(android_wave);
+            }
         }
         Node::SegmentedControl {
             items,
@@ -1761,17 +1861,35 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         }),
         Node::BottomSheet {
             state,
-            partial,
-            large_only,
-            show_drag_handle,
-            title,
+            content_padding,
+            detents,
+            snap_points,
+            initial_snap_point,
+            selected_snap_point,
+            initial_detent,
+            show_drag_indicator,
+            allows_dismissal,
+            allows_background_interaction,
+            should_dismiss_on_back_press,
+            background_color,
+            scrim_color,
+            on_dismiss,
             children,
         } => Some(Node::BottomSheet {
             state,
-            partial,
-            large_only,
-            show_drag_handle,
-            title: title.map(|title| folder.fold_expr(title)),
+            content_padding,
+            detents,
+            snap_points,
+            initial_snap_point,
+            selected_snap_point,
+            initial_detent,
+            show_drag_indicator,
+            allows_dismissal,
+            allows_background_interaction,
+            should_dismiss_on_back_press,
+            background_color: background_color.map(|color| fold_color_expression(color, folder)),
+            scrim_color: scrim_color.map(|color| fold_color_expression(color, folder)),
+            on_dismiss: folder.fold_actions(on_dismiss),
             children: folder.fold_nodes(children),
         }),
         Node::Dialog {
@@ -1985,11 +2103,37 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             icon_tint: icon_tint.map(|color| fold_color_expression(color, folder)),
             background: background.map(|color| fold_color_expression(color, folder)),
         }),
-        Node::ProgressBar { progress } => Some(Node::ProgressBar {
-            progress: folder.fold_expr(progress),
+        Node::ProgressBar { progress, style } => Some(Node::ProgressBar {
+            progress: progress.map(|progress| folder.fold_expr(progress)),
+            style: style.map(|style| {
+                Box::new(crate::ProgressBarStyle {
+                    tint: style.tint.map(|color| fold_color_expression(color, folder)),
+                    track_color: style
+                        .track_color
+                        .map(|color| fold_color_expression(color, folder)),
+                    thickness: style.thickness,
+                    corner_radius: style.corner_radius,
+                    android_wave: style
+                        .android_wave
+                        .map(|expression| folder.fold_expr(expression)),
+                })
+            }),
         }),
-        Node::ProgressRing { progress } => Some(Node::ProgressRing {
-            progress: folder.fold_expr(progress),
+        Node::ProgressRing { progress, style } => Some(Node::ProgressRing {
+            progress: progress.map(|progress| folder.fold_expr(progress)),
+            style: style.map(|style| {
+                Box::new(crate::ProgressRingStyle {
+                    tint: style.tint.map(|color| fold_color_expression(color, folder)),
+                    track_color: style
+                        .track_color
+                        .map(|color| fold_color_expression(color, folder)),
+                    size: style.size,
+                    thickness: style.thickness,
+                    android_wave: style
+                        .android_wave
+                        .map(|expression| folder.fold_expr(expression)),
+                })
+            }),
         }),
         Node::SegmentedControl {
             items,

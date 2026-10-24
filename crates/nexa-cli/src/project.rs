@@ -2501,6 +2501,41 @@ mod tests {
     }
 
     #[test]
+    fn android_wavy_progress_uses_material3_with_the_wavy_indicator_api() {
+        let config = super::config::ProjectConfig::from_defaults(&[], "WavyProgress")
+            .expect("resolve default project configuration");
+        let gradle = super::templates::android_app_gradle_with_dev_runtime(
+            "dev.nexa.wavyprogress",
+            nexa_backend_kotlin::KotlinProjectFeatures {
+                uses_wavy_progress_bar: true,
+                ..Default::default()
+            },
+            &[],
+            &[],
+            &config,
+            false,
+        )
+        .expect("render Android project dependencies");
+
+        assert!(gradle.contains("material3:1.5.0-beta01"));
+        assert!(!gradle.contains("material3-adaptive-navigation-suite"));
+
+        let ring_gradle = super::templates::android_app_gradle_with_dev_runtime(
+            "dev.nexa.wavyprogressring",
+            nexa_backend_kotlin::KotlinProjectFeatures {
+                uses_wavy_progress_ring: true,
+                ..Default::default()
+            },
+            &[],
+            &[],
+            &config,
+            false,
+        )
+        .expect("render Android circular-wavy project dependencies");
+        assert!(ring_gradle.contains("material3:1.5.0-beta01"));
+    }
+
+    #[test]
     fn generated_android_expressive_menus_report_their_minimum_sdk() {
         let config = super::config::ProjectConfig::from_defaults(&[], "MenuParity")
             .expect("resolve default project configuration");
@@ -2780,6 +2815,16 @@ mod tests {
 
     #[test]
     fn video_player_demo_generates_two_direct_native_instances_on_both_targets() {
+        std::thread::Builder::new()
+            .name("video-player-project-test".to_owned())
+            .stack_size(4 * 1024 * 1024)
+            .spawn(video_player_demo_generates_two_direct_native_instances_on_both_targets_inner)
+            .expect("video player project test thread should start")
+            .join()
+            .expect("video player project test should not panic");
+    }
+
+    fn video_player_demo_generates_two_direct_native_instances_on_both_targets_inner() {
         let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../plugins/video-player/tests/demo/app/App.nx");
         let compilations =

@@ -668,7 +668,7 @@ def run_fast_list_interaction(xml_path: Path, capture_directory: Path) -> None:
 
     current_page = 1
     for page, title, row in [
-        (2, "FastList · native", "Native row 0"),
+        (2, "FastList · vertical", "Vertical row 0"),
         (3, "FastList · horizontal", "Horizontal row 0"),
         (4, "FastList · fixed grid", "Fixed grid 0"),
         (5, "FastList · responsive grid", "Adaptive grid 0"),

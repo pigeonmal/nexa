@@ -617,6 +617,15 @@ fn walk_invocation(
             if let Some(is_presented) = inv.arguments.get("isPresented") {
                 walk_expression(is_presented, names, used);
             }
+            if let Some(background_color) = inv.arguments.get("backgroundColor") {
+                walk_expression(background_color, names, used);
+            }
+            if let Some(scrim_color) = inv.arguments.get("scrimColor") {
+                walk_expression(scrim_color, names, used);
+            }
+            if let Some(actions) = modifier_actions("onDismiss") {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
             if let ast::ChildBody::Nodes(children) = &inv.children {
                 walk_child_nodes(children, names, used, target, file, warnings);
             }

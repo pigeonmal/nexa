@@ -175,6 +175,7 @@ fn android_dev_runtime_preloads_compose_and_platform_dependencies() {
         "androidx.compose.animation:animation",
         "androidx.navigation:navigation-compose",
         "androidx.lifecycle:lifecycle-runtime-compose",
+        "androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0",
         "org.jetbrains.kotlinx:kotlinx-coroutines-android",
         "androidx.core:core",
         "io.coil-kt.coil3:coil-compose",
@@ -223,6 +224,28 @@ fn android_aot_dependencies_remain_feature_gated() {
             "AOT dependency {dependency} should remain feature-gated"
         );
     }
+}
+
+#[test]
+fn android_aot_saveable_state_adds_only_the_compose_state_saver() {
+    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    let dependencies = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures {
+            uses_saveable_state: true,
+            ..Default::default()
+        },
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .unwrap();
+
+    assert!(dependencies.contains("implementation(\"androidx.compose.runtime:runtime-saveable\")"));
+    assert!(
+        !dependencies.contains("androidx.compose.material3:material3-adaptive-navigation-suite")
+    );
 }
 
 #[test]

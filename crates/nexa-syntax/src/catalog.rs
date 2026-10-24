@@ -147,15 +147,15 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "ProgressBar",
-        summary: "Shows linear progress for a Float64 value",
-        snippet: "ProgressBar(progress: ${1:amount})",
-        probe: "app P { state amount: Float64 = 0.5\n body { ProgressBar(progress: amount) } }",
+        summary: "Shows customizable determinate or indeterminate linear progress",
+        snippet: "ProgressBar()",
+        probe: "app P { state amount: Float64 = 0.5\n body { ProgressBar()\n ProgressBar(progress: amount, tint: \"#2563EB\", trackColor: \"#DBEAFE\", thickness: 8, cornerRadius: 4, android_wave: true) } }",
     },
     ComponentEntry {
         name: "ProgressRing",
-        summary: "Shows circular progress for a Float64 value",
-        snippet: "ProgressRing(progress: ${1:amount})",
-        probe: "app P { state amount: Float64 = 0.5\n body { ProgressRing(progress: amount) } }",
+        summary: "Shows customizable determinate or indeterminate circular progress",
+        snippet: "ProgressRing()",
+        probe: "app P { state amount: Float64 = 0.5\n state tint: String = \"#2563EB\"\n body { ProgressRing()\n ProgressRing(progress: amount, tint: tint, trackColor: \"#DBEAFE\", size: 48, thickness: 5, android_wave: true) } }",
     },
     ComponentEntry {
         name: "SegmentedControl",
@@ -237,9 +237,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "BottomSheet",
-        summary: "Modal bottom sheet bound to a boolean binding",
-        snippet: "BottomSheet(isPresented: ${1:show}, title: \"Details\", showDragHandle: false) {\n    $0\n}",
-        probe: "app P { state show: Bool = false\n body { BottomSheet(isPresented: show, title: \"Details\", showDragHandle: false) { Text(\"x\") } } }",
+        summary: "Native modal sheet with custom snap points and dismissal behavior",
+        snippet: "BottomSheet(isPresented: ${1:show}, snapPoints: [0.5, 1.0]) {\n    $0\n}.onDismiss {\n}",
+        probe: "app P { state show: Bool = false\n body { BottomSheet(isPresented: show, contentPadding: 20, snapPoints: [0.5, 1.0]) { Text(\"x\") }.onDismiss { show = false } } }",
     },
     ComponentEntry {
         name: "Dialog",
@@ -679,6 +679,11 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         snippet: "onRefresh {\n    $0\n}",
     },
     DotModifierEntry {
+        name: "onDismiss",
+        summary: "BottomSheet action after the sheet is dismissed",
+        snippet: "onDismiss {\n    $0\n}",
+    },
+    DotModifierEntry {
         name: "onEndReached",
         summary: "FastList pagination callback",
         snippet: "onEndReached {\n    $0\n}",
@@ -692,6 +697,26 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         name: "onScroll",
         summary: "FastList scroll-position callback",
         snippet: "onScroll {\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "scrollToIndex",
+        summary: "FastList mutable leading-index binding",
+        snippet: "scrollToIndex(index: ${1:position})",
+    },
+    DotModifierEntry {
+        name: "scrollToTop",
+        summary: "FastList command triggered by a changed Int32 state",
+        snippet: "scrollToTop(trigger: ${1:topCommand})",
+    },
+    DotModifierEntry {
+        name: "scrollToEnd",
+        summary: "FastList command triggered by a changed Int32 state",
+        snippet: "scrollToEnd(trigger: ${1:endCommand})",
+    },
+    DotModifierEntry {
+        name: "scrollToOffset",
+        summary: "FastList command to scroll to a logical offset in points/dp",
+        snippet: "scrollToOffset(offset: ${1:contentOffset})",
     },
     DotModifierEntry {
         name: "stickyHeader",
@@ -988,6 +1013,101 @@ pub fn render_segmented_control_parameter_table() -> String {
 
     let mut out = String::from("| Parameter | Type | Default | Behavior |\n|---|---|---|---|\n");
     for parameter in SEGMENTED_CONTROL_PARAMETER_DOCS {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} |",
+            parameter.name, parameter.type_name, parameter.default, parameter.behavior
+        );
+    }
+    out.trim_end().to_owned()
+}
+
+pub const BOTTOM_SHEET_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
+    ComponentParameterDoc {
+        name: "isPresented",
+        type_name: "mutable `Bool` state",
+        default: "Required",
+        behavior: "Controls presentation and is reset after native dismissal",
+    },
+    ComponentParameterDoc {
+        name: "contentPadding",
+        type_name: "non-negative `Dp` number",
+        default: "8 dp",
+        behavior: "Uniform inset around sheet content; explicit child padding adds to it",
+    },
+    ComponentParameterDoc {
+        name: "detents",
+        type_name: "`Array<SheetDetent>` (`Medium`, `Expanded`)",
+        default: "`[Medium, Expanded]`",
+        behavior: "Available native resting sizes; at least one unique size is required and cannot be combined with `snapPoints`",
+    },
+    ComponentParameterDoc {
+        name: "initialDetent",
+        type_name: "`SheetDetent`",
+        default: "First entry in `detents`",
+        behavior: "Must be one of the configured detents; cannot be combined with `snapPoints`",
+    },
+    ComponentParameterDoc {
+        name: "snapPoints",
+        type_name: "`Array<Number>` fractions in `(0, 1]`",
+        default: "Platform detents",
+        behavior: "Custom visible-height fractions, ordered from smallest to largest; cannot be combined with `detents`",
+    },
+    ComponentParameterDoc {
+        name: "initialSnapPoint",
+        type_name: "`Number` fraction in `(0, 1]`",
+        default: "First entry in `snapPoints`",
+        behavior: "Must match one configured snap point and requires `snapPoints`",
+    },
+    ComponentParameterDoc {
+        name: "selectedSnapPoint",
+        type_name: "mutable `Float64` state",
+        default: "Unbound; uses `initialSnapPoint`",
+        behavior: "Two-way current snap selection; requires `snapPoints` and cannot be combined with `initialSnapPoint`",
+    },
+    ComponentParameterDoc {
+        name: "showDragIndicator",
+        type_name: "`Bool`",
+        default: "`true`",
+        behavior: "Shows or hides the platform-native drag indicator",
+    },
+    ComponentParameterDoc {
+        name: "allowsDismissal",
+        type_name: "`Bool`",
+        default: "`true`",
+        behavior: "Allows drag dismissal and outside-tap dismissal for modal sheets; Android Back also obeys `shouldDismissOnBackPress`; state changes can always close the sheet",
+    },
+    ComponentParameterDoc {
+        name: "allowsBackgroundInteraction",
+        type_name: "`Bool`",
+        default: "`false`",
+        behavior: "Removes the modal barrier and lets taps reach the screen behind the sheet (iOS 16.4+)",
+    },
+    ComponentParameterDoc {
+        name: "shouldDismissOnBackPress",
+        type_name: "`Bool`",
+        default: "`true`",
+        behavior: "On Android, Back dismisses when `allowsDismissal` is also true; otherwise Back is consumed while the sheet stays open",
+    },
+    ComponentParameterDoc {
+        name: "backgroundColor",
+        type_name: "color string or `String` state",
+        default: "Platform sheet surface",
+        behavior: "Overrides the sheet surface color; use `#00000000` for a transparent surface",
+    },
+    ComponentParameterDoc {
+        name: "scrimColor",
+        type_name: "color string or `String` state",
+        default: "Platform modal scrim",
+        behavior: "Overrides the Android modal dim layer; a transparent color does not remove the modal barrier",
+    },
+];
+
+pub fn render_bottom_sheet_parameter_table() -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::from("| Parameter | Type | Default | Behavior |\n|---|---|---|---|\n");
+    for parameter in BOTTOM_SHEET_PARAMETER_DOCS {
         let _ = writeln!(
             out,
             "| `{}` | {} | {} | {} |",
@@ -1373,7 +1493,14 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("progress")],
+        arguments: &[
+            opt("progress"),
+            opt("tint"),
+            opt("trackColor"),
+            opt("thickness"),
+            opt("cornerRadius"),
+            opt("android_wave"),
+        ],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1386,7 +1513,14 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("progress")],
+        arguments: &[
+            opt("progress"),
+            opt("tint"),
+            opt("trackColor"),
+            opt("size"),
+            opt("thickness"),
+            opt("android_wave"),
+        ],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1701,14 +1835,27 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         positional: PositionalModel::None,
         arguments: &[
             req("isPresented"),
-            opt("partial"),
-            opt("largeOnly"),
-            opt("showDragHandle"),
-            opt("title"),
+            opt("contentPadding"),
+            opt("detents"),
+            opt("initialDetent"),
+            opt("snapPoints"),
+            opt("initialSnapPoint"),
+            opt("selectedSnapPoint"),
+            opt("showDragIndicator"),
+            opt("allowsDismissal"),
+            opt("allowsBackgroundInteraction"),
+            opt("shouldDismissOnBackPress"),
+            opt("backgroundColor"),
+            opt("scrimColor"),
         ],
         exclusive: &[],
         children: ChildModel::Nodes,
-        modifiers: &[],
+        modifiers: &[ModifierSchema {
+            name: "onDismiss",
+            arguments: &[],
+            body: ModifierBody::Actions,
+            required: false,
+        }],
         flags: &[],
         trailing_message: None,
     },
@@ -1814,7 +1961,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("scrollEnabled"),
             opt("reverseLayout"),
             opt("pageSnap"),
-            opt("native"),
             opt("showDividers"),
         ],
         exclusive: &[],
@@ -1830,6 +1976,30 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
                 name: "onScroll",
                 arguments: &[],
                 body: ModifierBody::Actions,
+                required: false,
+            },
+            ModifierSchema {
+                name: "scrollToIndex",
+                arguments: &[req("index")],
+                body: ModifierBody::None,
+                required: false,
+            },
+            ModifierSchema {
+                name: "scrollToTop",
+                arguments: &[req("trigger")],
+                body: ModifierBody::None,
+                required: false,
+            },
+            ModifierSchema {
+                name: "scrollToEnd",
+                arguments: &[req("trigger")],
+                body: ModifierBody::None,
+                required: false,
+            },
+            ModifierSchema {
+                name: "scrollToOffset",
+                arguments: &[req("offset")],
+                body: ModifierBody::None,
                 required: false,
             },
             ModifierSchema {

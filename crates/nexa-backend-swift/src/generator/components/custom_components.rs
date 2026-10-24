@@ -167,7 +167,6 @@ fn render_component(
         out,
     );
     out.push_str("\n    }");
-    super::sheets::render_bottom_sheet_helpers(&component.body, module, features, out);
     out.push_str("\n}\n");
 }
 

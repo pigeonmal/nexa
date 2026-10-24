@@ -124,6 +124,14 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         context.has_navigation,
         "androidx.navigation.compose.rememberNavController",
     );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.animation.AnimatedContentTransitionScope",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.animation.core.tween",
+    );
 }
 
 pub(crate) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
@@ -231,6 +239,30 @@ pub(crate) fn render_navigation_stack(
             route_value(module, root, arguments)
         ),
     );
+    for (parameter, direction) in [
+        ("enterTransition", "Start"),
+        ("exitTransition", "Start"),
+        ("popEnterTransition", "End"),
+        ("popExitTransition", "End"),
+    ] {
+        let transition = if parameter.starts_with("enter") || parameter.starts_with("popEnter") {
+            "slideIntoContainer"
+        } else {
+            "slideOutOfContainer"
+        };
+        out.line_at(depth + 1, format_args!("{parameter} = {{"));
+        out.line_at(depth + 2, format_args!("{transition}("));
+        out.line_at(
+            depth + 3,
+            format_args!("towards = AnimatedContentTransitionScope.SlideDirection.{direction},"),
+        );
+        out.line_at(
+            depth + 3,
+            format_args!("animationSpec = tween(durationMillis = 350),"),
+        );
+        out.line_at(depth + 2, format_args!(")"));
+        out.line_at(depth + 1, format_args!("}},"));
+    }
     indent(out, depth);
     out.push_str(") {\n");
     for screen in &module.screens {
@@ -572,8 +604,13 @@ fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut SourceWri
                 crate::generator::state::kotlin_state_initializer(state)
             ));
         } else {
+            let remember = if crate::generator::state::uses_saveable_state(state) {
+                "rememberSaveable"
+            } else {
+                "remember"
+            };
             out.push_str(&format!(
-                "var {name} by remember {{ {} }}\n",
+                "var {name} by {remember} {{ {} }}\n",
                 crate::generator::state::kotlin_state_initializer(state)
             ));
         }

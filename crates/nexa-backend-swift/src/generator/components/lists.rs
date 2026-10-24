@@ -12,7 +12,7 @@ use super::RenderScope;
 struct SectionedPieces<'a> {
     collection: &'a Expr,
     element_type: &'a nexa_ir::Type,
-    native: bool,
+    uses_platform_list: bool,
     show_dividers: bool,
     item_extent: Option<f32>,
     spacing: f32,
@@ -29,7 +29,8 @@ struct SectionedPieces<'a> {
 
 struct OpenListConfig<'a> {
     axis: ListAxis,
-    native: bool,
+    uses_platform_list: bool,
+    reorder_enabled: bool,
     show_dividers: bool,
     row_count: String,
     row_key: Option<String>,
@@ -39,6 +40,9 @@ struct OpenListConfig<'a> {
     on_end_reached: Option<&'a [Action]>,
     on_scroll: Option<&'a [Action]>,
     scroll_position: Option<&'a str>,
+    scroll_to_top: Option<&'a str>,
+    scroll_to_end: Option<&'a str>,
+    scroll_to_offset: Option<&'a str>,
     reverse_layout: bool,
     page_snap: bool,
     sticky_header: Option<&'a [Node]>,
@@ -55,6 +59,22 @@ struct ListConstructorConfig<'a> {
     show_dividers: bool,
     reverse_layout: bool,
     page_snap: bool,
+}
+
+fn render_swipe_action_content(
+    nodes: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    for node in nodes {
+        if matches!(node, Node::Button { .. }) {
+            super::controls::render_swipe_action_button(node, depth, out);
+        } else {
+            render_children(std::slice::from_ref(node), module, features, depth, out);
+        }
+    }
 }
 
 pub(crate) fn render_virtualized_list(
@@ -76,7 +96,7 @@ pub(crate) fn render_virtualized_list(
                 SectionedPieces {
                     collection,
                     element_type,
-                    native: common.native,
+                    uses_platform_list: common.swipe_actions.is_some(),
                     show_dividers: common.show_dividers,
                     item_extent: common.item_extent,
                     spacing: common.spacing,
@@ -97,6 +117,7 @@ pub(crate) fn render_virtualized_list(
             return;
         }
         ListPlan::Count { count, common } => {
+            let uses_platform_list = common.swipe_actions.is_some();
             let row_key = common.key.as_ref().map(|key| {
                 format!(
                     "AnyHashable({})",
@@ -106,7 +127,8 @@ pub(crate) fn render_virtualized_list(
             open_list(
                 OpenListConfig {
                     axis: common.axis,
-                    native: common.native,
+                    uses_platform_list,
+                    reorder_enabled: common.on_move.is_some(),
                     show_dividers: common.show_dividers,
                     row_count: format!("max(0, Int({}))", expression(count)),
                     row_key,
@@ -116,6 +138,9 @@ pub(crate) fn render_virtualized_list(
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
                     scroll_position: common.scroll_position.as_deref(),
+                    scroll_to_top: common.scroll_to_top.as_deref(),
+                    scroll_to_end: common.scroll_to_end.as_deref(),
+                    scroll_to_offset: common.scroll_to_offset.as_deref(),
                     reverse_layout: common.reverse_layout,
                     page_snap: common.page_snap,
                     sticky_header: common.sticky_header.as_deref(),
@@ -127,7 +152,7 @@ pub(crate) fn render_virtualized_list(
             );
             if row_references_binding(&common.children, &common.index) {
                 out.line_at(
-                    depth + if common.native { 2 } else { 1 },
+                    depth + if uses_platform_list { 2 } else { 1 },
                     format_args!(
                         "let {}: Int32 = Int32(listPosition)",
                         state_name(&common.index)
@@ -141,6 +166,7 @@ pub(crate) fn render_virtualized_list(
             item,
             common,
         } => {
+            let uses_platform_list = common.on_move.is_some() || common.swipe_actions.is_some();
             let collection_expression = expression(collection);
             let collection = format!("nexa_list_values_{}", out.next_id());
             out.line_at(
@@ -165,7 +191,8 @@ pub(crate) fn render_virtualized_list(
             open_list(
                 OpenListConfig {
                     axis: common.axis,
-                    native: common.native,
+                    uses_platform_list,
+                    reorder_enabled: common.on_move.is_some(),
                     show_dividers: common.show_dividers,
                     row_count: format!("{collection}.count"),
                     row_key,
@@ -175,6 +202,9 @@ pub(crate) fn render_virtualized_list(
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
                     scroll_position: common.scroll_position.as_deref(),
+                    scroll_to_top: common.scroll_to_top.as_deref(),
+                    scroll_to_end: common.scroll_to_end.as_deref(),
+                    scroll_to_offset: common.scroll_to_offset.as_deref(),
                     reverse_layout: common.reverse_layout,
                     page_snap: common.page_snap,
                     sticky_header: common.sticky_header.as_deref(),
@@ -186,7 +216,7 @@ pub(crate) fn render_virtualized_list(
             );
             if row_references_binding(&common.children, &common.index) {
                 out.line_at(
-                    depth + if common.native { 2 } else { 1 },
+                    depth + if uses_platform_list { 2 } else { 1 },
                     format_args!(
                         "let {}: Int32 = Int32(clamping: listPosition)",
                         state_name(&common.index)
@@ -194,7 +224,7 @@ pub(crate) fn render_virtualized_list(
                 );
             }
             out.line_at(
-                depth + if common.native { 2 } else { 1 },
+                depth + if uses_platform_list { 2 } else { 1 },
                 format_args!(
                     "let {}: {} = {collection}[listPosition]",
                     state_name(item),
@@ -203,28 +233,44 @@ pub(crate) fn render_virtualized_list(
             );
         }
     }
-    let native = match plan {
-        ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.native,
-        ListPlan::Sections { .. } => false,
-    };
+    let uses_platform_list = plan.uses_platform_list();
     let show_dividers = match plan {
         ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.show_dividers,
         ListPlan::Sections { .. } => true,
     };
-    if native {
+    let prioritize_swipe_actions = plan.swipe_actions().is_some();
+    let reorder = plan.on_move();
+    if uses_platform_list {
         out.line_at(
             depth + 2,
-            format_args!("NexaNativeListRowPrimitive(showDividers: {show_dividers}) {{"),
+            format_args!("NexaNativeListRowPrimitive(showDividers: {show_dividers}, prioritizeSwipeActions: {prioritize_swipe_actions}, reorderIndex: {}, reorderEnabled: {}, onReorder: {{ source, destination in", reorder.map(|_| "listPosition").unwrap_or("nil"), reorder.map(|move_list| expression(&move_list.enabled)).unwrap_or_else(|| "false".to_owned())),
         );
+        if let Some(on_move) = reorder {
+            out.line_at(
+                depth + 3,
+                format_args!("let {}: Int32 = Int32(source)", state_name(&on_move.from)),
+            );
+            out.line_at(
+                depth + 3,
+                format_args!(
+                    "let {}: Int32 = Int32(destination > source ? destination - 1 : destination)",
+                    state_name(&on_move.to)
+                ),
+            );
+            render_actions(&on_move.actions, depth + 3, out);
+            out.line_at(depth + 2, format_args!("}}) {{"));
+        } else {
+            out.line_at(depth + 2, format_args!("}}) {{"));
+        }
     }
     render_children(
         plan.children(),
         module,
         features,
-        depth + if native { 3 } else { 1 },
+        depth + if uses_platform_list { 3 } else { 1 },
         out,
     );
-    if native {
+    if uses_platform_list {
         out.push('\n');
         indent(out, depth + 2);
         out.push('}');
@@ -232,43 +278,25 @@ pub(crate) fn render_virtualized_list(
     if let Some(actions) = plan.swipe_actions() {
         out.push('\n');
         indent(out, depth + 2);
-        out.push_str(".swipeActions(edge: .trailing) {\n");
-        render_children(actions, module, features, depth + 3, out);
+        out.push_str(".swipeActions(edge: .trailing, allowsFullSwipe: false) {\n");
+        if let Some(on_move) = plan.on_move() {
+            out.line_at(
+                depth + 3,
+                format_args!("if !({}) {{", expression(&on_move.enabled)),
+            );
+            render_swipe_action_content(actions, module, features, depth + 4, out);
+            out.line_at(depth + 3, format_args!("}}"));
+        } else {
+            render_swipe_action_content(actions, module, features, depth + 3, out);
+        }
         out.push('\n');
         indent(out, depth + 2);
         out.push('}');
     }
     out.push('\n');
-    if native {
-        if let Some(on_move) = plan.on_move() {
-            indent(out, depth + 1);
-            out.push_str("}.onMove { source, destination in\n");
-            out.line_at(
-                depth + 2,
-                format_args!(
-                    "let {}: Int32 = Int32(source.first ?? 0)",
-                    state_name(&on_move.from)
-                ),
-            );
-            out.line_at(
-                depth + 2,
-                format_args!(
-                    "let {}: Int32 = Int32(destination > (source.first ?? 0) ? destination - 1 : destination)",
-                    state_name(&on_move.to)
-                ),
-            );
-            render_actions(&on_move.actions, depth + 2, out);
-            out.push('\n');
-            indent(out, depth + 1);
-            out.push_str("}\n");
-            out.line_at(
-                depth + 1,
-                format_args!(".moveDisabled(!({}))", expression(&on_move.enabled)),
-            );
-        } else {
-            indent(out, depth + 1);
-            out.push_str("}\n");
-        }
+    if uses_platform_list {
+        indent(out, depth + 1);
+        out.push_str("}\n");
     }
     indent(out, depth);
     out.push('}');
@@ -296,7 +324,7 @@ fn render_sectioned_list(
     let SectionedPieces {
         collection,
         element_type,
-        native,
+        uses_platform_list,
         show_dividers,
         item_extent,
         spacing,
@@ -322,7 +350,7 @@ fn render_sectioned_list(
             swift_type(element_type)
         ),
     );
-    if native {
+    if uses_platform_list {
         let item_identity = key.map(|key| {
             render_sectioned_key(
                 key,
@@ -410,7 +438,7 @@ fn render_sectioned_list(
         );
         out.line_at(
             depth + 4,
-            format_args!("NexaNativeListRowPrimitive(showDividers: {show_dividers}) {{"),
+            format_args!("NexaNativeListRowPrimitive(showDividers: {show_dividers}, prioritizeSwipeActions: {}) {{", swipe_actions.is_some()),
         );
         out.line_at(depth + 5, format_args!("VStack(spacing: 0) {{"));
         render_children(children, scope.module, scope.features, depth + 6, out);
@@ -421,8 +449,8 @@ fn render_sectioned_list(
         indent(out, depth + 4);
         out.push('}');
         if let Some(actions) = swipe_actions {
-            out.push_str(".swipeActions(edge: .trailing) {\n");
-            render_children(actions, scope.module, scope.features, depth + 5, out);
+            out.push_str(".swipeActions(edge: .trailing, allowsFullSwipe: false) {\n");
+            render_swipe_action_content(actions, scope.module, scope.features, depth + 5, out);
             out.push('\n');
             indent(out, depth + 4);
             out.push('}');
@@ -482,7 +510,6 @@ fn render_sectioned_list(
         depth + 1,
         format_args!("sectionCounts: {collection}.map(\\.count),"),
     );
-    out.line_at(depth + 1, format_args!("showDividers: {show_dividers},"));
     if let Some(item_extent) = item_extent {
         out.line_at(
             depth + 1,
@@ -495,6 +522,7 @@ fn render_sectioned_list(
             format_args!("spacing: {},", format_float(spacing)),
         );
     }
+    out.line_at(depth + 1, format_args!("showDividers: {show_dividers},"));
     out.line_at(depth + 1, format_args!("scrollEnabled: {scroll_enabled},"));
     if let Some(key) = key {
         indent(out, depth + 1);
@@ -631,6 +659,11 @@ fn list_constructor(config: ListConstructorConfig<'_>) -> String {
                 "NexaFastGridListPrimitive(rowCount: {row_count}, columns: 1, minCellWidth: {min_cell_width}, itemHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key})"
             )
         }
+        ListAxis::Masonry { columns } => {
+            format!(
+                "NexaFastGridListPrimitive(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{spacing_argument}{scroll_enabled_argument}{key}, masonry: true)"
+            )
+        }
     }
 }
 
@@ -642,7 +675,8 @@ fn open_list(
 ) {
     let OpenListConfig {
         axis,
-        native,
+        uses_platform_list,
+        reorder_enabled,
         show_dividers,
         row_count,
         row_key,
@@ -652,6 +686,9 @@ fn open_list(
         on_end_reached,
         on_scroll,
         scroll_position,
+        scroll_to_top,
+        scroll_to_end,
+        scroll_to_offset,
         reverse_layout,
         page_snap,
         sticky_header,
@@ -660,7 +697,7 @@ fn open_list(
     let scroll_enabled = scroll_enabled
         .map(expression)
         .unwrap_or_else(|| "true".to_owned());
-    if native {
+    if uses_platform_list {
         let identified_rows = row_key.map(|identity| {
             let rows = format!("nexa_list_rows_{}", out.next_id());
             out.line_at(
@@ -674,17 +711,22 @@ fn open_list(
             out.line_at(depth, format_args!("}}"));
             rows
         });
-        let spacing_argument = if spacing > 0.0 {
+        let reorder_argument = if reorder_enabled {
+            ", reorderEnabled: true"
+        } else {
+            ""
+        };
+        let arguments = if spacing > 0.0 {
             format!(
-                "(spacing: {}, scrollEnabled: {scroll_enabled})",
-                format_float(spacing)
+                "spacing: {}, scrollEnabled: {scroll_enabled}{reorder_argument}",
+                format_float(spacing),
             )
         } else {
-            format!("(scrollEnabled: {scroll_enabled})")
+            format!("scrollEnabled: {scroll_enabled}{reorder_argument}")
         };
         out.line_at(
             depth,
-            format_args!("NexaNativeListPrimitive{spacing_argument} {{"),
+            format_args!("NexaNativeListPrimitive({arguments}) {{"),
         );
         if let Some(rows) = identified_rows {
             out.line_at(depth + 1, format_args!("ForEach({rows}) {{ nexaListRow in"));
@@ -703,6 +745,9 @@ fn open_list(
     if on_end_reached.is_some()
         || on_scroll.is_some()
         || scroll_position.is_some()
+        || scroll_to_top.is_some()
+        || scroll_to_end.is_some()
+        || scroll_to_offset.is_some()
         || reverse_layout
         || page_snap
         || spacing > 0.0
@@ -725,6 +770,31 @@ fn open_list(
         if let Some(scroll_position) = scroll_position {
             out.push_str(", scrollPosition: ");
             out.push_str(&state_name(scroll_position));
+        }
+        if scroll_to_top.is_some() || scroll_to_end.is_some() || scroll_to_offset.is_some() {
+            out.push_str(", commands: NexaFastListCommands(");
+            let mut comma = false;
+            for (field, value) in [
+                ("top", scroll_to_top.map(state_name)),
+                ("end", scroll_to_end.map(state_name)),
+                (
+                    "offset",
+                    scroll_to_offset.map(|name| format!("Double({})", state_name(name))),
+                ),
+            ] {
+                if let Some(value) = value {
+                    if comma {
+                        out.push_str(", ");
+                    }
+                    out.push_str(field);
+                    out.push_str(": ");
+                    out.push_str(&value);
+                    comma = true;
+                }
+            }
+            out.push(')');
+        }
+        if let Some(scroll_position) = scroll_position {
             out.push_str(", onScrollPositionChanged: { position in\n");
             out.line_at(
                 depth + 1,

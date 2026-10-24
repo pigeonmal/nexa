@@ -72,7 +72,7 @@ app ECommerceArchetype {
                 }
             }
 
-            BottomSheet(isPresented: showCart, partial: true) {
+            BottomSheet(isPresented: showCart, detents: [Medium, Expanded]) {
                 Column(spacing: 12, padding: 20) {
                     Text("Your cart")
                     Text("Items: \(cartCount)")

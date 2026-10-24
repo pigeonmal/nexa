@@ -23,6 +23,17 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v458` | Removes the FastList `native` option; platform list surfaces are selected automatically for move and swipe actions, and advances Dev IR format 55. |
+| `build-v457` | Adds BottomSheet presentation and snap actions through typed state bindings, synchronizes the selected custom snap point in both native renderers, and advances Dev IR format 54. |
+| `build-v456` | Applies the shared drag-indicator content inset to iOS BottomSheet content so its top-start Column matches Android's native handle slot. |
+| `build-v455` | Applies the shared Nexa Column defaults to iOS and Android BottomSheet content: horizontal centering, top-start vertical arrangement, and no implicit padding. |
+| `build-v454` | Gives iOS and Android BottomSheet content the same centered Nexa Column layout under the platform drag indicator. |
+| `build-v453` | Animates Android Maps-style BottomSheet presentation from zero height to its initial snap point and invalidates stale generated native hosts. |
+| `build-v452` | Adds a pass-through, non-modal Android BottomSheet overlay and routes Back dismissal through `shouldDismissOnBackPress`. |
+| `build-v451` | Removes coroutine Flow imports from the shared BottomSheet primitive while retaining state-driven initial-detent and keyboard expansion. |
+| `build-v450` | Regenerates the shared native BottomSheet primitive with Android IME-driven expansion so focused sheet content remains visible above the keyboard. |
+| `build-v449` | Adds omission-based indeterminate ProgressRing rendering and Android's optional Material 3 circular wavy indicator; insets the iOS ring stroke inside its layout frame. |
+| `build-v448` | Opens Android compact DateTime pickers on the calendar alone; the separate time trigger owns its Material 3 time picker. |
 | `build-v447` | Fixes SwiftUI range-picker label compilation and constrains inline Material 3 range calendars in scrolling parents while keeping dialogs platform-sized. |
 | `build-v446` | Rebuilds PickerDate on native SwiftUI and Material 3 controls, removing forced full-screen dialog sizing. |
 | `build-v445` | Bounds Material 3 calendar height for safe layout inside scrolling parents and compact dialogs. |

@@ -1,6 +1,6 @@
 screen Theme {
     Appearance(mode: appearanceMode) {
-        FastList(TodoOptions.themeOptions, native: true) { theme, index in
+        FastList(TodoOptions.themeOptions) { theme, index in
             Pressable(accessibilityLabel: theme, accessibilityValue: selectedTheme == theme ? "Selected" : "Not selected", accessibilityRole: Button) {
                 Row(spacing: 16, padding: 8) {
                     Icon(system: "circle_filled", size: 32, tint: themeTint(theme), description: "")

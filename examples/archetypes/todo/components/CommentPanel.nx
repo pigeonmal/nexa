@@ -39,7 +39,7 @@ component CommentPanel(taskID: Int32) {
                         Text("Add a comment below", fontSize: 16, color: "#8E8E93")
                     }
                 } else {
-                    FastList(activeTaskComments(comments, taskID).sortedBy { comment -> comment.createdAt }, native: true) { comment, index in
+                    FastList(activeTaskComments(comments, taskID).sortedBy { comment -> comment.createdAt }) { comment, index in
                         Column(spacing: 6, padding: 8) {
                             Text(Time.format(comment.createdAt, "d MMM, HH:mm"), fontSize: 12, color: "#8E8E93")
                             if comment.imageUri != "" {
@@ -125,7 +125,7 @@ component CommentPanel(taskID: Int32) {
                 }
                 Text(commentStatus, fontSize: 12, color: "#8E8E93")
 
-                BottomSheet(isPresented: showFullImage, partial: false) {
+                BottomSheet(isPresented: showFullImage, detents: [Expanded], initialDetent: Expanded) {
                     Column(spacing: 12, padding: 16) {
                         Image(file: fullImageUri, description: "Full size comment image", scale: Fit)
                         Button("Done", style: Borderless) { showFullImage = false }

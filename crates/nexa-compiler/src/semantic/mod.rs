@@ -276,8 +276,7 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                             "widget `FastList` does not support a custom row extent or row key yet",
                         ));
                     }
-                    if common.native
-                        || common.reverse_layout
+                    if common.reverse_layout
                         || common.page_snap
                         || common.scroll_position.is_some()
                         || common.on_end_reached.is_some()
@@ -289,7 +288,7 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                     {
                         return Err(CompileError::new(
                             span,
-                            "widget `FastList` supports only a vertical list with pure row content; scrolling, refresh, reorder, swipe, sticky header, and native-list options are unavailable",
+                            "widget `FastList` supports only a vertical list with pure row content; scrolling, refresh, reorder, swipe actions, and sticky headers are unavailable",
                         ));
                     }
                     visit(&common.children, span)?;

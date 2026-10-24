@@ -96,7 +96,7 @@ fn tab_contains_grouped_surface(children: &[Node]) -> bool {
         children,
         &mut |node| {
             found |= matches!(node, Node::Form { .. })
-                || matches!(node, Node::FastList { plan } if plan.native());
+                || matches!(node, Node::FastList { plan } if plan.uses_platform_list());
         },
         &mut |_| {},
     );

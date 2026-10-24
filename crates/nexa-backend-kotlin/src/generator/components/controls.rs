@@ -249,6 +249,20 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_progress_bar,
         "androidx.compose.foundation.layout.fillMaxWidth",
     );
+    imports.add(
+        features.uses_progress_bar,
+        "androidx.compose.foundation.layout.height",
+    );
+    imports.add(features.uses_progress_bar, "androidx.compose.ui.draw.clip");
+    imports.add(
+        features.uses_progress_bar,
+        "androidx.compose.ui.graphics.Color",
+    );
+    imports.add(
+        features.uses_progress_bar,
+        "androidx.compose.foundation.shape.RoundedCornerShape",
+    );
+    imports.add(features.uses_progress_bar, "androidx.compose.ui.unit.dp");
     imports.add(features.uses_progress_bar, "androidx.compose.ui.Modifier");
     imports.add(
         features.uses_progress_ring,
@@ -460,23 +474,84 @@ pub(crate) fn render_slider(
     );
 }
 
-pub(crate) fn render_progress_bar(progress: &Expr, depth: usize, out: &mut SourceWriter) {
-    out.line_at(
-        depth,
-        format_args!(
-            "NexaProgressBarPrimitive(progress = {}.toFloat())",
-            expression(progress)
-        ),
+pub(crate) fn render_progress_bar(
+    progress: Option<&Expr>,
+    style: Option<&nexa_ir::ProgressBarStyle>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let tint = style.and_then(|style| style.tint.as_ref());
+    let track_color = style.and_then(|style| style.track_color.as_ref());
+    let thickness = style.and_then(|style| style.thickness);
+    let corner_radius = style.and_then(|style| style.corner_radius);
+    let android_wave = style.and_then(|style| style.android_wave.as_ref());
+    let tint = tint.map_or_else(
+        || "null".to_owned(),
+        crate::generator::colors::expression_for_color,
     );
+    let track_color = track_color.map_or_else(
+        || "null".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
+    let thickness = thickness.map_or_else(|| "null".to_owned(), |value| format!("{value}f"));
+    let corner_radius =
+        corner_radius.map_or_else(|| "null".to_owned(), |value| format!("{value}f"));
+    let mut arguments = format!(
+        "progress = {}, tint = {}, trackColor = {}, thickness = {}, cornerRadius = {}",
+        progress.map_or_else(
+            || "null".to_owned(),
+            |progress| format!("{}.toFloat()", expression(progress))
+        ),
+        tint,
+        track_color,
+        thickness,
+        corner_radius
+    );
+    if let Some(android_wave) = android_wave {
+        arguments.push_str(&format!(", androidWave = {}", expression(android_wave)));
+    }
+    out.line_at(depth, format_args!("NexaProgressBarPrimitive({arguments})"));
 }
 
-pub(crate) fn render_progress_ring(progress: &Expr, depth: usize, out: &mut SourceWriter) {
+pub(crate) fn render_progress_ring(
+    progress: Option<&Expr>,
+    style: Option<&nexa_ir::ProgressRingStyle>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let tint = style.and_then(|style| style.tint.as_ref()).map_or_else(
+        || "null".to_owned(),
+        crate::generator::colors::expression_for_color,
+    );
+    let track_color = style
+        .and_then(|style| style.track_color.as_ref())
+        .map_or_else(
+            || "null".to_owned(),
+            crate::generator::colors::expression_for_color,
+        );
+    let size = style
+        .and_then(|style| style.size)
+        .map_or_else(|| "null".to_owned(), |value| format!("{value}f"));
+    let thickness = style
+        .and_then(|style| style.thickness)
+        .map_or_else(|| "null".to_owned(), |value| format!("{value}f"));
+    let mut arguments = format!(
+        "progress = {}, tint = {}, trackColor = {}, size = {}, thickness = {}",
+        progress.map_or_else(
+            || "null".to_owned(),
+            |progress| format!("{}.toFloat()", expression(progress))
+        ),
+        tint,
+        track_color,
+        size,
+        thickness
+    );
+    if let Some(android_wave) = style.and_then(|style| style.android_wave.as_ref()) {
+        arguments.push_str(&format!(", androidWave = {}", expression(android_wave)));
+    }
     out.line_at(
         depth,
-        format_args!(
-            "NexaProgressRingPrimitive(progress = {}.toFloat())",
-            expression(progress)
-        ),
+        format_args!("NexaProgressRingPrimitive({arguments})"),
     );
 }
 
@@ -1887,11 +1962,33 @@ mod tests {
             nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64),
         );
         let mut output = SourceWriter::new();
-        render_progress_bar(&progress, 0, &mut output);
-        render_progress_ring(&progress, 0, &mut output);
+        render_progress_bar(Some(&progress), None, 0, &mut output);
+        render_progress_ring(Some(&progress), None, 0, &mut output);
         assert_eq!(
             output.as_str(),
-            "NexaProgressBarPrimitive(progress = nexa_progress.toFloat())\nNexaProgressRingPrimitive(progress = nexa_progress.toFloat())\n"
+            "NexaProgressBarPrimitive(progress = nexa_progress.toFloat(), tint = null, trackColor = null, thickness = null, cornerRadius = null)\nNexaProgressRingPrimitive(progress = nexa_progress.toFloat(), tint = null, trackColor = null, size = null, thickness = null)\n"
+        );
+    }
+
+    #[test]
+    fn omitted_progress_generates_the_native_indeterminate_bar_call() {
+        let mut output = SourceWriter::new();
+        render_progress_bar(None, None, 0, &mut output);
+
+        assert_eq!(
+            output.as_str(),
+            "NexaProgressBarPrimitive(progress = null, tint = null, trackColor = null, thickness = null, cornerRadius = null)\n"
+        );
+    }
+
+    #[test]
+    fn omitted_ring_progress_generates_the_native_indeterminate_ring_call() {
+        let mut output = SourceWriter::new();
+        render_progress_ring(None, None, 0, &mut output);
+
+        assert_eq!(
+            output.as_str(),
+            "NexaProgressRingPrimitive(progress = null, tint = null, trackColor = null, size = null, thickness = null)\n"
         );
     }
 

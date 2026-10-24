@@ -61,7 +61,6 @@ pub const FORM_FOOTER_FONT_SIZE: u8 = 13;
 pub const FORM_LARGE_TITLE_TOP_PADDING: u8 = 20;
 /// Android Material 3 app bars need this trailing action inset to match SwiftUI's native toolbar.
 pub const NAVIGATION_TRAILING_ACTION_INSET: u8 = 16;
-
 /// Shared geometry and type scale for Nexa's fixed-height navigation header.
 ///
 /// The header never changes its height while scrolling. Scrolling only changes
@@ -110,20 +109,28 @@ pub const TITLE_BAR_METRICS: TitleBarMetrics = TitleBarMetrics {
 pub const ANDROID_NATIVE_LIST_ROW_VERTICAL_INSET: u8 = 2;
 /// Match the standard horizontal content inset of an iOS grouped-list row.
 pub const ANDROID_NATIVE_LIST_ROW_HORIZONTAL_INSET: u8 = 16;
+/// Keep native grouped-list row ends square, matching SwiftUI's grouped rows.
+pub const ANDROID_NATIVE_LIST_ROW_CORNER_RADIUS: u8 = 0;
+/// Shared minimum extent for content-sized FastList rows on iOS and Android.
+pub const FAST_LIST_ROW_MIN_HEIGHT: u8 = 52;
 /// Match the measured minimum row height of an iOS inset-grouped SwiftUI List.
-pub const ANDROID_NATIVE_LIST_ROW_MIN_HEIGHT: u8 = 52;
+pub const ANDROID_NATIVE_LIST_ROW_MIN_HEIGHT: u8 = FAST_LIST_ROW_MIN_HEIGHT;
 /// Row content padding already provides the grouped-list divider inset.
 pub const ANDROID_NATIVE_LIST_DIVIDER_START_INSET: u8 = 0;
 pub const ANDROID_NATIVE_LIST_DIVIDER_END_INSET: u8 = 0;
-/// Android's native-list approximation follows the inset section spacing of iOS `List`.
-pub const ANDROID_NATIVE_LIST_CONTENT_HORIZONTAL_INSET: u8 = 16;
-pub const ANDROID_NATIVE_LIST_CONTENT_VERTICAL_INSET: u8 = 12;
+/// Native list containers extend to their parent's horizontal bounds on both platforms.
+pub const NATIVE_LIST_CONTAINER_HORIZONTAL_INSET: u8 = 0;
+/// iOS versions before `contentMargins` retain the default inset-grouped List margin.
+pub const IOS_LEGACY_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET: u8 = 16;
+/// Shared top and bottom content inset for native grouped FastList containers.
+pub const NATIVE_LIST_CONTENT_VERTICAL_INSET: u8 = 16;
+pub const ANDROID_NATIVE_LIST_CONTENT_VERTICAL_INSET: u8 = NATIVE_LIST_CONTENT_VERTICAL_INSET;
 pub const ANDROID_NATIVE_LIST_SECTION_HEADER_HORIZONTAL_INSET: u8 = 16;
 pub const ANDROID_NATIVE_LIST_SECTION_HEADER_VERTICAL_INSET: u8 = 8;
 pub const ANDROID_NATIVE_LIST_SECTION_SPACING: u8 = 16;
-/// Shared native-list row insets used to align SwiftUI rows with Compose rows.
+/// Shared native-list row content insets used to align SwiftUI rows with Compose rows.
 pub const NATIVE_LIST_ROW_VERTICAL_INSET: u8 = ANDROID_NATIVE_LIST_ROW_VERTICAL_INSET;
-pub const NATIVE_LIST_CONTENT_HORIZONTAL_INSET: u8 = ANDROID_NATIVE_LIST_CONTENT_HORIZONTAL_INSET;
+pub const NATIVE_LIST_ROW_HORIZONTAL_INSET: u8 = ANDROID_NATIVE_LIST_ROW_HORIZONTAL_INSET;
 /// Grouped Form section colors matching the native iOS system palette.
 pub const FORM_LIGHT_SECTION_ARGB: u32 = 0xFFFF_FFFF;
 pub const FORM_DARK_SECTION_ARGB: u32 = 0xFF1C_1C1E;

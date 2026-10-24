@@ -751,6 +751,9 @@ These calls are built into the compiler and need no plugin declaration. Asynchro
 | `Locale.displayName(languageCode)` | `(String) -> String?` | Returns the localized language name when available. |
 | `Locale.localized(sourceText)` | `(String) -> String` | Localizes a source-text literal or interpolation using generated catalogs. |
 | `Keyboard.dismiss()` | `() -> Void` | Dismisses the active keyboard. |
+| `BottomSheet.present(isPresented)` | action on mutable `Bool` state | Presents the bound sheet with its native animation. |
+| `BottomSheet.dismiss(isPresented)` | action on mutable `Bool` state | Dismisses the bound sheet with its native animation. |
+| `BottomSheet.snapTo(selectedSnapPoint, snapPoint)` | action on mutable `Float64` state and a `Float64` fraction | Selects a configured custom snap point; bind the same state through `selectedSnapPoint`. |
 | `Screen.lockOrientation(mode)` | `(String) -> Void` | Sets orientation to `Portrait`, `Landscape`, or `All`. |
 | `AppIcon.set(name)` | `async (String?) -> Bool` | Sets the alternate app icon, or restores the default with `null`. |
 | `Haptics.impact(style)` | `(Light | Medium | Heavy) -> Void` | Triggers an impact haptic. |

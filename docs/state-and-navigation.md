@@ -24,7 +24,7 @@ app Storefront {
         Column(spacing: 12, padding: 16) {
             Text("Featured products", fontSize: 24, fontWeight: Bold)
             Text("Cart items: \(cartCount)", color: "#475569")
-            FastList(products, key: .id, native: true) { product, index in
+            FastList(products, key: .id) { product, index in
                 NavigationLink(destination: ProductDetail(product.id)) {
                     Row(spacing: 12, padding: 12, background: "#F1F5F9", cornerRadius: 8) {
                         Text("\(index + 1). \(product.name)", fontWeight: Semibold)
@@ -155,7 +155,12 @@ app Inventory {
 
 ## External links and modal content
 
-`Link(url: ...)` opens a URL through the platform handler. Incoming universal-link routing is not part of the current Nexa syntax. `BottomSheet`, `Dialog`, and `ConfirmationDialog` are controlled by a mutable boolean binding.
+`Link(url: ...)` opens a URL through the platform handler. Incoming universal-link routing is not part of the current Nexa syntax.
+
+`BottomSheet`, `Dialog`, and `ConfirmationDialog` use mutable boolean state.
+For explicit sheet commands, call `BottomSheet.present(state)` or
+`BottomSheet.dismiss(state)`; both update that same state and keep the native
+presentation animation.
 
 ```nx
 app AccountHelp {
@@ -163,14 +168,15 @@ app AccountHelp {
 
     body {
         Column(spacing: 12, padding: 16) {
-            Button("Help options") { showHelp = true }
+            Button("Help options") { BottomSheet.present(showHelp) }
             Link(url: "https://support.example.com/account") {
                 Text("Visit account help")
             }
-            BottomSheet(isPresented: showHelp, partial: true, title: "Account help") {
+            BottomSheet(isPresented: showHelp, detents: [Medium, Expanded]) {
                 Column(spacing: 12, padding: 16) {
+                    Text("Account help")
                     Text("Need help signing in?")
-                    Button("Close") { showHelp = false }
+                    Button("Close") { BottomSheet.dismiss(showHelp) }
                 }
             }
         }

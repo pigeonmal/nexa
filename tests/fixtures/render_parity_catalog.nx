@@ -81,7 +81,8 @@ app RenderParityCatalog {
                             Text("Title: $title", fontSize: 12)
                             Slider(value: sliderValue, min: 0, max: 1, step: 0.05, accessibilityLabel: "Progress slider")
                             ProgressBar(progress: progress, accessibilityLabel: "Task progress")
-                            ProgressRing(progress: progress, accessibilityLabel: "Circular task progress")
+                            ProgressRing(progress: progress, tint: "#2563EB", trackColor: "#DBEAFE", size: 48, thickness: 5, android_wave: true, accessibilityLabel: "Circular task progress")
+                            ProgressRing()
                             SegmentedControl(items: periods, selected: period, accessibilityLabel: "Period")
                             Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", accessibilityLabel: "Sort tasks")
                             Pressable(accessibilityLabel: "Pressable action", accessibilityRole: Button) {
@@ -167,8 +168,9 @@ app RenderParityCatalog {
                 }
                 }
 
-                BottomSheet(isPresented: sheetPresented, partial: true, title: "Parity sheet") {
+                BottomSheet(isPresented: sheetPresented, detents: [Medium, Expanded]) {
                     Column(spacing: 12, padding: 24) {
+                        Text("Parity sheet")
                         Text("Sheet content", accessibilityLabel: "Sheet content")
                         Button("Close sheet") { sheetPresented = false }
                     }

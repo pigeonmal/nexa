@@ -278,8 +278,9 @@ component HomeScreen() {
             }
         }
 
-        BottomSheet(isPresented: commentsOpen, partial: true, title: "Comments · \(clips[page].commentCount)") {
+        BottomSheet(isPresented: commentsOpen, detents: [Medium, Expanded]) {
             Column(spacing: 12, padding: 16, background: "#17171B") {
+                Text("Comments · \(clips[page].commentCount)", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 FastList(comments, key: .self, rowHeight: 54, accessibilityLabel: "Video comments") { comment, index in
                     Row(spacing: 10, alignment: Center, padding: 5) {
                         CreatorAvatar(assetName: if index == 1 { "mira" } else { "alex" }, scale: "small")
@@ -303,8 +304,9 @@ component HomeScreen() {
             }
         }
 
-        BottomSheet(isPresented: searchOpen, partial: true, title: "Search") {
+        BottomSheet(isPresented: searchOpen, detents: [Medium, Expanded]) {
             Column(spacing: 14, padding: 18, background: "#17171B") {
+                Text("Search", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 TextInput(value: searchQuery, placeholder: "Search creators, sounds, videos", searchable: true)
                 Text("Trending now", color: "#FFFFFF", fontSize: 16, fontWeight: Bold)
                 Text("#weekend · #foodtok · #travel · #foryou", color: "#B5B5B8", fontSize: 13)

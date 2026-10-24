@@ -324,7 +324,6 @@ fn validate_widget(widget: &Widget) -> Result<(), crate::WidgetGenerationError> 
                         }
                     };
                     if common.axis != nexa_ir::ListAxis::Vertical
-                        || common.native
                         || common.reverse_layout
                         || common.page_snap
                         || common.item_extent.is_some()

@@ -5,9 +5,9 @@ use super::RenderScope;
 use super::{content_unavailable, dialogs};
 use crate::generator::components::split_view;
 use crate::generator::{
-    accessibility, bottom_bar, colors, controls,
+    accessibility, bottom_bar, bottom_sheet, colors, controls,
     engine::features::Features,
-    images, input, keyboard, layout, links, lists, navigation, refresh, sheets, system_icons,
+    images, input, keyboard, layout, links, lists, navigation, refresh, system_icons,
     utils::{indent, number},
 };
 
@@ -245,8 +245,12 @@ pub(crate) fn render_node(
             step,
             ..
         } => controls::render_slider(state, *min, *max, *step, depth, out),
-        Node::ProgressBar { progress } => controls::render_progress_bar(progress, depth, out),
-        Node::ProgressRing { progress } => controls::render_progress_ring(progress, depth, out),
+        Node::ProgressBar { progress, style } => {
+            controls::render_progress_bar(progress.as_ref(), style.as_deref(), depth, out)
+        }
+        Node::ProgressRing { progress, style } => {
+            controls::render_progress_ring(progress.as_ref(), style.as_deref(), depth, out)
+        }
         Node::SegmentedControl {
             items,
             state,
@@ -418,13 +422,43 @@ pub(crate) fn render_node(
         }
         Node::BottomSheet {
             state,
-            partial,
-            large_only,
-            show_drag_handle,
-            ..
-        } => {
-            sheets::render_bottom_sheet(state, *partial, *large_only, *show_drag_handle, depth, out)
-        }
+            content_padding,
+            detents,
+            snap_points,
+            initial_snap_point,
+            selected_snap_point,
+            initial_detent,
+            show_drag_indicator,
+            allows_dismissal,
+            allows_background_interaction,
+            should_dismiss_on_back_press,
+            background_color,
+            scrim_color,
+            on_dismiss,
+            children,
+        } => bottom_sheet::render_bottom_sheet(
+            bottom_sheet::BottomSheetRenderArgs {
+                state,
+                content_padding: *content_padding,
+                detents,
+                snap_points,
+                initial_snap_point: *initial_snap_point,
+                selected_snap_point: selected_snap_point.as_deref(),
+                initial_detent: *initial_detent,
+                show_drag_indicator: *show_drag_indicator,
+                allows_dismissal: *allows_dismissal,
+                allows_background_interaction: *allows_background_interaction,
+                should_dismiss_on_back_press: *should_dismiss_on_back_press,
+                background_color: background_color.as_ref(),
+                scrim_color: scrim_color.as_ref(),
+                on_dismiss,
+                children,
+                module,
+                features,
+                depth,
+            },
+            out,
+        ),
         Node::Dialog {
             state,
             title,

@@ -130,6 +130,7 @@ fn dot_modifiers_match_parser_accepted_names() {
         [
             "contextMenu",
             "onChange",
+            "onDismiss",
             "onDoubleTap",
             "onDrag",
             "onEndReached",
@@ -139,6 +140,10 @@ fn dot_modifiers_match_parser_accepted_names() {
             "onRefresh",
             "onScroll",
             "onTap",
+            "scrollToEnd",
+            "scrollToIndex",
+            "scrollToOffset",
+            "scrollToTop",
             "sectionHeader",
             "sharedElement",
             "stickyHeader",
@@ -245,6 +250,28 @@ fn segmented_control_parameter_table_matches_the_catalog() {
 }
 
 #[test]
+fn bottom_sheet_parameter_table_matches_the_catalog() {
+    let schema = catalog::component_schema("BottomSheet").expect("BottomSheet schema");
+    let catalog_names: Vec<&str> = schema
+        .arguments
+        .iter()
+        .map(|argument| argument.name)
+        .collect();
+    let documented_names: Vec<&str> = catalog::BOTTOM_SHEET_PARAMETER_DOCS
+        .iter()
+        .map(|parameter| parameter.name)
+        .collect();
+    assert_eq!(catalog_names, documented_names);
+
+    nexa_testkit::assert_region(
+        &workspace_path("../../docs/components.md"),
+        "BOTTOM_SHEET_PARAMETERS",
+        &catalog::render_bottom_sheet_parameter_table(),
+        "docs/components.md",
+    );
+}
+
+#[test]
 fn fast_list_source_grammar_is_catalogued() {
     let schema = catalog::component_schema("FastList").expect("FastList schema");
     let options: Vec<&str> = schema.arguments.iter().map(|arg| arg.name).collect();
@@ -258,12 +285,32 @@ fn fast_list_source_grammar_is_catalogued() {
             "scrollEnabled",
             "reverseLayout",
             "pageSnap",
-            "native",
             "showDividers"
         ]
     );
     assert_eq!(catalog::FASTLIST_SOURCE_KEYS, ["count", "sections"]);
     assert_eq!(catalog::FASTLIST_KEY_OPTION, "key");
+    for (name, expected_arguments) in [
+        ("scrollToIndex", ["index"].as_slice()),
+        ("scrollToTop", ["trigger"].as_slice()),
+        ("scrollToEnd", ["trigger"].as_slice()),
+        ("scrollToOffset", ["offset"].as_slice()),
+    ] {
+        let modifier = schema
+            .modifiers
+            .iter()
+            .find(|modifier| modifier.name == name)
+            .unwrap_or_else(|| panic!("FastList {name} modifier"));
+        assert_eq!(
+            modifier
+                .arguments
+                .iter()
+                .map(|arg| arg.name)
+                .collect::<Vec<_>>(),
+            expected_arguments
+        );
+        assert_eq!(modifier.body, catalog::ModifierBody::None);
+    }
 }
 
 #[test]

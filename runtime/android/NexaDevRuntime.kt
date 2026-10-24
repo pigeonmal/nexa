@@ -1,5 +1,8 @@
 package __NEXA_PACKAGE__
 
+import android.app.Application
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -37,6 +40,9 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -44,13 +50,35 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import org.json.JSONArray
 
+internal class NexaDevRuntimeViewModel(application: Application) : AndroidViewModel(application) {
+    val store = NexaDevStateStore(application.applicationContext)
+
+    override fun onCleared() {
+        store.module?.optJSONArray("on_disappear")?.let { store.perform(it, "app", emptyMap()) }
+        store.dispose()
+    }
+}
+
+private fun Context.findNexaViewModelStoreOwner(): ViewModelStoreOwner? {
+    var current: Context = this
+    while (true) {
+        if (current is ViewModelStoreOwner) return current
+        if (current !is ContextWrapper) return null
+        current = current.baseContext
+    }
+}
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
     val currentContext = LocalContext.current
-    val applicationContext = currentContext.applicationContext
     NexaRuntime.bind(currentContext)
-    val store = remember(applicationContext) { NexaDevStateStore(applicationContext) }
+    val viewModelStoreOwner = currentContext.findNexaViewModelStoreOwner()
+        ?: error("Nexa DevRuntime requires an Activity ViewModelStoreOwner")
+    val runtimeViewModel = remember(viewModelStoreOwner) {
+        ViewModelProvider(viewModelStoreOwner).get(NexaDevRuntimeViewModel::class.java)
+    }
+    val store = runtimeViewModel.store
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result -> NexaRuntime.dispatchPermissionResult(result) }
@@ -92,12 +120,6 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    DisposableEffect(lifecycleOwner) {
-        onDispose {
-            latestModule.value?.optJSONArray("on_disappear")?.let { store.perform(it, "app", emptyMap()) }
-            store.dispose()
-        }
     }
     var fps by remember { mutableIntStateOf(0) }
     var frameTimeMs by remember { mutableDoubleStateOf(0.0) }

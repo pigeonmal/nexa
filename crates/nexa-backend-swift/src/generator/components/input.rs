@@ -55,10 +55,9 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         actions,
         on_change,
     } = props;
-    let binding = max_length.map_or_else(
-        || format!("${}", state_name(state)),
-        |limit| format!("nexaLimitedTextBinding(${},{limit})", state_name(state)),
-    );
+    let binding = format!("${}", state_name(state));
+    let next_action_is_handled_by_primitive =
+        return_key == Some(ReturnKeyType::Next) && focused.is_none();
     let placeholder = match comment {
         Some(comment) => format!(
             "Text({}, comment: {})",
@@ -67,10 +66,32 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         ),
         None => format!("Text({})", swift_string(placeholder)),
     };
+    let max_length = max_length.map_or_else(|| "nil".to_owned(), |limit| limit.to_string());
+    let keeps_focus_on_next = return_key == Some(ReturnKeyType::Next) && focused.is_none();
     indent(out, depth);
     out.push_str(&format!(
-        "NexaTextInputPrimitive(text: {binding}, placeholder: {placeholder}, secure: {secure}, multiline: {multiline}, searchable: {searchable})"
+        "NexaTextInputPrimitive(text: {binding}, placeholder: {placeholder}, secure: {secure}, multiline: {multiline}, searchable: {searchable}, maxLength: {max_length}, keepsFocusOnNext: {keeps_focus_on_next}"
     ));
+    if next_action_is_handled_by_primitive && !actions.is_empty() {
+        out.push_str(", onSubmitAction: {\n");
+        render_actions(actions, depth + 2, out);
+        indent(out, depth + 1);
+        out.push('}');
+    } else {
+        out.push_str(", onSubmitAction: nil");
+    }
+    if let Some(change) = on_change {
+        out.push_str(&format!(
+            ", onChange: {{ {} in\n",
+            state_name(&change.parameter)
+        ));
+        render_actions(&change.actions, depth + 2, out);
+        indent(out, depth + 1);
+        out.push('}');
+    } else {
+        out.push_str(", onChange: nil");
+    }
+    out.push(')');
     if let Some(font) = font {
         let font = match font {
             TextInputFont::Body => ".body",
@@ -131,20 +152,23 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             state_name(focused)
         ));
     }
-    if !actions.is_empty() {
+    if (!actions.is_empty() && !next_action_is_handled_by_primitive)
+        || (return_key == Some(ReturnKeyType::Next) && focused.is_some())
+    {
         out.push_str(&format!("\n{}.onSubmit {{\n", "    ".repeat(depth + 1)));
-        render_actions(actions, depth + 2, out);
-        indent(out, depth + 1);
-        out.push('}');
-    }
-    if let Some(change) = on_change {
-        out.push_str(&format!(
-            "\n{}.onChange(of: {}) {{ {} in\n",
-            "    ".repeat(depth + 1),
-            state_name(state),
-            state_name(&change.parameter)
-        ));
-        render_actions(&change.actions, depth + 2, out);
+        if !actions.is_empty() {
+            render_actions(actions, depth + 2, out);
+        }
+        if return_key == Some(ReturnKeyType::Next)
+            && let Some(focused) = focused
+        {
+            indent(out, depth + 2);
+            out.push_str("DispatchQueue.main.async {\n");
+            indent(out, depth + 3);
+            out.push_str(&format!("{} = true\n", state_name(focused)));
+            indent(out, depth + 2);
+            out.push('}');
+        }
         indent(out, depth + 1);
         out.push('}');
     }
@@ -197,7 +221,7 @@ mod tests {
     use nexa_codegen::SourceWriter;
 
     use super::{TextInputProps, render_text_input};
-    use nexa_ir::{Capitalization, KeyboardType};
+    use nexa_ir::{Capitalization, KeyboardType, ReturnKeyType, TextInputChange};
 
     #[test]
     fn searchable_input_is_a_real_bound_native_text_field() {
@@ -263,9 +287,116 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains(
-            "NexaTextInputPrimitive(text: nexaLimitedTextBinding($nexa_description,1200)"
-        ));
-        assert!(!output.contains(".onChange(of: nexa_description)"));
+        assert!(output.contains("NexaTextInputPrimitive(text: $nexa_description"));
+        assert!(output.contains("maxLength: 1200"));
+    }
+
+    #[test]
+    fn on_change_runs_from_native_input_binding_not_programmatic_state_changes() {
+        let mut output = SourceWriter::new();
+        let change = TextInputChange {
+            parameter: "changed".to_owned(),
+            actions: vec![],
+        };
+        render_text_input(
+            TextInputProps {
+                state: "value",
+                placeholder: "Value",
+                comment: None,
+                keyboard: KeyboardType::Text,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: None,
+                autocorrect: None,
+                capitalization: None,
+                focused: None,
+                max_length: None,
+                font: None,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                actions: &[],
+                on_change: Some(&change),
+            },
+            0,
+            &mut output,
+        );
+
+        let source = output.as_str();
+        assert!(source.contains(", onChange: { nexa_changed in"));
+        assert!(!source.contains(".onChange(of:"));
+    }
+
+    #[test]
+    fn next_return_key_keeps_the_uncontrolled_native_field_focused() {
+        let mut output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "email",
+                placeholder: "Email",
+                comment: None,
+                keyboard: KeyboardType::Email,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: Some(ReturnKeyType::Next),
+                autocorrect: None,
+                capitalization: None,
+                focused: None,
+                max_length: None,
+                font: None,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                actions: &[nexa_ir::Action::Expression(nexa_ir::Expr::Bool(true))],
+                on_change: None,
+            },
+            0,
+            &mut output,
+        );
+
+        assert!(output.as_str().contains("keepsFocusOnNext: true"));
+        assert!(output.as_str().contains("onSubmitAction: {"));
+        assert!(!output.as_str().contains(".onSubmit {"));
+    }
+
+    #[test]
+    fn controlled_next_return_key_restores_its_focus_binding_after_submit() {
+        let action = [nexa_ir::Action::Expression(nexa_ir::Expr::Bool(true))];
+        let mut output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "email",
+                placeholder: "Email",
+                comment: None,
+                keyboard: KeyboardType::Email,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: Some(ReturnKeyType::Next),
+                autocorrect: None,
+                capitalization: None,
+                focused: Some("emailFocused"),
+                max_length: None,
+                font: None,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                actions: &action,
+                on_change: None,
+            },
+            0,
+            &mut output,
+        );
+
+        let source = output.as_str();
+        assert!(source.contains("keepsFocusOnNext: false"));
+        assert!(source.contains(".focused($nexa_emailFocused)"));
+        assert!(source.contains("DispatchQueue.main.async {"));
+        assert!(source.contains("nexa_emailFocused = true"));
     }
 }

@@ -3,7 +3,7 @@ screen Completed {
         if todoFilter(tasks, 3, "").isEmpty {
             ContentUnavailable(title: "No completed tasks", icon: "party_popper", description: "Completed tasks will show up here.")
         } else {
-            FastList(todoSort(todoFilter(tasks, 3, ""), sortSelection), key:.id, native: true) {
+            FastList(todoSort(todoFilter(tasks, 3, ""), sortSelection), key:.id) {
             task, index in
             TaskListRow() {
                 Row(spacing: 12) {

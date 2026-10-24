@@ -57,6 +57,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.runtime.LaunchedEffect",
     );
     imports.add(
+        features.uses_page_pager && features.facts.ui.lists.swipe_actions,
+        "androidx.compose.runtime.mutableStateOf",
+    );
+    imports.add(
         features.uses_page_pager,
         "androidx.compose.runtime.rememberCoroutineScope",
     );
@@ -607,7 +611,7 @@ fn tab_contains_native_list(children: &[Node]) -> bool {
         children,
         &mut |node| {
             if let Node::FastList { plan } = node {
-                found |= plan.native();
+                found |= plan.uses_platform_list();
             }
         },
         &mut |_| {},
@@ -746,6 +750,13 @@ pub(crate) fn render_page_pager(
     let selected = state_name(state);
     let page_state = format!("{}Pager", state_name(state));
     let coroutine_scope = format!("{}PagerScope", state_name(state));
+    let swipe_row_lock = features.facts.ui.lists.swipe_actions;
+    if swipe_row_lock {
+        out.line_at(
+            depth,
+            format_args!("val nexaSwipeRowGestureActive = remember {{ mutableStateOf(false) }}"),
+        );
+    }
     out.line_at(
         depth,
         format_args!("val {coroutine_scope} = rememberCoroutineScope()"),
@@ -760,13 +771,13 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth,
         format_args!(
-            "LaunchedEffect({selected}) {{ if ({page_state}.currentPage != {selected}) {page_state}.animateScrollToPage({selected}) }}"
+            "LaunchedEffect({selected}) {{ if ({page_state}.settledPage != {selected}) {page_state}.animateScrollToPage({selected}) }}"
         ),
     );
     out.line_at(
         depth,
         format_args!(
-            "LaunchedEffect({page_state}.currentPage) {{ {selected} = {page_state}.currentPage }}"
+            "LaunchedEffect({page_state}.settledPage) {{ {selected} = {page_state}.settledPage }}"
         ),
     );
     out.line_at(
@@ -776,31 +787,45 @@ pub(crate) fn render_page_pager(
     out.line_at(
         depth + 1,
         format_args!(
-            "HorizontalPager(state = {page_state}, modifier = Modifier.weight(1f), pageNestedScrollConnection = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {{}}) {{ page ->"
+            "HorizontalPager(state = {page_state}, modifier = Modifier.weight(1f), overscrollEffect = null, userScrollEnabled = {}, pageNestedScrollConnection = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {{}}) {{ page ->",
+            if swipe_row_lock { "!nexaSwipeRowGestureActive.value" } else { "true" },
         ),
     );
+    if swipe_row_lock {
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "CompositionLocalProvider(LocalNexaFastListSwipePagerLock provides nexaSwipeRowGestureActive) {{"
+            ),
+        );
+    }
+    let page_box_depth = depth + if swipe_row_lock { 3 } else { 2 };
     out.line_at(
-        depth + 2,
+        page_box_depth,
         format_args!(
             "Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center, propagateMinConstraints = true) {{"
         ),
     );
-    out.line_at(depth + 3, format_args!("when (page) {{"));
+    let page_when_depth = page_box_depth + 1;
+    out.line_at(page_when_depth, format_args!("when (page) {{"));
     for (index, page) in pages.iter().enumerate() {
-        out.line_at(depth + 4, format_args!("{index} -> {{"));
-        render_children(page, module, features, depth + 5, out);
+        out.line_at(page_when_depth + 1, format_args!("{index} -> {{"));
+        render_children(page, module, features, page_when_depth + 2, out);
         out.push('\n');
-        indent(out, depth + 4);
+        indent(out, page_when_depth + 1);
         out.push_str("}\n");
     }
-    out.line_at(depth + 4, format_args!("else -> {{}}"));
-    out.line_at(depth + 3, format_args!("}}"));
-    out.line_at(depth + 2, format_args!("}}"));
+    out.line_at(page_when_depth + 1, format_args!("else -> {{}}"));
+    out.line_at(page_when_depth, format_args!("}}"));
+    out.line_at(page_box_depth, format_args!("}}"));
+    if swipe_row_lock {
+        out.line_at(depth + 2, format_args!("}}"));
+    }
     out.line_at(depth + 1, format_args!("}}"));
     out.line_at(
         depth + 1,
         format_args!(
-            "NexaPageIndicatorRow(pageCount = {}, currentPage = {page_state}.currentPage) {{ page ->",
+            "NexaPageIndicatorRow(pageCount = {}, currentPage = {page_state}.settledPage) {{ page ->",
             pages.len()
         ),
     );
@@ -1183,12 +1208,20 @@ mod tests {
             "Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center, propagateMinConstraints = true) {"
         ));
         assert!(output.contains(
-            "NexaPageIndicatorRow(pageCount = 1, currentPage = nexa_currentPagePager.currentPage) { page ->"
+            "NexaPageIndicatorRow(pageCount = 1, currentPage = nexa_currentPagePager.settledPage) { page ->"
         ));
         assert!(output.contains("rememberPagerState(initialPage = nexa_currentPage,"));
         assert!(output.contains(
+            "LaunchedEffect(nexa_currentPagePager.settledPage) { nexa_currentPage = nexa_currentPagePager.settledPage }"
+        ));
+        assert!(output.contains(
+            "LaunchedEffect(nexa_currentPage) { if (nexa_currentPagePager.settledPage != nexa_currentPage) nexa_currentPagePager.animateScrollToPage(nexa_currentPage) }"
+        ));
+        assert!(!output.contains("LaunchedEffect(nexa_currentPagePager.currentPage)"));
+        assert!(output.contains(
             "pageNestedScrollConnection = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {}"
         ));
+        assert!(output.contains("overscrollEffect = null"));
         assert!(!output.contains(".toInt()"));
     }
 

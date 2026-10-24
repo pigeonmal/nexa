@@ -173,6 +173,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.runtime.remember",
     );
     imports.add(
+        features.uses_mutable_state,
+        "androidx.compose.runtime.saveable.rememberSaveable",
+    );
+    imports.add(
         features.uses_mutable_list,
         "androidx.compose.runtime.mutableStateListOf",
     );
@@ -204,6 +208,26 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_mutable_generic_state,
         "androidx.compose.runtime.mutableStateOf",
     );
+}
+
+pub(crate) fn uses_saveable_state(state: &State) -> bool {
+    state.mutable && is_saveable_state_type(&state.ty)
+}
+
+fn is_saveable_state_type(ty: &Type) -> bool {
+    match ty {
+        Type::String | Type::Bool => true,
+        Type::Numeric(
+            NumericType::Int8
+            | NumericType::Int16
+            | NumericType::Int32
+            | NumericType::Int64
+            | NumericType::Float32
+            | NumericType::Float64,
+        ) => true,
+        Type::Optional(inner) => is_saveable_state_type(inner),
+        _ => false,
+    }
 }
 
 pub(crate) fn is_mutable_collection(state: &nexa_ir::State) -> bool {

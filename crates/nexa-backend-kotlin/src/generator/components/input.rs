@@ -141,6 +141,29 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         actions,
         on_change,
     } = props;
+    let effective_return_key = return_key.or_else(|| {
+        if searchable {
+            Some(ReturnKeyType::Search)
+        } else {
+            (!actions.is_empty()).then_some(ReturnKeyType::Done)
+        }
+    });
+    let dismiss_keyboard_on_submit = matches!(
+        effective_return_key,
+        Some(ReturnKeyType::Done | ReturnKeyType::Search | ReturnKeyType::Send)
+    );
+    let keyboard_controller = format!("{}KeyboardController", state_name(state));
+    let focus_manager = format!("{}FocusManager", state_name(state));
+    if dismiss_keyboard_on_submit {
+        indent(out, depth);
+        out.push_str(&format!(
+            "val {keyboard_controller} = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current\n"
+        ));
+        indent(out, depth);
+        out.push_str(&format!(
+            "val {focus_manager} = androidx.compose.ui.platform.LocalFocusManager.current\n"
+        ));
+    }
     indent(out, depth);
     out.push_str("NexaTextInputPrimitive(\n");
     out.line_at(depth + 1, format_args!("value = {},", state_name(state)));
@@ -156,9 +179,18 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         );
         out.line_at(
             depth + 2,
+            format_args!(
+                "if ({} != {}) {{",
+                state_name(&change.parameter),
+                state_name(state)
+            ),
+        );
+        out.line_at(
+            depth + 3,
             format_args!("{} = {}", state_name(state), state_name(&change.parameter)),
         );
-        render_actions(&change.actions, depth + 2, out);
+        render_actions(&change.actions, depth + 3, out);
+        out.line_at(depth + 2, format_args!("}}"));
     } else {
         out.line_at(
             depth + 2,
@@ -277,13 +309,6 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             format_args!("autoCorrectEnabled = {autocorrect},"),
         );
     }
-    let effective_return_key = return_key.or_else(|| {
-        if searchable {
-            Some(ReturnKeyType::Search)
-        } else {
-            (!actions.is_empty()).then_some(ReturnKeyType::Done)
-        }
-    });
     if let Some(return_key) = effective_return_key {
         out.line_at(
             depth + 2,
@@ -291,7 +316,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         );
     }
     out.line_at(depth + 1, format_args!("),"));
-    if !actions.is_empty() {
+    if !actions.is_empty() || dismiss_keyboard_on_submit {
         let callback = match effective_return_key.unwrap_or(ReturnKeyType::Done) {
             ReturnKeyType::Done => "onDone",
             ReturnKeyType::Search => "onSearch",
@@ -303,7 +328,13 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             format_args!("keyboardActions = KeyboardActions("),
         );
         out.line_at(depth + 2, format_args!("{callback} = {{"));
-        render_actions(actions, depth + 3, out);
+        if !actions.is_empty() {
+            render_actions(actions, depth + 3, out);
+        }
+        if dismiss_keyboard_on_submit {
+            out.line_at(depth + 3, format_args!("{keyboard_controller}?.hide()"));
+            out.line_at(depth + 3, format_args!("{focus_manager}.clearFocus()"));
+        }
         out.line_at(depth + 2, format_args!("}},"));
         out.line_at(depth + 1, format_args!("),"));
     }
@@ -355,12 +386,12 @@ pub(crate) fn kotlin_return_key(return_key: ReturnKeyType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::KeyboardType;
+    use nexa_ir::{Action, Expr, KeyboardType, ReturnKeyType};
 
     use super::{TextInputProps, render_text_input};
 
     #[test]
-    fn searchable_input_emits_a_native_search_affordance_and_ime_action() {
+    fn searchable_input_emits_a_native_search_affordance_and_dismisses_on_search() {
         let mut output = SourceWriter::new();
         render_text_input(
             TextInputProps {
@@ -392,5 +423,84 @@ mod tests {
         assert!(output.as_str().contains("searchable = true"));
         assert!(output.as_str().contains("searchIcon = Icons.Filled.Search"));
         assert!(output.as_str().contains("imeAction = ImeAction.Search"));
+        assert!(
+            output
+                .as_str()
+                .contains("nexa_queryKeyboardController?.hide()")
+        );
+        assert!(
+            output
+                .as_str()
+                .contains("nexa_queryFocusManager.clearFocus()")
+        );
+    }
+
+    #[test]
+    fn done_submission_hides_the_android_keyboard_but_next_keeps_it_open() {
+        let action = [Action::Expression(Expr::Bool(true))];
+        let mut done_output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "message",
+                placeholder: "Message",
+                keyboard: KeyboardType::Text,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: Some(ReturnKeyType::Done),
+                autocorrect: None,
+                capitalization: None,
+                focused: None,
+                max_length: None,
+                font: None,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                weight_in_row: false,
+                actions: &action,
+                on_change: None,
+            },
+            0,
+            &mut done_output,
+        );
+        assert!(done_output.as_str().contains(
+            "val nexa_messageKeyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current"
+        ));
+        assert!(
+            done_output
+                .as_str()
+                .contains("nexa_messageKeyboardController?.hide()")
+        );
+
+        let mut next_output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "email",
+                placeholder: "Email",
+                keyboard: KeyboardType::Email,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: Some(ReturnKeyType::Next),
+                autocorrect: None,
+                capitalization: None,
+                focused: None,
+                max_length: None,
+                font: None,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                weight_in_row: false,
+                actions: &action,
+                on_change: None,
+            },
+            0,
+            &mut next_output,
+        );
+        assert!(next_output.as_str().contains("onNext = {"));
+        assert!(!next_output.as_str().contains("KeyboardController?.hide()"));
+        assert!(!next_output.as_str().contains("FocusManager.clearFocus()"));
     }
 }

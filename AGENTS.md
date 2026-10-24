@@ -140,6 +140,11 @@ Nexa provides specialized AI agent skills located under `.agents/skills/`. Agent
      folder. Read the Nexa adapter for AOT and parity constraints.
    - **Key Resources**: `.agents/skills/nexa-kotlin-expert/upstream/`, `crates/nexa-backend-kotlin/`.
 
+7. **[`nexa-ui-parity`](file:///.agents/skills/nexa-ui-parity/SKILL.md)**:
+   - **Role**: Cross-platform UI Parity Specialist
+   - **When to Use**: Investigating or fixing visual or interaction mismatches across iOS and Android, or between AOT and DevRuntime.
+   - **Key Resources**: `examples/component-parity/`, `PARITY.md`, `tests/fixtures/component-parity-status.json`.
+
 ### Routing Matrix:
 
 | Task Type | Relevant Skill | Primary Code / Docs Location |
@@ -150,6 +155,7 @@ Nexa provides specialized AI agent skills located under `.agents/skills/`. Agent
 | **Jetpack Compose / Kotlin output** | [`nexa-kotlin-expert`](file:///.agents/skills/nexa-kotlin-expert/SKILL.md) | `crates/nexa-backend-kotlin/`, `.agents/skills/nexa-kotlin-expert/upstream/` |
 | **Native Plugins (Swift, Kotlin, C++)** | [`nexa-plugin`](file:///.agents/skills/nexa-plugin/SKILL.md) | `crates/nexa-plugin-idl/`, `crates/nexa-codegen/`, [`docs/plugins.md`](file:///docs/plugins.md) |
 | **Performance Profiling & Optimization** | [`nexa-performance`](file:///.agents/skills/nexa-performance/SKILL.md) | `crates/nexa-backend-*/`, [`.agents/learnings.md`](file:///.agents/learnings.md) |
+| **Cross-platform UI parity mismatches** | [`nexa-ui-parity`](file:///.agents/skills/nexa-ui-parity/SKILL.md) | `examples/component-parity/`, `PARITY.md`, `crates/nexa-backend-swift/`, `crates/nexa-backend-kotlin/`, `runtime/` |
 
 ---
 

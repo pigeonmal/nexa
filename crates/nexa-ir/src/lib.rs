@@ -5,7 +5,14 @@ fn default_true() -> bool {
     true
 }
 
-pub mod bottom_sheet;
+fn default_bottom_sheet_detents() -> Vec<BottomSheetDetent> {
+    vec![BottomSheetDetent::Medium, BottomSheetDetent::Expanded]
+}
+
+const fn default_bottom_sheet_content_padding() -> f32 {
+    8.0
+}
+
 pub mod capabilities;
 pub mod facts;
 pub mod localization;
@@ -699,6 +706,34 @@ pub enum BinaryOp {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgressBarStyle {
+    #[serde(default)]
+    pub tint: Option<ColorExpression>,
+    #[serde(default)]
+    pub track_color: Option<ColorExpression>,
+    #[serde(default)]
+    pub thickness: Option<f32>,
+    #[serde(default)]
+    pub corner_radius: Option<f32>,
+    #[serde(default)]
+    pub android_wave: Option<Expr>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgressRingStyle {
+    #[serde(default)]
+    pub tint: Option<ColorExpression>,
+    #[serde(default)]
+    pub track_color: Option<ColorExpression>,
+    #[serde(default)]
+    pub size: Option<f32>,
+    #[serde(default)]
+    pub thickness: Option<f32>,
+    #[serde(default)]
+    pub android_wave: Option<Expr>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Node {
     Appearance {
         mode: Expr,
@@ -822,10 +857,16 @@ pub enum Node {
         step: f64,
     },
     ProgressBar {
-        progress: Expr,
+        #[serde(default)]
+        progress: Option<Expr>,
+        #[serde(default)]
+        style: Option<Box<ProgressBarStyle>>,
     },
     ProgressRing {
-        progress: Expr,
+        #[serde(default)]
+        progress: Option<Expr>,
+        #[serde(default)]
+        style: Option<Box<ProgressRingStyle>>,
     },
     SegmentedControl {
         items: Expr,
@@ -952,15 +993,46 @@ pub enum Node {
     },
     BottomSheet {
         state: String,
-        partial: bool,
+        /// Uniform inner inset around the sheet's content, in logical points/dp.
+        #[serde(default = "default_bottom_sheet_content_padding")]
+        content_padding: f32,
+        /// Native sheet sizes that can be reached by dragging.
+        #[serde(default = "default_bottom_sheet_detents")]
+        detents: Vec<BottomSheetDetent>,
+        /// Optional custom resting heights as fractions of the available screen height.
         #[serde(default)]
-        large_only: bool,
-        /// Whether the native drag affordance is visible. Defaults to true for
-        /// older serialized modules and for source that omits the argument.
+        snap_points: Vec<f32>,
+        /// Custom height selected when the sheet first appears.
+        #[serde(default)]
+        initial_snap_point: Option<f32>,
+        /// Mutable fraction binding for reading and changing the active custom snap point.
+        #[serde(default)]
+        selected_snap_point: Option<String>,
+        /// Native size selected when the sheet first appears. Defaults to the
+        /// first configured detent.
+        #[serde(default)]
+        initial_detent: Option<BottomSheetDetent>,
+        /// Whether the native drag indicator is visible. Defaults to true.
+        #[serde(default = "default_true", alias = "show_drag_handle")]
+        show_drag_indicator: bool,
+        /// Whether drag, Back, and outside taps may dismiss the sheet.
         #[serde(default = "default_true")]
-        show_drag_handle: bool,
+        allows_dismissal: bool,
+        /// Whether taps can reach the screen behind the sheet.
         #[serde(default)]
-        title: Option<Expr>,
+        allows_background_interaction: bool,
+        /// Whether Android Back dismisses the sheet; dismissal must also be allowed.
+        #[serde(default = "default_true")]
+        should_dismiss_on_back_press: bool,
+        /// Optional sheet surface color; omission keeps the platform surface.
+        #[serde(default)]
+        background_color: Option<ColorExpression>,
+        /// Optional backdrop color; omission keeps the platform modal scrim.
+        #[serde(default)]
+        scrim_color: Option<ColorExpression>,
+        /// Actions run after the sheet has been dismissed.
+        #[serde(default)]
+        on_dismiss: Vec<Action>,
         children: Vec<Node>,
     },
     Dialog {
@@ -1085,10 +1157,6 @@ pub enum AccessibilityRole {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ListCommon {
     pub axis: ListAxis,
-    /// Render a vertical collection with the platform's native list control.
-    /// On iOS this emits SwiftUI `List`; Android keeps the Compose lazy list.
-    #[serde(default)]
-    pub native: bool,
     /// Whether rows are separated visually. Defaults to true for existing IR.
     #[serde(default = "default_true")]
     pub show_dividers: bool,
@@ -1111,6 +1179,14 @@ pub struct ListCommon {
     pub index: String,
     pub key: Option<Expr>,
     pub scroll_position: Option<String>,
+    /// Trigger bindings for edge and offset scroll commands. A changed trigger
+    /// issues one command; it is not updated while the user scrolls.
+    #[serde(default)]
+    pub scroll_to_top: Option<String>,
+    #[serde(default)]
+    pub scroll_to_end: Option<String>,
+    #[serde(default)]
+    pub scroll_to_offset: Option<String>,
     pub children: Vec<Node>,
     pub on_end_reached: Option<Vec<Action>>,
     pub on_scroll: Option<Vec<Action>>,
@@ -1140,9 +1216,6 @@ pub struct FastListMove {
 /// cannot be represented here at all.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SectionedListCommon {
-    /// Use the platform's standard list container where the backend supports it.
-    #[serde(default)]
-    pub native: bool,
     /// Whether rows are separated visually. Defaults to true for existing IR.
     #[serde(default = "default_true")]
     pub show_dividers: bool,
@@ -1193,12 +1266,14 @@ pub enum ListPlan {
 }
 
 impl ListPlan {
-    /// Whether a vertical list opts into the platform's standard list control
-    /// instead of Nexa's custom virtualized surface.
-    pub fn native(&self) -> bool {
+    /// Whether row actions require the platform list surface and its gestures.
+    /// Semantic lowering derives this from modifiers, not a user flag.
+    pub fn uses_platform_list(&self) -> bool {
         match self {
-            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.native,
-            ListPlan::Sections { common, .. } => common.native,
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.on_move.is_some() || common.swipe_actions.is_some()
+            }
+            ListPlan::Sections { common, .. } => common.swipe_actions.is_some(),
         }
     }
 
@@ -1243,6 +1318,18 @@ impl ListPlan {
                 common.scroll_position.as_deref()
             }
             ListPlan::Sections { .. } => None,
+        }
+    }
+
+    /// Whether a flat list has any one-shot programmatic scroll command.
+    pub fn has_scroll_commands(&self) -> bool {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.scroll_to_top.is_some()
+                    || common.scroll_to_end.is_some()
+                    || common.scroll_to_offset.is_some()
+            }
+            ListPlan::Sections { .. } => false,
         }
     }
 
@@ -1504,6 +1591,7 @@ pub enum ListAxis {
     Horizontal,
     Grid { columns: u32 },
     AutoGrid { min_cell_width: u32 },
+    Masonry { columns: u32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1672,6 +1760,14 @@ pub enum ButtonShape {
     Capsule,
     Circle,
     Rounded(f32),
+}
+
+/// Shared native resting sizes supported by SwiftUI and Material 3 modal sheets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BottomSheetDetent {
+    Medium,
+    Expanded,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -164,7 +164,7 @@ app KitchenSink {
             }
         }
 
-        BottomSheet(isPresented: isPresented, partial: true) {
+        BottomSheet(isPresented: isPresented, detents: [Medium, Expanded]) {
             Column(spacing: 8) {
                 Text("Sheet")
                 Button("Close") {

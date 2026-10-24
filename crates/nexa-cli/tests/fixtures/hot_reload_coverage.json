@@ -300,6 +300,18 @@
         "android": "covered"
       }
     ],
+    "BottomSheetDetent": [
+      {
+        "name": "Medium",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Expanded",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "ButtonShape": [
       {
         "name": "Capsule",

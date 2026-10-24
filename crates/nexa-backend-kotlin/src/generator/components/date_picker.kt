@@ -316,6 +316,7 @@ internal fun NexaDatePickerPrimitive(
                             val rangeEnd = nexaPickerDateMillis(currentEndTimestamp, zone)
                                 .let { if (boundsAreValid) it.coerceIn(minimumDayMillis ?: Long.MIN_VALUE, maximumDayMillis ?: Long.MAX_VALUE) else it }
                             rangeState.setSelection(if (isRange) rangeStart else null, if (isRange) rangeEnd else null)
+                            // DateTime compact controls open date and time independently.
                             dialogShowsTimeOnly.value = pickerType == "Time" || showTimeOnly
                             showDialog.value = true
                         }
@@ -430,8 +431,13 @@ internal fun NexaDatePickerPrimitive(
                     horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
                 ) {
                     if (dialogShowsTimeOnly.value) {
-                        NexaDatePickerTimeInput(timeState, style, timePickerColors, pickerSurface, content, primary, selectedContent) {
-                            timeInputValid.value = it
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth().padding(top = 24.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                        ) {
+                            NexaDatePickerTimeInput(timeState, style, timePickerColors, pickerSurface, content, primary, selectedContent) {
+                                timeInputValid.value = it
+                            }
                         }
                     } else if (isRange) {
                         NexaDatePickerSingleMonthRangeCalendar(
@@ -447,30 +453,6 @@ internal fun NexaDatePickerPrimitive(
                             showTitle = true,
                             modifier = Modifier.fillMaxWidth().heightIn(max = calendarMaxHeight),
                         )
-                    } else if (pickerType == "DateTime" && !dialogShowsTimeOnly.value) {
-                        androidx.compose.foundation.layout.Column(
-                            modifier = androidx.compose.ui.Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = calendarMaxHeight)
-                                .verticalScroll(androidx.compose.foundation.rememberScrollState()),
-                        ) {
-                            NexaDatePickerCalendarContainer(
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp),
-                            ) { calendarModifier ->
-                                androidx.compose.material3.DatePicker(
-                                    state = singleState,
-                                    modifier = calendarModifier.heightIn(max = 440.dp),
-                                    title = null,
-                                    headline = null,
-                                    showModeToggle = true,
-                                    colors = pickerColors,
-                                    focusRequester = null,
-                                )
-                            }
-                            NexaDatePickerTimeInput(timeState, style, timePickerColors, pickerSurface, content, primary, selectedContent) {
-                                timeInputValid.value = it
-                            }
-                        }
                     } else {
                         NexaDatePickerCalendarContainer(
                             modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp),

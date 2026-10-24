@@ -14,6 +14,10 @@
       "source": "1 dp red border",
       "translations": {}
     },
+    "100 percent": {
+      "source": "100 percent",
+      "translations": {}
+    },
     "12 dp above": {
       "source": "12 dp above",
       "translations": {}
@@ -22,8 +26,16 @@
       "source": "12 dp padding",
       "translations": {}
     },
+    "140 dp content · 96 dp row · 12 dp gap": {
+      "source": "140 dp content · 96 dp row · 12 dp gap",
+      "translations": {}
+    },
     "16 dp padding · blue fill": {
       "source": "16 dp padding · blue fill",
+      "translations": {}
+    },
+    "24 cells · minimum width 160 dp · 92 dp high": {
+      "source": "24 cells · minimum width 160 dp · 92 dp high",
       "translations": {}
     },
     "24 dp": {
@@ -32,6 +44,22 @@
     },
     "3 dp blue border": {
       "source": "3 dp blue border",
+      "translations": {}
+    },
+    "3–5 lines": {
+      "source": "3–5 lines",
+      "translations": {}
+    },
+    "45 percent": {
+      "source": "45 percent",
+      "translations": {}
+    },
+    "45%": {
+      "source": "45%",
+      "translations": {}
+    },
+    "75%": {
+      "source": "75%",
       "translations": {}
     },
     "8 dp": {
@@ -121,6 +149,10 @@
       ],
       "translations": {}
     },
+    "Active upload": {
+      "source": "Active upload",
+      "translations": {}
+    },
     "Adaptive grid": {
       "source": "Adaptive grid",
       "translations": {}
@@ -139,12 +171,34 @@
       "source": "Adaptive split view",
       "translations": {}
     },
+    "Add an optional note": {
+      "source": "Add an optional note",
+      "translations": {}
+    },
     "Align": {
       "source": "Align",
       "translations": {}
     },
     "Allow adaptive grid scrolling": {
       "source": "Allow adaptive grid scrolling",
+      "translations": {}
+    },
+    "Allow row reordering": {
+      "source": "Allow row reordering",
+      "translations": {}
+    },
+    "Android wave: {barAndroidWave} (iOS ignores this parameter)": {
+      "source": "Android wave: {barAndroidWave} (iOS ignores this parameter)",
+      "arguments": [
+        "barAndroidWave"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
+      "translations": {}
+    },
+    "Android: long-press + drag. iOS: drag the row handle.": {
+      "source": "Android: long-press + drag. iOS: drag the row handle.",
       "translations": {}
     },
     "Animation and accessibility tests": {
@@ -219,12 +273,30 @@
       "source": "Arrangement fills available width",
       "translations": {}
     },
+    "At least 2 lines": {
+      "source": "At least 2 lines",
+      "translations": {}
+    },
+    "At most 4 lines": {
+      "source": "At most 4 lines",
+      "translations": {}
+    },
     "Automatic · explicit native style": {
       "source": "Automatic · explicit native style",
       "translations": {}
     },
     "B": {
       "source": "B",
+      "translations": {}
+    },
+    "Background action: {backgroundActionCount}": {
+      "source": "Background action: {backgroundActionCount}",
+      "arguments": [
+        "backgroundActionCount"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
       "translations": {}
     },
     "Behavior": {
@@ -287,6 +359,10 @@
       "source": "Bottom",
       "translations": {}
     },
+    "Bottom end": {
+      "source": "Bottom end",
+      "translations": {}
+    },
     "Bottom sheet": {
       "source": "Bottom sheet",
       "translations": {}
@@ -321,6 +397,10 @@
     },
     "Button styles and states": {
       "source": "Button styles and states",
+      "translations": {}
+    },
+    "C": {
+      "source": "C",
       "translations": {}
     },
     "Callout": {
@@ -368,8 +448,24 @@
       "source": "Centered alignment\nshort",
       "translations": {}
     },
+    "Change dynamic tint": {
+      "source": "Change dynamic tint",
+      "translations": {}
+    },
+    "Changes saved": {
+      "source": "Changes saved",
+      "translations": {}
+    },
+    "Characters": {
+      "source": "Characters",
+      "translations": {}
+    },
     "Circle": {
       "source": "Circle",
+      "translations": {}
+    },
+    "Clear email focus": {
+      "source": "Clear email focus",
       "translations": {}
     },
     "Clip": {
@@ -384,6 +480,18 @@
       "source": "Clipped overflow",
       "translations": {}
     },
+    "Close": {
+      "source": "Close",
+      "translations": {}
+    },
+    "Close from content": {
+      "source": "Close from content",
+      "translations": {}
+    },
+    "Colors": {
+      "source": "Colors",
+      "translations": {}
+    },
     "Column": {
       "source": "Column",
       "translations": {}
@@ -392,12 +500,24 @@
       "source": "Column accessibility sample",
       "translations": {}
     },
+    "Column default: centered, top-first": {
+      "source": "Column default: centered, top-first",
+      "translations": {}
+    },
     "Column spacing and padding": {
       "source": "Column spacing and padding",
       "translations": {}
     },
+    "Column · start / center / end": {
+      "source": "Column · start / center / end",
+      "translations": {}
+    },
     "Combined emphasis": {
       "source": "Combined emphasis",
+      "translations": {}
+    },
+    "Compact": {
+      "source": "Compact",
       "translations": {}
     },
     "Compact custom range": {
@@ -426,6 +546,10 @@
     },
     "Complete progress": {
       "source": "Complete progress",
+      "translations": {}
+    },
+    "Completed upload": {
+      "source": "Completed upload",
       "translations": {}
     },
     "Component parity rows": {
@@ -494,10 +618,6 @@
       "source": "Date and time input",
       "translations": {}
     },
-    "Date and time picker": {
-      "source": "Date and time picker",
-      "translations": {}
-    },
     "Date and time · compact presentation": {
       "source": "Date and time · compact presentation",
       "translations": {}
@@ -525,6 +645,10 @@
     },
     "Default arrangement remains start aligned": {
       "source": "Default arrangement remains start aligned",
+      "translations": {}
+    },
+    "Default capitalization": {
+      "source": "Default capitalization",
       "translations": {}
     },
     "Default center": {
@@ -555,6 +679,10 @@
       "source": "Default · inline graphical calendar",
       "translations": {}
     },
+    "Default: 8 pt/dp": {
+      "source": "Default: 8 pt/dp",
+      "translations": {}
+    },
     "Default: {defaultSegment}": {
       "source": "Default: {defaultSegment}",
       "arguments": [
@@ -567,6 +695,16 @@
     },
     "Delete": {
       "source": "Delete",
+      "translations": {}
+    },
+    "Delete actions: {sheetListDeleteCount}": {
+      "source": "Delete actions: {sheetListDeleteCount}",
+      "arguments": [
+        "sheetListDeleteCount"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
       "translations": {}
     },
     "Delete task?": {
@@ -630,8 +768,12 @@
       ],
       "translations": {}
     },
-    "Dismiss": {
-      "source": "Dismiss",
+    "Dismiss callback ran": {
+      "source": "Dismiss callback ran",
+      "translations": {}
+    },
+    "Dismiss callback waiting": {
+      "source": "Dismiss callback waiting",
       "translations": {}
     },
     "Divider": {
@@ -640,6 +782,10 @@
     },
     "Divider thickness and color": {
       "source": "Divider thickness and color",
+      "translations": {}
+    },
+    "Done": {
+      "source": "Done",
       "translations": {}
     },
     "Double tap count: {doubleTaps}": {
@@ -708,6 +854,10 @@
       "source": "EaseOut content",
       "translations": {}
     },
+    "Edit task": {
+      "source": "Edit task",
+      "translations": {}
+    },
     "Effects": {
       "source": "Effects",
       "translations": {}
@@ -716,9 +866,20 @@
       "source": "Effects and behavior tests",
       "translations": {}
     },
-    "Email search": {
-      "source": "Email search",
-      "comment": "Searchable autofill input",
+    "Email focused: {emailFocused} · last submitted: {lastSubmitted}": {
+      "source": "Email focused: {emailFocused} · last submitted: {lastSubmitted}",
+      "arguments": [
+        "emailFocused",
+        "lastSubmitted"
+      ],
+      "argument_types": [
+        "Bool",
+        "String"
+      ],
+      "translations": {}
+    },
+    "Email · Next": {
+      "source": "Email · Next",
       "translations": {}
     },
     "Empty options": {
@@ -751,8 +912,16 @@
       "source": "Enter a task",
       "translations": {}
     },
+    "Expand": {
+      "source": "Expand",
+      "translations": {}
+    },
     "Expanded": {
       "source": "Expanded",
+      "translations": {}
+    },
+    "Expanded and locked": {
+      "source": "Expanded and locked",
       "translations": {}
     },
     "Explicit 12 dp padding": {
@@ -783,12 +952,32 @@
       "source": "Extra content",
       "translations": {}
     },
+    "FastList callback rows": {
+      "source": "FastList callback rows",
+      "translations": {}
+    },
     "FastList cases": {
       "source": "FastList cases",
       "translations": {}
     },
-    "FastList row sizing": {
-      "source": "FastList row sizing",
+    "FastList keyed movable tasks": {
+      "source": "FastList keyed movable tasks",
+      "translations": {}
+    },
+    "FastList parameters": {
+      "source": "FastList parameters",
+      "translations": {}
+    },
+    "FastList parity": {
+      "source": "FastList parity",
+      "translations": {}
+    },
+    "FastList parity pages inside sheet": {
+      "source": "FastList parity pages inside sheet",
+      "translations": {}
+    },
+    "FastList section rows": {
+      "source": "FastList section rows",
       "translations": {}
     },
     "FastList · fixed grid": {
@@ -799,12 +988,16 @@
       "source": "FastList · horizontal",
       "translations": {}
     },
-    "FastList · native": {
-      "source": "FastList · native",
+    "FastList · keyed collection and actions": {
+      "source": "FastList · keyed collection and actions",
       "translations": {}
     },
     "FastList · page snap": {
       "source": "FastList · page snap",
+      "translations": {}
+    },
+    "FastList · pull to refresh": {
+      "source": "FastList · pull to refresh",
       "translations": {}
     },
     "FastList · responsive grid": {
@@ -813,6 +1006,14 @@
     },
     "FastList · reverse and position": {
       "source": "FastList · reverse and position",
+      "translations": {}
+    },
+    "FastList · scroll callbacks": {
+      "source": "FastList · scroll callbacks",
+      "translations": {}
+    },
+    "FastList · sections and headers": {
+      "source": "FastList · sections and headers",
       "translations": {}
     },
     "FastList · vertical": {
@@ -891,12 +1092,36 @@
       "source": "Fixed width: 220",
       "translations": {}
     },
+    "Float32: {textInterpolationFloat32}": {
+      "source": "Float32: {textInterpolationFloat32}",
+      "arguments": [
+        "textInterpolationFloat32"
+      ],
+      "argument_types": [
+        "Float32"
+      ],
+      "translations": {}
+    },
+    "Float64: {textInterpolationFloat64}": {
+      "source": "Float64: {textInterpolationFloat64}",
+      "arguments": [
+        "textInterpolationFloat64"
+      ],
+      "argument_types": [
+        "Float64"
+      ],
+      "translations": {}
+    },
     "Flow": {
       "source": "Flow",
       "translations": {}
     },
     "Flow and alignment tests": {
       "source": "Flow and alignment tests",
+      "translations": {}
+    },
+    "Focus email": {
+      "source": "Focus email",
       "translations": {}
     },
     "Font 13 · Semibold · height 34 · radius 10 · border 2": {
@@ -917,10 +1142,6 @@
     },
     "Form and section": {
       "source": "Form and section",
-      "translations": {}
-    },
-    "Four 96 dp items with 12 dp spacing": {
-      "source": "Four 96 dp items with 12 dp spacing",
       "translations": {}
     },
     "Fourth line": {
@@ -960,12 +1181,30 @@
       "source": "Gray · 1 dp",
       "translations": {}
     },
+    "Half": {
+      "source": "Half",
+      "translations": {}
+    },
+    "Half-height · compact default inset": {
+      "source": "Half-height · compact default inset",
+      "translations": {}
+    },
     "Headline": {
       "source": "Headline",
       "translations": {}
     },
     "Headline at 24": {
       "source": "Headline at 24",
+      "translations": {}
+    },
+    "Hint: {barAccessibleHint}": {
+      "source": "Hint: {barAccessibleHint}",
+      "arguments": [
+        "barAccessibleHint"
+      ],
+      "argument_types": [
+        "String"
+      ],
       "translations": {}
     },
     "Horizontal row {index}": {
@@ -980,6 +1219,10 @@
     },
     "Horizontal rows": {
       "source": "Horizontal rows",
+      "translations": {}
+    },
+    "Horizontal: Start / Center / End": {
+      "source": "Horizontal: Start / Center / End",
       "translations": {}
     },
     "Icon": {
@@ -1042,6 +1285,16 @@
       "source": "Input · time input style",
       "translations": {}
     },
+    "Int32: {textInterpolationInteger}": {
+      "source": "Int32: {textInterpolationInteger}",
+      "arguments": [
+        "textInterpolationInteger"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "Introduces the controls below": {
       "source": "Introduces the controls below",
       "translations": {}
@@ -1062,20 +1315,36 @@
       "source": "KeyboardAware",
       "translations": {}
     },
+    "Keyed movable tasks": {
+      "source": "Keyed movable tasks",
+      "translations": {}
+    },
+    "Label: {barAccessibleLabel}": {
+      "source": "Label: {barAccessibleLabel}",
+      "arguments": [
+        "barAccessibleLabel"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
     "Large": {
       "source": "Large",
       "translations": {}
     },
-    "Large-only parity sheet": {
-      "source": "Large-only parity sheet",
-      "translations": {}
-    },
-    "Large-only sheet content": {
-      "source": "Large-only sheet content",
-      "translations": {}
-    },
     "LargeTitle": {
       "source": "LargeTitle",
+      "translations": {}
+    },
+    "Last submitted: {lastSubmitted}": {
+      "source": "Last submitted: {lastSubmitted}",
+      "arguments": [
+        "lastSubmitted"
+      ],
+      "argument_types": [
+        "String"
+      ],
       "translations": {}
     },
     "Later child · zIndex 1": {
@@ -1168,6 +1437,10 @@
       ],
       "translations": {}
     },
+    "Map sheet": {
+      "source": "Map sheet",
+      "translations": {}
+    },
     "Mark complete": {
       "source": "Mark complete",
       "translations": {}
@@ -1206,6 +1479,10 @@
       "source": "Medium 18",
       "translations": {}
     },
+    "Medium and expanded native resting sizes": {
+      "source": "Medium and expanded native resting sizes",
+      "translations": {}
+    },
     "Mid": {
       "source": "Mid",
       "translations": {}
@@ -1228,10 +1505,6 @@
       "argument_types": [
         "Float64"
       ],
-      "translations": {}
-    },
-    "Minimum cell width 160 dp · 92 dp cell height": {
-      "source": "Minimum cell width 160 dp · 92 dp cell height",
       "translations": {}
     },
     "Minimum expands this short content": {
@@ -1269,22 +1542,44 @@
       "comment": "Switch the visible date range",
       "translations": {}
     },
-    "Native default range": {
-      "source": "Native default range",
+    "More content padding": {
+      "source": "More content padding",
       "translations": {}
     },
-    "Native row {index}": {
-      "source": "Native row {index}",
+    "Move enabled: {sheetMoveEnabled}": {
+      "source": "Move enabled: {sheetMoveEnabled}",
       "arguments": [
-        "index"
+        "sheetMoveEnabled"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
+      "translations": {}
+    },
+    "Move events: {listMoveCount} · delete actions: {listDeleteCount}": {
+      "source": "Move events: {listMoveCount} · delete actions: {listDeleteCount}",
+      "arguments": [
+        "listMoveCount",
+        "listDeleteCount"
+      ],
+      "argument_types": [
+        "Int32",
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Move events: {sheetMoveCount}": {
+      "source": "Move events: {sheetMoveCount}",
+      "arguments": [
+        "sheetMoveCount"
       ],
       "argument_types": [
         "Int32"
       ],
       "translations": {}
     },
-    "Native rows": {
-      "source": "Native rows",
+    "Native default range": {
+      "source": "Native default range",
       "translations": {}
     },
     "Native title behavior": {
@@ -1307,12 +1602,16 @@
       "source": "NavigationBack behavior",
       "translations": {}
     },
+    "Nested quick actions": {
+      "source": "Nested quick actions",
+      "translations": {}
+    },
     "Next": {
       "source": "Next",
       "translations": {}
     },
-    "No drag handle": {
-      "source": "No drag handle",
+    "No field is focused when this screen opens.": {
+      "source": "No field is focused when this screen opens.",
       "translations": {}
     },
     "No fill · transparent": {
@@ -1360,16 +1659,20 @@
       "source": "Normal 14",
       "translations": {}
     },
-    "Notes": {
-      "source": "Notes",
-      "translations": {}
-    },
     "Notifications": {
       "source": "Notifications",
       "translations": {}
     },
+    "Number · Search": {
+      "source": "Number · Search",
+      "translations": {}
+    },
     "One item": {
       "source": "One item",
+      "translations": {}
+    },
+    "One-time code": {
+      "source": "One-time code",
       "translations": {}
     },
     "Opacity": {
@@ -1392,8 +1695,20 @@
       "source": "Opacity 1.0",
       "translations": {}
     },
+    "Open FastList parity inside sheet": {
+      "source": "Open FastList parity inside sheet",
+      "translations": {}
+    },
     "Open actions": {
       "source": "Open actions",
+      "translations": {}
+    },
+    "Open compact half-height sheet": {
+      "source": "Open compact half-height sheet",
+      "translations": {}
+    },
+    "Open custom map sheet": {
+      "source": "Open custom map sheet",
       "translations": {}
     },
     "Open dialog": {
@@ -1404,8 +1719,8 @@
       "source": "Open example website",
       "translations": {}
     },
-    "Open large-only sheet": {
-      "source": "Open large-only sheet",
+    "Open layout parity inside sheet": {
+      "source": "Open layout parity inside sheet",
       "translations": {}
     },
     "Open links in app": {
@@ -1413,16 +1728,28 @@
       "comment": "Switch with supporting detail",
       "translations": {}
     },
+    "Open locked expanded sheet": {
+      "source": "Open locked expanded sheet",
+      "translations": {}
+    },
+    "Open medium and expanded sheet": {
+      "source": "Open medium and expanded sheet",
+      "translations": {}
+    },
     "Open nested navigation level": {
       "source": "Open nested navigation level",
       "translations": {}
     },
-    "Open partial sheet": {
-      "source": "Open partial sheet",
+    "Open nested sheet": {
+      "source": "Open nested sheet",
       "translations": {}
     },
-    "Open sheet without drag handle": {
-      "source": "Open sheet without drag handle",
+    "Open sheet header actions": {
+      "source": "Open sheet header actions",
+      "translations": {}
+    },
+    "Open sheet with more content padding": {
+      "source": "Open sheet with more content padding",
       "translations": {}
     },
     "Outer 4": {
@@ -1439,6 +1766,10 @@
     },
     "Overflow clamps to complete": {
       "source": "Overflow clamps to complete",
+      "translations": {}
+    },
+    "Override: 24 pt/dp": {
+      "source": "Override: 24 pt/dp",
       "translations": {}
     },
     "Page pager": {
@@ -1481,17 +1812,16 @@
       "source": "Parity section heading",
       "translations": {}
     },
-    "Parity sheet": {
-      "source": "Parity sheet",
-      "translations": {}
-    },
     "Partial progress": {
       "source": "Partial progress",
       "translations": {}
     },
     "Password": {
       "source": "Password",
-      "comment": "Secure password input",
+      "translations": {}
+    },
+    "Phone · Send": {
+      "source": "Phone · Send",
       "translations": {}
     },
     "Picker": {
@@ -1512,12 +1842,12 @@
       ],
       "translations": {}
     },
-    "Plain": {
-      "source": "Plain",
+    "Pinned list header": {
+      "source": "Pinned list header",
       "translations": {}
     },
-    "Platform-native vertical list rows": {
-      "source": "Platform-native vertical list rows",
+    "Plain": {
+      "source": "Plain",
       "translations": {}
     },
     "Presentation and environment": {
@@ -1548,16 +1878,30 @@
       "source": "Progress ring values",
       "translations": {}
     },
+    "Progress value: {barAccessibleValue}": {
+      "source": "Progress value: {barAccessibleValue}",
+      "arguments": [
+        "barAccessibleValue"
+      ],
+      "argument_types": [
+        "String"
+      ],
+      "translations": {}
+    },
     "ProgressBar": {
       "source": "ProgressBar",
       "translations": {}
     },
-    "ProgressRing": {
-      "source": "ProgressRing",
+    "ProgressRing parameters": {
+      "source": "ProgressRing parameters",
       "translations": {}
     },
     "Prominent": {
       "source": "Prominent",
+      "translations": {}
+    },
+    "Pull down inside the list to exercise refresh": {
+      "source": "Pull down inside the list to exercise refresh",
       "translations": {}
     },
     "Pull down to refresh": {
@@ -1566,6 +1910,10 @@
     },
     "Pull to refresh": {
       "source": "Pull to refresh",
+      "translations": {}
+    },
+    "Pull to refresh sheet rows": {
+      "source": "Pull to refresh sheet rows",
       "translations": {}
     },
     "Range selection · one native calendar": {
@@ -1584,6 +1932,16 @@
       "source": "Red · 2 dp",
       "translations": {}
     },
+    "Refresh row {index}": {
+      "source": "Refresh row {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "RefreshControl": {
       "source": "RefreshControl",
       "translations": {}
@@ -1598,6 +1956,16 @@
       ],
       "translations": {}
     },
+    "Refreshes: {sheetRefreshCount}": {
+      "source": "Refreshes: {sheetRefreshCount}",
+      "arguments": [
+        "sheetRefreshCount"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "Regular": {
       "source": "Regular",
       "translations": {}
@@ -1606,9 +1974,29 @@
       "source": "Regular override",
       "translations": {}
     },
+    "Reset inputs": {
+      "source": "Reset inputs",
+      "translations": {}
+    },
+    "Reset movable tasks": {
+      "source": "Reset movable tasks",
+      "translations": {}
+    },
+    "Reset scroll callbacks": {
+      "source": "Reset scroll callbacks",
+      "translations": {}
+    },
+    "Reset values": {
+      "source": "Reset values",
+      "translations": {}
+    },
     "Return to component index": {
       "source": "Return to component index",
       "comment": "Explicit back label parity sample",
+      "translations": {}
+    },
+    "Return to task details": {
+      "source": "Return to task details",
       "translations": {}
     },
     "Return to toolbar title cases": {
@@ -1627,6 +2015,10 @@
     },
     "Reversed rows": {
       "source": "Reversed rows",
+      "translations": {}
+    },
+    "Role: None (native progress role)": {
+      "source": "Role: None (native progress role)",
       "translations": {}
     },
     "Rotate": {
@@ -1681,8 +2073,20 @@
       "source": "Row surface and padding tests",
       "translations": {}
     },
+    "Row · cross and main axis": {
+      "source": "Row · cross and main axis",
+      "translations": {}
+    },
+    "Save": {
+      "source": "Save",
+      "translations": {}
+    },
     "Save draft": {
       "source": "Save draft",
+      "translations": {}
+    },
+    "Save keeps this sheet open. Close dismisses it.": {
+      "source": "Save keeps this sheet open. Close dismisses it.",
       "translations": {}
     },
     "Save {titleActions}": {
@@ -1711,10 +2115,58 @@
       "source": "Screen lifecycle",
       "translations": {}
     },
-    "Scroll position: {listPosition}": {
-      "source": "Scroll position: {listPosition}",
+    "Scroll callbacks: {listScrollCount} · end reached: {listEndReachedCount} · position: {listPosition}": {
+      "source": "Scroll callbacks: {listScrollCount} · end reached: {listEndReachedCount} · position: {listPosition}",
       "arguments": [
+        "listScrollCount",
+        "listEndReachedCount",
         "listPosition"
+      ],
+      "argument_types": [
+        "Int32",
+        "Int32",
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Scroll callbacks: {sheetListScrollCount} · end reached: {sheetListEndCount} · position: {sheetListPosition}": {
+      "source": "Scroll callbacks: {sheetListScrollCount} · end reached: {sheetListEndCount} · position: {sheetListPosition}",
+      "arguments": [
+        "sheetListScrollCount",
+        "sheetListEndCount",
+        "sheetListPosition"
+      ],
+      "argument_types": [
+        "Int32",
+        "Int32",
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Scroll position: {reverseListPosition}": {
+      "source": "Scroll position: {reverseListPosition}",
+      "arguments": [
+        "reverseListPosition"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Scroll position: {sheetListPosition}": {
+      "source": "Scroll position: {sheetListPosition}",
+      "arguments": [
+        "sheetListPosition"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Scroll row {index}": {
+      "source": "Scroll row {index}",
+      "arguments": [
+        "index"
       ],
       "argument_types": [
         "Int32"
@@ -1725,8 +2177,17 @@
       "source": "Scroll to collapse",
       "translations": {}
     },
+    "Scrolling enabled": {
+      "source": "Scrolling enabled",
+      "translations": {}
+    },
     "Search": {
       "source": "Search",
+      "translations": {}
+    },
+    "Search email": {
+      "source": "Search email",
+      "comment": "Username autofill and searchable input",
       "translations": {}
     },
     "Search tab content": {
@@ -1765,8 +2226,30 @@
       "source": "Second · red",
       "translations": {}
     },
+    "Section header": {
+      "source": "Section header",
+      "translations": {}
+    },
+    "Section source · sectionHeader · dividers": {
+      "source": "Section source · sectionHeader · dividers",
+      "translations": {}
+    },
     "Section title": {
       "source": "Section title",
+      "translations": {}
+    },
+    "Section {section} · row {index}: {item}": {
+      "source": "Section {section} · row {index}: {item}",
+      "arguments": [
+        "section",
+        "index",
+        "item"
+      ],
+      "argument_types": [
+        "Int32",
+        "Int32",
+        "String"
+      ],
       "translations": {}
     },
     "Segmented control": {
@@ -1827,6 +2310,18 @@
       "argument_types": [
         "String"
       ],
+      "translations": {}
+    },
+    "Selected snap point: Compact (25%)": {
+      "source": "Selected snap point: Compact (25%)",
+      "translations": {}
+    },
+    "Selected snap point: Expanded (85%)": {
+      "source": "Selected snap point: Expanded (85%)",
+      "translations": {}
+    },
+    "Selected snap point: Half (50%)": {
+      "source": "Selected snap point: Half (50%)",
       "translations": {}
     },
     "Selected state": {
@@ -1932,6 +2427,14 @@
       "source": "Serif design",
       "translations": {}
     },
+    "Set upload progress to 45 percent": {
+      "source": "Set upload progress to 45 percent",
+      "translations": {}
+    },
+    "Set upload progress to 75 percent": {
+      "source": "Set upload progress to 75 percent",
+      "translations": {}
+    },
     "Shadow": {
       "source": "Shadow",
       "translations": {}
@@ -1940,8 +2443,24 @@
       "source": "Shadow radius 8, offset 4 × 6",
       "translations": {}
     },
-    "Sheet content": {
-      "source": "Sheet content",
+    "Sheet child button": {
+      "source": "Sheet child button",
+      "translations": {}
+    },
+    "Sheet layout parity pages": {
+      "source": "Sheet layout parity pages",
+      "translations": {}
+    },
+    "Sheet parity sheetLayoutNote": {
+      "source": "Sheet parity sheetLayoutNote",
+      "translations": {}
+    },
+    "Sheet scroll callback rows": {
+      "source": "Sheet scroll callback rows",
+      "translations": {}
+    },
+    "Sheet sectioned rows": {
+      "source": "Sheet sectioned rows",
       "translations": {}
     },
     "Short": {
@@ -1954,6 +2473,10 @@
     },
     "Show sidebar": {
       "source": "Show sidebar",
+      "translations": {}
+    },
+    "Shows upload completion": {
+      "source": "Shows upload completion",
       "translations": {}
     },
     "Sidebar": {
@@ -2062,6 +2585,14 @@
       "source": "Stack surface and padding tests",
       "translations": {}
     },
+    "Stack · overlay and Spacer": {
+      "source": "Stack · overlay and Spacer",
+      "translations": {}
+    },
+    "Start": {
+      "source": "Start",
+      "translations": {}
+    },
     "Start · spacing 0": {
       "source": "Start · spacing 0",
       "translations": {}
@@ -2092,6 +2623,10 @@
     },
     "Switch": {
       "source": "Switch",
+      "translations": {}
+    },
+    "Switch remains interactive": {
+      "source": "Switch remains interactive",
       "translations": {}
     },
     "Switch states": {
@@ -2141,8 +2676,17 @@
       "comment": "Context actions for a task",
       "translations": {}
     },
+    "Task details": {
+      "source": "Task details",
+      "translations": {}
+    },
     "Task name": {
       "source": "Task name",
+      "comment": "Task name for the parity audit",
+      "translations": {}
+    },
+    "Task note": {
+      "source": "Task note",
       "translations": {}
     },
     "Text": {
@@ -2161,6 +2705,10 @@
       "source": "Text layout and effects tests",
       "translations": {}
     },
+    "Text padding 16": {
+      "source": "Text padding 16",
+      "translations": {}
+    },
     "Text semantic font styles": {
       "source": "Text semantic font styles",
       "translations": {}
@@ -2177,13 +2725,21 @@
       "source": "TextInput",
       "translations": {}
     },
+    "TextInput fills its sheet column": {
+      "source": "TextInput fills its sheet column",
+      "translations": {}
+    },
+    "The drag handle, Back, and outside dismissal are disabled.": {
+      "source": "The drag handle, Back, and outside dismissal are disabled.",
+      "translations": {}
+    },
     "The inline title uses the platform's native centered placement beside a trailing button and menu. Long press More actions for its menu.": {
       "source": "The inline title uses the platform's native centered placement beside a trailing button and menu. Long press More actions for its menu.",
       "comment": "Native title, toolbar action, and context menu behavior",
       "translations": {}
     },
-    "The native drag handle is hidden": {
-      "source": "The native drag handle is hidden",
+    "The task details sheet stays open underneath.": {
+      "source": "The task details sheet stays open underneath.",
       "translations": {}
     },
     "The title centers when no toolbar actions are present.": {
@@ -2192,6 +2748,10 @@
     },
     "The title stays next to Back, before the leading toolbar button.": {
       "source": "The title stays next to Back, before the leading toolbar button.",
+      "translations": {}
+    },
+    "Thickness: 12 · cornerRadius: 6": {
+      "source": "Thickness: 12 · cornerRadius: 6",
       "translations": {}
     },
     "Third line": {
@@ -2225,6 +2785,18 @@
     },
     "Tint-only range": {
       "source": "Tint-only range",
+      "translations": {}
+    },
+    "Tint: {barTint} · trackColor: {barTrack}": {
+      "source": "Tint: {barTint} · trackColor: {barTrack}",
+      "arguments": [
+        "barTint",
+        "barTrack"
+      ],
+      "argument_types": [
+        "String",
+        "String"
+      ],
       "translations": {}
     },
     "Tinted capsule": {
@@ -2343,6 +2915,14 @@
       "source": "Today tab content",
       "translations": {}
     },
+    "Toggle Android wave": {
+      "source": "Toggle Android wave",
+      "translations": {}
+    },
+    "Toggle Android wavy progress style": {
+      "source": "Toggle Android wavy progress style",
+      "translations": {}
+    },
     "Toggle animated Stack content": {
       "source": "Toggle animated Stack content",
       "translations": {}
@@ -2357,6 +2937,10 @@
     },
     "Toggle empty-state copy": {
       "source": "Toggle empty-state copy",
+      "translations": {}
+    },
+    "Toggle progress bar colors": {
+      "source": "Toggle progress bar colors",
       "translations": {}
     },
     "Toggle selection": {
@@ -2391,6 +2975,10 @@
       "source": "Top leading",
       "translations": {}
     },
+    "Top start": {
+      "source": "Top start",
+      "translations": {}
+    },
     "Track #E8EDF5 · selected #2563EB": {
       "source": "Track #E8EDF5 · selected #2563EB",
       "translations": {}
@@ -2413,6 +3001,10 @@
     },
     "Travel dates": {
       "source": "Travel dates",
+      "translations": {}
+    },
+    "Turn reordering off to use swipe actions on either platform.": {
+      "source": "Turn reordering off to use swipe actions on either platform.",
       "translations": {}
     },
     "Tween time range": {
@@ -2441,6 +3033,10 @@
       "source": "Typography",
       "translations": {}
     },
+    "URL · Done": {
+      "source": "URL · Done",
+      "translations": {}
+    },
     "Unbound picker uses its local selection": {
       "source": "Unbound picker uses its local selection",
       "translations": {}
@@ -2453,8 +3049,64 @@
       "source": "Underlined text",
       "translations": {}
     },
+    "Unsaved changes": {
+      "source": "Unsaved changes",
+      "translations": {}
+    },
+    "Update the launch plan": {
+      "source": "Update the launch plan",
+      "translations": {}
+    },
+    "Upload is complete": {
+      "source": "Upload is complete",
+      "translations": {}
+    },
+    "Use boundary values": {
+      "source": "Use boundary values",
+      "translations": {}
+    },
+    "Value: {shortText} · last change: {lastChanged} · edits: {changeCount}": {
+      "source": "Value: {shortText} · last change: {lastChanged} · edits: {changeCount}",
+      "arguments": [
+        "shortText",
+        "lastChanged",
+        "changeCount"
+      ],
+      "argument_types": [
+        "String",
+        "String",
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Vertical alignment: Start / Center / End": {
+      "source": "Vertical alignment: Start / Center / End",
+      "translations": {}
+    },
+    "Vertical row {index}": {
+      "source": "Vertical row {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Vertical rows": {
+      "source": "Vertical rows",
+      "translations": {}
+    },
+    "Virtualized rows · consistent full-width container": {
+      "source": "Virtualized rows · consistent full-width container",
+      "translations": {}
+    },
     "Visual parameters and disabled state": {
       "source": "Visual parameters and disabled state",
+      "translations": {}
+    },
+    "Wave": {
+      "source": "Wave",
       "translations": {}
     },
     "Week": {
@@ -2470,8 +3122,56 @@
       "source": "Wheel · native wheel on iOS, Material input on Android",
       "translations": {}
     },
+    "Width + min/max height constraints": {
+      "source": "Width + min/max height constraints",
+      "translations": {}
+    },
+    "Words · Title 3": {
+      "source": "Words · Title 3",
+      "translations": {}
+    },
     "Zero padding": {
       "source": "Zero padding",
+      "translations": {}
+    },
+    "left": {
+      "source": "left",
+      "translations": {}
+    },
+    "middle": {
+      "source": "middle",
+      "translations": {}
+    },
+    "nested padding 8": {
+      "source": "nested padding 8",
+      "translations": {}
+    },
+    "right": {
+      "source": "right",
+      "translations": {}
+    },
+    "second child starts below first": {
+      "source": "second child starts below first",
+      "translations": {}
+    },
+    "spacing 0 · padding 0": {
+      "source": "spacing 0 · padding 0",
+      "translations": {}
+    },
+    "spacing 12 · padding 16": {
+      "source": "spacing 12 · padding 16",
+      "translations": {}
+    },
+    "{value1}. {title}": {
+      "source": "{value1}. {title}",
+      "arguments": [
+        "value1",
+        "title"
+      ],
+      "argument_types": [
+        "Int32",
+        "String"
+      ],
       "translations": {}
     },
     "●": {

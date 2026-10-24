@@ -2,6 +2,9 @@
 /build/
 **/build/
 .nexa/
+__pycache__/
+*.py[cod]
 .DS_Store
 /examples/*.swift
 /examples/*.kt
+.argent/

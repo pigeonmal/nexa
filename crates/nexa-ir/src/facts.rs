@@ -184,7 +184,11 @@ pub struct UiFacts {
     pub switch_present: bool,
     pub slider_present: bool,
     pub progress_bar_present: bool,
+    /// Android's optional Material 3 wavy progress-bar API is reachable.
+    pub progress_bar_android_wave: bool,
     pub progress_ring_present: bool,
+    /// Android's optional Material 3 wavy circular indicator API is reachable.
+    pub progress_ring_android_wave: bool,
     pub segmented_control_present: bool,
     pub picker_present: bool,
     pub date_picker_present: bool,
@@ -211,8 +215,6 @@ pub struct BottomBarFacts {
 #[derive(Clone, Debug, Default)]
 pub struct BottomSheetFacts {
     pub present: bool,
-    pub partial: bool,
-    pub full_screen: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -256,6 +258,7 @@ pub struct ListFacts {
     pub scroll_events_grid: bool,
     pub scroll_position: bool,
     pub scroll_position_grid: bool,
+    pub scroll_commands: bool,
     pub end_reached: bool,
     pub end_reached_grid: bool,
     pub item_extent: bool,
@@ -978,11 +981,31 @@ fn observe_node(
         Node::Slider { .. } => {
             ui.slider_present = true;
         }
-        Node::ProgressBar { .. } => {
+        Node::ProgressBar { style, .. } => {
             ui.progress_bar_present = true;
+            if let Some(style) = style {
+                ui.progress_bar_android_wave |= style.android_wave.is_some();
+                ui.style.dynamic_color |= matches!(
+                    style.tint.as_ref(),
+                    Some(crate::ColorExpression::Dynamic(_))
+                ) || matches!(
+                    style.track_color.as_ref(),
+                    Some(crate::ColorExpression::Dynamic(_))
+                );
+            }
         }
-        Node::ProgressRing { .. } => {
+        Node::ProgressRing { style, .. } => {
             ui.progress_ring_present = true;
+            if let Some(style) = style {
+                ui.progress_ring_android_wave |= style.android_wave.is_some();
+                ui.style.dynamic_color |= matches!(
+                    style.tint.as_ref(),
+                    Some(crate::ColorExpression::Dynamic(_))
+                ) || matches!(
+                    style.track_color.as_ref(),
+                    Some(crate::ColorExpression::Dynamic(_))
+                );
+            }
         }
         Node::SegmentedControl {
             tint,
@@ -1133,15 +1156,15 @@ fn observe_node(
                 matches!(dismiss, KeyboardDismissMode::Interactive);
         }
         Node::BottomSheet {
-            partial,
-            title,
+            background_color,
+            scrim_color,
             children,
             ..
         } => {
             ui.bottom_sheet.present = true;
-            ui.bottom_sheet.partial |= *partial;
-            ui.bottom_sheet.full_screen |= !*partial;
-            ui.text.present |= title.is_some();
+            ui.style.dynamic_color |=
+                matches!(background_color, Some(crate::ColorExpression::Dynamic(_)))
+                    || matches!(scrim_color, Some(crate::ColorExpression::Dynamic(_)));
             record_child_layout(children, ui);
         }
         Node::Dialog { children, .. } => {
@@ -1198,9 +1221,12 @@ fn observe_node(
         }
         Node::FastList { plan } => {
             let axis = plan.axis();
-            let grid = matches!(axis, ListAxis::Grid { .. } | ListAxis::AutoGrid { .. });
+            let grid = matches!(
+                axis,
+                ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } | ListAxis::Masonry { .. }
+            );
             ui.lists.any = true;
-            ui.lists.virtualized |= !plan.native();
+            ui.lists.virtualized |= !plan.uses_platform_list();
             ui.lists.reverse_layout |= plan.reverse_layout();
             ui.lists.page_snap |= plan.page_snap();
             ui.lists.sectioned |= matches!(plan.as_ref(), ListPlan::Sections { .. });
@@ -1213,6 +1239,7 @@ fn observe_node(
                 ListAxis::Horizontal => ui.lists.horizontal = true,
                 ListAxis::Grid { .. } => ui.lists.grid = true,
                 ListAxis::AutoGrid { .. } => ui.lists.grid = true,
+                ListAxis::Masonry { .. } => ui.lists.grid = true,
             }
             ui.lists.sticky_header |= plan.sticky_header().is_some();
             ui.lists.section_header |= plan.section_header().is_some();
@@ -1223,6 +1250,7 @@ fn observe_node(
                 ui.lists.scroll_position |= !grid;
                 ui.lists.scroll_position_grid |= grid;
             }
+            ui.lists.scroll_commands |= plan.has_scroll_commands();
             if plan.on_scroll().is_some() {
                 ui.lists.scroll_events |= !grid;
                 ui.lists.scroll_events_grid |= grid;
@@ -1857,7 +1885,6 @@ mod tests {
             section: "section".to_owned(),
             item: "item".to_owned(),
             common: SectionedListCommon {
-                native: false,
                 show_dividers: true,
                 item_extent: None,
                 index: "index".to_owned(),

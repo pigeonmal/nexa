@@ -123,8 +123,32 @@ internal class NexaDevStateStore(internal val context: Context) {
             }
             else -> fallback
         }
-        return arguments.fold(template) { value, (name, argument) ->
-            value.replace("{$name}", stringify(argument))
+        return arguments.fold(template) { value, (name, _, formatted) ->
+            value.replace("{$name}", formatted)
+        }
+    }
+
+    private fun localizedInterpolationText(
+        sourceExpression: Any,
+        locals: Map<String, Any>,
+        scope: String,
+    ): String {
+        val expression = sourceExpression as? JSONObject
+            ?: return stringify(evaluate(sourceExpression, locals, scope))
+        val parts = expression.optJSONArray("Interpolation")
+            ?: return stringify(evaluate(sourceExpression, locals, scope))
+        return buildString {
+            for (index in 0 until parts.length()) {
+                val part = parts.optJSONObject(index) ?: continue
+                when {
+                    part.has("Literal") -> append(part.optString("Literal"))
+                    part.has("Value") -> {
+                        part.optJSONObject("Value")?.let { raw ->
+                            append(localizedArgumentText(raw, evaluate(raw, locals, scope)))
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -132,14 +156,49 @@ internal class NexaDevStateStore(internal val context: Context) {
         sourceExpression: Any?,
         locals: Map<String, Any>,
         scope: String,
-    ): List<Pair<String, Any>> {
+    ): List<Triple<String, Any, String>> {
         val expression = sourceExpression as? JSONObject ?: return emptyList()
         val parts = expression.optJSONArray("Interpolation") ?: return emptyList()
         return (0 until parts.length()).mapNotNull { index ->
             val part = parts.optJSONObject(index) ?: return@mapNotNull null
             val raw = part.optJSONObject("Value") ?: return@mapNotNull null
-            localizedArgumentName(raw, index) to evaluate(raw, locals, scope)
+            val value = evaluate(raw, locals, scope)
+            Triple(localizedArgumentName(raw, index), value, localizedArgumentText(raw, value))
         }
+    }
+
+    private fun localizedArgumentText(expression: JSONObject, value: Any): String =
+        when (localizedNumericType(expression)) {
+            "Float32" -> String.format(Locale.getDefault(), "%f", (value as? Number)?.toFloat() ?: 0f)
+            "Float64" -> String.format(Locale.getDefault(), "%f", (value as? Number)?.toDouble() ?: 0.0)
+            else -> stringify(value)
+        }
+
+    private fun localizedNumericType(expression: JSONObject): String? {
+        val iterator = expression.keys()
+        if (!iterator.hasNext()) return null
+        val kind = iterator.next()
+        val payload = expression.opt(kind)
+        return when (kind) {
+            "Number" -> (payload as? JSONObject)?.optString("ty")
+            "State", "AnimatedState" -> {
+                val fields = payload as? JSONArray ?: return null
+                localizedNumericTypeName(fields.opt(1))
+            }
+            "Member" -> localizedNumericTypeName((payload as? JSONObject)?.opt("field_type"))
+            "Index" -> localizedNumericTypeName((payload as? JSONObject)?.opt("element_type"))
+            "Call", "NativeCall", "TimeCall" -> localizedNumericTypeName((payload as? JSONObject)?.opt("return_type"))
+            "Conditional" -> localizedNumericTypeName((payload as? JSONObject)?.opt("value_type"))
+            "Add" -> (payload as? JSONArray)?.optString(2)
+            "Arithmetic", "Negate" -> (payload as? JSONObject)?.optString("ty")
+            else -> null
+        }?.takeIf { it == "Float32" || it == "Float64" }
+    }
+
+    private fun localizedNumericTypeName(type: Any?): String? = when (type) {
+        is String -> type
+        is JSONObject -> type.optString("Numeric").takeIf(String::isNotEmpty)
+        else -> null
     }
 
     private fun localizedArgumentName(expression: JSONObject, index: Int): String {
@@ -493,6 +552,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                     .roundToInt()
                 val easingValue = fields.opt("easing")
                 val easing = when (easingValue) {
+                    null, JSONObject.NULL -> androidx.compose.animation.core.FastOutSlowInEasing
                     is JSONObject -> {
                         val bezier = easingValue.optJSONObject("CubicBezier") ?: JSONObject()
                         androidx.compose.animation.core.CubicBezierEasing(
@@ -543,7 +603,13 @@ internal class NexaDevStateStore(internal val context: Context) {
                 if (!values.containsKey(identity)) {
                     values[identity] = evaluate(initial, resolved, scope)
                 }
-                resolved[name] = values[identity] ?: JSONObject.NULL
+                // Mutable state must be read through `state(name, scope)` so
+                // callback closures do not keep the value captured when their
+                // containing screen was first rendered. Immutable native
+                // values still need a local binding for member access.
+                if (!declaration.optBoolean("mutable")) {
+                    resolved[name] = values[identity] ?: JSONObject.NULL
+                }
             } else {
                 resolved[name] = evaluate(initial, resolved, scope)
             }
@@ -571,7 +637,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val key = fields.optString("key")
                 val source = fields.opt("value")
-                val fallback = if (source == null || source === JSONObject.NULL) key else stringify(evaluate(source, locals, scope))
+                val fallback = if (source == null || source === JSONObject.NULL) key else localizedInterpolationText(source, locals, scope)
                 localizedText(key, fallback, source, locals, scope)
             }
             "Bool" -> payload as? Boolean ?: false

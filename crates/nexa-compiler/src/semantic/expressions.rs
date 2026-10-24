@@ -3823,6 +3823,7 @@ fn is_core_native_namespace(namespace: &str) -> bool {
             | "Clipboard"
             | "Haptics"
             | "Regex"
+            | "BottomSheet"
     )
 }
 

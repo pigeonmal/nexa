@@ -277,13 +277,11 @@ Reference: components.md#pickerdate
 
 ### `ProgressBar`
 
-Shows linear progress for a Float64 value
+Shows customizable determinate or indeterminate linear progress
 
-Signature: `ProgressBar(progress, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ProgressBar(progress:, tint:, trackColor:, thickness:, cornerRadius:, android_wave:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `progress`
-
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `progress`, `tint`, `trackColor`, `thickness`, `cornerRadius`, `android_wave`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -293,13 +291,11 @@ Reference: components.md#progressbar
 
 ### `ProgressRing`
 
-Shows circular progress for a Float64 value
+Shows customizable determinate or indeterminate circular progress
 
-Signature: `ProgressRing(progress, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ProgressRing(progress:, tint:, trackColor:, size:, thickness:, android_wave:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Required options: `progress`
-
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `progress`, `tint`, `trackColor`, `size`, `thickness`, `android_wave`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -636,7 +632,7 @@ High-performance virtualized list with configurable dividers and responsive grid
 
 Signature: `FastList(collection | count: | sections:, axis:, ...)` with `{ bindings in ... }` rows
 
-Optional options: `axis`, `rowHeight`, `spacing`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `native`, `showDividers`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `axis`, `rowHeight`, `spacing`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `showDividers`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Source forms: positional collection, `count`:, or `sections:` (exactly one); row-key option `key`.
 
@@ -646,6 +642,10 @@ Modifiers:
 
 - `.onEndReached` (actions, optional)
 - `.onScroll` (actions, optional)
+- `.scrollToIndex` (no block, optional)
+- `.scrollToTop` (no block, optional)
+- `.scrollToEnd` (no block, optional)
+- `.scrollToOffset` (no block, optional)
 - `.onMove` (event actions, optional)
 - `.stickyHeader` (nodes, optional)
 - `.sectionHeader` (nodes, optional)
@@ -753,17 +753,19 @@ Reference: components.md#accessibility-options
 
 ### `BottomSheet`
 
-Modal bottom sheet bound to a boolean binding
+Native modal sheet with custom snap points and dismissal behavior
 
-Signature: `BottomSheet(isPresented, partial:, largeOnly:, showDragHandle:, title:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `BottomSheet(isPresented, contentPadding:, detents:, initialDetent:, snapPoints:, initialSnapPoint:, selectedSnapPoint:, showDragIndicator:, allowsDismissal:, allowsBackgroundInteraction:, shouldDismissOnBackPress:, backgroundColor:, scrimColor:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
 Required options: `isPresented`
 
-Optional options: `partial`, `largeOnly`, `showDragHandle`, `title`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `contentPadding`, `detents`, `initialDetent`, `snapPoints`, `initialSnapPoint`, `selectedSnapPoint`, `showDragIndicator`, `allowsDismissal`, `allowsBackgroundInteraction`, `shouldDismissOnBackPress`, `backgroundColor`, `scrimColor`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
-Modifiers: none
+Modifiers:
+
+- `.onDismiss` (actions, optional)
 
 Reference: components.md#bottomsheet
 

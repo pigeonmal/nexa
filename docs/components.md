@@ -46,6 +46,8 @@ app ReleaseSummary {
 
 The exact layout, typography, accessibility, and visual options are listed for each component in the [syntax audit](syntax-audit.md#layout) and [`crates/nexa-syntax/src/catalog.rs`](../crates/nexa-syntax/src/catalog.rs).
 
+Layout defaults are shared by iOS and Android: `Column` aligns its children and text to `Center`, `Row` aligns children vertically to `Center` and starts its horizontal arrangement at `Start`, and `Stack` centers its content. Omitted `padding` adds no inset. Explicit layout parameters replace these defaults.
+
 `Row(alignment:)` positions children vertically (`Start`, `Center`, or `End`). Use `horizontalArrangement: Start|Center|End` to place the child group across the available width; it defaults to `Start`. Setting `horizontalArrangement` makes the Row use available width, constrained by any explicit width bounds.
 
 ## Input and interaction
@@ -108,33 +110,129 @@ The section above opts back into dividers while other sections remain divider-fr
 
 Event modifiers are reserved for interactions and system triggers. For example, `Pressable` uses `.onTap`, `.onLongPress`, `.onDoubleTap`, `.onDrag`, `.onPinch`, and `.contextMenu` as documented in its syntax-audit entry. Styling remains component arguments.
 
+### ProgressBar
+
+`ProgressBar` renders a linear indicator. Omit `progress` to show the
+indeterminate animation; provide a `Float64` value for determinate progress.
+Determinate mode uses SwiftUI `ProgressView` on iOS and Material 3
+`LinearProgressIndicator` on Android. Indeterminate mode uses an animated SwiftUI
+bar on iOS and the native Material 3 linear indicator on Android. Set
+`android_wave` to opt into Android Material 3's native wavy indicator in either
+mode; iOS accepts and ignores that Android-specific argument. Determinate values
+are clamped to `0...1`; NaN and infinity render as zero.
+
+| Argument | Type | Default | Behavior |
+|---|---|---|---|
+| `progress` | `Float64` | Omitted | Omitted selects the native indeterminate animation. When supplied, values below zero render as zero, values above one render as complete, and non-finite values render as zero. |
+| `tint` | `Color` (`String` expression) | Platform native accent | Colors the determinate fill and indeterminate segment. A state string may change the color while the app is running. |
+| `trackColor` | `Color` (`String` expression) | Platform native track | Colors the unfilled track in both modes. |
+| `thickness` | `Float` (dp/pt) | Platform native thickness | Sets the bar height. Must be finite and non-negative. |
+| `cornerRadius` | `Float` (dp/pt) | Platform native shape; half the custom thickness when omitted | Sets the bar and track corner radius in both modes. Must be finite and non-negative. |
+| `android_wave` | `Bool` | `false` | Uses Android Material 3's native wavy indicator in determinate or indeterminate mode. iOS accepts the shared argument and ignores it. Android projects using this argument select Material 3 1.5.0-beta01 or later. |
+| `accessibilityLabel` | `String` | Omitted | Names the progress indicator for assistive technology. |
+| `accessibilityHint` | `String` | Omitted | Adds usage guidance for assistive technology. |
+| `accessibilityValue` | `String` | Native progress value | Overrides the announced progress value. |
+| `accessibilityRole` | `AccessibilityRole` | Native progress role | Overrides the announced role where supported. |
+
+```nx
+app BackupStatus {
+    state backupProgress: Float64 = 0.45
+    state backupTint: String = "#2563EB"
+    state backupTrack: String = "#DBEAFE"
+
+    body {
+        Column(spacing: 8, padding: 16) {
+            Text("Uploading project archive", fontWeight: Semibold)
+            ProgressBar()
+            ProgressBar(
+                progress: backupProgress,
+                tint: backupTint,
+                trackColor: backupTrack,
+                thickness: 8,
+                cornerRadius: 4,
+                android_wave: true,
+                accessibilityLabel: "Backup upload",
+                accessibilityValue: "45 percent"
+            )
+            Text("45% complete", fontSize: 13, color: "#475569")
+        }
+    }
+}
+```
+
+### ProgressRing
+
+`ProgressRing` displays determinate or indeterminate progress with a native SwiftUI or Material 3
+indicator. Omitting `progress` starts the native indeterminate animation, matching `ProgressBar()`.
+The shared `tint`, `trackColor`, `size`, and `thickness` parameters customize its appearance;
+omitted dimensions keep the 40-point/dp diameter and 4-point/dp stroke defaults.
+
+| Argument | Type | Default | Behavior |
+|---|---|---|---|
+| `progress` | `Float64` | Omitted | Omission selects an indeterminate animation. Supplied progress is clamped to `0...1`; non-finite values render as zero. |
+| `tint` | `Color` (`String` expression) | Platform native accent | Colors the active arc. A string state can update the tint at runtime. |
+| `trackColor` | `Color` (`String` expression) | Tint at 16% opacity | Colors the unfilled track. |
+| `size` | `Float` (dp/pt) | `40` | Sets the indicator diameter. Must be finite and non-negative. |
+| `thickness` | `Float` (dp/pt) | `4` | Sets the arc and track stroke width. Must be finite and non-negative. |
+| `android_wave` | `Bool` | `false` | Uses Android Material 3's native circular wavy indicator. iOS accepts and ignores it. Android projects using this argument select Material 3 1.5.0-beta01 or later. |
+| `accessibilityLabel` | `String` | Omitted | Names the progress indicator for assistive technology. |
+| `accessibilityHint` | `String` | Omitted | Adds usage guidance for assistive technology. |
+| `accessibilityValue` | `String` | Native progress value | Overrides the announced progress value. |
+| `accessibilityRole` | `AccessibilityRole` | Native progress role | Overrides the announced role where supported. |
+
+```nx
+app UploadStatus {
+    state uploadProgress: Float64 = 0.45
+    state uploadTint: String = "#2563EB"
+
+    body {
+        Column(spacing: 12, padding: 16) {
+            Text("Uploading project archive", fontWeight: Semibold)
+            ProgressRing(
+                progress: uploadProgress,
+                tint: uploadTint,
+                trackColor: "#DBEAFE",
+                size: 48,
+                thickness: 5,
+                accessibilityLabel: "Project archive upload",
+                accessibilityValue: "45 percent"
+            )
+            ProgressRing(android_wave: true)
+        }
+    }
+}
+```
+
 ## Repeated data
 
-`FastList` is the virtualized list component. Pass exactly one data source (`collection`, `count:`, or `sections:`), a row key when rendering a collection, and an explicit binding block. The compiler checks the number and type of row bindings.
+`FastList` is the virtualized list component. Pass exactly one data source (`collection`, `count:`, or `sections:`), a row key when rendering a collection, and an explicit binding block. The compiler checks the number and type of row bindings. When `rowHeight` is set, row content is vertically centered within that height on both platforms. When omitted, rows grow to fit their content and have a shared minimum height of 52 pt/dp.
 
 | Parameter | Type | Required/default | Behavior |
 |---|---|---|---|
 | Data source | `Array<T>`, `count: Int32`, or `sections: Array<Array<T>>` | Exactly one source | Positional arrays and named `count:` or `sections:` sources are supported. |
 | `key` | Statically known scalar item property | Required for collection sources | Declared in the list row binding; provides stable identity for virtualized items. |
-| `axis` | `Vertical`, `Horizontal`, `Grid(Int32)`, or `AutoGrid(Int32)` | `Vertical` | `Grid(columns)` fixes the column count. `AutoGrid(minCellWidth)` fits as many columns as available width allows while preserving the minimum cell width in logical units (dp on Android, points on iOS). Both numeric arguments must be positive integer literals. |
-| `rowHeight` | `Float64` | Content-sized | Optional fixed row height; for grids it is the cell height. Must be greater than zero. |
-| `spacing` | `Float64` | `0` | Gap between adjacent items. Applies along the list axis, or to both rows and columns for `Grid` and `AutoGrid`; `pageSnap` requires zero spacing. |
-| `scrollPosition` | `Int32` state | Omitted | Binds the first visible item index for supported flat lists. |
+| `axis` | `Vertical`, `Horizontal`, `Grid(Int32)`, `AutoGrid(Int32)`, or `Masonry(Int32)` | `Vertical` | `Grid(columns)` fixes the column count. `AutoGrid(minCellWidth)` fits columns to available width. `Masonry(columns)` places variable-height items into the currently shortest column. Both numeric arguments must be positive integer literals. Masonry is a flat vertical list and cannot use `rowHeight`, `reverseLayout`, `pageSnap`, sticky headers, reordering, or swipe actions. |
+| `rowHeight` | `Float64` | Content-sized, with a 52 pt/dp minimum | Optional fixed row height; for horizontal lists it sets item height while item width comes from row content, and for grids it is the cell height. Row content is vertically centered within the fixed height. Without it, content can grow rows beyond the shared minimum. Must be greater than zero. |
+| `spacing` | `Float64` | `0` | Gap between adjacent items. Applies along the list axis, or to both rows and columns for `Grid`, `AutoGrid`, and `Masonry`; `pageSnap` requires zero spacing. |
+| `scrollPosition` | `Int32` state | Omitted | Binds the leading unobscured data-row index for supported flat lists; rows behind a sticky header do not count as visible. |
 | `scrollEnabled` | `Bool` expression | Platform default | Enables or disables user-driven scrolling for flat, sectioned, and adaptive-grid lists; supports reactive state. |
 | `reverseLayout` | `Bool` | `false` | Reverses a flat vertical list; cannot be combined with sections, sticky headers, or page snapping. |
 | `pageSnap` | `Bool` | `false` | Pages a flat vertical list by viewport height; omit `rowHeight`. |
-| `native` | `Bool` | `false` | Uses a platform-native vertical list without custom scroll behavior. |
 | `showDividers` | `Bool` | `true` | Shows automatically rendered separators between rows in vertical flat and sectioned lists. Set to `false` to hide them. Horizontal lists, grids, and page-snapping lists do not draw row separators. |
 | `accessibilityLabel` | `String` | Omitted | Accessible label for the list. |
 
 | Modifier | Arguments and body | Behavior |
 |---|---|---|
-| `.onEndReached { ... }` | Actions | Runs when a supported flat list nears its final item. |
-| `.onScroll { ... }` | Actions | Runs as a supported flat list scrolls. |
-| `.onMove(enabled:) { from, to -> ... }` | Optional `Bool` (`true`); event actions | Reorders a native array-backed vertical list. |
+| `.onEndReached { ... }` | Actions | Runs once when the final data row becomes visible; it can run again after the item count changes. |
+| `.onScroll { ... }` | Actions | Runs when the leading unobscured data row changes, not for every pixel; the initial viewport does not emit it. |
+| `.scrollToIndex(index: position)` | Mutable `Int32` state | Controls the leading visible row and is updated as the user scrolls. This is the fluent form of `scrollPosition: position`; use one form per list. |
+| `.scrollToTop(trigger: command)` | Mutable `Int32` state | Scrolls to the start when the trigger changes. Increment the trigger to issue the command again. |
+| `.scrollToEnd(trigger: command)` | Mutable `Int32` state | Scrolls to the end when the trigger changes. Increment the trigger to issue the command again. |
+| `.scrollToOffset(offset: value)` | Mutable `Float64` state | Scrolls to an absolute content offset in logical points/dp when the value changes. Negative values are clamped to zero; page snapping does not support offsets. |
+| `.onMove(enabled:) { from, to -> ... }` | Optional `Bool` (`true`); event actions | Reorders an array-backed vertical list; the platform list surface is selected automatically. Android starts reordering with a long-press and drag. Reordering and swipe actions are separate interaction modes on both platforms; turn reordering off to reveal swipe actions. |
 | `.stickyHeader { ... }` | Nodes | Adds a header to a flat vertical list. |
 | `.sectionHeader { section -> ... }` | Nodes | Renders a header for each `sections:` group. |
-| `.swipeActions { ... }` | Nodes | Adds one trailing action to a native list row. |
+| `.swipeActions { ... }` | Nodes | Adds one trailing swipe action; the platform list surface is selected automatically. |
 
 Use `AutoGrid` for responsive media galleries so the same source adapts to phones, tablets, and resizable windows:
 
@@ -142,6 +240,26 @@ Use `AutoGrid` for responsive media galleries so the same source adapts to phone
 FastList(videos, key: .id, axis: AutoGrid(168), rowHeight: 240) { video, index in
     Image(url: video.coverUrl, description: "Video thumbnail", scale: Fill, maxHeight: 240)
 }
+```
+
+Use `Masonry` when cards have different heights. Programmatic commands share one list state and run when their argument changes:
+
+```nx
+state topCommand: Int32 = 0
+state endCommand: Int32 = 0
+state cardOffset: Float64 = 0
+
+FastList(count: 40, axis: Masonry(2), spacing: 12) { index in
+    Column(padding: 12, background: "#E8F0FF", cornerRadius: 12) {
+        Text("Card \(index)", fontWeight: Semibold)
+        if index % 3 == 0 {
+            Text("Additional details make this card taller than its neighbors.")
+        }
+    }
+}
+    .scrollToTop(trigger: topCommand)
+    .scrollToEnd(trigger: endCommand)
+    .scrollToOffset(offset: cardOffset)
 ```
 
 ```nx
@@ -159,7 +277,7 @@ app OrderHistory {
     ]
 
     body {
-        FastList(orders, key: .id, native: true) { order, index in
+        FastList(orders, key: .id) { order, index in
             Row(spacing: 12, padding: 12, background: "#F8FAFC", cornerRadius: 8) {
                 Text("\(index + 1). \(order.itemName)", fontWeight: Semibold)
                 Text("Qty \(order.quantity)", color: "#475569")
@@ -212,38 +330,156 @@ app SupportCenter {
 
 ### BottomSheet
 
-`BottomSheet` presents modal content using the native sheet presentation on each
-platform. Partial sheets use SwiftUI presentation detents on iOS and Material 3
-Expressive `ModalBottomSheet` on Android. The drag handle is visible by default;
-set `showDragHandle: false` to hide it consistently on both platforms.
+`BottomSheet` uses SwiftUI `.sheet` on iOS and Material 3 `ModalBottomSheet` on
+Android for native detents. Use fractional `snapPoints` for custom heights; the
+Android Compose sheet keeps the Material 3 surface and gestures while providing
+the requested anchors. The child block uses Nexa `Column` defaults on both
+platforms: children are centered horizontally and start at the top of the
+available content area immediately after the native drag indicator. The sheet
+adds a compact uniform 8 pt/dp content inset by default. Set `contentPadding` to
+zero or a larger value to override it; padding on child layouts adds to the
+sheet inset.
 
-| Parameter | Type | Required/default | Behavior |
+<!-- nexadoc:begin BOTTOM_SHEET_PARAMETERS -->
+| Parameter | Type | Default | Behavior |
 |---|---|---|---|
-| `isPresented` | `Bool` binding | Required | Controls whether the sheet is shown. |
-| `partial` | `Bool` | `false` | Uses a resizable partial sheet when true; false presents full-screen content. |
-| `largeOnly` | `Bool` | `false` | For partial sheets, disables the medium/partially expanded detent. |
-| `showDragHandle` | `Bool` | `true` | Shows or hides the native sheet drag indicator. It has no visible effect for full-screen presentation. |
-| `title` | `String` | `nil` | Optional title for the partial sheet's native navigation bar. |
-| child block | Nexa nodes | Required | Content displayed inside the sheet. `Toolbar` leading/trailing items are supported when a partial sheet has a title. |
+| `isPresented` | mutable `Bool` state | Required | Controls presentation and is reset after native dismissal |
+| `contentPadding` | non-negative `Dp` number | 8 dp | Uniform inset around sheet content; explicit child padding adds to it |
+| `detents` | `Array<SheetDetent>` (`Medium`, `Expanded`) | `[Medium, Expanded]` | Available native resting sizes; at least one unique size is required and cannot be combined with `snapPoints` |
+| `initialDetent` | `SheetDetent` | First entry in `detents` | Must be one of the configured detents; cannot be combined with `snapPoints` |
+| `snapPoints` | `Array<Number>` fractions in `(0, 1]` | Platform detents | Custom visible-height fractions, ordered from smallest to largest; cannot be combined with `detents` |
+| `initialSnapPoint` | `Number` fraction in `(0, 1]` | First entry in `snapPoints` | Must match one configured snap point and requires `snapPoints` |
+| `selectedSnapPoint` | mutable `Float64` state | Unbound; uses `initialSnapPoint` | Two-way current snap selection; requires `snapPoints` and cannot be combined with `initialSnapPoint` |
+| `showDragIndicator` | `Bool` | `true` | Shows or hides the platform-native drag indicator |
+| `allowsDismissal` | `Bool` | `true` | Allows drag dismissal and outside-tap dismissal for modal sheets; Android Back also obeys `shouldDismissOnBackPress`; state changes can always close the sheet |
+| `allowsBackgroundInteraction` | `Bool` | `false` | Removes the modal barrier and lets taps reach the screen behind the sheet (iOS 16.4+) |
+| `shouldDismissOnBackPress` | `Bool` | `true` | On Android, Back dismisses when `allowsDismissal` is also true; otherwise Back is consumed while the sheet stays open |
+| `backgroundColor` | color string or `String` state | Platform sheet surface | Overrides the sheet surface color; use `#00000000` for a transparent surface |
+| `scrimColor` | color string or `String` state | Platform modal scrim | Overrides the Android modal dim layer; a transparent color does not remove the modal barrier |
+<!-- nexadoc:end BOTTOM_SHEET_PARAMETERS -->
+
+Attach `.onDismiss { ... }` to run actions after the sheet closes. The callback
+runs for user dismissal and when the bound state is set to false. The selected
+`initialDetent` must appear in `detents`; `initialSnapPoint` must match
+`snapPoints`. At least one unique native detent or one ascending custom snap
+point is required. `allowsDismissal: false` disables drag-to-dismiss; setting the
+bound state to false from child content still closes it. `shouldDismissOnBackPress:
+false` consumes Android Back while keeping the sheet open. `allowsBackgroundInteraction:
+true` makes the sheet non-modal: taps outside its surface reach the screen behind
+it and do not close the sheet. On iOS 16.4 or later this uses SwiftUI background
+interaction; on Android the sheet is presented as a native Compose overlay rather
+than a modal dialog.
+
+Use `BottomSheet.present(isPresented)` and `BottomSheet.dismiss(isPresented)` in
+actions when you want explicit presentation commands; they write the same bound
+state and preserve the native transition. For a custom sheet that can be changed
+programmatically, bind `selectedSnapPoint` to a mutable `Float64` state and call
+`BottomSheet.snapTo(selectedSnapPoint, snapPoint)`. The selected state tracks
+both these commands and user drag changes. `snapPoint` is matched to the closest
+configured value in `snapPoints`.
+
+To stack a sub-sheet above an open sheet, declare the second `BottomSheet`
+inside the first sheet's child content and give it its own `isPresented` state.
+Call `BottomSheet.present(childPresented)` from the parent content; the parent
+stays presented while the child is open. Dismissing the child reveals the same
+parent sheet and preserves its state. This nested declaration uses SwiftUI's
+native sheet presenter on iOS and a second Material 3 modal sheet on Android.
+
+```nx
+BottomSheet(isPresented: taskPresented, detents: [Medium, Expanded]) {
+    Column(spacing: 12, padding: 16) {
+        Text("Task details")
+        Button("More actions") { BottomSheet.present(taskActionsPresented) }
+        BottomSheet(isPresented: taskActionsPresented, detents: [Medium]) {
+            Column(spacing: 12, padding: 16) {
+                Text("Task actions")
+                Button("Return to task") { BottomSheet.dismiss(taskActionsPresented) }
+            }
+        }
+    }
+}
+```
+
+For an edit or details sheet, compose a header from ordinary Nexa layout and
+buttons. A Save action can update state while leaving the sheet open; a close
+button can set its presentation state to false so the platform dismissal
+animation runs.
+
+```nx
+screen DeliveryAddressEditor {
+    state editorPresented: Bool = false
+    state addressSaved: Bool = false
+
+    body {
+        Column(spacing: 12, padding: 16) {
+            Button("Edit delivery address") {
+                BottomSheet.present(editorPresented)
+            }
+            BottomSheet(isPresented: editorPresented, detents: [Medium, Expanded]) {
+                Column(spacing: 12, padding: 20, alignment: Start) {
+                    Row(spacing: 12) {
+                        Text("Edit delivery address", fontSize: 20, fontWeight: Semibold)
+                        Spacer()
+                        Button("Save", icon: "save", style: Borderless) {
+                            addressSaved = true
+                        }
+                        Button("Close", icon: "close", style: Plain) {
+                            BottomSheet.dismiss(editorPresented)
+                        }
+                    }
+                    Text(addressSaved ? "Address saved" : "Unsaved changes")
+                }
+            }
+        }
+    }
+}
+```
+
+Android's native detents retain Material 3 keyboard handling. Custom snap points
+are fractions of the available height and keep the same sheet surface, drag
+indicator, dismissal, and keyboard behavior.
+
+`backgroundColor` colors the sheet surface; `scrimColor` colors the modal layer
+behind it. Leave `backgroundColor` omitted to keep the native sheet surface.
+`allowsBackgroundInteraction: true` removes the modal barrier completely so
+underlying controls remain tappable without dismissing the sheet. Set
+`shouldDismissOnBackPress: false` to keep Android Back from dismissing it. Android
+applies custom scrim colors in modal mode. SwiftUI owns its native modal scrim
+and has no public custom tint; use `allowsBackgroundInteraction` to remove its
+dimming and allow taps through.
 
 ```nx
 screen TaskEditor {
     state editorPresented: Bool = false
+    state editorSurface: String = "#F1F5F9"
+    state note: String = ""
+    state didDismissEditor: Bool = false
 
     body {
         Column(spacing: 12, padding: 16) {
-            Button("Edit task") { editorPresented = true }
+            Button("Edit task") {
+                editorPresented = true
+            }
             BottomSheet(
                 isPresented: editorPresented,
-                partial: true,
-                title: "Edit task",
-                showDragHandle: false
+                snapPoints: [0.3, 0.55, 0.9],
+                initialSnapPoint: 0.55,
+                showDragIndicator: true,
+                allowsDismissal: true,
+                backgroundColor: editorSurface
             ) {
-                Column(spacing: 12, padding: 24) {
-                    Text("Update the task details")
-                    Button("Done") { editorPresented = false }
+                Column(spacing: 12, padding: 20) {
+                    Text("Edit task", fontSize: 20, fontWeight: Semibold)
+                    Text("Update the task details and add an optional note.")
+                    TextInput(value: note, placeholder: "Note", accessibilityLabel: "Task note")
+                    Button("Done") {
+                        editorPresented = false
+                    }
                 }
+            }.onDismiss {
+                didDismissEditor = true
             }
+            Text(didDismissEditor ? "Editor dismissed" : "Editor is ready")
         }
     }
 }
