@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use nexa_diagnostics::{CompileWarning, Span};
+use nexa_diagnostics::{CompileWarning, Span, WarningCode};
 use nexa_syntax::ast;
 
 use crate::Target;
@@ -201,6 +201,7 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
         if !used_functions.contains(&function.name) {
             push_warning(
                 &mut warnings,
+                WarningCode::UNUSED_FUNCTION,
                 function.span,
                 format!(
                     "unused function `{}`{}; it will be removed from generated code",
@@ -289,6 +290,7 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             if !used.contains(name) {
                 push_warning(
                     &mut warnings,
+                    WarningCode::UNUSED_TEST_LOCAL,
                     *span,
                     format!("unused test local `{name}`"),
                     test.source_file.as_deref(),
@@ -328,6 +330,7 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             if !used.contains(name) {
                 push_warning(
                     &mut warnings,
+                    WarningCode::UNUSED_LOCAL,
                     *span,
                     format!("unused local constant `{name}`{}", target_suffix(target)),
                     None,
@@ -338,6 +341,7 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             if !used.contains(&parameter.name) {
                 push_warning(
                     &mut warnings,
+                    WarningCode::UNUSED_PARAMETER,
                     parameter.span,
                     format!(
                         "unused function parameter `{}`{}",
@@ -416,6 +420,7 @@ fn analyze_scope<'a, I, J, K>(
             };
             push_warning(
                 warnings,
+                WarningCode::UNUSED_DECLARATION,
                 declaration.span,
                 format!(
                     "unused {kind} `{}`{}; it will be removed from generated code",
@@ -430,6 +435,7 @@ fn analyze_scope<'a, I, J, K>(
         if !used.contains(&parameter.name) {
             push_warning(
                 warnings,
+                WarningCode::UNUSED_COMPONENT_PARAMETER,
                 parameter.span,
                 format!(
                     "unused component parameter `{}`{}",
@@ -672,6 +678,20 @@ fn walk_invocation(
                 }
                 ast::ListSource::Sections(sections) => walk_expression(sections, names, used),
             }
+            if rows.key.is_none()
+                && matches!(
+                    &rows.source,
+                    ast::ListSource::Items(_) | ast::ListSource::Sections(_)
+                )
+            {
+                push_warning(
+                    warnings,
+                    WarningCode::FAST_LIST_MISSING_KEY,
+                    inv.span,
+                    "FastList collection rows use positional identity without `key`; add a stable `key: .id` or `key: .self` if rows can move, be inserted, or be removed".to_owned(),
+                    file,
+                );
+            }
             if let Some(section) = rows.section.as_ref() {
                 walk_expression(section, names, used);
             }
@@ -726,6 +746,7 @@ fn walk_invocation(
             if index_name != "_" && !nodes_reference_name(&rows.children, index_name, target) {
                 push_warning(
                     warnings,
+                    WarningCode::UNUSED_FAST_LIST_BINDING,
                     inv.span,
                     format!(
                         "unused FastList index binding `{index_name}`{}",
@@ -740,6 +761,7 @@ fn walk_invocation(
             {
                 push_warning(
                     warnings,
+                    WarningCode::UNUSED_FAST_LIST_BINDING,
                     inv.span,
                     format!(
                         "unused FastList item binding `{item_name}`{}",
@@ -756,6 +778,7 @@ fn walk_invocation(
             {
                 push_warning(
                     warnings,
+                    WarningCode::UNUSED_FAST_LIST_BINDING,
                     inv.span,
                     format!(
                         "unused FastList section binding `{section_name}`{}",
@@ -1066,6 +1089,7 @@ fn warn_unused_loop_binding(
     if !actions_reference_name(body, name) {
         push_warning(
             warnings,
+            WarningCode::UNUSED_LOOP_BINDING,
             span,
             format!("unused loop binding `{name}`{}", target_suffix(target)),
             file,
@@ -1405,6 +1429,7 @@ fn warn_constant_condition(
     if let Some(value) = constant_bool(expression) {
         push_warning(
             warnings,
+            WarningCode::CONSTANT_CONDITION,
             span,
             format!(
                 "condition is always {}; the compiler will remove the unreachable branch",
@@ -1417,11 +1442,12 @@ fn warn_constant_condition(
 
 fn push_warning(
     warnings: &mut Vec<CompileWarning>,
+    code: WarningCode,
     span: Span,
     message: String,
     file: Option<&str>,
 ) {
-    let warning = CompileWarning::new(span, message);
+    let warning = CompileWarning::new(span, message).with_code(code);
     warnings.push(match file {
         Some(file) => warning.with_file(file),
         None => warning,

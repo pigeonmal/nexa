@@ -13,6 +13,96 @@ private func nexaCurrentLanguageCode() -> String {
     return language.lowercased()
 }
 
+private func nexaDevResponseHeaderValues(_ response: Any, name: String) -> [String] {
+    let fields = response as? [String: Any] ?? [:]
+    let headers = fields["headers"] as? [[String: Any]] ?? []
+    var values: [String] = []
+    for header in headers {
+        guard let headerName = header["name"] as? String,
+              headerName.caseInsensitiveCompare(name) == .orderedSame,
+              let value = header["value"] as? String else { continue }
+        values.append(value)
+    }
+    return values
+}
+
+private func nexaDevResponseHeaderValue(_ response: Any, name: String) -> String? {
+    let fields = response as? [String: Any] ?? [:]
+    let headers = fields["headers"] as? [[String: Any]] ?? []
+    for header in headers {
+        guard let headerName = header["name"] as? String,
+              headerName.caseInsensitiveCompare(name) == .orderedSame,
+              let value = header["value"] as? String else { continue }
+        return value
+    }
+    return nil
+}
+
+private func nexaDevCookieHeader(_ setCookieValues: [String]) -> String {
+    setCookieValues.compactMap { value -> String? in
+        guard let first = value
+            .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+            .first else { return nil }
+        let pair = String(first).trimmingCharacters(in: .whitespaces)
+        guard let equals = pair.firstIndex(of: "="), equals != pair.startIndex else {
+            return nil
+        }
+        let name = String(pair[..<equals]).trimmingCharacters(in: .whitespaces)
+        let cookieValue = String(pair[pair.index(after: equals)...])
+            .trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return nil }
+        return "\(name)=\(cookieValue)"
+    }.joined(separator: "; ")
+}
+
+private func nexaDevNetworkResponseMethod(
+    _ response: Any,
+    name: String,
+    headerName: String
+) -> Any {
+    if name == "getHeader" {
+        return nexaDevResponseHeaderValue(response, name: headerName) ?? NSNull()
+    }
+    if name == "getCookie" {
+        return nexaDevCookieHeader(nexaDevResponseHeaderValues(response, name: "Set-Cookie"))
+    }
+    return nexaDevResponseHeaderValues(response, name: headerName)
+}
+
+private func nexaDevStorageMethod(
+    name: String,
+    options: [String: Any],
+    codecs: [Any],
+    enumCases: [String: [String]]
+) -> Any {
+    let key = options["key"] as? String ?? ""
+    switch name {
+    case "getString": return (NexaStorage.getString(key) as Any?) ?? NSNull()
+    case "setString":
+        NexaStorage.setString(key, options["value"] as? String ?? "")
+    case "getBool": return (NexaStorage.getBool(key) as Any?) ?? NSNull()
+    case "setBool": NexaStorage.setBool(key, options["value"] as? Bool ?? false)
+    case "getInt64": return (NexaStorage.getInt64(key) as Any?) ?? NSNull()
+    case "setInt64": NexaStorage.setInt64(key, options["value"] as? Int64 ?? 0)
+    case "getFloat64": return (NexaStorage.getFloat64(key) as Any?) ?? NSNull()
+    case "setFloat64": NexaStorage.setFloat64(key, options["value"] as? Double ?? 0)
+    case "get":
+        guard let codec = codecs.first, let raw = NexaStorage.getJson(key) else { return NSNull() }
+        let parsed = NexaDevValueCodec.parseJSON(raw, type: codec, enumCases: enumCases)
+        return parsed["Ok"] ?? NSNull()
+    case "set":
+        guard let codec = codecs.first else { return NSNull() }
+        NexaStorage.setJson(
+            key,
+            NexaDevValueCodec.stringifyJSON(options["value"], type: codec, enumCases: enumCases)
+        )
+    case "delete": NexaStorage.delete(key)
+    case "clear": NexaStorage.clear()
+    default: return NSNull()
+    }
+    return NSNull()
+}
+
 final class NexaDevNetworkPathStatus: @unchecked Sendable {
     static let shared = NexaDevNetworkPathStatus()
 
@@ -139,8 +229,112 @@ private func nexaDevRegexFindAll(_ pattern: String, _ text: String) -> [[String:
     return expression.matches(in: text, range: range).map { nexaDevRegexMatch($0, text: text) }
 }
 
+private enum NexaDevSharedNativeResult {
+    case handled(Any)
+    case unhandled
+}
+
 @MainActor
 extension NexaDevStateStore {
+    private func invokeSharedNative(
+        namespace: String,
+        name: String,
+        options: [String: Any],
+        codecs: [Any]
+    ) -> NexaDevSharedNativeResult {
+        func stringOption(_ key: String, _ fallback: String = "") -> String {
+            options[key] as? String ?? fallback
+        }
+        func numberOption(_ key: String, _ fallback: Double = 0) -> Double {
+            (options[key] as? NSNumber)?.doubleValue ?? fallback
+        }
+
+        switch namespace {
+        case "Network" where name == "isOnline":
+            return .handled(NexaDevNetworkPathStatus.shared.isOnline)
+        case "Keyboard" where name == "dismiss":
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+            )
+            return .handled(NSNull())
+        case "Haptics":
+            nexaDevPerformHaptics(name, options: options)
+            return .handled(NSNull())
+        case "Screen" where name == "lockOrientation":
+            nexaDevLockOrientation(options["mode"] as? String ?? "All")
+            return .handled(NSNull())
+        case "Json":
+            guard let codec = codecs.first else { return .unhandled }
+            switch name {
+            case "parse":
+                return .handled(NexaDevValueCodec.parseJSON(
+                    options["raw"] as? String ?? "", type: codec, enumCases: enumCases
+                ))
+            case "stringify":
+                return .handled(NexaDevValueCodec.stringifyJSON(
+                    options["value"], type: codec, enumCases: enumCases
+                ))
+            default:
+                return .unhandled
+            }
+        case "Clipboard":
+            switch name {
+            case "setText":
+                UIPasteboard.general.string = options["text"] as? String ?? ""
+                return .handled(NSNull())
+            case "getText":
+                return .handled((UIPasteboard.general.string as Any?) ?? NSNull())
+            case "hasText":
+                return .handled(UIPasteboard.general.hasStrings)
+            default:
+                return .unhandled
+            }
+        case "Storage":
+            return .handled(nexaDevStorageMethod(
+                name: name, options: options, codecs: codecs, enumCases: enumCases
+            ))
+        case "Number" where name == "formatCurrency":
+            return .handled(nexaDevFormatCurrency(
+                numberOption("amount"), stringOption("currencyCode")
+            ))
+        case "Locale":
+            switch name {
+            case "currentLanguageCode": return .handled(nexaCurrentLanguageCode())
+            case "preferredLanguageCodes": return .handled(Locale.preferredLanguages)
+            case "displayName":
+                return .handled(
+                    Locale.current.localizedString(forLanguageCode: stringOption("languageCode"))
+                        ?? NSNull() as Any
+                )
+            default: return .unhandled
+            }
+        case "Crypto":
+            switch name {
+            case "sha256": return .handled(nexaCryptoSha256(stringOption("text")))
+            case "sha512": return .handled(nexaCryptoSha512(stringOption("text")))
+            case "hmacSha256":
+                return .handled(nexaCryptoHmacSha256(stringOption("key"), stringOption("message")))
+            case "randomBytes":
+                return .handled(nexaCryptoRandomBytes(Int32(numberOption("count"))))
+            default: return .unhandled
+            }
+        case "Path":
+            switch name {
+            case "documents": return .handled(NexaPath.documents())
+            case "caches": return .handled(NexaPath.caches())
+            case "temporary": return .handled(NexaPath.temporary())
+            case "appSupport": return .handled(NexaPath.appSupport())
+            case "join":
+                return .handled(NexaPath.join(stringOption("path"), stringOption("component")))
+            default: return .unhandled
+            }
+        case "File" where name == "exists":
+            return .handled(NexaFile.exists(stringOption("path")))
+        default:
+            return .unhandled
+        }
+    }
+
     func invokeNativeAsync(
         _ call: [String: Any],
         locals: [String: Any],
@@ -148,11 +342,83 @@ extension NexaDevStateStore {
     ) async throws -> Any {
         let namespace = call["namespace"] as? String ?? ""
         let name = call["name"] as? String ?? ""
+        runtimeTrace("native_call \(namespace).\(name)")
         let codecs = (call["codecs"] as? [Any]) ?? []
         var options: [String: Any] = [:]
         for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
             guard let argumentName = argument[0] as? String else { continue }
             options[argumentName] = try await evaluateAsync(argument[1], locals: locals, scope: scope)
+        }
+        func stringOption(_ key: String, _ fallback: String = "") -> String {
+            options[key] as? String ?? fallback
+        }
+        func numberOption(_ key: String, _ fallback: Double = 0) -> Double {
+            (options[key] as? NSNumber)?.doubleValue ?? fallback
+        }
+        if namespace == "NexaFastListRef",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull),
+           let reference = try await evaluateAsync(rawReceiver, locals: locals, scope: scope) as? NexaFastListRef {
+            return nexaDevInvokeFastListRef(reference, name: name, options: options)
+        }
+        if namespace == "NexaBottomSheetRef",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull),
+           let reference = try await evaluateAsync(rawReceiver, locals: locals, scope: scope) as? NexaBottomSheetRef {
+            return nexaDevInvokeBottomSheetRef(reference, name: name)
+        }
+        if namespace == "Nexa",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull) {
+            guard let reference = try await evaluateAsync(rawReceiver, locals: locals, scope: scope) as? NexaDevComponentRef,
+                  let componentScope = reference.attachedScope else {
+                return ["Err": ["NotAttached": NSNull()]]
+            }
+            let functionName = "Nexa.\(reference.componentName).\(name)"
+            guard let declaration = functions[functionName] else { return NSNull() }
+            let parameters = declaration["parameters"] as? [[String: Any]] ?? []
+            let arguments = parameters.map { parameter in
+                options[parameter["name"] as? String ?? ""] ?? NSNull()
+            }
+            let functionCall: [String: Any] = ["name": functionName, "arguments": arguments]
+            do {
+                let result: Any
+                if declaration["is_async"] as? Bool == true {
+                    result = try await invokeFunctionAsync(
+                        functionCall,
+                        locals: reference.attachedParameters,
+                        scope: componentScope
+                    )
+                } else {
+                    result = evaluate(
+                        ["Call": functionCall],
+                        locals: reference.attachedParameters,
+                        scope: componentScope
+                    )
+                }
+                if let failure = pendingPluginFailure {
+                    pendingPluginFailure = nil
+                    return nexaDevComponentRefFailure(failure)
+                }
+                let returnsResult = (declaration["return_type"] as? [String: Any])?["Result"] != nil
+                return nexaDevComponentRefResult(result, returnsResult: returnsResult)
+            } catch let failure as NexaDevPluginFailure {
+                pendingPluginFailure = nil
+                return nexaDevComponentRefFailure(failure)
+            } catch {
+                throw error
+            }
+        }
+        if namespace == "__NexaNetworkResponse",
+           (name == "getHeader" || name == "getHeaders" || name == "getCookie"),
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull) {
+            let response = try await evaluateAsync(rawReceiver, locals: locals, scope: scope)
+            return nexaDevNetworkResponseMethod(
+                response,
+                name: name,
+                headerName: options["name"] as? String ?? ""
+            )
         }
         if let receiverExpression = call["receiver"], !(receiverExpression is NSNull) {
             let receiver = try await evaluateAsync(receiverExpression, locals: locals, scope: scope)
@@ -185,14 +451,10 @@ extension NexaDevStateStore {
                 return pluginResult.1
             }
         }
-        if namespace == "Keyboard", name == "dismiss" {
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder),
-                to: nil,
-                from: nil,
-                for: nil
-            )
-            return NSNull()
+        if case let .handled(value) = invokeSharedNative(
+            namespace: namespace, name: name, options: options, codecs: codecs
+        ) {
+            return value
         }
         if namespace == "AppIcon", name == "set" {
             let iconName = options["name"] as? String
@@ -203,98 +465,16 @@ extension NexaDevStateStore {
                 }
             }
         }
-        if namespace == "Clipboard" {
-            switch name {
-            case "setText":
-                UIPasteboard.general.string = options["text"] as? String ?? ""
-                return NSNull()
-            case "getText": return (UIPasteboard.general.string as Any?) ?? NSNull()
-            case "hasText": return UIPasteboard.general.hasStrings
-            default:
-                throw NSError(
-                    domain: "NexaDevRuntime",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Unsupported clipboard call \\(name)"]
-                )
-            }
-        }
-        if namespace == "Storage" {
-            switch name {
-            case "getString": return (NexaStorage.getString(options["key"] as? String ?? "") as Any?) ?? NSNull()
-            case "setString":
-                NexaStorage.setString(options["key"] as? String ?? "", options["value"] as? String ?? "")
-                return NSNull()
-            case "delete":
-                NexaStorage.delete(options["key"] as? String ?? "")
-                return NSNull()
-            case "clear":
-                NexaStorage.clear()
-                return NSNull()
-            default:
-                throw NSError(
-                    domain: "NexaDevRuntime",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Unsupported storage call \\(name)"]
-                )
-            }
-        }
-        if namespace == "Haptics" {
-            nexaDevPerformHaptics(name, options: options)
-            return NSNull()
-        }
-        if namespace == "Screen", name == "lockOrientation" {
-            nexaDevLockOrientation(options["mode"] as? String ?? "All")
-            return NSNull()
-        }
-        func stringOption(_ key: String, _ fallback: String = "") -> String {
-            options[key] as? String ?? fallback
-        }
-        func numberOption(_ key: String, _ fallback: Double) -> Double {
-            (options[key] as? NSNumber)?.doubleValue ?? fallback
-        }
-        if namespace == "Number", name == "formatCurrency" {
-            return nexaDevFormatCurrency(numberOption("amount", 0), stringOption("currencyCode"))
-        }
-        if namespace == "Locale" {
-            switch name {
-            case "currentLanguageCode": return nexaCurrentLanguageCode()
-            case "preferredLanguageCodes": return Locale.preferredLanguages
-            case "displayName":
-                return Locale.current.localizedString(forLanguageCode: stringOption("languageCode")) ?? NSNull() as Any
-            default: break
-            }
-        }
-        if namespace == "Crypto" {
-            switch name {
-            case "sha256": return nexaCryptoSha256(stringOption("text"))
-            case "sha512": return nexaCryptoSha512(stringOption("text"))
-            case "hmacSha256":
-                return nexaCryptoHmacSha256(stringOption("key"), stringOption("message"))
-            case "randomBytes": return nexaCryptoRandomBytes(Int32(numberOption("count", 0)))
-            default: break
-            }
-        }
-        if namespace == "Path" {
-            switch name {
-            case "documents": return NexaPath.documents()
-            case "caches": return NexaPath.caches()
-            case "temporary": return NexaPath.temporary()
-            case "appSupport": return NexaPath.appSupport()
-            case "join": return NexaPath.join(stringOption("path"), stringOption("component"))
-            default:
-                throw NSError(
-                    domain: "NexaDevRuntime",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Unsupported native call \(namespace).\(name)"]
-                )
-            }
-        }
-        if namespace == "File", name == "exists" {
-            return NexaFile.exists(stringOption("path"))
-        }
         if namespace == "File" {
             switch name {
+            case "readBytes": return try await NexaFile.read(stringOption("path")).base64EncodedString()
             case "readText": return try await NexaFile.readText(stringOption("path"))
+            case "writeBytes":
+                guard let data = Data(base64Encoded: stringOption("contents")) else {
+                    throw NSError(domain: "NexaDevRuntime", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid byte buffer"])
+                }
+                try await NexaFile.write(data, to: stringOption("path"))
+                return true
             case "writeText": return try await NexaFile.writeText(
                 stringOption("contents"), to: stringOption("path")
             )
@@ -310,16 +490,16 @@ extension NexaDevStateStore {
         if namespace == "SecureStorage" {
             switch name {
             case "get":
-                let value = try await NexaSecureStorage.get(stringOption("key"))
+                let value = try await NexaSecureStorage.get(stringOption("key"), options["scope"] as? String)
                 return (value as Any?) ?? NSNull()
             case "set":
-                try await NexaSecureStorage.set(stringOption("key"), stringOption("value"))
+                try await NexaSecureStorage.set(stringOption("key"), stringOption("value"), options["scope"] as? String)
                 return NSNull()
             case "delete":
-                try await NexaSecureStorage.delete(stringOption("key"))
+                try await NexaSecureStorage.delete(stringOption("key"), options["scope"] as? String)
                 return NSNull()
             case "clear":
-                try await NexaSecureStorage.clear()
+                try await NexaSecureStorage.clear(options["scope"] as? String)
                 return NSNull()
             default:
                 throw NSError(
@@ -375,7 +555,7 @@ extension NexaDevStateStore {
         let url = stringOption("url")
         let method = stringOption("method", "GET")
         let timeout = numberOption("timeout", 30)
-        let useCache = options["useCache"] as? Bool ?? true
+        let cachePolicy = options["cachePolicy"] as? String ?? "Default"
         let followRedirects = options["followRedirects"] as? Bool ?? true
         let maxResponseBytes = Int(numberOption("maxResponseBytes", 67_108_864))
         if name == "upload" {
@@ -383,11 +563,16 @@ extension NexaDevStateStore {
             let response = try await NexaNetwork.upload(
                 url: url,
                 file: stringOption("file"),
-                fields: rawFields
+                fields: rawFields,
+                headers: headers,
+                timeout: timeout,
+                followRedirects: followRedirects,
+                maxResponseBytes: maxResponseBytes,
+                certificatePins: pins
             )
             return [
                 "statusCode": response.statusCode,
-                "headers": response.headers,
+                "headers": response.headers.map { ["name": $0.0, "value": $0.1] },
                 "body": response.text
             ]
         }
@@ -399,7 +584,7 @@ extension NexaDevStateStore {
                 body: body,
                 headers: headers,
                 timeout: timeout,
-                useCache: useCache,
+                cachePolicy: cachePolicy,
                 followRedirects: followRedirects,
                 maxResponseBytes: maxResponseBytes,
                 certificatePins: pins
@@ -411,14 +596,14 @@ extension NexaDevStateStore {
             body: body,
             headers: headers,
             timeout: timeout,
-            useCache: useCache,
+            cachePolicy: cachePolicy,
             followRedirects: followRedirects,
             maxResponseBytes: maxResponseBytes,
             certificatePins: pins
         )
         return [
             "statusCode": response.statusCode,
-            "headers": response.headers,
+            "headers": response.headers.map { ["name": $0.0, "value": $0.1] },
             "body": response.text
         ]
     }
@@ -430,11 +615,60 @@ extension NexaDevStateStore {
     ) -> Any {
         let namespace = call["namespace"] as? String ?? ""
         let name = call["name"] as? String ?? ""
+        runtimeTrace("native_call \(namespace).\(name)")
         let codecs = (call["codecs"] as? [Any]) ?? []
         var options: [String: Any] = [:]
         for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
             guard let argumentName = argument[0] as? String else { continue }
             options[argumentName] = evaluate(argument[1], locals: locals, scope: scope)
+        }
+        if namespace == "NexaFastListRef",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull),
+           let reference = evaluate(rawReceiver, locals: locals, scope: scope) as? NexaFastListRef {
+            return nexaDevInvokeFastListRef(reference, name: name, options: options)
+        }
+        if namespace == "NexaBottomSheetRef",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull),
+           let reference = evaluate(rawReceiver, locals: locals, scope: scope) as? NexaBottomSheetRef {
+            return nexaDevInvokeBottomSheetRef(reference, name: name)
+        }
+        if namespace == "Nexa",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull) {
+            guard let reference = evaluate(rawReceiver, locals: locals, scope: scope) as? NexaDevComponentRef,
+                  let componentScope = reference.attachedScope else {
+                return ["Err": ["NotAttached": NSNull()]]
+            }
+            let functionName = "Nexa.\(reference.componentName).\(name)"
+            guard let declaration = functions[functionName] else { return NSNull() }
+            let parameters = declaration["parameters"] as? [[String: Any]] ?? []
+            let arguments = parameters.map { parameter in
+                options[parameter["name"] as? String ?? ""] ?? NSNull()
+            }
+            let result = evaluate(
+                ["Call": ["name": functionName, "arguments": arguments]],
+                locals: reference.attachedParameters,
+                scope: componentScope
+            )
+            if let failure = pendingPluginFailure {
+                pendingPluginFailure = nil
+                return nexaDevComponentRefFailure(failure)
+            }
+            let returnsResult = (declaration["return_type"] as? [String: Any])?["Result"] != nil
+            return nexaDevComponentRefResult(result, returnsResult: returnsResult)
+        }
+        if namespace == "__NexaNetworkResponse",
+           (name == "getHeader" || name == "getHeaders" || name == "getCookie"),
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull) {
+            let response = evaluate(rawReceiver, locals: locals, scope: scope)
+            return nexaDevNetworkResponseMethod(
+                response,
+                name: name,
+                headerName: options["name"] as? String ?? ""
+            )
         }
         if namespace == "Regex" {
             let receiverExpression = call["receiver"]
@@ -530,109 +764,72 @@ extension NexaDevStateStore {
                 return pluginResult.1
             }
         }
-        if namespace == "Keyboard", name == "dismiss" {
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder),
-                to: nil,
-                from: nil,
-                for: nil
-            )
-            return NSNull()
+        if case let .handled(value) = invokeSharedNative(
+            namespace: namespace, name: name, options: options, codecs: codecs
+        ) {
+            return value
         }
-        if namespace == "Network", name == "isOnline" {
-            return NexaDevNetworkPathStatus.shared.isOnline
-        }
-        if namespace == "Json", let codec = codecs.first {
-            switch name {
-            case "parse":
-                return NexaDevValueCodec.parseJSON(
-                    options["raw"] as? String ?? "",
-                    type: codec,
-                    enumCases: enumCases
-                )
-            case "stringify":
-                return NexaDevValueCodec.stringifyJSON(
-                    options["value"],
-                    type: codec,
-                    enumCases: enumCases
-                )
-            default:
-                return NSNull()
-            }
-        }
-        if namespace == "Clipboard" {
-            switch name {
-            case "setText":
-                UIPasteboard.general.string = options["text"] as? String ?? ""
-                return NSNull()
-            case "getText": return (UIPasteboard.general.string as Any?) ?? NSNull()
-            case "hasText": return UIPasteboard.general.hasStrings
-            default: return NSNull()
-            }
-        }
-        if namespace == "Storage" {
-            switch name {
-            case "getString": return (NexaStorage.getString(options["key"] as? String ?? "") as Any?) ?? NSNull()
-            case "setString":
-                NexaStorage.setString(options["key"] as? String ?? "", options["value"] as? String ?? "")
-                return NSNull()
-            case "delete":
-                NexaStorage.delete(options["key"] as? String ?? "")
-                return NSNull()
-            case "clear":
-                NexaStorage.clear()
-                return NSNull()
-            default: return NSNull()
-            }
-        }
-        if namespace == "Haptics" {
-            nexaDevPerformHaptics(name, options: options)
-            return NSNull()
-        }
-        if namespace == "Screen", name == "lockOrientation" {
-            nexaDevLockOrientation(options["mode"] as? String ?? "All")
-            return NSNull()
-        }
-        func stringOption(_ key: String) -> String { options[key] as? String ?? "" }
-        if namespace == "Number", name == "formatCurrency" {
-            let amount = (options["amount"] as? NSNumber)?.doubleValue ?? 0
-            return nexaDevFormatCurrency(amount, stringOption("currencyCode"))
-        }
-        if namespace == "Locale" {
-            switch name {
-            case "currentLanguageCode": return nexaCurrentLanguageCode()
-            case "preferredLanguageCodes": return Locale.preferredLanguages
-            case "displayName":
-                return Locale.current.localizedString(forLanguageCode: stringOption("languageCode")) ?? NSNull() as Any
-            default: break
-            }
-        }
-        if namespace == "Crypto" {
-            switch name {
-            case "sha256": return nexaCryptoSha256(stringOption("text"))
-            case "sha512": return nexaCryptoSha512(stringOption("text"))
-            case "hmacSha256":
-                return nexaCryptoHmacSha256(stringOption("key"), stringOption("message"))
-            case "randomBytes":
-                let count = (options["count"] as? NSNumber)?.int32Value ?? 0
-                return nexaCryptoRandomBytes(count)
-            default: break
-            }
-        }
-        switch namespace {
-        case "Path":
-            switch name {
-            case "documents": return NexaPath.documents()
-            case "caches": return NexaPath.caches()
-            case "temporary": return NexaPath.temporary()
-            case "appSupport": return NexaPath.appSupport()
-            case "join": return NexaPath.join(stringOption("path"), stringOption("component"))
-            default: return NSNull()
-            }
-        case "File":
-            return name == "exists" ? NexaFile.exists(stringOption("path")) : NSNull()
-        default:
-            return NSNull()
-        }
+        return NSNull()
+    }
+}
+
+private func nexaDevComponentRefFailure(_ failure: NexaDevPluginFailure) -> [String: Any] {
+    ["Err": ["Failure": [
+        "namespace": failure.namespace,
+        "errorType": failure.errorType,
+        "variant": failure.variant,
+        "payload": failure.payload,
+    ]]]
+}
+
+private func nexaDevComponentRefResult(_ result: Any, returnsResult: Bool) -> [String: Any] {
+    guard returnsResult, let outcome = result as? [String: Any] else { return ["Ok": result] }
+    if let value = outcome["Ok"] { return ["Ok": value] }
+    if let failure = outcome["Err"] { return ["Err": ["Failure": failure]] }
+    return ["Ok": result]
+}
+
+@MainActor
+private func nexaDevInvokeFastListRef(
+    _ reference: NexaFastListRef,
+    name: String,
+    options: [String: Any]
+) -> Any {
+    let result: Result<Void, NexaComponentRefError<Never>>
+    switch name {
+    case "scrollToIndex":
+        result = reference.scrollToIndex(
+            (options["index"] as? NSNumber)?.int32Value ?? 0,
+            animated: (options["animated"] as? Bool) ?? true,
+            viewPosition: (options["viewPosition"] as? NSNumber)?.doubleValue ?? 0
+        )
+    case "scrollToTop": result = reference.scrollToTop(animated: (options["animated"] as? Bool) ?? true)
+    case "scrollToEnd": result = reference.scrollToEnd(animated: (options["animated"] as? Bool) ?? true)
+    case "scrollToOffset":
+        result = reference.scrollToOffset(
+            (options["offset"] as? NSNumber)?.doubleValue ?? 0,
+            animated: (options["animated"] as? Bool) ?? true
+        )
+    default: return NSNull()
+    }
+    switch result {
+    case .success: return ["Ok": NSNull()]
+    case .failure(.notAttached): return ["Err": ["NotAttached": NSNull()]]
+    case .failure(.failure(_)): return ["Err": ["NotAttached": NSNull()]]
+    }
+}
+
+@MainActor
+private func nexaDevInvokeBottomSheetRef(_ reference: NexaBottomSheetRef, name: String) -> Any {
+    let result: Result<Void, NexaComponentRefError<Never>>
+    switch name {
+    case "present": result = reference.present()
+    case "dismiss": result = reference.dismiss()
+    default: return NSNull()
+    }
+    switch result {
+    case .success: return ["Ok": NSNull()]
+    case .failure(.notAttached): return ["Err": ["NotAttached": NSNull()]]
+    case .failure(.failure(_)): return ["Err": ["NotAttached": NSNull()]]
     }
 }

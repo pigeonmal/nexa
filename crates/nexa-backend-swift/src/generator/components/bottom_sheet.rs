@@ -1,17 +1,13 @@
 use nexa_codegen::SourceWriter;
-use nexa_codegen::names::state_name;
-use nexa_ir::{Action, BottomSheetDetent, ColorExpression, Module, Node};
+use nexa_ir::{Action, ColorExpression, Expr, Module, Node};
 
 use crate::generator::{components::render_children, features::Features};
 
 pub(crate) struct BottomSheetRenderArgs<'a> {
-    pub(crate) state: &'a str,
+    pub(crate) component_ref: &'a Expr,
     pub(crate) content_padding: f32,
-    pub(crate) detents: &'a [BottomSheetDetent],
-    pub(crate) snap_points: &'a [f32],
-    pub(crate) initial_snap_point: Option<f32>,
-    pub(crate) selected_snap_point: Option<&'a str>,
-    pub(crate) initial_detent: Option<BottomSheetDetent>,
+    pub(crate) detents: &'a [f32],
+    pub(crate) initial_detent: Option<f32>,
     pub(crate) show_drag_indicator: bool,
     pub(crate) allows_dismissal: bool,
     pub(crate) allows_background_interaction: bool,
@@ -27,12 +23,9 @@ pub(crate) struct BottomSheetRenderArgs<'a> {
 
 pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut SourceWriter) {
     let BottomSheetRenderArgs {
-        state,
+        component_ref,
         content_padding,
         detents,
-        snap_points,
-        initial_snap_point,
-        selected_snap_point,
         initial_detent,
         show_drag_indicator,
         allows_dismissal,
@@ -47,23 +40,16 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
         depth,
     } = args;
     let detents = if detents.is_empty() {
-        &[BottomSheetDetent::Medium][..]
+        &[0.5][..]
     } else {
         detents
     };
     let detent_values = detents
         .iter()
-        .map(|detent| match detent {
-            BottomSheetDetent::Medium => ".medium",
-            BottomSheetDetent::Expanded => ".large",
-        })
+        .map(|detent| format!(".fraction({detent})"))
         .collect::<Vec<_>>()
         .join(", ");
     let initial_detent = initial_detent.unwrap_or(detents[0]);
-    let initial_detent = match initial_detent {
-        BottomSheetDetent::Medium => ".medium",
-        BottomSheetDetent::Expanded => ".large",
-    };
     let background_color = background_color.map_or_else(
         || "nil".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -72,39 +58,23 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
         || "nil".to_owned(),
         crate::generator::colors::expression_for_color,
     );
-    let state = state_name(state);
-
     out.line_at(depth, format_args!("NexaBottomSheetPrimitive("));
-    out.line_at(depth + 1, format_args!("isPresented: ${state},"));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "componentRef: {},",
+            crate::generator::engine::expressions::expression(component_ref)
+        ),
+    );
     out.line_at(
         depth + 1,
         format_args!("contentPadding: {content_padding},"),
     );
     out.line_at(depth + 1, format_args!("detents: [{detent_values}],"));
-    let snap_points = snap_points
-        .iter()
-        .map(|point| point.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    out.line_at(depth + 1, format_args!("snapPoints: [{snap_points}],"));
     out.line_at(
         depth + 1,
-        format_args!(
-            "initialSnapPoint: {},",
-            initial_snap_point.map_or_else(|| "nil".to_owned(), |point| point.to_string())
-        ),
+        format_args!("initialDetent: .fraction({initial_detent}),"),
     );
-    let selected_snap_point = selected_snap_point.map(state_name);
-    out.line_at(
-        depth + 1,
-        format_args!(
-            "selectedSnapPoint: {},",
-            selected_snap_point
-                .as_ref()
-                .map_or_else(|| "nil".to_owned(), |state| format!("${state}"))
-        ),
-    );
-    out.line_at(depth + 1, format_args!("initialDetent: {initial_detent},"));
     out.line_at(
         depth + 1,
         format_args!("showDragIndicator: {show_drag_indicator},"),
@@ -126,12 +96,7 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
         format_args!("backgroundColor: {background_color},"),
     );
     out.line_at(depth + 1, format_args!("scrimColor: {scrim_color},"));
-    out.line_at(
-        depth + 1,
-        format_args!("onDismissRequest: {{ {state} = false }},"),
-    );
     out.line_at(depth + 1, format_args!("onDismiss: {{"));
-    out.line_at(depth + 2, format_args!("{state} = false"));
     crate::generator::components::controls::render_actions(on_dismiss, depth + 2, out);
     out.line_at(depth + 1, format_args!("}},"));
     out.line_at(depth, format_args!(") {{"));
@@ -143,7 +108,7 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
 mod tests {
     use super::render_bottom_sheet;
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{BottomSheetDetent, Module, Node};
+    use nexa_ir::{Module, Node};
 
     fn empty_module() -> Module {
         Module {
@@ -176,13 +141,14 @@ mod tests {
         let mut out = SourceWriter::new();
         render_bottom_sheet(
             super::BottomSheetRenderArgs {
-                state: "visible",
-                content_padding: 8.0,
-                detents: &[BottomSheetDetent::Medium, BottomSheetDetent::Expanded],
-                snap_points: &[],
-                initial_snap_point: None,
-                selected_snap_point: None,
-                initial_detent: Some(BottomSheetDetent::Medium),
+                component_ref: &nexa_ir::Expr::ComponentRefCreate {
+                    namespace: "Nexa".to_owned(),
+                    name: "BottomSheet".to_owned(),
+                    identity: "sheet-ref".to_owned(),
+                },
+                content_padding: 0.0,
+                detents: &[0.5, 1.0],
+                initial_detent: Some(0.5),
                 show_drag_indicator: true,
                 allows_dismissal: true,
                 allows_background_interaction: false,
@@ -201,8 +167,8 @@ mod tests {
             &mut out,
         );
         let output = out.finish();
-        assert!(output.contains("detents: [.medium, .large]"));
-        assert!(output.contains("initialDetent: .medium"));
+        assert!(output.contains("detents: [.fraction(0.5), .fraction(1)]"));
+        assert!(output.contains("initialDetent: .fraction(0.5)"));
         assert!(output.contains("allowsDismissal: true"));
         assert!(output.contains("Sheet body"));
     }

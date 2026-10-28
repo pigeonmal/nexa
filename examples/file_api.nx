@@ -18,8 +18,15 @@ app FileApiExample {
                         let deleted = await File.delete(path: path)
                         let deletedAgain = await File.delete(path: path)
 
-                        status = wrote && existed && deleted && !deletedAgain
-                            ? "Read/write/delete parity passed"
+                        let bytesPath = Path.join(Path.documents(), "nexa-file-api-example.bin")
+                        let payload = Bytes.fromText(text: saved)
+                        let wroteBytes = await File.writeBytes(path: bytesPath, contents: payload)
+                        let savedBytes = await File.readBytes(path: bytesPath)
+                        let bytesMatch = Bytes.count(bytes: savedBytes) == Bytes.count(bytes: payload)
+                        let deletedBytes = await File.delete(path: bytesPath)
+
+                        status = wrote && existed && deleted && !deletedAgain && wroteBytes && bytesMatch && deletedBytes
+                            ? "Text and byte file parity passed"
                             : "Unexpected file API result"
                         contents = saved
                     } catch {

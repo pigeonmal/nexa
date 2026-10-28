@@ -5,8 +5,8 @@ package __NEXA_PACKAGE__
  * shared between Nexa development servers and Android dev runtimes.
  */
 internal object NexaDevSchema {
-    const val PROTOCOL_VERSION: Int = 12
-    const val DEV_IR_FORMAT_VERSION: Int = 55
+    const val PROTOCOL_VERSION: Int = __NEXA_PROTOCOL_VERSION__
+    const val DEV_IR_FORMAT_VERSION: Int = __NEXA_DEV_IR_FORMAT_VERSION__
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -44,6 +44,7 @@ internal object NexaDevKeys {
     const val MSG_RELOAD = "reload"
     const val MSG_RESTART = "restart"
     const val MSG_PERFORMANCE_OVERLAY = "performance_overlay"
+    const val MSG_RUNTIME_TRACE = "runtime_trace"
 
     // Patch operations
     const val OP = "op"
@@ -68,6 +69,7 @@ internal object NexaDevKeys {
     const val LOCALS = "locals"
     const val RETURN_TYPE = "return_type"
     const val BODY_ACTIONS = "body_actions"
+    const val FAILURE_TYPE = "failure_type"
     const val DIRECTION = "direction"
     const val STATUS_BAR = "status_bar"
     const val ON_APPEAR = "on_appear"
@@ -77,6 +79,11 @@ internal object NexaDevKeys {
     const val ON_INACTIVE = "on_inactive"
     const val ON_BACKGROUND = "on_background"
     const val TRANSITION = "transition"
+    const val SOURCE_FILE = "source_file"
+    const val REF_METHODS = "ref_methods"
+    const val COMPONENT_REF = "component_ref"
+    const val ARGUMENTS = "arguments"
+    const val CHILDREN = "children"
 
     // Pressable fields
     const val DRAG_PARAMETERS = "drag_parameters"
@@ -155,6 +162,8 @@ internal object NexaDevNodeKind {
 }
 
 internal object NexaDevActionKind {
+    const val NAVIGATION_PUSH = "NavigationPush"
+    const val NAVIGATION_BACK = "NavigationBack"
     const val ASSIGN = "Assign"
     const val EXPRESSION = "Expression"
     const val LET = "Let"
@@ -223,7 +232,9 @@ internal object NexaDevExprKind {
     const val PATH_JOIN = "PathJoin"
     const val FILE_EXISTS = "FileExists"
     const val FILE_READ_TEXT = "FileReadText"
+    const val FILE_READ_BYTES = "FileReadBytes"
     const val FILE_WRITE_TEXT = "FileWriteText"
+    const val FILE_WRITE_BYTES = "FileWriteBytes"
     const val FILE_DELETE = "FileDelete"
     const val PERMISSION_OP = "PermissionOp"
     const val TIME_CALL = "TimeCall"

@@ -17,12 +17,11 @@ permissions, and assets.
 
 Read both before proposing an interface. Do not design against a remembered contract.
 
-> [!IMPORTANT]
-> `nexa-plugin-idl` **discards `//` comments** while lexing and records no source spans. Doc
-> comments in a `.nxid` are invisible to the parser, and a generator cannot point at the line it
-> rendered. This is why no `nexa plugin doc` command exists today. If you need generated `.nxid`
-> documentation, that requires comment retention in the lexer first — check whether it has landed
-> before planning around it.
+> [!TIP]
+> Standalone `//` and `///` comments directly above a `.nxid` declaration or member are retained
+> in the typed IDL model. Use `nexa plugin doc <package-directory|native.nxid>` to print the full
+> API reference, or add `--out <file>` to write it. Blank lines break the association; inline
+> comments are ignored. The parser still does not record source spans for these comments.
 
 ## Workflow
 
@@ -32,7 +31,7 @@ nexa plugin check  <package-directory|native.nxid>
 nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <dir>]
 ```
 
-`init` scaffolds `plugin.config.nx` plus `native.nxid` (or `plugin.nx` for `--kind pure`).
+`new` scaffolds `plugin.config.nx` plus `native.nxid` (or `plugin.nx` for `--kind pure`).
 `check` validates the manifest and IDL, confirms declared source globs and asset roots exist,
 syntax-checks any Nexa source, and type-checks Swift/Kotlin directly when the SDKs and no
 external dependencies are involved. `generate` writes `<Namespace>.swift`, `<Namespace>.kt`, or a

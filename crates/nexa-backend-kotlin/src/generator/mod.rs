@@ -85,6 +85,11 @@ fn project_features_from_analysis(
     }
 }
 
+pub(super) fn analyze_project_features(module: &Module) -> crate::KotlinProjectFeatures {
+    let features = features::Features::analyze(module);
+    project_features_from_analysis(module, &features)
+}
+
 /// Generates the release source as one concatenated string.
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
@@ -128,6 +133,14 @@ pub(super) fn generate_for_dev_units_with_project_features(
     // Shared-transition APIs can be introduced by hot reload without
     // rebuilding the development host.
     features.uses_shared_elements = true;
+    // The development host ships every shared component primitive so routes
+    // added by hot reload do not need a host rebuild. Keep those primitives'
+    // imports and Gradle feature requirements in sync with the emitted source.
+    features.uses_keyboard_aware = true;
+    features.uses_page_pager = true;
+    features.uses_picker = true;
+    features.uses_progress_bar = true;
+    features.uses_navigation_link = true;
     // Appearance can be introduced by a hot reload without a native rebuild.
     features.facts.ui.appearance = true;
     // Tab bars can be added or replaced by a DevRuntime module after the host
@@ -430,6 +443,7 @@ internal fun NexaButtonPrimitive(
     iconOnlyCircle: Boolean,
     fullWidth: Boolean,
     leadingContent: Boolean,
+    accessibilityLabel: String? = null,
     onClick: () -> Unit,
 ) {
     val useNativeActionStyle = style == null && LocalNexaDialogActionButtons.current
@@ -441,6 +455,9 @@ internal fun NexaButtonPrimitive(
         else -> androidx.compose.ui.Modifier.defaultMinSize(minWidth = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_MIN_WIDTH__.toFloat()), minHeight = minHeight)
     }
     val resolvedShape = shape ?: androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
+    val accessibleModifier = if (accessibilityLabel == null) modifier else modifier.semantics(mergeDescendants = true) {
+        contentDescription = accessibilityLabel
+    }
     val contentPadding = when {
         iconOnlyCircle || resolvedStyle == "Plain" || resolvedStyle == "Borderless" -> androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
         size == "Small" -> androidx.compose.foundation.layout.PaddingValues(horizontal = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_HORIZONTAL_PADDING__.toFloat()), vertical = androidx.compose.ui.unit.Dp(__NEXA_BUTTON_SMALL_VERTICAL_PADDING__.toFloat()))
@@ -503,7 +520,7 @@ internal fun NexaButtonPrimitive(
     } else buttonContents
     when (resolvedStyle) {
         "Plain", "Borderless" -> androidx.compose.material3.TextButton(
-            modifier = modifier,
+            modifier = accessibleModifier,
             onClick = onClick,
             enabled = enabled,
             shape = resolvedShape,
@@ -523,7 +540,7 @@ internal fun NexaButtonPrimitive(
             }
             val outlinedTint = tint ?: defaultTint
             androidx.compose.material3.FilledTonalButton(
-                modifier = modifier,
+                modifier = accessibleModifier,
                 onClick = onClick,
                 enabled = enabled,
                 shape = resolvedShape,
@@ -534,7 +551,7 @@ internal fun NexaButtonPrimitive(
             )
         }
         else -> androidx.compose.material3.Button(
-            modifier = modifier,
+            modifier = accessibleModifier,
             onClick = onClick,
             enabled = enabled,
             shape = resolvedShape,
@@ -620,35 +637,40 @@ private fun androidx.compose.ui.Modifier.nexaBottomSheetDragHandleModifier(): an
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
 )
 internal fun NexaBottomSheetPrimitive(
-    isPresented: Boolean,
+    componentRef: NexaBottomSheetRef,
     contentPadding: androidx.compose.ui.unit.Dp,
-    enabledValues: Set<androidx.compose.material3.SheetValue>,
-    initialDetent: androidx.compose.material3.SheetValue,
-    snapPoints: List<Float>,
-    initialSnapPoint: Float?,
-    selectedSnapPoint: Float?,
-    onSnapPointChange: ((Float) -> Unit)?,
+    detents: List<Float>,
+    initialDetent: Float,
     showDragIndicator: Boolean,
     allowsDismissal: Boolean,
     allowsBackgroundInteraction: Boolean,
     shouldDismissOnBackPress: Boolean,
     backgroundColor: androidx.compose.ui.graphics.Color?,
     scrimColor: androidx.compose.ui.graphics.Color?,
-    onDismissRequest: () -> Unit,
     onDismiss: () -> Unit,
     content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
-    val resolvedBackgroundColor = nexaBottomSheetBackgroundColor(backgroundColor)
+    val isPresented = androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    val onDismissRequest = { isPresented.value = false }
+    androidx.compose.runtime.DisposableEffect(componentRef) {
+        val generation = componentRef.attach(
+            present = { isPresented.value = true },
+            dismiss = { isPresented.value = false },
+        )
+        onDispose { componentRef.detach(generation) }
+    }
     val wasPresented = androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(isPresented)
+        androidx.compose.runtime.mutableStateOf(isPresented.value)
     }
     val retainedInComposition = androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(isPresented)
+        androidx.compose.runtime.mutableStateOf(isPresented.value)
     }
     val currentOnDismiss by androidx.compose.runtime.rememberUpdatedState(onDismiss)
-    val currentIsPresented by androidx.compose.runtime.rememberUpdatedState(isPresented)
-    androidx.compose.runtime.LaunchedEffect(isPresented) {
-        if (isPresented) {
+    val currentIsPresented by androidx.compose.runtime.rememberUpdatedState(isPresented.value)
+    androidx.compose.runtime.LaunchedEffect(isPresented.value) {
+        if (isPresented.value) {
             wasPresented.value = true
             retainedInComposition.value = true
         }
@@ -664,138 +686,121 @@ internal fun NexaBottomSheetPrimitive(
 
     if (allowsBackgroundInteraction) {
         NexaNonModalBottomSheetPrimitive(
-            isPresented = isPresented,
+            isPresented = isPresented.value,
             contentPadding = contentPadding,
-            snapPoints = if (snapPoints.isNotEmpty()) {
-                snapPoints
+            detents = detents,
+            initialDetent = initialDetent,
+            showDragIndicator = showDragIndicator,
+            allowsDismissal = allowsDismissal,
+            shouldDismissOnBackPress = shouldDismissOnBackPress,
+            backgroundColor = backgroundColor,
+            onDismissRequest = onDismissRequest,
+            onExitAnimationFinished = onExitAnimationFinished,
+            content = content,
+        )
+        return
+    }
+
+    val nativeValues = detents.mapNotNull { detent ->
+        when (detent) {
+            0.5f -> androidx.compose.material3.SheetValue.PartiallyExpanded
+            1f -> androidx.compose.material3.SheetValue.Expanded
+            else -> null
+        }
+    }
+    if (nativeValues.size == detents.size) {
+        val enabledValues = setOf(androidx.compose.material3.SheetValue.Hidden) + nativeValues
+        val nativeInitialDetent = if (initialDetent == 1f) {
+            androidx.compose.material3.SheetValue.Expanded
+        } else {
+            androidx.compose.material3.SheetValue.PartiallyExpanded
+        }
+        val dismissalEnabled by androidx.compose.runtime.rememberUpdatedState(allowsDismissal)
+        val presentationRequested by androidx.compose.runtime.rememberUpdatedState(isPresented.value)
+        val sheetState = androidx.compose.material3.rememberBottomSheetState(
+            initialValue = androidx.compose.material3.SheetValue.Hidden,
+            enabledValues = enabledValues,
+            confirmValueChange = { value ->
+                value != androidx.compose.material3.SheetValue.Hidden ||
+                    dismissalEnabled || !presentationRequested
+            },
+        )
+        androidx.compose.runtime.LaunchedEffect(isPresented.value, sheetState) {
+            if (!isPresented.value) {
+                sheetState.hide()
+                if (!sheetState.isVisible) onExitAnimationFinished()
+            }
+        }
+        androidx.compose.runtime.LaunchedEffect(sheetState, nativeInitialDetent, sheetState.currentValue) {
+            if (
+                nativeInitialDetent == androidx.compose.material3.SheetValue.Expanded &&
+                androidx.compose.material3.SheetValue.PartiallyExpanded in enabledValues &&
+                sheetState.currentValue != androidx.compose.material3.SheetValue.Hidden
+            ) {
+                sheetState.expand()
+            }
+        }
+        val imeBottom = androidx.compose.foundation.layout.WindowInsets.ime
+            .getBottom(androidx.compose.ui.platform.LocalDensity.current)
+        val expanded = sheetState.currentValue == androidx.compose.material3.SheetValue.Expanded ||
+            sheetState.targetValue == androidx.compose.material3.SheetValue.Expanded
+        val keyboardOffset by androidx.compose.animation.core.animateIntAsState(
+            targetValue = if (expanded) 0 else imeBottom,
+            animationSpec = androidx.compose.animation.core.tween(
+                durationMillis = 180,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing,
+            ),
+            label = "NexaBottomSheetKeyboardOffset",
+        )
+        androidx.compose.material3.ModalBottomSheet(
+            modifier = androidx.compose.ui.Modifier.offset {
+                androidx.compose.ui.unit.IntOffset(0, -keyboardOffset)
+            },
+            onDismissRequest = onDismissRequest,
+            sheetState = sheetState,
+            containerColor = nexaBottomSheetBackgroundColor(backgroundColor),
+            scrimColor = scrimColor ?: androidx.compose.material3.BottomSheetDefaults.ScrimColor,
+            dragHandle = if (showDragIndicator) {
+                {
+                    androidx.compose.material3.BottomSheetDefaults.DragHandle(
+                        modifier = androidx.compose.ui.Modifier.nexaBottomSheetDragHandleModifier(),
+                    )
+                }
             } else {
-                enabledValues
-                    .filter { it != androidx.compose.material3.SheetValue.Hidden }
-                    .map {
-                        if (it == androidx.compose.material3.SheetValue.Expanded) 1f else 0.5f
-                    }
-                    .sorted()
+                null
             },
-            initialSnapPoint = initialSnapPoint ?: when (initialDetent) {
-                androidx.compose.material3.SheetValue.Expanded -> 1f
-                else -> 0.5f
-            },
-            selectedSnapPoint = selectedSnapPoint,
-            onSnapPointChange = onSnapPointChange,
-            showDragIndicator = showDragIndicator,
-            allowsDismissal = allowsDismissal,
-            shouldDismissOnBackPress = shouldDismissOnBackPress,
-            backgroundColor = backgroundColor,
-            onDismissRequest = onDismissRequest,
-            onExitAnimationFinished = onExitAnimationFinished,
-            content = content,
-        )
-        return
-    }
-
-    if (snapPoints.isNotEmpty()) {
-        NexaCustomBottomSheetPrimitive(
-            isPresented = isPresented,
-            contentPadding = contentPadding,
-            snapPoints = snapPoints,
-            initialSnapPoint = initialSnapPoint ?: snapPoints.first(),
-            selectedSnapPoint = selectedSnapPoint,
-            onSnapPointChange = onSnapPointChange,
-            showDragIndicator = showDragIndicator,
-            allowsDismissal = allowsDismissal,
-            shouldDismissOnBackPress = shouldDismissOnBackPress,
-            backgroundColor = backgroundColor,
-            scrimColor = scrimColor,
-            onDismissRequest = onDismissRequest,
-            onExitAnimationFinished = onExitAnimationFinished,
-            content = content,
-        )
-        return
-    }
-    val dismissalEnabled by androidx.compose.runtime.rememberUpdatedState(allowsDismissal)
-    val presentationRequested by androidx.compose.runtime.rememberUpdatedState(isPresented)
-    val sheetState = androidx.compose.material3.rememberBottomSheetState(
-        initialValue = androidx.compose.material3.SheetValue.Hidden,
-        enabledValues = enabledValues,
-        confirmValueChange = { value ->
-            value != androidx.compose.material3.SheetValue.Hidden ||
-                dismissalEnabled || !presentationRequested
-        },
-    )
-    androidx.compose.runtime.LaunchedEffect(isPresented, sheetState) {
-        if (!isPresented) {
-            sheetState.hide()
-            if (!sheetState.isVisible) onExitAnimationFinished()
-        }
-    }
-    androidx.compose.runtime.LaunchedEffect(
-        sheetState,
-        initialDetent,
-        sheetState.currentValue,
-    ) {
-        if (
-            initialDetent == androidx.compose.material3.SheetValue.Expanded &&
-            androidx.compose.material3.SheetValue.PartiallyExpanded in enabledValues &&
-            sheetState.currentValue != androidx.compose.material3.SheetValue.Hidden
+            properties = androidx.compose.material3.ModalBottomSheetProperties(
+                shouldDismissOnBackPress = allowsDismissal && shouldDismissOnBackPress,
+                shouldDismissOnClickOutside = allowsDismissal,
+            ),
         ) {
-            sheetState.expand()
-        }
-    }
-
-    val imeBottom = androidx.compose.foundation.layout.WindowInsets.ime
-        .getBottom(androidx.compose.ui.platform.LocalDensity.current)
-    val expanded = sheetState.currentValue == androidx.compose.material3.SheetValue.Expanded ||
-        sheetState.targetValue == androidx.compose.material3.SheetValue.Expanded
-    val keyboardOffset by androidx.compose.animation.core.animateIntAsState(
-        targetValue = if (expanded) 0 else imeBottom,
-        animationSpec = androidx.compose.animation.core.tween(
-            durationMillis = 180,
-            easing = androidx.compose.animation.core.FastOutSlowInEasing,
-        ),
-        label = "NexaBottomSheetKeyboardOffset",
-    )
-    // Follow the IME height with a short ease while keeping expanded sheets at
-    // the top of the window. Returning to zero restores the original detent.
-    androidx.compose.material3.ModalBottomSheet(
-        modifier = androidx.compose.ui.Modifier.offset {
-            androidx.compose.ui.unit.IntOffset(
-                x = 0,
-                y = -keyboardOffset,
-            )
-        },
-        onDismissRequest = onDismissRequest,
-        sheetState = sheetState,
-        containerColor = resolvedBackgroundColor,
-        scrimColor = scrimColor
-            ?: androidx.compose.material3.BottomSheetDefaults.ScrimColor,
-        dragHandle = if (showDragIndicator) {
-            {
-                androidx.compose.material3.BottomSheetDefaults.DragHandle(
-                    modifier = androidx.compose.ui.Modifier.nexaBottomSheetDragHandleModifier(),
+            androidx.compose.foundation.layout.Column(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth().fillMaxHeight(),
+            ) {
+                NexaBottomSheetContentPrimitive(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().weight(1f),
+                    contentPadding = contentPadding,
+                    content = content,
                 )
             }
-        } else {
-            null
-        },
-        properties = androidx.compose.material3.ModalBottomSheetProperties(
-            shouldDismissOnBackPress = allowsDismissal && shouldDismissOnBackPress,
-            shouldDismissOnClickOutside = allowsDismissal,
-        ),
-    ) {
-        androidx.compose.foundation.layout.Column(
-            modifier = androidx.compose.ui.Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(),
-        ) {
-            NexaBottomSheetContentPrimitive(
-                modifier = androidx.compose.ui.Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentPadding = contentPadding,
-                content = content,
-            )
         }
+        return
     }
+
+    NexaCustomBottomSheetPrimitive(
+        isPresented = isPresented.value,
+        contentPadding = contentPadding,
+        detents = detents,
+        initialDetent = initialDetent,
+        showDragIndicator = showDragIndicator,
+        allowsDismissal = allowsDismissal,
+        shouldDismissOnBackPress = shouldDismissOnBackPress,
+        backgroundColor = backgroundColor,
+        scrimColor = scrimColor,
+        onDismissRequest = onDismissRequest,
+        onExitAnimationFinished = onExitAnimationFinished,
+        content = content,
+    )
 }
 
 @androidx.compose.runtime.Composable
@@ -807,10 +812,8 @@ internal fun NexaBottomSheetPrimitive(
 private fun NexaNonModalBottomSheetPrimitive(
     isPresented: Boolean,
     contentPadding: androidx.compose.ui.unit.Dp,
-    snapPoints: List<Float>,
-    initialSnapPoint: Float,
-    selectedSnapPoint: Float?,
-    onSnapPointChange: ((Float) -> Unit)?,
+    detents: List<Float>,
+    initialDetent: Float,
     showDragIndicator: Boolean,
     allowsDismissal: Boolean,
     shouldDismissOnBackPress: Boolean,
@@ -821,25 +824,24 @@ private fun NexaNonModalBottomSheetPrimitive(
 ) {
     val resolvedBackgroundColor = nexaBottomSheetBackgroundColor(backgroundColor)
     val currentOnDismissRequest by androidx.compose.runtime.rememberUpdatedState(onDismissRequest)
-    val currentOnSnapPointChange by androidx.compose.runtime.rememberUpdatedState(onSnapPointChange)
-    val sortedSnapPoints = androidx.compose.runtime.remember(snapPoints) {
-        snapPoints.distinct().sorted()
+    val sortedDetents = androidx.compose.runtime.remember(detents) {
+        detents.distinct().sorted()
     }
-    val minSnapPoint = sortedSnapPoints.firstOrNull() ?: 0.5f
-    val maxSnapPoint = sortedSnapPoints.lastOrNull() ?: 1f
+    val minDetent = sortedDetents.firstOrNull() ?: 0.5f
+    val maxDetent = sortedDetents.lastOrNull() ?: 1f
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val availableHeight = configuration.screenHeightDp.dp
     val availableWidth = configuration.screenWidthDp.dp
     val availableHeightPx = with(density) { availableHeight.toPx() }.coerceAtLeast(1f)
     val dismissOnBack = allowsDismissal && shouldDismissOnBackPress
-    val initialHeight = initialSnapPoint.coerceIn(
-        if (allowsDismissal) 0f else minSnapPoint,
-        maxSnapPoint,
+    val initialHeight = initialDetent.coerceIn(
+        if (allowsDismissal) 0f else minDetent,
+        maxDetent,
     )
     val sheetHeight = androidx.compose.runtime.remember(
-        sortedSnapPoints,
-        initialSnapPoint,
+        sortedDetents,
+        initialDetent,
         allowsDismissal,
     ) {
         androidx.compose.animation.core.Animatable(0f)
@@ -848,22 +850,16 @@ private fun NexaNonModalBottomSheetPrimitive(
     val currentOnExitAnimationFinished by androidx.compose.runtime.rememberUpdatedState(
         onExitAnimationFinished,
     )
-    androidx.compose.runtime.LaunchedEffect(isPresented, selectedSnapPoint, sheetHeight) {
+    androidx.compose.runtime.LaunchedEffect(isPresented, sheetHeight) {
         if (isPresented) {
-            val selectedTarget = selectedSnapPoint?.let { requested ->
-                sortedSnapPoints.minByOrNull { kotlin.math.abs(it - requested) }
-            } ?: initialHeight
-            val target = selectedTarget.coerceIn(
-                if (allowsDismissal) 0f else minSnapPoint,
-                maxSnapPoint,
+            val target = initialHeight.coerceIn(
+                if (allowsDismissal) 0f else minDetent,
+                maxDetent,
             )
             sheetHeight.animateTo(
                 target,
                 androidx.compose.animation.core.spring(),
             )
-            if (selectedSnapPoint != null && selectedSnapPoint != target) {
-                currentOnSnapPointChange?.invoke(target)
-            }
         } else {
             sheetHeight.animateTo(0f, androidx.compose.animation.core.spring())
             currentOnExitAnimationFinished()
@@ -901,27 +897,27 @@ private fun NexaNonModalBottomSheetPrimitive(
             modifier = androidx.compose.ui.Modifier
                 .width(availableWidth)
                 .height(availableHeight * sheetHeight.value)
-                .pointerInput(sheetHeight, sortedSnapPoints, availableHeightPx, allowsDismissal) {
+                .pointerInput(sheetHeight, sortedDetents, availableHeightPx, allowsDismissal) {
                     detectVerticalDragGestures(
                         onVerticalDrag = { _, dragAmount ->
                             coroutineScope.launch {
-                                val floor = if (allowsDismissal) 0f else minSnapPoint
+                                val floor = if (allowsDismissal) 0f else minDetent
                                 sheetHeight.snapTo(
                                     (sheetHeight.value - dragAmount / availableHeightPx)
-                                        .coerceIn(floor, maxSnapPoint),
+                                        .coerceIn(floor, maxDetent),
                                 )
                             }
                         },
                         onDragEnd = {
                             coroutineScope.launch {
                                 val anchors = if (allowsDismissal) {
-                                    listOf(0f) + sortedSnapPoints
+                                    listOf(0f) + sortedDetents
                                 } else {
-                                    sortedSnapPoints
+                                    sortedDetents
                                 }
                                 val target = anchors.minByOrNull {
                                     kotlin.math.abs(it - sheetHeight.value)
-                                } ?: minSnapPoint
+                                } ?: minDetent
                                 if (target == 0f) {
                                     currentOnDismissRequest()
                                 } else {
@@ -929,20 +925,18 @@ private fun NexaNonModalBottomSheetPrimitive(
                                         target,
                                         androidx.compose.animation.core.spring(),
                                     )
-                                    currentOnSnapPointChange?.invoke(target)
                                 }
                             }
                         },
                         onDragCancel = {
                             coroutineScope.launch {
-                                val target = sortedSnapPoints.minByOrNull {
+                                val target = sortedDetents.minByOrNull {
                                     kotlin.math.abs(it - sheetHeight.value)
-                                } ?: minSnapPoint
+                                } ?: minDetent
                                 sheetHeight.animateTo(
                                     target,
                                     androidx.compose.animation.core.spring(),
                                 )
-                                currentOnSnapPointChange?.invoke(target)
                             }
                         },
                     )
@@ -985,10 +979,8 @@ private fun NexaNonModalBottomSheetPrimitive(
 private fun NexaCustomBottomSheetPrimitive(
     isPresented: Boolean,
     contentPadding: androidx.compose.ui.unit.Dp,
-    snapPoints: List<Float>,
-    initialSnapPoint: Float,
-    selectedSnapPoint: Float?,
-    onSnapPointChange: ((Float) -> Unit)?,
+    detents: List<Float>,
+    initialDetent: Float,
     showDragIndicator: Boolean,
     allowsDismissal: Boolean,
     shouldDismissOnBackPress: Boolean,
@@ -1000,12 +992,8 @@ private fun NexaCustomBottomSheetPrimitive(
 ) {
     val resolvedBackgroundColor = nexaBottomSheetBackgroundColor(backgroundColor)
     val currentOnDismissRequest by androidx.compose.runtime.rememberUpdatedState(onDismissRequest)
-    val currentOnSnapPointChange by androidx.compose.runtime.rememberUpdatedState(onSnapPointChange)
-    val maxSnapPoint = snapPoints.last()
-    val initialSelectedSnapPoint = selectedSnapPoint?.let { requested ->
-        snapPoints.minByOrNull { kotlin.math.abs(it - requested) }
-    } ?: initialSnapPoint
-    val sheetState = androidx.compose.runtime.remember(snapPoints, initialSnapPoint, allowsDismissal) {
+    val maxDetent = detents.last()
+    val sheetState = androidx.compose.runtime.remember(detents, initialDetent, allowsDismissal) {
         androidx.compose.foundation.gestures.AnchoredDraggableState(
             // Start at the hidden anchor. The presentation effect below animates
             // to the configured detent after the Dialog has measured its anchors.
@@ -1016,16 +1004,12 @@ private fun NexaCustomBottomSheetPrimitive(
     val currentOnExitAnimationFinished by androidx.compose.runtime.rememberUpdatedState(
         onExitAnimationFinished,
     )
-    androidx.compose.runtime.LaunchedEffect(isPresented, selectedSnapPoint, sheetState) {
+    androidx.compose.runtime.LaunchedEffect(isPresented, sheetState) {
         if (!isPresented) {
             sheetState.animateTo(0f)
             currentOnExitAnimationFinished()
         } else {
-            val selectedTarget = initialSelectedSnapPoint
-            sheetState.animateTo(selectedTarget)
-            if (selectedSnapPoint != null && selectedTarget != selectedSnapPoint) {
-                currentOnSnapPointChange?.invoke(selectedTarget)
-            }
+            sheetState.animateTo(initialDetent)
         }
     }
     val lastReportedSheetValue = androidx.compose.runtime.remember(sheetState) {
@@ -1037,8 +1021,6 @@ private fun NexaCustomBottomSheetPrimitive(
         lastReportedSheetValue.floatValue = currentValue
         if (currentValue == 0f) {
             currentOnDismissRequest()
-        } else {
-            currentOnSnapPointChange?.invoke(currentValue)
         }
     }
 
@@ -1067,12 +1049,12 @@ private fun NexaCustomBottomSheetPrimitive(
                 .imePadding(),
         ) {
             val availableHeightPx = constraints.maxHeight.toFloat()
-            val maxHeight = maxHeight * maxSnapPoint
+            val maxHeight = maxHeight * maxDetent
             val anchors = androidx.compose.foundation.gestures.DraggableAnchors<Float> {
-                snapPoints.forEach { point ->
-                    point at (availableHeightPx * (maxSnapPoint - point))
+                detents.forEach { point ->
+                    point at (availableHeightPx * (maxDetent - point))
                 }
-                0f at (availableHeightPx * maxSnapPoint)
+                0f at (availableHeightPx * maxDetent)
             }
             androidx.compose.runtime.SideEffect {
                 sheetState.updateAnchors(anchors)
@@ -1106,7 +1088,7 @@ private fun NexaCustomBottomSheetPrimitive(
                         androidx.compose.ui.unit.IntOffset(
                             x = 0,
                             y = if (sheetState.offset.isNaN()) {
-                                (availableHeightPx * (maxSnapPoint - sheetState.currentValue)).toInt()
+                                (availableHeightPx * (maxDetent - sheetState.currentValue)).toInt()
                             } else {
                                 sheetState.requireOffset().toInt()
                             },
@@ -2475,15 +2457,23 @@ internal fun NexaPageIndicatorPrimitive(
     }
     androidx.compose.foundation.layout.Box(
         modifier = androidx.compose.ui.Modifier
-            .size(size)
-            .background(color, shape = androidx.compose.foundation.shape.CircleShape)
-            .semantics { contentDescription = "Page ${index + 1}" }
-            .clickable(
-                role = androidx.compose.ui.semantics.Role.Button,
-                onClickLabel = "Page ${index + 1}",
-                onClick = onSelect,
-            ),
-    )
+            .size(androidx.compose.ui.unit.Dp(48f))
+            .semantics {
+                role = androidx.compose.ui.semantics.Role.Button
+                contentDescription = "Page ${index + 1}"
+                onClick(label = "Page ${index + 1}") {
+                    onSelect()
+                    true
+                }
+            },
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier
+                .size(size)
+                .background(color, shape = androidx.compose.foundation.shape.CircleShape),
+        )
+    }
 }
 
 // nexa-codegen: NexaNavigationChrome
@@ -2599,25 +2589,119 @@ internal fun NexaNavigationChrome(
 }
 
 // nexa-codegen: NexaPageIndicatorRow
+private data class NexaPageIndicatorGeometry(
+    val visualWidth: Int,
+    val dotCenters: IntArray,
+)
+
+private fun nexaPageIndicatorGeometry(
+    availableWidth: Int,
+    pageCount: Int,
+    currentPage: Int,
+    spacing: Int,
+    selectedSize: Int,
+    unselectedSize: Int,
+): NexaPageIndicatorGeometry {
+    val count = pageCount.coerceAtLeast(0)
+    val selectedDelta = if (currentPage in 0 until count) selectedSize - unselectedSize else 0
+    val visualWidth = count * unselectedSize + (count - 1).coerceAtLeast(0) * spacing + selectedDelta
+    val dotCenters = IntArray(count)
+    var dotLeft = (availableWidth - visualWidth) / 2
+    repeat(count) { index ->
+        val dotSize = if (index == currentPage) selectedSize else unselectedSize
+        dotCenters[index] = dotLeft + dotSize / 2
+        dotLeft += dotSize + spacing
+    }
+    return NexaPageIndicatorGeometry(visualWidth, dotCenters)
+}
+
 @androidx.compose.runtime.Composable
 internal fun NexaPageIndicatorRow(
     pageCount: Int,
     currentPage: Int,
     onSelect: (Int) -> Unit,
 ) {
-    androidx.compose.foundation.layout.Row(
+    val selectedPage = androidx.compose.runtime.rememberUpdatedState(currentPage)
+    val selectPage = androidx.compose.runtime.rememberUpdatedState(onSelect)
+    androidx.compose.ui.layout.Layout(
+        content = {
+            repeat(pageCount) { index ->
+                NexaPageIndicatorPrimitive(index = index, selected = currentPage == index) {
+                    onSelect(index)
+                }
+            }
+        },
         modifier = androidx.compose.ui.Modifier
             .fillMaxWidth()
-            .padding(bottom = androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_BOTTOM_INSET__.toFloat())),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(
-            androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_SPACING__.toFloat()),
-            androidx.compose.ui.Alignment.CenterHorizontally,
-        ),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        repeat(pageCount) { index ->
-            NexaPageIndicatorPrimitive(index = index, selected = currentPage == index) {
-                onSelect(index)
+            .height(androidx.compose.ui.unit.Dp(32f))
+            // The page targets overlap; resolve coordinate taps by visible dot center.
+            .pointerInput(pageCount) {
+                detectTapGestures { tap ->
+                    if (pageCount > 0) {
+                        val spacing = androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_SPACING__.toFloat()).roundToPx()
+                        val selectedSize = androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_SELECTED_SIZE__.toFloat()).roundToPx()
+                        val unselectedSize = androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__.toFloat()).roundToPx()
+                        val current = selectedPage.value
+                        val geometry = nexaPageIndicatorGeometry(
+                            size.width,
+                            pageCount,
+                            current,
+                            spacing,
+                            selectedSize,
+                            unselectedSize,
+                        )
+                        var nearestPage = 0
+                        var nearestDistance = Float.POSITIVE_INFINITY
+                        geometry.dotCenters.forEachIndexed { index, center ->
+                            val distance = kotlin.math.abs(tap.x - center)
+                            if (distance < nearestDistance) {
+                                nearestPage = index
+                                nearestDistance = distance
+                            }
+                        }
+                        if (nearestDistance <= androidx.compose.ui.unit.Dp(24f).toPx()) {
+                            selectPage.value(nearestPage)
+                        }
+                    }
+                }
+        },
+    ) { measurables, constraints ->
+        val targetSize = androidx.compose.ui.unit.Dp(48f).roundToPx()
+        val rowHeight = androidx.compose.ui.unit.Dp(32f).roundToPx()
+        val spacing = androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_SPACING__.toFloat()).roundToPx()
+        val selectedSize = androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_SELECTED_SIZE__.toFloat()).roundToPx()
+        val unselectedSize = androidx.compose.ui.unit.Dp(__NEXA_PAGE_INDICATOR_UNSELECTED_SIZE__.toFloat()).roundToPx()
+        val geometry = nexaPageIndicatorGeometry(
+            constraints.maxWidth,
+            pageCount,
+            currentPage,
+            spacing,
+            selectedSize,
+            unselectedSize,
+        )
+        val width = geometry.visualWidth.coerceIn(constraints.minWidth, constraints.maxWidth)
+        val dotCenters = if (width == constraints.maxWidth) {
+            geometry.dotCenters
+        } else {
+            nexaPageIndicatorGeometry(
+                width,
+                pageCount,
+                currentPage,
+                spacing,
+                selectedSize,
+                unselectedSize,
+            ).dotCenters
+        }
+        val height = rowHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
+        val placeables = measurables.map { measurable ->
+            measurable.measure(androidx.compose.ui.unit.Constraints.fixed(targetSize, targetSize))
+        }
+        layout(width, height) {
+            placeables.forEachIndexed { index, placeable ->
+                placeable.place(
+                    x = dotCenters[index] - targetSize / 2,
+                    y = androidx.compose.ui.unit.Dp(4f).roundToPx() - targetSize / 2,
+                )
             }
         }
     }
@@ -3280,6 +3364,92 @@ fn generate_with_analysis(
     let mut units = SourceUnits::new("kt");
     units.set_imports(&imports);
     units.write("types", |out| {
+        out.push_str(
+            r#"public typealias NexaResult<T, E> = dev.nexa.core.NexaResult<T, E>
+public typealias NexaComponentRefError<Failure> = dev.nexa.core.NexaComponentRefError<Failure>
+
+public class NexaFastListRef {
+    private var indexAction: ((Int, Boolean, Double) -> Unit)? = null
+    private var topAction: ((Boolean) -> Unit)? = null
+    private var endAction: ((Boolean) -> Unit)? = null
+    private var offsetAction: ((Double, Boolean) -> Unit)? = null
+
+    public fun attach(
+        scrollToIndex: (Int, Boolean, Double) -> Unit,
+        scrollToTop: (Boolean) -> Unit,
+        scrollToEnd: (Boolean) -> Unit,
+        scrollToOffset: (Double, Boolean) -> Unit
+    ) {
+        indexAction = scrollToIndex
+        topAction = scrollToTop
+        endAction = scrollToEnd
+        offsetAction = scrollToOffset
+    }
+
+    public fun detach() {
+        indexAction = null
+        topAction = null
+        endAction = null
+        offsetAction = null
+    }
+
+    public fun scrollToIndex(
+        index: Int,
+        animated: Boolean = true,
+        viewPosition: Double = 0.0,
+    ): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        indexAction?.let {
+            val normalizedPosition = if (viewPosition.isFinite()) viewPosition.coerceIn(0.0, 1.0) else 0.0
+            it(index, animated, normalizedPosition)
+            dev.nexa.core.NexaResult.Success(Unit)
+        }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+
+    public fun scrollToTop(animated: Boolean = true): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        topAction?.let { it(animated); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+
+    public fun scrollToEnd(animated: Boolean = true): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        endAction?.let { it(animated); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+
+    public fun scrollToOffset(
+        offset: Double,
+        animated: Boolean = true,
+    ): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        offsetAction?.let { it(offset.coerceAtLeast(0.0), animated); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+}
+
+public class NexaBottomSheetRef {
+    private var generation = 0L
+    private var presentAction: (() -> Unit)? = null
+    private var dismissAction: (() -> Unit)? = null
+
+    public fun attach(present: () -> Unit, dismiss: () -> Unit): Long {
+        generation += 1
+        presentAction = present
+        dismissAction = dismiss
+        return generation
+    }
+
+    public fun detach(expectedGeneration: Long) {
+        if (generation != expectedGeneration) return
+        presentAction = null
+        dismissAction = null
+    }
+
+    public fun present(): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        presentAction?.let { it(); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+
+    public fun dismiss(): NexaResult<Unit, NexaComponentRefError<Unit>> =
+        dismissAction?.let { it(); dev.nexa.core.NexaResult.Success(Unit) }
+            ?: dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)
+}
+
+"#,
+        );
         if features.uses_fast_list {
             out.push_str(
                 &NEXA_FAST_LIST_ROW_PRIMITIVE.replace(
@@ -3383,34 +3553,6 @@ fn generate_with_analysis(
         }
         if features.facts.ui.style.dynamic_color {
             out.push_str(NEXA_DYNAMIC_COLOR_HELPER);
-        }
-        if features.uses_result || features.facts.capabilities.uses_json_api {
-            out.push_str(
-                r#"public sealed class NexaResult<out T, out E> {
-            public data class Success<out T>(val value: T) : NexaResult<T, Nothing>()
-            public data class Failure<out E>(val error: E) : NexaResult<Nothing, E>()
-
-            public val isSuccess: Boolean get() = this is Success
-            public val isFailure: Boolean get() = this is Failure
-
-            public fun getOrNull(): T? = when (this) {
-                is Success -> value
-                is Failure -> null
-            }
-
-            public fun errorOrNull(): E? = when (this) {
-                is Success -> null
-                is Failure -> error
-            }
-
-            public fun getOrThrow(): T = when (this) {
-                is Success -> value
-                is Failure -> throw RuntimeException("Unhandled NexaResult error: $error")
-            }
-        }
-
-        "#,
-            );
         }
         for declaration in &module.enums {
             out.push_str(&format!(
@@ -3527,6 +3669,7 @@ fn generate_with_analysis(
                     }
                 } else if state.is_native_class_instance_binding()
                     || matches!(state.ty, nexa_ir::Type::Signal(_))
+                    || matches!(state.ty, nexa_ir::Type::ComponentRef { .. })
                 {
                     out.push_str(&format!(
                         "    val {name}: {} = remember {{ {} }}\n",
@@ -3739,10 +3882,32 @@ mod tests {
         shared_component_primitives, shared_component_primitives_with_wave,
     };
     use nexa_ir::{
-        Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
-        ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
-        SystemIcon, TaskExecutor, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        Action, AnimationSpec, CollectionTransform, Component, Expr, Function, ImageScale,
+        ImageSource, LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen,
+        ScreenId, SectionedListCommon, State, SystemIcon, TaskExecutor, TextStyle, Type, ViewStyle,
+        ViewTransition, WhenCase,
     };
+
+    fn braced_block(source: &str, start: usize) -> &str {
+        let open = source[start..]
+            .find('{')
+            .map(|offset| start + offset)
+            .expect("generated block has an opening brace");
+        let mut depth = 0usize;
+        for (offset, character) in source[open..].char_indices() {
+            match character {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[start..open + offset + character.len_utf8()];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("generated block is closed");
+    }
 
     #[test]
     fn app_bottom_bar_tint_is_scoped_to_navigation_items() {
@@ -3817,9 +3982,7 @@ mod tests {
                         index: "index".to_owned(),
                         key: None,
                         scroll_position: None,
-                        scroll_to_top: None,
-                        scroll_to_end: None,
-                        scroll_to_offset: None,
+                        component_ref: None,
                         children: vec![Node::Text {
                             value: Expr::String("Card".to_owned()),
                             style: TextStyle::default(),
@@ -3874,6 +4037,116 @@ mod tests {
         assert!(disabled_kotlin.contains(
             "userScrollEnabled = (nexaListState0.canScrollForward || nexaListState0.canScrollBackward) && false"
         ));
+
+        let mut referenced_module = module.clone();
+        let Node::FastList { plan } = &mut referenced_module.body[0] else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let ListPlan::Count { common, .. } = plan.as_mut() else {
+            panic!("expected the count-backed FastList plan");
+        };
+        common.component_ref = Some(Expr::ComponentRefCreate {
+            namespace: "Nexa".to_owned(),
+            name: "FastList".to_owned(),
+            identity: "test-fast-list-ref".to_owned(),
+        });
+        let referenced_kotlin = generate(&referenced_module);
+        assert!(referenced_kotlin.contains("SideEffect {"));
+        assert!(referenced_kotlin.contains("scrollToEnd = { animated -> if ("));
+        assert!(referenced_kotlin.contains("DisposableEffect(nexaFastListRef"));
+        assert!(referenced_kotlin.contains("onDispose { nexaFastListRef"));
+
+        let mut computed_items_module = module;
+        let Node::FastList { plan } = &mut computed_items_module.body[0] else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let ListPlan::Count { common, .. } = plan.as_ref() else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let mut common = common.clone();
+        common.key = Some(Expr::State("item".to_owned(), Type::String));
+        **plan = ListPlan::Items {
+            collection: Expr::CollectionTransform {
+                operation: CollectionTransform::Filter,
+                collection: Box::new(Expr::State(
+                    "items".to_owned(),
+                    Type::Array(Box::new(Type::String)),
+                )),
+                initial: None,
+                closure: Box::new(Expr::Closure {
+                    parameters: vec!["item".to_owned()],
+                    body: Box::new(Expr::Bool(true)),
+                }),
+            },
+            element_type: Type::String,
+            item: "item".to_owned(),
+            common,
+        };
+        let computed_items_kotlin = generate(&computed_items_module);
+        assert_eq!(
+            computed_items_kotlin
+                .matches(".filter { item -> true }")
+                .count(),
+            1
+        );
+        assert!(
+            computed_items_kotlin
+                .contains("val nexaListValues0 = nexa_items.filter { item -> true }"),
+            "{computed_items_kotlin}"
+        );
+        assert!(computed_items_kotlin.contains("count = nexaListValues0.size"));
+        assert!(computed_items_kotlin.contains("nexaListValues0[itemPosition]"));
+
+        let mut computed_sections_module = referenced_module;
+        let Node::FastList { plan } = &mut computed_sections_module.body[0] else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let ListPlan::Count { common, .. } = plan.as_ref() else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let common = SectionedListCommon {
+            show_dividers: true,
+            item_extent: None,
+            spacing: 0.0,
+            scroll_enabled: None,
+            index: "index".to_owned(),
+            component_ref: common.component_ref.clone(),
+            key: None,
+            children: common.children.clone(),
+            section_header: None,
+            swipe_actions: None,
+            refresh: None,
+        };
+        **plan = ListPlan::Sections {
+            collection: Expr::CollectionTransform {
+                operation: CollectionTransform::Filter,
+                collection: Box::new(Expr::State(
+                    "sections".to_owned(),
+                    Type::Array(Box::new(Type::Array(Box::new(Type::String)))),
+                )),
+                initial: None,
+                closure: Box::new(Expr::Closure {
+                    parameters: vec!["section".to_owned()],
+                    body: Box::new(Expr::Bool(true)),
+                }),
+            },
+            element_type: Type::Array(Box::new(Type::String)),
+            section: "section".to_owned(),
+            item: "item".to_owned(),
+            common,
+        };
+        let computed_sections_kotlin = generate(&computed_sections_module);
+        assert_eq!(
+            computed_sections_kotlin
+                .matches(".filter { section -> true }")
+                .count(),
+            1
+        );
+        assert!(computed_sections_kotlin.contains("val nexaListSections"));
+        assert!(computed_sections_kotlin.contains(".sumOf { it.size }"));
+        assert!(
+            computed_sections_kotlin.contains(".forEachIndexed { sectionPosition, sectionItems ->")
+        );
     }
 
     #[test]
@@ -3914,9 +4187,7 @@ mod tests {
                         index: "index".to_owned(),
                         key: None,
                         scroll_position: Some("listPosition".to_owned()),
-                        scroll_to_top: None,
-                        scroll_to_end: None,
-                        scroll_to_offset: None,
+                        component_ref: None,
                         children: vec![Node::Text {
                             value: Expr::String("Reverse row".to_owned()),
                             style: TextStyle::default(),
@@ -4185,6 +4456,9 @@ mod tests {
         let primitives = shared_component_primitives();
 
         assert!(primitives.contains("internal fun NexaButtonPrimitive("));
+        assert!(primitives.contains("accessibilityLabel: String? = null"));
+        assert!(primitives.contains("modifier.semantics(mergeDescendants = true)"));
+        assert!(primitives.contains("contentDescription = accessibilityLabel"));
         assert!(primitives.contains("MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)"));
         assert!(primitives.contains("color = if (plainButtonStyle) {"));
         assert!(primitives.contains("Modifier.size(androidx.compose.ui.unit.Dp(20.toFloat()))"));
@@ -4192,7 +4466,7 @@ mod tests {
         assert!(primitives.contains("if (resolvedStyle == \"Borderless\") {\n        androidx.compose.material3.MaterialTheme.colorScheme.primary"));
         assert!(primitives.contains("tint ?: androidx.compose.material3.MaterialTheme.colorScheme.primary).copy(alpha = 0.38f)"));
         assert!(primitives.contains(
-            "PaddingValues(horizontal = androidx.compose.ui.unit.Dp(8.toFloat()), vertical = androidx.compose.ui.unit.Dp(8.toFloat()))"
+            "PaddingValues(horizontal = androidx.compose.ui.unit.Dp(0.toFloat()), vertical = androidx.compose.ui.unit.Dp(0.toFloat()))"
         ));
         assert!(primitives.contains("textAlign = textAlign ?: LocalNexaTextAlignment.current"));
         assert!(!primitives.contains("LocalNexaTextFillWidth"));
@@ -4446,11 +4720,27 @@ mod tests {
         assert!(primitives.contains("internal fun NexaPageIndicatorPrimitive("));
         assert!(primitives.contains("(if (selected) 8 else 6).toFloat()"));
         assert!(primitives.contains("Color(0xFF8E8E93).copy(alpha = 0.45.toFloat())"));
-        assert!(primitives.contains(".semantics { contentDescription = \"Page ${index + 1}\" }"));
-        assert!(primitives.contains("onClickLabel = \"Page ${index + 1}\""));
+        assert!(primitives.contains("contentDescription = \"Page ${index + 1}\""));
+        assert!(primitives.contains("onClick(label = \"Page ${index + 1}\")"));
+        assert!(primitives.contains(".size(androidx.compose.ui.unit.Dp(48f))"));
+        assert!(primitives.contains("detectTapGestures { tap ->"));
+        assert!(primitives.contains("nearestDistance <= androidx.compose.ui.unit.Dp(24f).toPx()"));
+        assert!(primitives.contains("androidx.compose.ui.layout.Layout("));
         assert!(primitives.contains("internal fun NexaPageIndicatorRow("));
-        assert!(primitives.contains("Dp(8.toFloat()),"));
-        assert!(primitives.contains("padding(bottom = androidx.compose.ui.unit.Dp(24.toFloat()))"));
+        assert!(primitives.contains("private fun nexaPageIndicatorGeometry("));
+        assert!(primitives.contains("val geometry = nexaPageIndicatorGeometry("));
+        assert!(
+            primitives.contains("val rowHeight = androidx.compose.ui.unit.Dp(32f).roundToPx()")
+        );
+        let page_indicator = primitives
+            .split("// nexa-codegen: NexaPageIndicatorPrimitive")
+            .nth(1)
+            .unwrap_or_default()
+            .split("// nexa-codegen: NexaNavigationChrome")
+            .next()
+            .unwrap_or_default();
+        assert!(!page_indicator.contains(".clickable("));
+        assert!(!page_indicator.contains("onClickLabel = \"Page ${index + 1}\""));
     }
 
     #[test]
@@ -4513,7 +4803,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_presentation_primitives_use_native_material_sheets() {
+    fn shared_presentation_primitives_use_one_fractional_sheet_path() {
         let primitives = shared_component_primitives();
         let bottom_sheet = primitives
             .split("// nexa-codegen: NexaBottomSheetPrimitive")
@@ -4529,7 +4819,6 @@ mod tests {
         assert!(primitives.contains("androidx.compose.foundation.isSystemInDarkTheme()"));
         assert!(primitives.contains("androidx.compose.ui.graphics.Color.White"));
         assert!(primitives.contains("androidx.compose.ui.graphics.Color(0xFF1C1C1E)"));
-        assert!(bottom_sheet.contains("containerColor = resolvedBackgroundColor"));
         assert!(bottom_sheet.contains("color = resolvedBackgroundColor"));
         assert!(!bottom_sheet.contains("BottomSheetDefaults.ContainerColor"));
         assert!(primitives.contains("private fun NexaBottomSheetContentPrimitive("));
@@ -4538,7 +4827,7 @@ mod tests {
                 .matches("NexaBottomSheetContentPrimitive(")
                 .count(),
             3,
-            "native modal, custom modal, and non-modal hosts share the same content layout",
+            "native modal, custom modal, and non-modal hosts share the same content layout"
         );
         let sheet_content = primitives
             .split("// nexa-codegen: NexaBottomSheetContentPrimitive")
@@ -4566,22 +4855,25 @@ mod tests {
         assert!(slider.contains(
             "Keep Nexa's stepped value updates without Material's platform-only tick marks."
         ));
-        assert!(bottom_sheet.contains(".weight(1f)"));
+        assert!(bottom_sheet.contains("NexaCustomBottomSheetPrimitive("));
         assert!(bottom_sheet.contains("ModalBottomSheet("));
-        assert!(bottom_sheet.contains("scrimColor = scrimColor"));
+        assert!(bottom_sheet.contains("nativeValues.size == detents.size"));
+        assert!(
+            bottom_sheet.contains("initialValue = androidx.compose.material3.SheetValue.Hidden")
+        );
+        assert!(bottom_sheet.contains("WindowInsets.ime"));
+        assert!(bottom_sheet.contains("animateIntAsState("));
+        assert!(bottom_sheet.contains("targetValue = if (expanded) 0 else imeBottom"));
         assert!(
             bottom_sheet.contains(
                 "scrimColor ?: androidx.compose.material3.BottomSheetDefaults.ScrimColor"
             )
         );
-        assert!(bottom_sheet.contains("snapPoints.isNotEmpty()"));
-        assert!(bottom_sheet.contains("NexaCustomBottomSheetPrimitive("));
         assert!(bottom_sheet.contains("AnchoredDraggableState("));
         assert!(bottom_sheet.contains("initialValue = 0f,"));
-        assert!(bottom_sheet.contains("val selectedTarget = initialSelectedSnapPoint"));
-        assert!(bottom_sheet.contains("sheetState.animateTo(selectedTarget)"));
+        assert!(bottom_sheet.contains("sheetState.animateTo(initialDetent)"));
         assert!(bottom_sheet.contains("lastReportedSheetValue.floatValue"));
-        assert!(bottom_sheet.contains("maxSnapPoint - sheetState.currentValue"));
+        assert!(bottom_sheet.contains("maxDetent - sheetState.currentValue"));
         assert!(bottom_sheet.contains("DraggableAnchors<Float>"));
         assert!(bottom_sheet.contains(".anchoredDraggable("));
         assert!(bottom_sheet.contains("sheetState.updateAnchors(anchors)"));
@@ -4589,7 +4881,6 @@ mod tests {
         assert!(bottom_sheet.contains("currentOnDismiss()"));
         assert!(bottom_sheet.contains("retainedInComposition.value = false"));
         assert!(bottom_sheet.contains("LaunchedEffect(isPresented, sheetState)"));
-        assert!(bottom_sheet.contains("sheetState.hide()"));
         assert!(bottom_sheet.contains("sheetHeight.animateTo(0f"));
         assert!(bottom_sheet.contains("sheetState.animateTo(0f)"));
         assert!(bottom_sheet.contains("enabled = allowsDismissal,"));
@@ -4602,11 +4893,9 @@ mod tests {
             .unwrap_or_default();
         assert!(non_modal_sheet.contains("androidx.compose.animation.core.Animatable(0f)"));
         assert!(non_modal_sheet.contains("if (isPresented)"));
-        assert!(non_modal_sheet.contains("selectedSnapPoint?.let"));
+        assert!(non_modal_sheet.contains("val target = initialHeight.coerceIn("));
         assert!(non_modal_sheet.contains("sheetHeight.animateTo("));
-        assert!(non_modal_sheet.contains("currentOnSnapPointChange?.invoke(target)"));
         for (animation, completion) in [
-            ("sheetState.hide()", "onExitAnimationFinished()"),
             (
                 "sheetHeight.animateTo(0f",
                 "currentOnExitAnimationFinished()",
@@ -4641,54 +4930,20 @@ mod tests {
                 .matches("nexaBottomSheetDragHandleModifier()")
                 .count(),
             3,
-            "native, custom, and non-modal sheets use the compact native handle slot",
-        );
-        assert!(bottom_sheet.contains("containerColor = resolvedBackgroundColor"));
-        assert!(
-            bottom_sheet.contains("initialValue = androidx.compose.material3.SheetValue.Hidden")
-        );
-        assert!(bottom_sheet.contains("enabledValues = enabledValues"));
-        assert!(bottom_sheet.contains("confirmValueChange = { value ->"));
-        assert!(bottom_sheet.contains("sheetState.expand()"));
-        assert!(bottom_sheet.contains("androidx.compose.runtime.LaunchedEffect("));
-        assert!(bottom_sheet.contains("sheetState.currentValue,"));
-        assert!(
-            bottom_sheet
-                .contains("initialDetent == androidx.compose.material3.SheetValue.Expanded")
+            "native, custom, and non-modal sheets use the compact native handle slot"
         );
         assert!(!bottom_sheet.contains("imeVisible"));
-        assert!(bottom_sheet.contains("androidx.compose.ui.Modifier.offset {"));
-        assert!(bottom_sheet.contains("WindowInsets.ime"));
-        assert!(bottom_sheet.contains("animateIntAsState("));
-        assert!(bottom_sheet.contains("durationMillis = 180"));
-        assert!(bottom_sheet.contains("targetValue = if (expanded) 0 else imeBottom"));
-        assert!(bottom_sheet.contains("y = -keyboardOffset"));
-        assert!(
-            bottom_sheet.contains(
-                "sheetState.targetValue == androidx.compose.material3.SheetValue.Expanded"
-            )
-        );
-        assert!(
-            bottom_sheet.contains(
-                "sheetState.currentValue != androidx.compose.material3.SheetValue.Hidden"
-            )
-        );
-        assert!(bottom_sheet.contains("ModalBottomSheetProperties("));
-        assert!(
-            bottom_sheet
-                .contains("shouldDismissOnBackPress = allowsDismissal && shouldDismissOnBackPress")
-        );
         assert!(bottom_sheet.contains("if (allowsBackgroundInteraction)"));
         assert!(bottom_sheet.contains("NexaNonModalBottomSheetPrimitive("));
         assert!(bottom_sheet.contains("androidx.activity.compose.BackHandler(enabled = true)"));
         assert!(bottom_sheet.contains("focusable = false"));
         assert!(bottom_sheet.contains("dismissOnBackPress = false"));
         assert!(bottom_sheet.contains("dismissOnClickOutside = false"));
+        assert!(bottom_sheet.contains("shouldDismissOnClickOutside = allowsDismissal"));
         assert!(
             bottom_sheet
                 .contains("dismissOnBackPress = allowsDismissal && shouldDismissOnBackPress")
         );
-        assert!(bottom_sheet.contains("shouldDismissOnClickOutside = allowsDismissal"));
         assert!(bottom_sheet.contains(".fillMaxHeight()"));
         assert!(!bottom_sheet.contains("partialBodyHeight"));
         assert!(!bottom_sheet.contains("LocalNexaBottomSheetToolbarButtons"));
@@ -4764,6 +5019,7 @@ mod tests {
                     shape: None,
                     tint: None,
                     glass: false,
+                    accessibility_label: None,
                     actions: Vec::new(),
                 }],
                 drag_parameters: Vec::new(),
@@ -5019,9 +5275,7 @@ mod tests {
                             index: "index".to_owned(),
                             key: None,
                             scroll_position: Some("currentPage".to_owned()),
-                            scroll_to_top: None,
-                            scroll_to_end: None,
-                            scroll_to_offset: None,
+                            component_ref: None,
                             children: vec![Node::Text {
                                 value: Expr::String("Feed page".to_owned()),
                                 style: TextStyle::default(),
@@ -5038,15 +5292,13 @@ mod tests {
                     }),
                 },
                 Node::BottomSheet {
-                    state: "commentsPresented".to_owned(),
-                    content_padding: 8.0,
-                    detents: vec![
-                        nexa_ir::BottomSheetDetent::Medium,
-                        nexa_ir::BottomSheetDetent::Expanded,
-                    ],
-                    snap_points: Vec::new(),
-                    initial_snap_point: None,
-                    selected_snap_point: None,
+                    component_ref: Expr::ComponentRefCreate {
+                        namespace: "Nexa".to_owned(),
+                        name: "BottomSheet".to_owned(),
+                        identity: "comments-sheet".to_owned(),
+                    },
+                    content_padding: 0.0,
+                    detents: vec![0.5, 1.0],
                     initial_detent: None,
                     show_drag_indicator: true,
                     allows_dismissal: true,
@@ -5217,6 +5469,7 @@ mod tests {
                                         shape: None,
                                         tint: None,
                                         glass: false,
+                                        accessibility_label: None,
                                         actions: Vec::new(),
                                     }],
                                 },
@@ -5537,15 +5790,37 @@ mod tests {
                             style: TextStyle::default(),
                         }],
                     }],
-                    else_body: vec![Node::Text {
+                    else_body: Some(vec![Node::Text {
                         value: Expr::String("no".to_owned()),
                         style: TextStyle::default(),
-                    }],
+                    }]),
                     transition: Some(ViewTransition::SlideFromBottom),
                     transition_animation: Some(nexa_ir::AnimationSpec::Spring {
                         response: 0.35,
                         damping: 0.8,
                     }),
+                },
+                Node::When {
+                    value: Expr::State("visible".to_owned(), Type::Bool),
+                    cases: vec![
+                        WhenCase {
+                            value: Expr::Bool(true),
+                            body: vec![Node::Text {
+                                value: Expr::String("exhaustive true".to_owned()),
+                                style: TextStyle::default(),
+                            }],
+                        },
+                        WhenCase {
+                            value: Expr::Bool(false),
+                            body: vec![Node::Text {
+                                value: Expr::String("exhaustive false".to_owned()),
+                                style: TextStyle::default(),
+                            }],
+                        },
+                    ],
+                    else_body: None,
+                    transition: None,
+                    transition_animation: None,
                 },
             ],
             status_bar: None,
@@ -5563,6 +5838,14 @@ mod tests {
         assert!(kotlin.contains("AnimatedContent(targetState = "));
         assert!(kotlin.contains("fadeIn(animationSpec = androidx.compose.animation.core.tween(durationMillis = 240, delayMillis = 40, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) togetherWith fadeOut(animationSpec = androidx.compose.animation.core.tween(durationMillis = 240, delayMillis = 40, easing = androidx.compose.animation.core.LinearOutSlowInEasing))"));
         assert!(kotlin.contains("slideInVertically(animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 816.32654f)) { height -> height } togetherWith slideOutVertically(animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 816.32654f)) { height -> height }"));
+        let false_case = kotlin
+            .rfind("false -> {")
+            .expect("the exhaustive boolean when emits its false case");
+        let exhaustive_start = kotlin[..false_case]
+            .rfind("when (")
+            .expect("the exhaustive boolean when is emitted as a Kotlin when");
+        let exhaustive_when = braced_block(&kotlin, exhaustive_start);
+        assert!(!exhaustive_when.contains("else ->"));
     }
 
     #[test]
@@ -5952,6 +6235,7 @@ mod tests {
                         shape: None,
                         tint: None,
                         glass: false,
+                        accessibility_label: None,
                         actions: vec![Action::Expression(Expr::NativeCall {
                             receiver: Some(Box::new(Expr::State(
                                 "appPlayer".to_owned(),
@@ -6062,6 +6346,7 @@ mod tests {
                     mutable: false,
                 }],
                 body: Vec::new(),
+                ref_methods: Vec::new(),
                 on_appear: None,
                 on_appear_async: false,
                 on_disappear: None,
@@ -6069,6 +6354,7 @@ mod tests {
             body: vec![Node::ComponentCall {
                 name: "PlayerPanel".to_owned(),
                 arguments: Vec::new(),
+                component_ref: None,
                 children: None,
             }],
             status_bar: None,
@@ -6148,6 +6434,7 @@ mod tests {
                     parameters: Vec::new(),
                     states: Vec::new(),
                     body: Vec::new(),
+                    ref_methods: Vec::new(),
                     on_appear: None,
                     on_appear_async: false,
                     on_disappear: None,
@@ -6158,6 +6445,7 @@ mod tests {
                     parameters: Vec::new(),
                     states: Vec::new(),
                     body: vec![pressable_with_task()],
+                    ref_methods: Vec::new(),
                     on_appear: None,
                     on_appear_async: false,
                     on_disappear: None,
@@ -6272,6 +6560,7 @@ mod tests {
                     class_initializers: Vec::new(),
                     is_async: false,
                     is_throwing: false,
+                    failure_type: None,
                     parameters: Vec::new(),
                     locals: Vec::new(),
                     body_actions: None,
@@ -6294,6 +6583,7 @@ mod tests {
                     class_initializers: Vec::new(),
                     is_async: false,
                     is_throwing: false,
+                    failure_type: None,
                     parameters: Vec::new(),
                     locals: Vec::new(),
                     body_actions: None,
@@ -6334,7 +6624,9 @@ mod tests {
         };
 
         let kotlin = generate(&module);
-        assert!(kotlin.contains("public sealed class NexaResult<out T, out E> {"));
+        assert!(
+            kotlin.contains("public typealias NexaResult<T, E> = dev.nexa.core.NexaResult<T, E>")
+        );
         assert!(kotlin.contains("NexaResult<Int, NexaAppError>"));
         assert!(kotlin.contains("NexaResult.Success(42)"));
         assert!(kotlin.contains("nexa_fn_fetchCode().getOrThrow()"));
@@ -6343,7 +6635,7 @@ mod tests {
     #[test]
     fn screen_result_state_emits_shared_result_definition() {
         // A screen-local `Result` state renders `NexaResult<…>` in the screen
-        // composable, so the shared sealed class must be emitted even though
+        // composable, so the generated alias to the shared runtime class must be emitted even though
         // no function, app state, struct, or component mentions `Result`.
         let err_type = Type::Enum("AppError".to_owned());
         let result_ty = Type::Result(
@@ -6410,8 +6702,8 @@ mod tests {
         let kotlin = generate(&module);
         let state_name = nexa_codegen::names::state_name("loadResult");
         assert!(
-            kotlin.contains("public sealed class NexaResult<out T, out E> {"),
-            "screen-local Result state must pull in the shared definition"
+            kotlin.contains("public typealias NexaResult<T, E> = dev.nexa.core.NexaResult<T, E>"),
+            "screen-local Result state must pull in the shared runtime alias"
         );
         assert!(kotlin.contains(&format!(
             "val {state_name}: NexaResult<Int, NexaAppError> = NexaResult.Success(0)"

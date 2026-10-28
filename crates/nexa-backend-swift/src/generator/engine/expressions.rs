@@ -16,6 +16,16 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
     let render = |value: &Expr| expression_with_locals(value, locals);
     match expr {
         Expr::This(_) => "self".to_owned(),
+        Expr::ComponentRefCreate {
+            namespace, name, ..
+        } => {
+            let reference_type = if namespace == "Nexa" {
+                format!("{}Ref", nexa_codegen::names::struct_name(name))
+            } else {
+                format!("{name}Ref")
+            };
+            format!("{reference_type}()")
+        }
         Expr::String(value) => swift_string(value),
         Expr::Interpolation(parts) => {
             let mut value = String::from("\"");
@@ -39,6 +49,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             value,
             comment,
         } => localized_text_expression(key, value, comment.as_deref(), locals),
+        Expr::Located { expression, .. } => render(expression),
         Expr::Bool(value) => value.to_string(),
         Expr::IsRegularWidth => "(nexaHorizontalSizeClass == .regular)".to_owned(),
         Expr::IsCompactWidth => "(nexaHorizontalSizeClass == .compact)".to_owned(),
@@ -182,7 +193,6 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 ),
                 MemberKind::PluginField(field) => (format!(".{field}"), false),
                 MemberKind::NetworkStatusCode => (".statusCode".to_owned(), true),
-                MemberKind::NetworkHeaders => (".headers".to_owned(), false),
                 MemberKind::NetworkBody => (".text".to_owned(), false),
                 MemberKind::CollectionCount => (".count".to_owned(), false),
                 MemberKind::CollectionIsEmpty => (".isEmpty".to_owned(), false),
@@ -191,6 +201,9 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                     false,
                 ),
                 MemberKind::SignalValue => (".value".to_owned(), false),
+                MemberKind::ResultIsSuccess => (".isSuccess".to_owned(), false),
+                MemberKind::ResultValue => (".value".to_owned(), false),
+                MemberKind::ResultError => (".error".to_owned(), false),
             };
             let access = format!(
                 "{}{}{}",
@@ -412,11 +425,15 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         }
         Expr::FileExists { path } => format!("NexaFile.exists({})", render(path)),
         Expr::FileReadText { path } => format!("NexaFile.readText({})", render(path)),
+        Expr::FileReadBytes { path } => format!("NexaFile.read({})", render(path)),
         Expr::FileWriteText { path, contents } => format!(
             "NexaFile.writeText({}, to: {})",
             render(contents),
             render(path)
         ),
+        Expr::FileWriteBytes { path, contents } => {
+            format!("NexaFile.write({}, to: {})", render(contents), render(path))
+        }
         Expr::FileDelete { path } => format!("NexaFile.delete({})", render(path)),
         // `Data` conversions stay in the standard library: no generated
         // runtime support, and no intermediate array for `fromText`.
@@ -456,6 +473,30 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             ty,
         } => {
             let floating = matches!(ty, NumericType::Float32 | NumericType::Float64);
+            let signed_integer = matches!(
+                ty,
+                NumericType::Int8 | NumericType::Int16 | NumericType::Int32 | NumericType::Int64
+            );
+            let left = render(left);
+            let right = render(right);
+            if signed_integer {
+                match op {
+                    ArithmeticOp::Divide => {
+                        return format!(
+                            "({left}.dividedReportingOverflow(by: {right}).partialValue)"
+                        );
+                    }
+                    ArithmeticOp::Remainder => {
+                        return format!(
+                            "({left}.remainderReportingOverflow(dividingBy: {right}).partialValue)"
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            if floating && matches!(op, ArithmeticOp::Remainder) {
+                return format!("({left}.truncatingRemainder(dividingBy: {right}))");
+            }
             let operator = match op {
                 ArithmeticOp::Subtract if !floating => "&-",
                 ArithmeticOp::Subtract => "-",
@@ -464,7 +505,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 ArithmeticOp::Divide => "/",
                 ArithmeticOp::Remainder => "%",
             };
-            format!("({} {operator} {})", render(left), render(right))
+            format!("({left} {operator} {right})")
         }
         Expr::Negate { value, ty } => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {
@@ -626,6 +667,24 @@ fn native_call(
         .iter()
         .map(|(_, value)| expression_with_locals(value, locals))
         .collect::<Vec<_>>();
+    if namespace == "Storage"
+        && let Some(codec) = codecs.first()
+    {
+        let key = rendered.first().map(String::as_str).unwrap_or("\"\"");
+        let codec_name = nexa_codegen::value::json_codec_name(&codec.ty);
+        return match name {
+            "get" => format!(
+                "NexaStorage.getJson({key}).flatMap {{ raw in\n    if case .success(let value) = nexaJsonParse(raw, using: {codec_name}.self) {{\n        return value\n    }}\n    return nil\n}}"
+            ),
+            "set" => {
+                let value = rendered.get(1).map(String::as_str).unwrap_or("nil");
+                format!(
+                    "NexaStorage.setJson({key}, nexaJsonStringify({value}, using: {codec_name}.self))"
+                )
+            }
+            _ => format!("NexaStorage.unsupportedTypedCall_{name}()"),
+        };
+    }
     if namespace == "Json" {
         let raw_or_value = rendered.first().map(String::as_str).unwrap_or("\"\"");
         if let Some(codec) = codecs.first() {
@@ -663,6 +722,32 @@ fn native_call(
         });
     }
     if let Some(receiver) = receiver {
+        if namespace == "NexaFastListRef" {
+            let rendered_receiver = expression_with_locals(receiver, locals);
+            let call = match name {
+                "scrollToIndex" => format!(
+                    "{rendered_receiver}.scrollToIndex({}, animated: {}, viewPosition: {})",
+                    rendered.first().map(String::as_str).unwrap_or("0"),
+                    rendered.get(1).map(String::as_str).unwrap_or("true"),
+                    rendered.get(2).map(String::as_str).unwrap_or("0.0"),
+                ),
+                "scrollToTop" | "scrollToEnd" => format!(
+                    "{rendered_receiver}.{name}(animated: {})",
+                    rendered.first().map(String::as_str).unwrap_or("true"),
+                ),
+                "scrollToOffset" => format!(
+                    "{rendered_receiver}.scrollToOffset({}, animated: {})",
+                    rendered.first().map(String::as_str).unwrap_or("0.0"),
+                    rendered.get(1).map(String::as_str).unwrap_or("true"),
+                ),
+                _ => format!("{rendered_receiver}.{name}({})", rendered.join(", ")),
+            };
+            return if is_throwing && !is_async {
+                format!("try {call}")
+            } else {
+                call
+            };
+        }
         if namespace == "Regex" {
             let rendered_receiver = expression_with_locals(receiver, locals);
             let arguments = match name {
@@ -722,7 +807,7 @@ fn native_call(
                 _ => format!("{rendered_receiver}.{name}()"),
             };
         }
-        let native_name = if namespace.starts_with("__NexaUserClass:") {
+        let native_name = if namespace.starts_with("__NexaUserClass:") || namespace == "Nexa" {
             nexa_codegen::names::function_name(name)
         } else {
             name.to_owned()
@@ -770,10 +855,15 @@ fn native_call(
         ),
         ("Network", "isOnline") => "NexaNetwork.isOnline()".to_owned(),
         ("Network", "upload") => format!(
-            "NexaNetwork.upload(url: {}, file: {}, fields: {})",
+            "NexaNetwork.upload(url: {}, file: {}, fields: {}, headers: {}, timeout: {}, followRedirects: {}, maxResponseBytes: {}, certificatePins: {})",
             rendered.first().map(String::as_str).unwrap_or("\"\""),
             rendered.get(1).map(String::as_str).unwrap_or("\"\""),
             rendered.get(2).map(String::as_str).unwrap_or("[:]"),
+            rendered.get(3).map(String::as_str).unwrap_or("[:]"),
+            rendered.get(4).map(String::as_str).unwrap_or("30"),
+            rendered.get(5).map(String::as_str).unwrap_or("true"),
+            rendered.get(6).map(String::as_str).unwrap_or("64 * 1024 * 1024"),
+            rendered.get(7).map(String::as_str).unwrap_or("[]"),
         ),
         ("Haptics", "impact") => {
             let style = arguments
@@ -831,19 +921,25 @@ fn native_call(
             rendered.first().map(String::as_str).unwrap_or("0")
         ),
         ("SecureStorage", "get") => format!(
-            "NexaSecureStorage.get({})",
-            rendered.first().map(String::as_str).unwrap_or("\"\"")
+            "NexaSecureStorage.get({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("nil")
         ),
         ("SecureStorage", "set") => format!(
-            "NexaSecureStorage.set({}, {})",
+            "NexaSecureStorage.set({}, {}, {})",
             rendered.first().map(String::as_str).unwrap_or("\"\""),
-            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+            rendered.get(1).map(String::as_str).unwrap_or("\"\""),
+            rendered.get(2).map(String::as_str).unwrap_or("nil")
         ),
         ("SecureStorage", "delete") => format!(
-            "NexaSecureStorage.delete({})",
-            rendered.first().map(String::as_str).unwrap_or("\"\"")
+            "NexaSecureStorage.delete({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("nil")
         ),
-        ("SecureStorage", "clear") => "NexaSecureStorage.clear()".to_owned(),
+        ("SecureStorage", "clear") => format!(
+            "NexaSecureStorage.clear({})",
+            rendered.first().map(String::as_str).unwrap_or("nil")
+        ),
         ("Storage", "getString") => format!(
             "NexaStorage.getString({})",
             rendered.first().map(String::as_str).unwrap_or("\"\"")
@@ -852,6 +948,33 @@ fn native_call(
             "NexaStorage.setString({}, {})",
             rendered.first().map(String::as_str).unwrap_or("\"\""),
             rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "getBool") => format!(
+            "NexaStorage.getBool({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "setBool") => format!(
+            "NexaStorage.setBool({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("false")
+        ),
+        ("Storage", "getInt64") => format!(
+            "NexaStorage.getInt64({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "setInt64") => format!(
+            "NexaStorage.setInt64({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("0")
+        ),
+        ("Storage", "getFloat64") => format!(
+            "NexaStorage.getFloat64({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "setFloat64") => format!(
+            "NexaStorage.setFloat64({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("0.0")
         ),
         ("Storage", "delete") => format!(
             "NexaStorage.delete({})",
@@ -1025,17 +1148,17 @@ fn render_network_request(
     let method = render(&request.method);
     let headers = render(&request.headers);
     let timeout = render(&request.timeout);
-    let use_cache = render(&request.use_cache);
+    let cache_policy = render(&request.cache_policy);
     let follow_redirects = render(&request.follow_redirects);
     let max_response_bytes = render(&request.max_response_bytes);
     let certificate_pins = render(&request.certificate_pins);
     match destination {
         Some(destination) => format!(
-            "NexaNetwork.download(url: {url}, destinationPath: {}, method: {method}, body: {body}, headers: {headers}, timeout: {timeout}, useCache: {use_cache}, followRedirects: {follow_redirects}, maxResponseBytes: Int({max_response_bytes}), certificatePins: {certificate_pins})",
+            "NexaNetwork.download(url: {url}, destinationPath: {}, method: {method}, body: {body}, headers: {headers}, timeout: {timeout}, cachePolicy: {cache_policy}, followRedirects: {follow_redirects}, maxResponseBytes: Int({max_response_bytes}), certificatePins: {certificate_pins})",
             render(destination),
         ),
         None => format!(
-            "NexaNetwork.fetch(url: {url}, method: {method}, body: {body}, headers: {headers}, timeout: {timeout}, useCache: {use_cache}, followRedirects: {follow_redirects}, maxResponseBytes: Int({max_response_bytes}), certificatePins: {certificate_pins})"
+            "NexaNetwork.fetch(url: {url}, method: {method}, body: {body}, headers: {headers}, timeout: {timeout}, cachePolicy: {cache_policy}, followRedirects: {follow_redirects}, maxResponseBytes: Int({max_response_bytes}), certificatePins: {certificate_pins})"
         ),
     }
 }
@@ -1515,7 +1638,7 @@ mod tests {
 
         assert_eq!(
             expression(&Expr::TryAwait(Box::new(call))),
-            "(try await NexaNetwork.upload(url: \"https://example.com\", file: \"receipt.pdf\", fields: [:]))"
+            "(try await NexaNetwork.upload(url: \"https://example.com\", file: \"receipt.pdf\", fields: [:], headers: [:], timeout: 30, followRedirects: true, maxResponseBytes: 64 * 1024 * 1024, certificatePins: []))"
         );
     }
 
@@ -1682,6 +1805,51 @@ mod tests {
     }
 
     #[test]
+    fn signed_division_and_remainder_preserve_wrapping_overflow_semantics() {
+        let signed_types = [
+            NumericType::Int8,
+            NumericType::Int16,
+            NumericType::Int32,
+            NumericType::Int64,
+        ];
+
+        for ty in signed_types {
+            let operation = |op| Expr::Arithmetic {
+                op,
+                left: Box::new(Expr::State("value".to_owned(), Type::Numeric(ty))),
+                right: Box::new(Expr::State("divisor".to_owned(), Type::Numeric(ty))),
+                ty,
+            };
+
+            assert_eq!(
+                expression(&operation(ArithmeticOp::Divide)),
+                "(nexa_value.dividedReportingOverflow(by: nexa_divisor).partialValue)"
+            );
+            assert_eq!(
+                expression(&operation(ArithmeticOp::Remainder)),
+                "(nexa_value.remainderReportingOverflow(dividingBy: nexa_divisor).partialValue)"
+            );
+        }
+    }
+
+    #[test]
+    fn floating_remainder_uses_the_native_truncating_operation() {
+        for ty in [NumericType::Float32, NumericType::Float64] {
+            let remainder = Expr::Arithmetic {
+                op: ArithmeticOp::Remainder,
+                left: Box::new(Expr::State("value".to_owned(), Type::Numeric(ty))),
+                right: Box::new(Expr::State("divisor".to_owned(), Type::Numeric(ty))),
+                ty,
+            };
+
+            assert_eq!(
+                expression(&remainder),
+                "(nexa_value.truncatingRemainder(dividingBy: nexa_divisor))"
+            );
+        }
+    }
+
+    #[test]
     fn awaited_values_are_parenthesized_inside_binary_expressions() {
         let awaited = |name: &str| {
             Expr::Await(Box::new(Expr::Call {
@@ -1736,9 +1904,30 @@ mod tests {
     fn file_calls_use_the_generated_native_helper_names_and_labels() {
         let path = || Box::new(Expr::String("notes.txt".to_owned()));
         let read = Expr::Await(Box::new(Expr::FileReadText { path: path() }));
+        let read_bytes = Expr::Await(Box::new(Expr::FileReadBytes { path: path() }));
         let write = Expr::Await(Box::new(Expr::FileWriteText {
             path: path(),
             contents: Box::new(Expr::String("saved".to_owned())),
+        }));
+        let write_bytes = Expr::Await(Box::new(Expr::FileWriteBytes {
+            path: path(),
+            contents: Box::new(Expr::NativeCall {
+                receiver: None,
+                namespace: "Crypto".to_owned(),
+                name: "randomBytes".to_owned(),
+                arguments: vec![(
+                    "count".to_owned(),
+                    Expr::Number {
+                        raw: "4".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                )],
+                codecs: Vec::new(),
+                return_type: Type::Bytes,
+                source_span: None,
+                is_async: false,
+                is_throwing: false,
+            }),
         }));
         let delete = Expr::Await(Box::new(Expr::FileDelete { path: path() }));
         let exists = Expr::Await(Box::new(Expr::FileExists { path: path() }));
@@ -1748,8 +1937,16 @@ mod tests {
             "(try await NexaFile.readText(\"notes.txt\"))"
         );
         assert_eq!(
+            expression(&read_bytes),
+            "(try await NexaFile.read(\"notes.txt\"))"
+        );
+        assert_eq!(
             expression(&write),
             "(try await NexaFile.writeText(\"saved\", to: \"notes.txt\"))"
+        );
+        assert_eq!(
+            expression(&write_bytes),
+            "(try await NexaFile.write(nexaCryptoRandomBytes(4), to: \"notes.txt\"))"
         );
         assert_eq!(
             expression(&delete),
@@ -1924,6 +2121,26 @@ mod tests {
         assert_eq!(
             expression(&sorted),
             "nexa_values.sorted { nexaLeft, nexaRight in nexaLeft < nexaRight }"
+        );
+    }
+
+    #[test]
+    fn component_ref_creation_uses_builtin_and_plugin_native_names() {
+        assert_eq!(
+            expression(&Expr::ComponentRefCreate {
+                namespace: "Nexa".to_owned(),
+                name: "FastList".to_owned(),
+                identity: "test-list-ref".to_owned(),
+            }),
+            "NexaFastListRef()"
+        );
+        assert_eq!(
+            expression(&Expr::ComponentRefCreate {
+                namespace: "Video".to_owned(),
+                name: "VideoPlayer".to_owned(),
+                identity: "test-video-ref".to_owned(),
+            }),
+            "VideoPlayerRef()"
         );
     }
 }

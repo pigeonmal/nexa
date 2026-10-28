@@ -5,6 +5,7 @@ struct CatalogSummary {
 }
 
 app ECommerceArchetype {
+    let cartSheetRef = ComponentRef<BottomSheet>()
     state products: Array<String> = ["Everyday Backpack", "Ceramic Pour-Over", "Travel Bottle", "Desk Lamp"]
     state prices: Array<Float64> = [68.0, 34.5, 22.0, 49.0]
     state productImages: Array<String> = [
@@ -16,7 +17,6 @@ app ECommerceArchetype {
     state categories: Array<String> = ["All", "Home", "Travel"]
     state selectedCategory: String = "All"
     state cartCount: Int32 = 0
-    state showCart: Bool = false
     state pickedImage: String = "No image selected"
     state pickerError: String = ""
     state catalogStatus: String = "Catalog not synced"
@@ -28,7 +28,7 @@ app ECommerceArchetype {
                 Text("Nexa Market")
                 Spacer()
                 Button("Cart (\(cartCount))") {
-                    showCart = true
+                    cartSheetRef.present()
                 }
             }
 
@@ -48,8 +48,8 @@ app ECommerceArchetype {
 
             MediaPicker.MediaPickerControl(isVideo: false) {
                 Text("Choose a product photo")
-            }.onPicked { uri ->
-                pickedImage = uri
+            }.onPicked { uris ->
+                pickedImage = uris.first() ?? "No image selected"
                 pickerError = ""
             }.onFailed { message ->
                 pickerError = message
@@ -72,12 +72,12 @@ app ECommerceArchetype {
                 }
             }
 
-            BottomSheet(isPresented: showCart, detents: [Medium, Expanded]) {
+            BottomSheet(ref: cartSheetRef, detents: [0.5, 1.0]) {
                 Column(spacing: 12, padding: 20) {
                     Text("Your cart")
                     Text("Items: \(cartCount)")
                     Button("Continue shopping") {
-                        showCart = false
+                        cartSheetRef.dismiss()
                     }
                 }
             }

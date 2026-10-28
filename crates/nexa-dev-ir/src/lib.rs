@@ -10,7 +10,19 @@ use std::collections::BTreeMap;
 use nexa_ir::{Module, Node};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 55;
+pub const DEV_IR_FORMAT_VERSION: u16 = 65;
+
+/// Template token for native DevRuntime schemas. Native hosts receive this
+/// value from the same constant used to encode and validate Dev IR modules.
+pub const DEV_IR_FORMAT_VERSION_TOKEN: &str = "__NEXA_DEV_IR_FORMAT_VERSION__";
+
+/// Injects the canonical Dev IR format version into a native runtime template.
+pub fn render_dev_ir_format_version(source: &str) -> String {
+    source.replace(
+        DEV_IR_FORMAT_VERSION_TOKEN,
+        &DEV_IR_FORMAT_VERSION.to_string(),
+    )
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevModule {
@@ -384,7 +396,9 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
                 .enumerate()
                 .map(|(index, case)| (format!("case:{index}"), case.body.as_slice()))
                 .collect::<Vec<_>>();
-            groups.push(("else".to_owned(), else_body.as_slice()));
+            if let Some(else_body) = else_body {
+                groups.push(("else".to_owned(), else_body.as_slice()));
+            }
             groups
         }
         Node::AppBottomBar {

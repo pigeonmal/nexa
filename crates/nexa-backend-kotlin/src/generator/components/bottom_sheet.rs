@@ -1,17 +1,13 @@
 use nexa_codegen::SourceWriter;
-use nexa_codegen::names::state_name;
-use nexa_ir::{Action, BottomSheetDetent, ColorExpression, Module, Node};
+use nexa_ir::{Action, ColorExpression, Expr, Module, Node};
 
 use crate::generator::{components::render_children, engine::features::Features};
 
 pub(crate) struct BottomSheetRenderArgs<'a> {
-    pub(crate) state: &'a str,
+    pub(crate) component_ref: &'a Expr,
     pub(crate) content_padding: f32,
-    pub(crate) detents: &'a [BottomSheetDetent],
-    pub(crate) snap_points: &'a [f32],
-    pub(crate) initial_snap_point: Option<f32>,
-    pub(crate) selected_snap_point: Option<&'a str>,
-    pub(crate) initial_detent: Option<BottomSheetDetent>,
+    pub(crate) detents: &'a [f32],
+    pub(crate) initial_detent: Option<f32>,
     pub(crate) show_drag_indicator: bool,
     pub(crate) allows_dismissal: bool,
     pub(crate) allows_background_interaction: bool,
@@ -27,12 +23,9 @@ pub(crate) struct BottomSheetRenderArgs<'a> {
 
 pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut SourceWriter) {
     let BottomSheetRenderArgs {
-        state,
+        component_ref,
         content_padding,
         detents,
-        snap_points,
-        initial_snap_point,
-        selected_snap_point,
         initial_detent,
         show_drag_indicator,
         allows_dismissal,
@@ -47,19 +40,10 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
         depth,
     } = args;
     let detents = if detents.is_empty() {
-        &[BottomSheetDetent::Medium][..]
+        &[0.5][..]
     } else {
         detents
     };
-    let enabled_values = std::iter::once("androidx.compose.material3.SheetValue.Hidden")
-        .chain(detents.iter().map(|detent| match detent {
-            BottomSheetDetent::Medium => "androidx.compose.material3.SheetValue.PartiallyExpanded",
-            BottomSheetDetent::Expanded => "androidx.compose.material3.SheetValue.Expanded",
-        }))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let initial_detent = initial_detent.unwrap_or(detents[0]);
-    let initial_value = native_detent(initial_detent);
     let background_color = background_color.map_or_else(
         || "null".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -68,49 +52,31 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
         || "null".to_owned(),
         crate::generator::colors::expression_for_color,
     );
-    let snap_points = snap_points
+    let detent_values = detents
         .iter()
         .map(|point| format!("{point}f"))
         .collect::<Vec<_>>()
         .join(", ");
-    let initial_snap_point =
-        initial_snap_point.map_or_else(|| "null".to_owned(), |point| format!("{point}f"));
-    let selected_snap_point = selected_snap_point.map(state_name);
-    let selected_snap_point_value = selected_snap_point
-        .as_ref()
-        .map_or_else(|| "null".to_owned(), |state| format!("{state}.toFloat()"));
-    let on_snap_point_change = selected_snap_point.as_ref().map_or_else(
-        || "null".to_owned(),
-        |state| format!("{{ point -> {state} = point.toDouble() }}"),
-    );
-    let state = state_name(state);
-
+    let initial_detent = initial_detent.unwrap_or(detents[0]);
     out.line_at(depth, format_args!("NexaBottomSheetPrimitive("));
-    out.line_at(depth + 1, format_args!("isPresented = {state},"));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "componentRef = {},",
+            crate::generator::engine::expressions::expression(component_ref)
+        ),
+    );
     out.line_at(
         depth + 1,
         format_args!("contentPadding = {content_padding}f.dp,"),
     );
     out.line_at(
         depth + 1,
-        format_args!("enabledValues = setOf({enabled_values}),"),
-    );
-    out.line_at(depth + 1, format_args!("initialDetent = {initial_value},"));
-    out.line_at(
-        depth + 1,
-        format_args!("snapPoints = listOf({snap_points}),"),
+        format_args!("detents = listOf({detent_values}),"),
     );
     out.line_at(
         depth + 1,
-        format_args!("initialSnapPoint = {initial_snap_point},"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("selectedSnapPoint = {selected_snap_point_value},"),
-    );
-    out.line_at(
-        depth + 1,
-        format_args!("onSnapPointChange = {on_snap_point_change},"),
+        format_args!("initialDetent = {initial_detent}f,"),
     );
     out.line_at(
         depth + 1,
@@ -133,10 +99,6 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
         format_args!("backgroundColor = {background_color},"),
     );
     out.line_at(depth + 1, format_args!("scrimColor = {scrim_color},"));
-    out.line_at(
-        depth + 1,
-        format_args!("onDismissRequest = {{ {state} = false }},"),
-    );
     out.line_at(depth + 1, format_args!("onDismiss = {{"));
     crate::generator::components::controls::render_actions(on_dismiss, depth + 2, out);
     out.line_at(depth + 1, format_args!("}},"));
@@ -146,18 +108,11 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
     out.line_at(depth, format_args!(")"));
 }
 
-fn native_detent(detent: BottomSheetDetent) -> &'static str {
-    match detent {
-        BottomSheetDetent::Medium => "androidx.compose.material3.SheetValue.PartiallyExpanded",
-        BottomSheetDetent::Expanded => "androidx.compose.material3.SheetValue.Expanded",
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{native_detent, render_bottom_sheet};
+    use super::render_bottom_sheet;
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{BottomSheetDetent, Color, ColorExpression, ColorValue, Module, Node};
+    use nexa_ir::{Color, ColorExpression, ColorValue, Module, Node};
 
     fn empty_module() -> Module {
         Module {
@@ -186,16 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn emits_native_detents_and_keeps_children_in_the_sheet_content_slot() {
-        assert_eq!(
-            native_detent(BottomSheetDetent::Medium),
-            "androidx.compose.material3.SheetValue.PartiallyExpanded"
-        );
-        assert_eq!(
-            native_detent(BottomSheetDetent::Expanded),
-            "androidx.compose.material3.SheetValue.Expanded"
-        );
-
+    fn emits_fractional_detents_and_keeps_children_in_the_sheet_content_slot() {
         let scrim_color = ColorExpression::Static(ColorValue::Static(Color {
             red: 0,
             green: 0,
@@ -205,13 +151,14 @@ mod tests {
         let mut out = SourceWriter::new();
         render_bottom_sheet(
             super::BottomSheetRenderArgs {
-                state: "visible",
-                content_padding: 8.0,
-                detents: &[BottomSheetDetent::Medium, BottomSheetDetent::Expanded],
-                snap_points: &[],
-                initial_snap_point: None,
-                selected_snap_point: None,
-                initial_detent: Some(BottomSheetDetent::Expanded),
+                component_ref: &nexa_ir::Expr::ComponentRefCreate {
+                    namespace: "Nexa".to_owned(),
+                    name: "BottomSheet".to_owned(),
+                    identity: "sheet-ref".to_owned(),
+                },
+                content_padding: 0.0,
+                detents: &[0.5, 1.0],
+                initial_detent: Some(1.0),
                 show_drag_indicator: true,
                 allows_dismissal: false,
                 allows_background_interaction: false,
@@ -230,8 +177,8 @@ mod tests {
             &mut out,
         );
         let output = out.finish();
-        assert!(output.contains("SheetValue.PartiallyExpanded"));
-        assert!(output.contains("initialDetent = androidx.compose.material3.SheetValue.Expanded"));
+        assert!(output.contains("detents = listOf(0.5f, 1f)"));
+        assert!(output.contains("initialDetent = 1f"));
         assert!(output.contains("allowsDismissal = false"));
         assert!(output.contains("scrimColor = Color(0x33000000)"));
         assert!(output.contains("content = {"));

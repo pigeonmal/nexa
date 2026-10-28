@@ -26,6 +26,7 @@ pub fn compile_error_to_diagnostic(error: &CompileError, source: &str) -> Diagno
         range: span_to_range(&error.span, source),
         severity: Some(DiagnosticSeverity::Error),
         message: error.message.clone(),
+        code: None,
         source: Some("nexa".to_string()),
     }
 }
@@ -36,6 +37,7 @@ pub fn compile_warning_to_diagnostic(warning: &CompileWarning, source: &str) -> 
         range: span_to_range(&warning.span, source),
         severity: Some(DiagnosticSeverity::Warning),
         message: warning.message.clone(),
+        code: Some(warning.code.as_str().to_owned()),
         source: Some("nexa".to_string()),
     }
 }
@@ -283,7 +285,7 @@ mod tests {
     use nexa_testkit::TempDir;
 
     use super::{check_document, check_project_document, check_source, span_to_range};
-    use nexa_diagnostics::Span;
+    use nexa_diagnostics::{CompileWarning, Span, WarningCode};
 
     #[test]
     fn ranges_use_utf16_columns_for_non_ascii_lines() {
@@ -350,6 +352,15 @@ mod tests {
         let range = diagnostics[0].range;
         assert_eq!((range.start.line, range.start.character), (2, 8));
         assert_eq!((range.end.line, range.end.character), (2, 9));
+    }
+
+    #[test]
+    fn warning_diagnostics_publish_the_stable_compiler_code() {
+        let warning = CompileWarning::new(Span::default(), "unused function")
+            .with_code(WarningCode::UNUSED_FUNCTION);
+        let diagnostic = super::compile_warning_to_diagnostic(&warning, "");
+
+        assert_eq!(diagnostic.code.as_deref(), Some("NEXA-W1001"));
     }
 
     #[test]

@@ -105,7 +105,7 @@ pub(crate) fn render_if(
 pub(crate) fn render_when(
     value: &Expr,
     cases: &[WhenCase],
-    else_body: &[Node],
+    else_body: Option<&[Node]>,
     transition: Option<ViewTransition>,
     transition_animation: Option<AnimationSpec>,
     scope: RenderScope<'_>,
@@ -154,7 +154,7 @@ pub(crate) fn render_when(
 fn render_when_body(
     value: &str,
     cases: &[WhenCase],
-    else_body: &[Node],
+    else_body: Option<&[Node]>,
     module: &Module,
     features: &Features,
     depth: usize,
@@ -171,12 +171,14 @@ fn render_when_body(
         indent(out, depth + 1);
         out.push_str("}\n");
     }
-    indent(out, depth + 1);
-    out.push_str("else -> {\n");
-    render_children(else_body, module, features, depth + 2, out);
-    out.push('\n');
-    indent(out, depth + 1);
-    out.push_str("}\n");
+    if let Some(else_body) = else_body {
+        indent(out, depth + 1);
+        out.push_str("else -> {\n");
+        render_children(else_body, module, features, depth + 2, out);
+        out.push('\n');
+        indent(out, depth + 1);
+        out.push_str("}\n");
+    }
     indent(out, depth);
     out.push('}');
 }

@@ -68,6 +68,21 @@ pub fn compile_file_with_warnings_for_targets_and_plugin_roots(
     )
 }
 
+/// Compiles a project and returns an optimizer report when the IR is lowered
+/// for each requested target. Ordinary compilation does not collect this data.
+pub fn compile_file_with_optimization_report_for_targets_and_plugin_roots(
+    path: impl AsRef<Path>,
+    targets: &[Target],
+    plugin_roots: &HashMap<String, PathBuf>,
+) -> Result<Vec<crate::Compilation>, CompileError> {
+    IncrementalProjectCompiler::default()
+        .compile_file_with_optimization_report_for_targets_and_plugin_roots(
+            path,
+            targets,
+            plugin_roots,
+        )
+}
+
 /// Compiles source for the hot-reload interpreter. This accepts nullable
 /// generic plugin reads because DevRuntime carries decode validity separately
 /// from nullable values in its plugin codec results.
@@ -134,6 +149,23 @@ impl IncrementalProjectCompiler {
             targets,
             plugin_roots,
             false,
+            false,
+            &HashMap::new(),
+        )
+    }
+
+    pub fn compile_file_with_optimization_report_for_targets_and_plugin_roots(
+        &mut self,
+        path: impl AsRef<Path>,
+        targets: &[Target],
+        plugin_roots: &HashMap<String, PathBuf>,
+    ) -> Result<Vec<crate::Compilation>, CompileError> {
+        self.compile_file_with_warnings_for_targets_and_plugin_roots_in_mode(
+            path,
+            targets,
+            plugin_roots,
+            false,
+            true,
             &HashMap::new(),
         )
     }
@@ -153,6 +185,7 @@ impl IncrementalProjectCompiler {
             targets,
             plugin_roots,
             false,
+            false,
             source_overrides,
         )
     }
@@ -171,6 +204,7 @@ impl IncrementalProjectCompiler {
             targets,
             plugin_roots,
             true,
+            false,
             &HashMap::new(),
         )
     }
@@ -181,6 +215,7 @@ impl IncrementalProjectCompiler {
         targets: &[Target],
         plugin_roots: &HashMap<String, PathBuf>,
         dev_runtime: bool,
+        include_optimization_report: bool,
         source_overrides: &HashMap<PathBuf, String>,
     ) -> Result<Vec<crate::Compilation>, CompileError> {
         self.last_stats = ProjectCompileStats::default();
@@ -255,8 +290,20 @@ impl IncrementalProjectCompiler {
                     .cloned()
                     .collect();
                 let plugins = app.plugins.clone();
-                let lowered = semantic::lower_with_project_targets(app, target, dev_runtime);
-                let (module, mut warnings, tests) =
+                let lowered = if include_optimization_report {
+                    semantic::lower_with_project_targets_and_optimization_report(
+                        app,
+                        target,
+                        dev_runtime,
+                    )
+                    .map(|(module, warnings, tests, report)| {
+                        (module, warnings, tests, Some(report))
+                    })
+                } else {
+                    semantic::lower_with_project_targets(app, target, dev_runtime)
+                        .map(|(module, warnings, tests)| (module, warnings, tests, None))
+                };
+                let (module, mut warnings, tests, optimization_report) =
                     lowered.map_err(|error| error.with_file(entry_path.display().to_string()))?;
                 warnings.extend(
                     plugin_analysis
@@ -277,6 +324,7 @@ impl IncrementalProjectCompiler {
                 Ok(crate::Compilation {
                     module,
                     warnings,
+                    optimization_report,
                     plugins,
                     tests,
                 })
@@ -412,6 +460,7 @@ impl IncrementalProjectCompiler {
                         warnings.push(PluginWarning {
                             target: diagnostic.target,
                             warning: nexa_diagnostics::CompileWarning {
+                                code: nexa_diagnostics::WarningCode::PLUGIN_ANALYZER,
                                 span,
                                 message: diagnostic.message,
                                 file,
@@ -663,10 +712,30 @@ fn load_file(
     context: &mut ProjectLoadContext<'_>,
 ) -> Result<(), CompileError> {
     let canonical_path = fs::canonicalize(path).map_err(|error| {
-        let (span, file) = import_site
-            .map(|(file, span)| (span, file.to_owned()))
-            .unwrap_or((file_level_span(), path.display().to_string()));
-        CompileError::new(span, format!("cannot resolve source file: {error}")).with_file(file)
+        let Some((importing_file, span)) = import_site else {
+            return CompileError::new(
+                file_level_span(),
+                format!("cannot resolve source file `{}`: {error}", path.display()),
+            )
+            .with_file(path.display().to_string());
+        };
+        let importing_path = Path::new(importing_file);
+        let import_base = importing_path.parent().unwrap_or_else(|| Path::new("."));
+        let requested_path = path.strip_prefix(import_base).unwrap_or(path);
+        let suggestions = source_import_suggestions(path, import_base);
+        let hint = if suggestions.is_empty() {
+            String::new()
+        } else {
+            format!("; similar files: {}", suggestions.join(", "))
+        };
+        CompileError::new(
+            span,
+            format!(
+                "cannot resolve imported source `{}`: {error}{hint}",
+                requested_path.display()
+            ),
+        )
+        .with_file(importing_file.to_owned())
     })?;
 
     if context.active.contains(&canonical_path) {
@@ -947,6 +1016,7 @@ fn load_file(
         }));
 
     if let Some(mut app) = program.app {
+        app.source_file = Some(source_file.clone());
         for state in app.states.iter_mut().chain(app.globals.iter_mut()) {
             state.source_file = Some(source_file.clone());
         }
@@ -1025,4 +1095,100 @@ fn load_import(
         Some((&importing_path, import.span)),
         context,
     )
+}
+
+/// Suggests nearby `.nx` files only after an import failed to resolve.
+/// Looking in the expected import directory keeps the diagnostic path bounded
+/// and avoids walking the project tree during successful builds.
+fn source_import_suggestions(requested_path: &Path, import_base: &Path) -> Vec<String> {
+    let Some(expected_name) = requested_path.file_stem().and_then(|name| name.to_str()) else {
+        return Vec::new();
+    };
+    let expected_directory = requested_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(|parent| import_base.join(parent))
+        .unwrap_or_else(|| import_base.to_path_buf());
+    let Ok(entries) = fs::read_dir(expected_directory) else {
+        return Vec::new();
+    };
+
+    let max_distance = match expected_name.chars().count() {
+        0..=4 => 1,
+        5..=9 => 2,
+        _ => 3,
+    };
+    let mut candidates = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            if !entry.file_type().ok()?.is_file() {
+                return None;
+            }
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("nx") {
+                return None;
+            }
+            let stem = path.file_stem()?.to_str()?;
+            let distance = edit_distance(expected_name, stem);
+            (distance <= max_distance).then(|| {
+                let display_path = path.strip_prefix(import_base).unwrap_or(&path);
+                (distance, display_path.display().to_string())
+            })
+        })
+        .collect::<Vec<_>>();
+    candidates.sort();
+    candidates.dedup_by(|left, right| left.1 == right.1);
+    candidates
+        .into_iter()
+        .take(3)
+        .map(|(_, path)| format!("`{path}`"))
+        .collect()
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (left_index, left_char) in left.chars().enumerate() {
+        let mut current = vec![left_index + 1; right.len() + 1];
+        for (right_index, right_char) in right.iter().enumerate() {
+            current[right_index + 1] = (previous[right_index + 1] + 1)
+                .min(current[right_index] + 1)
+                .min(previous[right_index] + usize::from(left_char != *right_char));
+        }
+        previous = current;
+    }
+    previous[right.len()]
+}
+
+#[cfg(test)]
+mod import_diagnostic_tests {
+    use super::compile_file_with_warnings_for_targets;
+    use crate::Target;
+    use nexa_testkit::TestProject;
+
+    #[test]
+    fn unresolved_import_reports_requested_path_and_nearby_source_file() {
+        let project = TestProject::new("nexa-import-suggestion");
+        let entry = project.write_app(
+            "import \"screens/OrderDetial.nx\"\napp Demo { body { Text(\"ready\") } }\n",
+        );
+        project.write(
+            "screens/OrderDetail.nx",
+            "screen OrderDetail { body { Text(\"order\") } }\n",
+        );
+
+        let error = match compile_file_with_warnings_for_targets(&entry, &[Target::Swift]) {
+            Err(error) => error,
+            Ok(_) => panic!("misspelled import should fail"),
+        };
+        let canonical_entry = std::fs::canonicalize(&entry).expect("canonical test path");
+
+        assert_eq!(error.span.line, 1);
+        assert!(error.message.contains("screens/OrderDetial.nx"));
+        assert!(error.message.contains("screens/OrderDetail.nx"));
+        assert_eq!(
+            error.file.as_deref(),
+            Some(canonical_entry.to_str().expect("UTF-8 test path"))
+        );
+    }
 }

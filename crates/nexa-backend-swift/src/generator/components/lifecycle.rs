@@ -29,7 +29,11 @@ pub(crate) fn render_on_appear(
         return;
     }
     out.push('\n');
-    controls::render_actions(actions, depth + 2, out);
+    if asynchronous {
+        controls::render_task_body(actions, depth + 2, out, false);
+    } else {
+        controls::render_actions(actions, depth + 2, out);
+    }
     utils::indent(out, depth + 1);
     out.push('}');
 }
@@ -37,16 +41,20 @@ pub(crate) fn render_on_appear(
 pub(crate) fn render_on_disappear(
     actions: Option<&[Action]>,
     task_handles: &[String],
+    cancel_task_scope: bool,
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    if actions.is_none() && task_handles.is_empty() {
+    if actions.is_none() && task_handles.is_empty() && !cancel_task_scope {
         return;
     }
     out.push('\n');
     utils::indent(out, depth + 1);
     out.push_str(".onDisappear {");
-    if actions.is_none_or(|actions| actions.is_empty()) && task_handles.is_empty() {
+    if actions.is_none_or(|actions| actions.is_empty())
+        && task_handles.is_empty()
+        && !cancel_task_scope
+    {
         out.push('}');
         return;
     }
@@ -56,6 +64,9 @@ pub(crate) fn render_on_disappear(
     }
     for handle in task_handles {
         out.line_at(depth + 2, format_args!("{handle}?.cancel()"));
+    }
+    if cancel_task_scope {
+        out.line_at(depth + 2, format_args!("nexaTaskScope.cancelAll()"));
     }
     utils::indent(out, depth + 1);
     out.push('}');
@@ -142,9 +153,21 @@ mod tests {
         let handles = task_handles(&states);
         let mut output = SourceWriter::new();
 
-        render_on_disappear(None, &handles, 1, &mut output);
+        render_on_disappear(None, &handles, false, 1, &mut output);
 
         assert_eq!(handles, ["nexa_refreshTask"]);
         assert!(output.contains(".onDisappear {\n            nexa_refreshTask?.cancel()"));
+    }
+
+    #[test]
+    fn task_scope_is_cancelled_when_its_view_disappears() {
+        let mut output = SourceWriter::new();
+
+        render_on_disappear(None, &[], true, 1, &mut output);
+
+        assert_eq!(
+            output.as_str(),
+            "\n        .onDisappear {\n            nexaTaskScope.cancelAll()\n        }"
+        );
     }
 }

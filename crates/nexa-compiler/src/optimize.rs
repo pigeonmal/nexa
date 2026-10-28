@@ -1,4 +1,8 @@
-use std::collections::HashSet;
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashSet},
+    rc::Rc,
+};
 
 use nexa_ir::walk::{
     IrFolder, IrVisitor, fold_expr_children, fold_node_children, walk_action_children,
@@ -8,93 +12,213 @@ use nexa_ir::{
     NumericType, ViewStyle,
 };
 
+/// Summary of the optimizations applied to a typed IR module.
+#[derive(Clone, Debug, Default)]
+pub struct OptimizationReport {
+    pub constant_folds: BTreeMap<&'static str, usize>,
+    pub constant_branches_removed: usize,
+    pub simplified_layouts: usize,
+    pub removed_items: BTreeMap<&'static str, Vec<String>>,
+}
+
+#[derive(Clone, Default)]
+struct OptimizationRecorder(Option<Rc<RefCell<OptimizationReport>>>);
+
+impl OptimizationRecorder {
+    fn new(enabled: bool) -> Self {
+        Self(enabled.then(|| Rc::new(RefCell::new(OptimizationReport::default()))))
+    }
+
+    fn constant_fold(&self, kind: &'static str) {
+        if let Some(report) = &self.0
+            && let Ok(mut report) = report.try_borrow_mut()
+        {
+            *report.constant_folds.entry(kind).or_default() += 1;
+        }
+    }
+
+    fn constant_branch_removed(&self) {
+        if let Some(report) = &self.0
+            && let Ok(mut report) = report.try_borrow_mut()
+        {
+            report.constant_branches_removed += 1;
+        }
+    }
+
+    fn simplified_layout(&self) {
+        if let Some(report) = &self.0
+            && let Ok(mut report) = report.try_borrow_mut()
+        {
+            report.simplified_layouts += 1;
+        }
+    }
+
+    fn removed(&self, kind: &'static str, name: impl Into<String>) {
+        if let Some(report) = &self.0
+            && let Ok(mut report) = report.try_borrow_mut()
+        {
+            report
+                .removed_items
+                .entry(kind)
+                .or_default()
+                .push(name.into());
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.0.is_some()
+    }
+
+    fn finish(self) -> Option<OptimizationReport> {
+        self.0.map(|report| {
+            let Ok(report) = report.try_borrow() else {
+                return OptimizationReport::default();
+            };
+            let mut report = report.clone();
+            for names in report.removed_items.values_mut() {
+                names.sort();
+                names.dedup();
+            }
+            report
+        })
+    }
+}
+
 /// Applies small, semantics-preserving optimizations to the typed IR before
 /// either native backend sees it. The pass deliberately stays conservative:
 /// it folds only pure constant expressions, removes branches whose conditions
 /// are statically known, and drops declarations with no reachable use when
 /// their initializers are pure.
 pub(crate) fn optimize(module: &mut Module) {
+    let recorder = OptimizationRecorder::default();
+    optimize_with_recorder(module, &recorder);
+}
+
+pub(crate) fn optimize_with_report(module: &mut Module) -> OptimizationReport {
+    let recorder = OptimizationRecorder::new(true);
+    optimize_with_recorder(module, &recorder);
+    recorder.finish().unwrap_or_default()
+}
+
+fn optimize_with_recorder(module: &mut Module, recorder: &OptimizationRecorder) {
+    let before = recorder
+        .is_enabled()
+        .then(|| OptimizationInventory::capture(module));
     for function in &mut module.functions {
         for local in &mut function.locals {
-            local.initial =
-                fold_expression(std::mem::replace(&mut local.initial, Expr::Bool(false)));
+            local.initial = fold_expression(
+                std::mem::replace(&mut local.initial, Expr::Bool(false)),
+                recorder,
+            );
         }
-        function.body = fold_expression(std::mem::replace(&mut function.body, Expr::Bool(false)));
-        function.body_actions = function.body_actions.take().map(optimize_actions);
+        function.body = fold_expression(
+            std::mem::replace(&mut function.body, Expr::Bool(false)),
+            recorder,
+        );
+        function.body_actions = function
+            .body_actions
+            .take()
+            .map(|actions| optimize_actions(actions, recorder));
         prune_unused_function_locals(function);
     }
     for task in &mut module.background_tasks {
-        task.actions = optimize_actions(std::mem::take(&mut task.actions));
+        task.actions = optimize_actions(std::mem::take(&mut task.actions), recorder);
     }
     module.states.iter_mut().for_each(|state| {
-        optimize_state_expressions(state);
+        optimize_state_expressions(state, recorder);
     });
     module.globals.iter_mut().for_each(|state| {
-        optimize_state_expressions(state);
+        optimize_state_expressions(state, recorder);
     });
     // Both backends wrap a multi-node app body in an implicit
     // `Column { spacing: 0 }` before rendering it, so two adjacent
     // zero-spaced plain columns at the top level merge into exactly that
     // wrapper and the wrapper disappears with them.
-    module.body = hoist_nested_layouts(
-        optimize_nodes(std::mem::take(&mut module.body)),
+    let optimized_body = optimize_nodes(std::mem::take(&mut module.body), recorder);
+    let simplified_body_layouts = subsumed_layout_count(
+        &optimized_body,
         LayoutKind::Column,
         0.0,
         &ViewStyle::default(),
     );
+    module.body = hoist_nested_layouts(
+        optimized_body,
+        LayoutKind::Column,
+        0.0,
+        &ViewStyle::default(),
+    );
+    for _ in 0..simplified_body_layouts {
+        recorder.simplified_layout();
+    }
     if let Some(actions) = &mut module.on_appear {
-        *actions = optimize_actions(std::mem::take(actions));
+        *actions = optimize_actions(std::mem::take(actions), recorder);
     }
     if let Some(actions) = &mut module.on_disappear {
-        *actions = optimize_actions(std::mem::take(actions));
+        *actions = optimize_actions(std::mem::take(actions), recorder);
     }
     if let Some(actions) = &mut module.on_active {
-        *actions = optimize_actions(std::mem::take(actions));
+        *actions = optimize_actions(std::mem::take(actions), recorder);
     }
     if let Some(actions) = &mut module.on_inactive {
-        *actions = optimize_actions(std::mem::take(actions));
+        *actions = optimize_actions(std::mem::take(actions), recorder);
     }
     if let Some(actions) = &mut module.on_background {
-        *actions = optimize_actions(std::mem::take(actions));
+        *actions = optimize_actions(std::mem::take(actions), recorder);
     }
     for screen in &mut module.screens {
         for state in &mut screen.states {
-            optimize_state_expressions(state);
+            optimize_state_expressions(state, recorder);
         }
-        screen.body = optimize_nodes(std::mem::take(&mut screen.body));
+        screen.body = optimize_nodes(std::mem::take(&mut screen.body), recorder);
         if let Some(actions) = &mut screen.on_appear {
-            *actions = optimize_actions(std::mem::take(actions));
+            *actions = optimize_actions(std::mem::take(actions), recorder);
         }
         if let Some(actions) = &mut screen.on_disappear {
-            *actions = optimize_actions(std::mem::take(actions));
+            *actions = optimize_actions(std::mem::take(actions), recorder);
         }
     }
     for widget in &mut module.widgets {
-        widget.entry_provider = fold_expression(std::mem::replace(
-            &mut widget.entry_provider,
-            Expr::Bool(false),
-        ));
+        widget.entry_provider = fold_expression(
+            std::mem::replace(&mut widget.entry_provider, Expr::Bool(false)),
+            recorder,
+        );
         if let Some(placeholder) = &mut widget.placeholder_provider {
-            *placeholder = fold_expression(std::mem::replace(placeholder, Expr::Bool(false)));
+            *placeholder =
+                fold_expression(std::mem::replace(placeholder, Expr::Bool(false)), recorder);
         }
         if let Some(configuration) = &mut widget.configuration {
-            configuration.default = fold_expression(std::mem::replace(
-                &mut configuration.default,
-                Expr::Bool(false),
-            ));
+            configuration.default = fold_expression(
+                std::mem::replace(&mut configuration.default, Expr::Bool(false)),
+                recorder,
+            );
         }
-        widget.body = optimize_nodes(std::mem::take(&mut widget.body));
+        widget.body = optimize_nodes(std::mem::take(&mut widget.body), recorder);
     }
     for component in &mut module.components {
-        component.body = optimize_nodes(std::mem::take(&mut component.body));
+        component.body = optimize_nodes(std::mem::take(&mut component.body), recorder);
+        for method in &mut component.ref_methods {
+            method.body = fold_expression(
+                std::mem::replace(&mut method.body, Expr::Bool(false)),
+                recorder,
+            );
+            if let Some(actions) = &mut method.body_actions {
+                *actions = optimize_actions(std::mem::take(actions), recorder);
+            }
+            for local in &mut method.locals {
+                local.initial = fold_expression(
+                    std::mem::replace(&mut local.initial, Expr::Bool(false)),
+                    recorder,
+                );
+            }
+        }
         if let Some(actions) = &mut component.on_appear {
-            *actions = optimize_actions(std::mem::take(actions));
+            *actions = optimize_actions(std::mem::take(actions), recorder);
         }
         if let Some(actions) = &mut component.on_disappear {
-            *actions = optimize_actions(std::mem::take(actions));
+            *actions = optimize_actions(std::mem::take(actions), recorder);
         }
         for state in &mut component.states {
-            optimize_state_expressions(state);
+            optimize_state_expressions(state, recorder);
         }
     }
     prune_unused_functions(module);
@@ -102,10 +226,85 @@ pub(crate) fn optimize(module: &mut Module) {
     prune_unused_structs(module);
     prune_unused_plugins(module);
     mark_animated_presentation_reads(module);
+    if let Some(before) = before {
+        before.record_removed(module, recorder);
+    }
 }
 
-fn optimize_state_expressions(state: &mut nexa_ir::State) {
-    state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
+#[derive(Default)]
+struct OptimizationInventory {
+    functions: HashSet<String>,
+    locals: HashSet<String>,
+    states: HashSet<String>,
+    structs: HashSet<String>,
+    plugins: HashSet<String>,
+}
+
+impl OptimizationInventory {
+    fn capture(module: &Module) -> Self {
+        let mut inventory = Self::default();
+        for function in &module.functions {
+            inventory.functions.insert(function.name.clone());
+            for local in &function.locals {
+                inventory
+                    .locals
+                    .insert(format!("{}::{}", function.name, local.name));
+            }
+        }
+        for state in &module.states {
+            inventory.states.insert(format!("app::{}", state.name));
+        }
+        for screen in &module.screens {
+            for state in &screen.states {
+                inventory
+                    .states
+                    .insert(format!("screen:{}::{}", screen.name, state.name));
+            }
+        }
+        for component in &module.components {
+            for state in &component.states {
+                inventory
+                    .states
+                    .insert(format!("component:{}::{}", component.name, state.name));
+            }
+        }
+        inventory.structs.extend(
+            module
+                .structs
+                .iter()
+                .map(|declaration| declaration.name.clone()),
+        );
+        inventory
+            .plugins
+            .extend(module.plugins.iter().map(|plugin| plugin.namespace.clone()));
+        inventory
+    }
+
+    fn record_removed(self, module: &Module, recorder: &OptimizationRecorder) {
+        let after = Self::capture(module);
+        for name in self.functions.difference(&after.functions) {
+            recorder.removed("functions", name.clone());
+        }
+        for name in self.locals.difference(&after.locals) {
+            recorder.removed("functionLocals", name.clone());
+        }
+        for name in self.states.difference(&after.states) {
+            recorder.removed("states", name.clone());
+        }
+        for name in self.structs.difference(&after.structs) {
+            recorder.removed("structs", name.clone());
+        }
+        for name in self.plugins.difference(&after.plugins) {
+            recorder.removed("plugins", name.clone());
+        }
+    }
+}
+
+fn optimize_state_expressions(state: &mut nexa_ir::State, recorder: &OptimizationRecorder) {
+    state.initial = fold_expression(
+        std::mem::replace(&mut state.initial, Expr::Bool(false)),
+        recorder,
+    );
 }
 
 fn mark_animated_presentation_reads(module: &mut Module) {
@@ -445,18 +644,22 @@ fn is_pure_expression(expression: &Expr) -> bool {
         }
         Expr::Closure { body, .. } => is_pure_expression(body),
         Expr::LocalizedText { value, .. } => is_pure_expression(value),
+        Expr::Located { expression, .. } => is_pure_expression(expression),
         // Byte conversions are pure like any other value-producing function;
         // only the platform I/O and network calls above are impure.
         Expr::BytesFromText { text } => is_pure_expression(text),
         Expr::BytesFromArray { values } => is_pure_expression(values),
         Expr::BytesCount { bytes } => is_pure_expression(bytes),
-        Expr::NativeCall { .. }
+        Expr::ComponentRefCreate { .. }
+        | Expr::NativeCall { .. }
         | Expr::NetworkFetch(_)
         | Expr::NetworkDownload { .. }
         | Expr::PathJoin { .. }
         | Expr::FileExists { .. }
         | Expr::FileReadText { .. }
+        | Expr::FileReadBytes { .. }
         | Expr::FileWriteText { .. }
+        | Expr::FileWriteBytes { .. }
         | Expr::FileDelete { .. }
         | Expr::PermissionOp { .. } => false,
         Expr::Await(_) | Expr::TryAwait(_) | Expr::Try { .. } => false,
@@ -576,6 +779,12 @@ fn prune_unused_functions(module: &mut Module) {
     }
     for component in &module.components {
         collect_node_function_references(&component.body, &declared, &mut used);
+        for method in &component.ref_methods {
+            collect_expression_function_references(&method.body, &declared, &mut used);
+            if let Some(actions) = &method.body_actions {
+                collect_action_function_references(actions, &declared, &mut used);
+            }
+        }
         for actions in component
             .on_appear
             .iter()
@@ -734,6 +943,12 @@ fn prune_unused_states(module: &mut Module) {
     for component in &mut module.components {
         let mut used = HashSet::new();
         collect_node_state_references(&component.body, &mut used);
+        for method in &component.ref_methods {
+            collect_expression_state_references(&method.body, &mut used);
+            if let Some(actions) = &method.body_actions {
+                collect_action_state_references(actions, &mut used);
+            }
+        }
         for actions in component
             .on_appear
             .iter()
@@ -808,6 +1023,20 @@ fn prune_unused_structs(module: &mut Module) {
             });
         }
         collect_node_struct_names(&component.body, &mut used);
+        for method in &component.ref_methods {
+            for parameter in &method.parameters {
+                collect_type_struct_names(&parameter.ty, &mut used);
+            }
+            collect_type_struct_names(&method.return_type, &mut used);
+            for local in &method.locals {
+                collect_type_struct_names(&local.ty, &mut used);
+                collect_expression_struct_names(&local.initial, &mut used);
+            }
+            collect_expression_struct_names(&method.body, &mut used);
+            if let Some(actions) = &method.body_actions {
+                collect_action_struct_names(actions, &mut used);
+            }
+        }
         for actions in component
             .on_appear
             .iter()
@@ -964,6 +1193,15 @@ fn prune_unused_plugins(module: &mut Module) {
     }
     for component in &module.components {
         nexa_ir::walk::walk_ir(&component.body, &mut collect_node, &mut collect);
+        for method in &component.ref_methods {
+            nexa_ir::walk::walk_expression(&method.body, &mut collect);
+            if let Some(actions) = &method.body_actions {
+                nexa_ir::walk::walk_actions(actions, &mut collect);
+            }
+            for local in &method.locals {
+                nexa_ir::walk::walk_expression(&local.initial, &mut collect);
+            }
+        }
         for actions in component
             .on_appear
             .iter()
@@ -1004,7 +1242,8 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
         nexa_ir::Type::Optional(inner)
         | nexa_ir::Type::Array(inner)
         | nexa_ir::Type::Set(inner)
-        | nexa_ir::Type::Signal(inner) => collect_type_struct_names(inner, used),
+        | nexa_ir::Type::Signal(inner)
+        | nexa_ir::Type::ComponentRefError(inner) => collect_type_struct_names(inner, used),
         nexa_ir::Type::Map(key, value)
         | nexa_ir::Type::Pair(key, value)
         | nexa_ir::Type::Result(key, value) => {
@@ -1025,6 +1264,7 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
         | nexa_ir::Type::Enum(_)
         | nexa_ir::Type::Plugin { .. }
         | nexa_ir::Type::TaskHandle
+        | nexa_ir::Type::ComponentRef { .. }
         | nexa_ir::Type::NetworkResponse => {}
     }
 }
@@ -1055,15 +1295,18 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::PluginEnumOptionalConstructor { return_type, .. } => {
             collect_type_struct_names(return_type, used)
         }
-        Expr::NativeCall { return_type, .. } => collect_type_struct_names(return_type, used),
+        Expr::NativeCall { return_type, .. } => {
+            collect_type_struct_names(return_type, used);
+        }
         Expr::TimeCall { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::Conditional { value_type, .. } => collect_type_struct_names(value_type, used),
-        Expr::NetworkFetch(_)
-        | Expr::NetworkDownload { .. }
-        | Expr::PathJoin { .. }
+        Expr::NetworkFetch(_) | Expr::NetworkDownload { .. } => {}
+        Expr::PathJoin { .. }
         | Expr::FileExists { .. }
         | Expr::FileReadText { .. }
+        | Expr::FileReadBytes { .. }
         | Expr::FileWriteText { .. }
+        | Expr::FileWriteBytes { .. }
         | Expr::FileDelete { .. }
         | Expr::PermissionOp { .. }
         | Expr::BytesFromText { .. }
@@ -1092,6 +1335,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::CollectionUtility { element_type, .. } => {
             collect_type_struct_names(element_type, used)
         }
+        Expr::Located { expression, .. } => collect_expression_type_struct_names(expression, used),
         Expr::CollectionTransform { .. } | Expr::Closure { .. } | Expr::LocalizedText { .. } => {}
         Expr::String(_)
         | Expr::Interpolation(_)
@@ -1118,6 +1362,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight => {}
+        Expr::ComponentRefCreate { .. } => {}
         Expr::ResultOk {
             value_type,
             error_type,
@@ -1216,14 +1461,6 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             | Node::AppBottomBar { state, .. }
             | Node::PagePager { state, .. } => {
                 bindings.push(state.clone());
-            }
-            Node::BottomSheet {
-                state,
-                selected_snap_point,
-                ..
-            } => {
-                bindings.push(state.clone());
-                bindings.extend(selected_snap_point.iter().cloned());
             }
             Node::PickerDate { props } => {
                 bindings.extend(props.timestamp_state.iter().cloned());
@@ -1329,7 +1566,9 @@ fn collect_expression_state_references(expression: &Expr, used: &mut HashSet<Str
     collect_expression_state_names(expression, used);
 }
 
-struct IrOptimizer;
+struct IrOptimizer {
+    recorder: OptimizationRecorder,
+}
 
 impl IrFolder for IrOptimizer {
     fn fold_node(&mut self, node: Node) -> Option<Node> {
@@ -1340,9 +1579,14 @@ impl IrFolder for IrOptimizer {
                 style,
                 children,
             } => {
-                let children =
-                    hoist_nested_layouts(self.fold_nodes(children), kind, spacing, &style);
+                let children = self.fold_nodes(children);
+                let simplified_layouts = subsumed_layout_count(&children, kind, spacing, &style);
+                let children = hoist_nested_layouts(children, kind, spacing, &style);
+                for _ in 0..simplified_layouts {
+                    self.recorder.simplified_layout();
+                }
                 if children.len() == 1 && spacing == 0.0 && is_plain_style(&style) {
+                    self.recorder.simplified_layout();
                     return children.into_iter().next();
                 }
                 Some(Node::Layout {
@@ -1364,10 +1608,11 @@ impl IrFolder for IrOptimizer {
                 title: self.fold_expr(title),
                 icon,
                 description: description.map(|value| self.fold_expr(value)),
-                title_color: title_color.map(fold_color_expression),
-                description_color: description_color.map(fold_color_expression),
-                icon_tint: icon_tint.map(fold_color_expression),
-                background: background.map(fold_color_expression),
+                title_color: title_color.map(|value| fold_color_expression(value, &self.recorder)),
+                description_color: description_color
+                    .map(|value| fold_color_expression(value, &self.recorder)),
+                icon_tint: icon_tint.map(|value| fold_color_expression(value, &self.recorder)),
+                background: background.map(|value| fold_color_expression(value, &self.recorder)),
             }),
             Node::Button {
                 label,
@@ -1379,6 +1624,7 @@ impl IrFolder for IrOptimizer {
                 shape,
                 tint,
                 glass,
+                accessibility_label,
                 actions,
             } => Some(Node::Button {
                 label: self.fold_expr(label),
@@ -1399,6 +1645,8 @@ impl IrFolder for IrOptimizer {
                     other => other,
                 }),
                 glass,
+                accessibility_label: accessibility_label
+                    .map(|label| Box::new(self.fold_expr(*label))),
                 actions: self.fold_actions(actions),
             }),
             Node::If {
@@ -1412,8 +1660,14 @@ impl IrFolder for IrOptimizer {
                 let then_body = self.fold_nodes(then_body);
                 let else_body = else_body.map(|body| self.fold_nodes(body));
                 match condition {
-                    Expr::Bool(true) => collapse_nodes(then_body),
-                    Expr::Bool(false) => collapse_nodes(else_body.unwrap_or_default()),
+                    Expr::Bool(true) => {
+                        self.recorder.constant_branch_removed();
+                        collapse_nodes(then_body)
+                    }
+                    Expr::Bool(false) => {
+                        self.recorder.constant_branch_removed();
+                        collapse_nodes(else_body.unwrap_or_default())
+                    }
                     condition => Some(Node::If {
                         condition,
                         then_body,
@@ -1466,8 +1720,14 @@ impl IrFolder for IrOptimizer {
                     let then_branch = self.fold_actions(then_branch);
                     let else_branch = else_branch.map(|branch| self.fold_actions(branch));
                     match condition {
-                        Expr::Bool(true) => optimized.extend(then_branch),
-                        Expr::Bool(false) => optimized.extend(else_branch.unwrap_or_default()),
+                        Expr::Bool(true) => {
+                            self.recorder.constant_branch_removed();
+                            optimized.extend(then_branch);
+                        }
+                        Expr::Bool(false) => {
+                            self.recorder.constant_branch_removed();
+                            optimized.extend(else_branch.unwrap_or_default());
+                        }
                         condition => optimized.push(Action::If {
                             condition,
                             then_branch,
@@ -1487,14 +1747,17 @@ impl IrFolder for IrOptimizer {
 
     fn fold_expr(&mut self, expr: Expr) -> Expr {
         let folded = fold_expr_children(expr, self);
-        fold_expression_rules(folded)
+        fold_expression_rules(folded, &self.recorder)
     }
 }
 
-fn fold_color_expression(color: nexa_ir::ColorExpression) -> nexa_ir::ColorExpression {
+fn fold_color_expression(
+    color: nexa_ir::ColorExpression,
+    recorder: &OptimizationRecorder,
+) -> nexa_ir::ColorExpression {
     match color {
         nexa_ir::ColorExpression::Dynamic(expression) => {
-            nexa_ir::ColorExpression::Dynamic(Box::new(fold_expression(*expression)))
+            nexa_ir::ColorExpression::Dynamic(Box::new(fold_expression(*expression, recorder)))
         }
         other => other,
     }
@@ -1503,7 +1766,7 @@ fn fold_color_expression(color: nexa_ir::ColorExpression) -> nexa_ir::ColorExpre
 fn collapse_nodes(nodes: Vec<Node>) -> Option<Node> {
     match nodes.len() {
         0 => None,
-        1 => Some(nodes.into_iter().next().expect("length checked")),
+        1 => nodes.into_iter().next(),
         _ => Some(Node::Layout {
             kind: LayoutKind::Column,
             spacing: 0.0,
@@ -1555,6 +1818,21 @@ fn hoist_nested_layouts(
     hoisted
 }
 
+fn subsumed_layout_count(
+    children: &[Node],
+    kind: LayoutKind,
+    spacing: f32,
+    parent_style: &ViewStyle,
+) -> usize {
+    if !is_plain_style(parent_style) {
+        return 0;
+    }
+    children
+        .iter()
+        .filter(|child| subsumed_layout_children(child, kind, spacing).is_some())
+        .count()
+}
+
 /// The grandchildren a parent layout takes over, when it takes any.
 fn subsumed_layout_children(node: &Node, kind: LayoutKind, spacing: f32) -> Option<&[Node]> {
     let Node::Layout {
@@ -1572,47 +1850,88 @@ fn subsumed_layout_children(node: &Node, kind: LayoutKind, spacing: f32) -> Opti
     Some(children)
 }
 
-fn fold_expression(expression: Expr) -> Expr {
-    IrOptimizer.fold_expr(expression)
+fn fold_expression(expression: Expr, recorder: &OptimizationRecorder) -> Expr {
+    IrOptimizer {
+        recorder: recorder.clone(),
+    }
+    .fold_expr(expression)
 }
 
-fn optimize_nodes(nodes: Vec<Node>) -> Vec<Node> {
-    IrOptimizer.fold_nodes(nodes)
+fn optimize_nodes(nodes: Vec<Node>, recorder: &OptimizationRecorder) -> Vec<Node> {
+    IrOptimizer {
+        recorder: recorder.clone(),
+    }
+    .fold_nodes(nodes)
 }
 
-fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
-    IrOptimizer.fold_actions(actions)
+fn optimize_actions(actions: Vec<Action>, recorder: &OptimizationRecorder) -> Vec<Action> {
+    IrOptimizer {
+        recorder: recorder.clone(),
+    }
+    .fold_actions(actions)
 }
 
-fn fold_expression_rules(expression: Expr) -> Expr {
+fn fold_expression_rules(expression: Expr, recorder: &OptimizationRecorder) -> Expr {
     match expression {
         Expr::Not(value) => match *value {
-            Expr::Bool(value) => Expr::Bool(!value),
+            Expr::Bool(value) => {
+                recorder.constant_fold("not");
+                Expr::Bool(!value)
+            }
             value => Expr::Not(Box::new(value)),
         },
         Expr::Binary { op, left, right } => match (op, &*left, &*right) {
-            (BinaryOp::And, Expr::Bool(false), _) => Expr::Bool(false),
-            (BinaryOp::And, Expr::Bool(true), _) => *right,
-            (BinaryOp::Or, Expr::Bool(true), _) => Expr::Bool(true),
-            (BinaryOp::Or, Expr::Bool(false), _) => *right,
-            _ => evaluate_binary(op, &left, &right).unwrap_or(Expr::Binary { op, left, right }),
+            (BinaryOp::And, Expr::Bool(false), _) => {
+                recorder.constant_fold("binary");
+                Expr::Bool(false)
+            }
+            (BinaryOp::And, Expr::Bool(true), _) => {
+                recorder.constant_fold("binary");
+                *right
+            }
+            (BinaryOp::Or, Expr::Bool(true), _) => {
+                recorder.constant_fold("binary");
+                Expr::Bool(true)
+            }
+            (BinaryOp::Or, Expr::Bool(false), _) => {
+                recorder.constant_fold("binary");
+                *right
+            }
+            _ => match evaluate_binary(op, &left, &right) {
+                Some(folded) => {
+                    recorder.constant_fold("binary");
+                    folded
+                }
+                None => Expr::Binary { op, left, right },
+            },
         },
         Expr::Contains {
             value,
             collection,
             collection_type,
-        } => evaluate_contains(&value, &collection, &collection_type).unwrap_or({
-            Expr::Contains {
+        } => match evaluate_contains(&value, &collection, &collection_type) {
+            Some(folded) => {
+                recorder.constant_fold("contains");
+                folded
+            }
+            None => Expr::Contains {
                 value,
                 collection,
                 collection_type,
+            },
+        },
+        Expr::Add(left, right, ty) => match fold_numeric_add(&left, &right, ty) {
+            Some(folded) => {
+                recorder.constant_fold("add");
+                folded
             }
-        }),
-        Expr::Add(left, right, ty) => {
-            fold_numeric_add(&left, &right, ty).unwrap_or(Expr::Add(left, right, ty))
-        }
+            None => Expr::Add(left, right, ty),
+        },
         Expr::Concat(left, right) => match (&*left, &*right) {
-            (Expr::String(left), Expr::String(right)) => Expr::String(format!("{left}{right}")),
+            (Expr::String(left), Expr::String(right)) => {
+                recorder.constant_fold("concat");
+                Expr::String(format!("{left}{right}"))
+            }
             _ => Expr::Concat(left, right),
         },
         Expr::Arithmetic {
@@ -1620,17 +1939,28 @@ fn fold_expression_rules(expression: Expr) -> Expr {
             left,
             right,
             ty,
-        } => fold_numeric_arithmetic(&left, &right, op, ty).unwrap_or(Expr::Arithmetic {
-            op,
-            left,
-            right,
-            ty,
-        }),
-        Expr::Negate { value, ty } => {
-            fold_numeric_negate(&value, ty).unwrap_or(Expr::Negate { value, ty })
-        }
+        } => match fold_numeric_arithmetic(&left, &right, op, ty) {
+            Some(folded) => {
+                recorder.constant_fold("arithmetic");
+                folded
+            }
+            None => Expr::Arithmetic {
+                op,
+                left,
+                right,
+                ty,
+            },
+        },
+        Expr::Negate { value, ty } => match fold_numeric_negate(&value, ty) {
+            Some(folded) => {
+                recorder.constant_fold("negate");
+                folded
+            }
+            None => Expr::Negate { value, ty },
+        },
         Expr::Coalesce(left, right) => {
             if matches!(*left, Expr::Null(_)) {
+                recorder.constant_fold("coalesce");
                 *right
             } else {
                 Expr::Coalesce(left, right)
@@ -1642,8 +1972,14 @@ fn fold_expression_rules(expression: Expr) -> Expr {
             else_value,
             value_type,
         } => match *condition {
-            Expr::Bool(true) => *then_value,
-            Expr::Bool(false) => *else_value,
+            Expr::Bool(true) => {
+                recorder.constant_fold("conditional");
+                *then_value
+            }
+            Expr::Bool(false) => {
+                recorder.constant_fold("conditional");
+                *else_value
+            }
             condition => Expr::Conditional {
                 condition: Box::new(condition),
                 then_value,
@@ -2110,6 +2446,47 @@ mod tests {
         let mut module = module_with_body(body);
         optimize(&mut module);
         module.body
+    }
+
+    #[test]
+    fn opt_in_report_records_constant_folds_and_removed_branches() {
+        let mut module = module_with_body(vec![
+            Node::Text {
+                value: Expr::Concat(
+                    Box::new(Expr::String("Fast".to_owned())),
+                    Box::new(Expr::String("List".to_owned())),
+                ),
+                style: Default::default(),
+            },
+            Node::If {
+                condition: Expr::Bool(true),
+                then_body: vec![text("visible")],
+                else_body: Some(vec![text("removed")]),
+                transition: None,
+                transition_animation: None,
+            },
+        ]);
+
+        let report = optimize_with_report(&mut module);
+
+        assert_eq!(report.constant_folds.get("concat"), Some(&1));
+        assert_eq!(report.constant_branches_removed, 1);
+        assert_eq!(text_under(&module.body), ["FastList", "visible"]);
+    }
+
+    #[test]
+    fn opt_in_report_counts_hoisted_layouts_once() {
+        let mut module = module_with_body(vec![column(
+            8.0,
+            vec![
+                text("first"),
+                column(8.0, vec![text("second"), text("third")]),
+            ],
+        )]);
+
+        let report = optimize_with_report(&mut module);
+
+        assert_eq!(report.simplified_layouts, 1);
     }
 
     #[test]

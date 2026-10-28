@@ -171,8 +171,16 @@
       "source": "Adaptive split view",
       "translations": {}
     },
+    "Add": {
+      "source": "Add",
+      "translations": {}
+    },
     "Add an optional note": {
       "source": "Add an optional note",
+      "translations": {}
+    },
+    "Additional details make this card taller than its neighbors.": {
+      "source": "Additional details make this card taller than its neighbors.",
       "translations": {}
     },
     "Align": {
@@ -195,10 +203,6 @@
       "argument_types": [
         "Bool"
       ],
-      "translations": {}
-    },
-    "Android: long-press + drag. iOS: drag the row handle.": {
-      "source": "Android: long-press + drag. iOS: drag the row handle.",
       "translations": {}
     },
     "Animation and accessibility tests": {
@@ -516,10 +520,6 @@
       "source": "Combined emphasis",
       "translations": {}
     },
-    "Compact": {
-      "source": "Compact",
-      "translations": {}
-    },
     "Compact custom range": {
       "source": "Compact custom range",
       "translations": {}
@@ -616,6 +616,10 @@
     },
     "Date and time input": {
       "source": "Date and time input",
+      "translations": {}
+    },
+    "Date and time picker styles": {
+      "source": "Date and time picker styles",
       "translations": {}
     },
     "Date and time · compact presentation": {
@@ -746,6 +750,16 @@
       "source": "Direction",
       "translations": {}
     },
+    "Direction link enabled: {canOpenDirection}": {
+      "source": "Direction link enabled: {canOpenDirection}",
+      "arguments": [
+        "canOpenDirection"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
+      "translations": {}
+    },
     "Disabled": {
       "source": "Disabled",
       "translations": {}
@@ -796,6 +810,10 @@
       "argument_types": [
         "Int32"
       ],
+      "translations": {}
+    },
+    "Drag to choose 25%, 50%, or 85% height": {
+      "source": "Drag to choose 25%, 50%, or 85% height",
       "translations": {}
     },
     "Drag updated: {dragUpdated}": {
@@ -912,10 +930,6 @@
       "source": "Enter a task",
       "translations": {}
     },
-    "Expand": {
-      "source": "Expand",
-      "translations": {}
-    },
     "Expanded": {
       "source": "Expanded",
       "translations": {}
@@ -992,6 +1006,10 @@
       "source": "FastList · keyed collection and actions",
       "translations": {}
     },
+    "FastList · masonry": {
+      "source": "FastList · masonry",
+      "translations": {}
+    },
     "FastList · page snap": {
       "source": "FastList · page snap",
       "translations": {}
@@ -1022,6 +1040,14 @@
     },
     "Featured": {
       "source": "Featured",
+      "translations": {}
+    },
+    "Finish": {
+      "source": "Finish",
+      "translations": {}
+    },
+    "Finish refresh": {
+      "source": "Finish refresh",
       "translations": {}
     },
     "First child · zIndex 2": {
@@ -1060,6 +1086,28 @@
     },
     "Fixed 240 × 72 inside 220–260 × 64–80": {
       "source": "Fixed 240 × 72 inside 220–260 × 64–80",
+      "translations": {}
+    },
+    "Fixed grid end": {
+      "source": "Fixed grid end",
+      "translations": {}
+    },
+    "Fixed grid offset 160": {
+      "source": "Fixed grid offset 160",
+      "translations": {}
+    },
+    "Fixed grid position: {fixedGridPosition}": {
+      "source": "Fixed grid position: {fixedGridPosition}",
+      "arguments": [
+        "fixedGridPosition"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Fixed grid top": {
+      "source": "Fixed grid top",
       "translations": {}
     },
     "Fixed grid {index}": {
@@ -1181,8 +1229,8 @@
       "source": "Gray · 1 dp",
       "translations": {}
     },
-    "Half": {
-      "source": "Half",
+    "Hairline · 0.5 dp": {
+      "source": "Hairline · 0.5 dp",
       "translations": {}
     },
     "Half-height · compact default inset": {
@@ -1207,6 +1255,24 @@
       ],
       "translations": {}
     },
+    "Horizontal end": {
+      "source": "Horizontal end",
+      "translations": {}
+    },
+    "Horizontal offset 160": {
+      "source": "Horizontal offset 160",
+      "translations": {}
+    },
+    "Horizontal position: {horizontalListPosition}": {
+      "source": "Horizontal position: {horizontalListPosition}",
+      "arguments": [
+        "horizontalListPosition"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
     "Horizontal row {index}": {
       "source": "Horizontal row {index}",
       "arguments": [
@@ -1219,6 +1285,10 @@
     },
     "Horizontal rows": {
       "source": "Horizontal rows",
+      "translations": {}
+    },
+    "Horizontal top": {
+      "source": "Horizontal top",
       "translations": {}
     },
     "Horizontal: Start / Center / End": {
@@ -1367,12 +1437,20 @@
       "source": "Leading",
       "translations": {}
     },
+    "Leading action": {
+      "source": "Leading action",
+      "translations": {}
+    },
     "Leading alignment\nshort": {
       "source": "Leading alignment\nshort",
       "translations": {}
     },
     "Leading and trailing adapt to the app's layout direction.": {
       "source": "Leading and trailing adapt to the app's layout direction.",
+      "translations": {}
+    },
+    "Leading toolbar action": {
+      "source": "Leading toolbar action",
       "translations": {}
     },
     "Leading toolbar item": {
@@ -1437,12 +1515,30 @@
       ],
       "translations": {}
     },
+    "Long-press and drag a row to reorder it on either platform.": {
+      "source": "Long-press and drag a row to reorder it on either platform.",
+      "translations": {}
+    },
     "Map sheet": {
       "source": "Map sheet",
       "translations": {}
     },
     "Mark complete": {
       "source": "Mark complete",
+      "translations": {}
+    },
+    "Masonry card {index}": {
+      "source": "Masonry card {index}",
+      "arguments": [
+        "index"
+      ],
+      "argument_types": [
+        "Int32"
+      ],
+      "translations": {}
+    },
+    "Masonry cards": {
+      "source": "Masonry cards",
       "translations": {}
     },
     "Max: {sliderHigh}": {
@@ -1665,6 +1761,10 @@
     },
     "Number · Search": {
       "source": "Number · Search",
+      "translations": {}
+    },
+    "Offset 160": {
+      "source": "Offset 160",
       "translations": {}
     },
     "One item": {
@@ -1942,6 +2042,16 @@
       ],
       "translations": {}
     },
+    "Refresh state: {refreshing}": {
+      "source": "Refresh state: {refreshing}",
+      "arguments": [
+        "refreshing"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
+      "translations": {}
+    },
     "RefreshControl": {
       "source": "RefreshControl",
       "translations": {}
@@ -2177,8 +2287,30 @@
       "source": "Scroll to collapse",
       "translations": {}
     },
+    "Scroll to end": {
+      "source": "Scroll to end",
+      "translations": {}
+    },
+    "Scroll to row 5 with ComponentRef": {
+      "source": "Scroll to row 5 with ComponentRef",
+      "translations": {}
+    },
+    "Scroll to top": {
+      "source": "Scroll to top",
+      "translations": {}
+    },
     "Scrolling enabled": {
       "source": "Scrolling enabled",
+      "translations": {}
+    },
+    "Scrolling enabled: {listScrollEnabled}": {
+      "source": "Scrolling enabled: {listScrollEnabled}",
+      "arguments": [
+        "listScrollEnabled"
+      ],
+      "argument_types": [
+        "Bool"
+      ],
       "translations": {}
     },
     "Search": {
@@ -2312,18 +2444,6 @@
       ],
       "translations": {}
     },
-    "Selected snap point: Compact (25%)": {
-      "source": "Selected snap point: Compact (25%)",
-      "translations": {}
-    },
-    "Selected snap point: Expanded (85%)": {
-      "source": "Selected snap point: Expanded (85%)",
-      "translations": {}
-    },
-    "Selected snap point: Half (50%)": {
-      "source": "Selected snap point: Half (50%)",
-      "translations": {}
-    },
     "Selected state": {
       "source": "Selected state",
       "translations": {}
@@ -2425,6 +2545,10 @@
     },
     "Serif design": {
       "source": "Serif design",
+      "translations": {}
+    },
+    "Set refreshing": {
+      "source": "Set refreshing",
       "translations": {}
     },
     "Set upload progress to 45 percent": {
@@ -2633,6 +2757,10 @@
       "source": "Switch states",
       "translations": {}
     },
+    "System appearance surface": {
+      "source": "System appearance surface",
+      "translations": {}
+    },
     "Tall": {
       "source": "Tall",
       "translations": {}
@@ -2746,8 +2874,8 @@
       "source": "The title centers when no toolbar actions are present.",
       "translations": {}
     },
-    "The title stays next to Back, before the leading toolbar button.": {
-      "source": "The title stays next to Back, before the leading toolbar button.",
+    "The title follows the Back control and leading toolbar item.": {
+      "source": "The title follows the Back control and leading toolbar item.",
       "translations": {}
     },
     "Thickness: 12 · cornerRadius: 6": {
@@ -2939,6 +3067,10 @@
       "source": "Toggle empty-state copy",
       "translations": {}
     },
+    "Toggle navigation availability": {
+      "source": "Toggle navigation availability",
+      "translations": {}
+    },
     "Toggle progress bar colors": {
       "source": "Toggle progress bar colors",
       "translations": {}
@@ -2957,10 +3089,6 @@
     },
     "Toolbar": {
       "source": "Toolbar",
-      "translations": {}
-    },
-    "Toolbar action": {
-      "source": "Toolbar action",
       "translations": {}
     },
     "Toolbar placement": {
@@ -2999,6 +3127,10 @@
       "source": "Trailing alignment\nshort",
       "translations": {}
     },
+    "Trailing toolbar action": {
+      "source": "Trailing toolbar action",
+      "translations": {}
+    },
     "Travel dates": {
       "source": "Travel dates",
       "translations": {}
@@ -3023,6 +3155,10 @@
     },
     "Two columns · 92 dp cells · 4 dp spacing": {
       "source": "Two columns · 92 dp cells · 4 dp spacing",
+      "translations": {}
+    },
+    "Two columns · variable-height cards · 12 dp gap": {
+      "source": "Two columns · variable-height cards · 12 dp gap",
       "translations": {}
     },
     "Two spacers": {
@@ -3132,6 +3268,10 @@
     },
     "Zero padding": {
       "source": "Zero padding",
+      "translations": {}
+    },
+    "Zero · 0 dp": {
+      "source": "Zero · 0 dp",
       "translations": {}
     },
     "left": {

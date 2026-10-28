@@ -262,8 +262,8 @@ app JsonApp {
     state decoded: Result<UserProfile, JsonError>? = null
     body {
         OnAppear {
-            encoded = JSON.stringify(profile)
-            decoded = JSON.parse<UserProfile>(encoded)
+            encoded = Json.stringify(profile)
+            decoded = Json.parse<UserProfile>(encoded)
         }
         Text(encoded)
     }
@@ -283,4 +283,27 @@ app JsonApp {
     let kotlin_out = nexa_backend_kotlin::KotlinBackend.generate(&kotlin_compiled.module);
     assert!(kotlin_out.contains("nexaJsonStringify"));
     assert!(kotlin_out.contains("nexaJsonParse"));
+}
+
+#[test]
+fn json_api_rejects_the_duplicate_uppercase_namespace() {
+    let project = TestProject::new("nexa-json-uppercase-alias");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"
+app JsonAlias {
+    body { Text(JSON.stringify("value")) }
+}
+"#,
+    )
+    .expect("test file should be written");
+
+    let error = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .err()
+        .expect("the duplicate uppercase JSON namespace should be rejected");
+    assert!(
+        error.to_string().contains("JSON"),
+        "diagnostic should identify the removed namespace: {error}"
+    );
 }

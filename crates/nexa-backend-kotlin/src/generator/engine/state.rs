@@ -309,3 +309,38 @@ fn map_initializer(initial: &nexa_ir::Expr, key: &Type, value: &Type) -> String 
         ),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::kotlin_state_initializer;
+    use nexa_ir::{Expr, NumericType, State, Type};
+
+    #[test]
+    fn core_numeric_state_uses_compose_primitive_state_holders() {
+        for (numeric, expected_factory) in [
+            (NumericType::Int32, "mutableIntStateOf("),
+            (NumericType::Int64, "mutableLongStateOf("),
+            (NumericType::Float32, "mutableFloatStateOf("),
+            (NumericType::Float64, "mutableDoubleStateOf("),
+        ] {
+            let state = State {
+                name: "value".to_owned(),
+                ty: Type::Numeric(numeric),
+                initial: Expr::Number {
+                    raw: "1".to_owned(),
+                    ty: numeric,
+                },
+                mutable: true,
+            };
+            let initializer = kotlin_state_initializer(&state);
+            assert!(
+                initializer.starts_with(expected_factory),
+                "{numeric:?} state should use `{expected_factory}`, got `{initializer}`"
+            );
+            assert!(
+                !initializer.starts_with("mutableStateOf<"),
+                "{numeric:?} state must not use generic boxed state: `{initializer}`"
+            );
+        }
+    }
+}

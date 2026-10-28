@@ -36,7 +36,7 @@ pub(crate) fn render_with_dev_runtime(features: &Features, dev_runtime: bool) ->
     imports.add(true, "Foundation");
     imports.add(features.facts.ui.bottom_sheet.present, "Combine");
     imports.add(features.uses_widgets, "WidgetKit");
-    imports.add(features.facts.ui.lists.reorderable, "Observation");
+    imports.add(features.facts.ui.lists.reorderable, "Combine");
     crate::generator::components::controls::imports(features, &mut imports);
     crate::generator::components::list_runtime::imports(features, &mut imports);
     crate::generator::components::links::imports(features, &mut imports);
@@ -79,6 +79,16 @@ mod tests {
             render(&Features::default()),
             "import Foundation\nimport SwiftUI\n\n"
         );
+    }
+
+    #[test]
+    fn reorderable_lists_import_combine_for_deployment_target_compatible_row_state() {
+        let mut features = Features::default();
+        features.facts.ui.lists.reorderable = true;
+        let imports = render(&features);
+
+        assert!(imports.contains("import Combine\n"));
+        assert!(!imports.contains("import Observation\n"));
     }
 
     #[test]

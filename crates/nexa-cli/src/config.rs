@@ -8,6 +8,9 @@ use nexa_ir::Permission;
 use nexa_plugin_idl::{ConfigOption, Literal, PluginIdl, TypeRef};
 use nexa_syntax::ast::{ConfigValue, PluginDecl, PluginDependencyConfig};
 
+/// Android platform used to compile generated projects.
+pub(super) const ANDROID_COMPILE_SDK: u32 = 37;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) enum AndroidCronetProvider {
     #[default]
@@ -53,6 +56,7 @@ pub(super) struct ProjectConfig {
     pub(super) flavors: Vec<nexa_syntax::ast::FlavorConfig>,
     pub(super) deep_links: Vec<String>,
     permissions: Vec<(Permission, String)>,
+    permission_spans: HashMap<Permission, nexa_compiler::Span>,
     plugins: Vec<PluginConfig>,
     pub(super) ios_min_version: String,
     pub(super) ios_arch: Option<Vec<String>>,
@@ -134,6 +138,7 @@ impl ProjectConfig {
         let config = nexa_syntax::parse_config(&source)
             .map_err(|error| format!("{}: {error}", path.display()))?;
         let mut permissions = Vec::with_capacity(config.permissions.len());
+        let mut permission_spans = HashMap::with_capacity(config.permissions.len());
         for declaration in config.permissions {
             let permission = parse_permission(&declaration.name).ok_or_else(|| {
                 format!(
@@ -156,6 +161,7 @@ impl ProjectConfig {
                     declaration.name
                 ));
             }
+            permission_spans.insert(permission, declaration.span);
             permissions.push((permission, declaration.message));
         }
         let plugins = resolve_plugins(path, &config.plugins, plugin_definitions)?;
@@ -334,6 +340,7 @@ impl ProjectConfig {
             flavors,
             deep_links,
             permissions,
+            permission_spans,
             plugins,
             ios_min_version,
             ios_arch,
@@ -369,6 +376,7 @@ impl ProjectConfig {
             flavors: Vec::new(),
             deep_links: Vec::new(),
             permissions: Vec::new(),
+            permission_spans: HashMap::new(),
             plugins,
             ios_min_version: "16.0".to_owned(),
             ios_arch: None,
@@ -401,6 +409,10 @@ impl ProjectConfig {
 
     pub(super) fn permissions(&self) -> impl Iterator<Item = &(Permission, String)> {
         self.permissions.iter()
+    }
+
+    pub(super) fn permission_span(&self, permission: Permission) -> Option<nexa_compiler::Span> {
+        self.permission_spans.get(&permission).copied()
     }
 
     pub(super) fn plugins(&self) -> impl Iterator<Item = &PluginConfig> {
@@ -1272,7 +1284,7 @@ pub(super) fn parse_permission(name: &str) -> Option<Permission> {
     }
 }
 
-fn permission_name(permission: Permission) -> &'static str {
+pub(super) fn permission_name(permission: Permission) -> &'static str {
     match permission {
         Permission::Camera => "camera",
         Permission::Microphone => "microphone",
@@ -1283,6 +1295,50 @@ fn permission_name(permission: Permission) -> &'static str {
         Permission::Calendar => "calendar",
         Permission::Bluetooth => "bluetooth",
         Permission::Motion => "motion",
+    }
+}
+
+pub(super) const fn ios_usage_description_keys(permission: Permission) -> &'static [&'static str] {
+    match permission {
+        Permission::Camera => &["NSCameraUsageDescription"],
+        Permission::Microphone => &["NSMicrophoneUsageDescription"],
+        Permission::Photos => &["NSPhotoLibraryUsageDescription"],
+        Permission::Location => &["NSLocationWhenInUseUsageDescription"],
+        Permission::Notifications => &[],
+        Permission::Contacts => &["NSContactsUsageDescription"],
+        Permission::Calendar => &["NSCalendarsFullAccessUsageDescription"],
+        Permission::Bluetooth => &["NSBluetoothAlwaysUsageDescription"],
+        Permission::Motion => &["NSMotionUsageDescription"],
+    }
+}
+
+pub(super) const fn android_permission_names(permission: Permission) -> &'static [&'static str] {
+    match permission {
+        Permission::Camera => &["android.permission.CAMERA"],
+        Permission::Microphone => &["android.permission.RECORD_AUDIO"],
+        Permission::Photos => &[
+            "android.permission.READ_MEDIA_IMAGES",
+            "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+            "android.permission.READ_EXTERNAL_STORAGE",
+        ],
+        Permission::Location => &[
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.ACCESS_FINE_LOCATION",
+        ],
+        Permission::Notifications => &["android.permission.POST_NOTIFICATIONS"],
+        Permission::Contacts => &[
+            "android.permission.READ_CONTACTS",
+            "android.permission.WRITE_CONTACTS",
+        ],
+        Permission::Calendar => &[
+            "android.permission.READ_CALENDAR",
+            "android.permission.WRITE_CALENDAR",
+        ],
+        Permission::Bluetooth => &[
+            "android.permission.BLUETOOTH_SCAN",
+            "android.permission.BLUETOOTH_CONNECT",
+        ],
+        Permission::Motion => &["android.permission.ACTIVITY_RECOGNITION"],
     }
 }
 

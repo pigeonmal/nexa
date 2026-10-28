@@ -4,7 +4,15 @@ app NetworkFetchSmoke {
     body {
         OnAppear async {
             try {
-                statusCode = (await Network.fetch(url: "https://example.com")).statusCode
+                let headers: Map<String, String> = [
+                    "Accept": "application/json",
+                    "X-Client": "nexa-smoke"
+                ]
+                statusCode = (await Network.fetch(
+                    url: "https://example.com",
+                    headers: headers,
+                    cachePolicy: CacheOnly
+                )).statusCode
             } catch {
                 statusCode = 599
             }

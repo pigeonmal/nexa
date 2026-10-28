@@ -100,6 +100,134 @@ impl BridgeType {
     pub fn is_optional(&self) -> bool {
         matches!(self, BridgeType::Optional(_))
     }
+
+    /// Swift spelling used by generated native plugin bindings.
+    pub fn swift_type(&self) -> String {
+        self.swift_type_name(false)
+    }
+
+    /// Kotlin spelling used by generated native plugin bindings.
+    pub fn kotlin_type(&self) -> String {
+        self.kotlin_type_name(false)
+    }
+
+    /// Swift spelling used by the subset of plugin types supported by DevRuntime.
+    pub fn swift_dev_type(&self) -> String {
+        self.swift_type_name(true)
+    }
+
+    /// Kotlin spelling used by the subset of plugin types supported by DevRuntime.
+    pub fn kotlin_dev_type(&self) -> String {
+        self.kotlin_type_name(true)
+    }
+
+    fn swift_type_name(&self, dev_runtime: bool) -> String {
+        match self {
+            BridgeType::Scalar(scalar) => match scalar {
+                BridgeScalar::Void => "Void",
+                BridgeScalar::Bool => "Bool",
+                BridgeScalar::Int8 => "Int8",
+                BridgeScalar::Int16 => "Int16",
+                BridgeScalar::Int32 => "Int32",
+                BridgeScalar::Int64 => "Int64",
+                BridgeScalar::UInt8 => "UInt8",
+                BridgeScalar::UInt16 => "UInt16",
+                BridgeScalar::UInt32 => "UInt32",
+                BridgeScalar::UInt64 => "UInt64",
+                BridgeScalar::Float32 => "Float",
+                BridgeScalar::Float64 => "Double",
+                BridgeScalar::String => "String",
+                BridgeScalar::Bytes | BridgeScalar::BufferView => "Data",
+            }
+            .to_owned(),
+            BridgeType::Named { name, .. } => name.clone(),
+            BridgeType::TypeParameter(name) if !dev_runtime => name.clone(),
+            BridgeType::Array(element) => format!("[{}]", element.swift_type_name(dev_runtime)),
+            BridgeType::Set(element) => {
+                format!("Set<{}>", element.swift_type_name(dev_runtime))
+            }
+            BridgeType::Signal(element) if !dev_runtime => {
+                format!("NexaSignal<{}>", element.swift_type_name(false))
+            }
+            BridgeType::Map(key, value) => format!(
+                "[{}: {}]",
+                key.swift_type_name(dev_runtime),
+                value.swift_type_name(dev_runtime)
+            ),
+            BridgeType::Pair(first, second) => format!(
+                "({}, {})",
+                first.swift_type_name(dev_runtime),
+                second.swift_type_name(dev_runtime)
+            ),
+            BridgeType::Triple(first, second, third) => format!(
+                "({}, {}, {})",
+                first.swift_type_name(dev_runtime),
+                second.swift_type_name(dev_runtime),
+                third.swift_type_name(dev_runtime)
+            ),
+            BridgeType::Optional(inner) => {
+                format!("{}?", inner.swift_type_name(dev_runtime))
+            }
+            BridgeType::Result { success, failure } if !dev_runtime => {
+                format!("Result<{}, {failure}>", success.swift_type_name(false))
+            }
+            _ => "Any".to_owned(),
+        }
+    }
+
+    fn kotlin_type_name(&self, dev_runtime: bool) -> String {
+        match self {
+            BridgeType::Scalar(scalar) => match scalar {
+                BridgeScalar::Void => "Unit",
+                BridgeScalar::Bool => "Boolean",
+                BridgeScalar::Int8 => "Byte",
+                BridgeScalar::Int16 => "Short",
+                BridgeScalar::Int32 => "Int",
+                BridgeScalar::Int64 => "Long",
+                BridgeScalar::UInt8 => "UByte",
+                BridgeScalar::UInt16 => "UShort",
+                BridgeScalar::UInt32 => "UInt",
+                BridgeScalar::UInt64 => "ULong",
+                BridgeScalar::Float32 => "Float",
+                BridgeScalar::Float64 => "Double",
+                BridgeScalar::String => "String",
+                BridgeScalar::Bytes | BridgeScalar::BufferView => "ByteArray",
+            }
+            .to_owned(),
+            BridgeType::Named { name, .. } => name.clone(),
+            BridgeType::TypeParameter(name) if !dev_runtime => name.clone(),
+            BridgeType::Array(element) => {
+                format!("List<{}>", element.kotlin_type_name(dev_runtime))
+            }
+            BridgeType::Set(element) => format!("Set<{}>", element.kotlin_type_name(dev_runtime)),
+            BridgeType::Signal(element) if !dev_runtime => {
+                format!("NexaSignal<{}>", element.kotlin_type_name(false))
+            }
+            BridgeType::Map(key, value) => format!(
+                "Map<{}, {}>",
+                key.kotlin_type_name(dev_runtime),
+                value.kotlin_type_name(dev_runtime)
+            ),
+            BridgeType::Pair(first, second) if !dev_runtime => format!(
+                "Pair<{}, {}>",
+                first.kotlin_type_name(false),
+                second.kotlin_type_name(false)
+            ),
+            BridgeType::Triple(first, second, third) if !dev_runtime => format!(
+                "Triple<{}, {}, {}>",
+                first.kotlin_type_name(false),
+                second.kotlin_type_name(false),
+                third.kotlin_type_name(false)
+            ),
+            BridgeType::Optional(inner) => {
+                format!("{}?", inner.kotlin_type_name(dev_runtime))
+            }
+            BridgeType::Result { success, failure } if !dev_runtime => {
+                format!("Result<{}, {failure}>", success.kotlin_type_name(false))
+            }
+            _ => "Any".to_owned(),
+        }
+    }
 }
 
 /// A validated struct field, property, parameter, or error payload.
@@ -886,59 +1014,52 @@ impl<'a> Resolver<'a> {
             "Bytes" => BridgeType::Scalar(BridgeScalar::Bytes),
             "BufferView" => BridgeType::Scalar(BridgeScalar::BufferView),
             "Array" => {
-                let element = self.generic_argument(ty, context, 1)?.remove(0);
+                let [element] = self.generic_arguments::<1>(ty, context)?;
                 BridgeType::Array(Box::new(self.resolve(
-                    &element,
+                    element,
                     context,
                     Position::Value,
                     scope,
                 )?))
             }
             "Set" => {
-                let element = self.generic_argument(ty, context, 1)?.remove(0);
+                let [element] = self.generic_arguments::<1>(ty, context)?;
                 BridgeType::Set(Box::new(self.resolve(
-                    &element,
+                    element,
                     context,
                     Position::Value,
                     scope,
                 )?))
             }
             "Signal" => {
-                let element = self.generic_argument(ty, context, 1)?.remove(0);
+                let [element] = self.generic_arguments::<1>(ty, context)?;
                 BridgeType::Signal(Box::new(self.resolve(
-                    &element,
+                    element,
                     context,
                     Position::Value,
                     scope,
                 )?))
             }
             "Map" => {
-                let mut arguments = self.generic_argument(ty, context, 2)?;
-                let value = arguments.pop().expect("two map type arguments");
-                let key = arguments.pop().expect("two map type arguments");
+                let [key, value] = self.generic_arguments::<2>(ty, context)?;
                 BridgeType::Map(
-                    Box::new(self.resolve(&key, context, Position::Value, scope)?),
-                    Box::new(self.resolve(&value, context, Position::Value, scope)?),
+                    Box::new(self.resolve(key, context, Position::Value, scope)?),
+                    Box::new(self.resolve(value, context, Position::Value, scope)?),
                 )
             }
             "Pair" => {
-                let mut arguments = self.generic_argument(ty, context, 2)?;
-                let second = arguments.pop().expect("two pair type arguments");
-                let first = arguments.pop().expect("two pair type arguments");
+                let [first, second] = self.generic_arguments::<2>(ty, context)?;
                 BridgeType::Pair(
-                    Box::new(self.resolve(&first, context, Position::Value, scope)?),
-                    Box::new(self.resolve(&second, context, Position::Value, scope)?),
+                    Box::new(self.resolve(first, context, Position::Value, scope)?),
+                    Box::new(self.resolve(second, context, Position::Value, scope)?),
                 )
             }
             "Triple" => {
-                let mut arguments = self.generic_argument(ty, context, 3)?;
-                let third = arguments.pop().expect("three triple type arguments");
-                let second = arguments.pop().expect("three triple type arguments");
-                let first = arguments.pop().expect("three triple type arguments");
+                let [first, second, third] = self.generic_arguments::<3>(ty, context)?;
                 BridgeType::Triple(
-                    Box::new(self.resolve(&first, context, Position::Value, scope)?),
-                    Box::new(self.resolve(&second, context, Position::Value, scope)?),
-                    Box::new(self.resolve(&third, context, Position::Value, scope)?),
+                    Box::new(self.resolve(first, context, Position::Value, scope)?),
+                    Box::new(self.resolve(second, context, Position::Value, scope)?),
+                    Box::new(self.resolve(third, context, Position::Value, scope)?),
                 )
             }
             "Result" => {
@@ -952,15 +1073,13 @@ impl<'a> Resolver<'a> {
                         "{context} cannot make `Result` optional; make its success type optional instead"
                     ));
                 }
-                let mut arguments = self.generic_argument(ty, context, 2)?;
-                let failure = arguments.pop().expect("two result type arguments");
-                let success = arguments.pop().expect("two result type arguments");
+                let [success, failure] = self.generic_arguments::<2>(ty, context)?;
                 if failure.optional {
                     return Err(format!("{context} uses an optional `Result` failure type"));
                 }
-                let failure = self.plain_name(&failure, context)?;
+                let failure = self.plain_name(failure, context)?;
                 BridgeType::Result {
-                    success: Box::new(self.resolve(&success, context, Position::Value, scope)?),
+                    success: Box::new(self.resolve(success, context, Position::Value, scope)?),
                     failure,
                 }
             }
@@ -1021,20 +1140,20 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn generic_argument(
+    fn generic_arguments<'ty, const N: usize>(
         &self,
-        ty: &nexa_plugin_idl::TypeRef,
+        ty: &'ty nexa_plugin_idl::TypeRef,
         context: &str,
-        expected: usize,
-    ) -> Result<Vec<nexa_plugin_idl::TypeRef>, String> {
-        if ty.arguments.len() != expected {
-            return Err(format!(
-                "{context} uses `{}` with {}, expected {expected} type argument(s)",
-                ty.name,
-                ty.arguments.len()
-            ));
-        }
-        Ok(ty.arguments.clone())
+    ) -> Result<[&'ty nexa_plugin_idl::TypeRef; N], String> {
+        let arguments: &[nexa_plugin_idl::TypeRef; N] =
+            ty.arguments.as_slice().try_into().map_err(|_| {
+                format!(
+                    "{context} uses `{}` with {}, expected {N} type argument(s)",
+                    ty.name,
+                    ty.arguments.len()
+                )
+            })?;
+        Ok(std::array::from_fn(|index| &arguments[index]))
     }
 
     fn plain_name(&self, ty: &nexa_plugin_idl::TypeRef, context: &str) -> Result<String, String> {
@@ -1763,4 +1882,37 @@ fn android_error_payload_supported(ty: &BridgeType) -> bool {
                 | BridgeScalar::Bytes
         )
     )
+}
+
+#[cfg(test)]
+mod type_mapping_tests {
+    use super::{BridgeScalar, BridgeType};
+
+    #[test]
+    fn aot_and_dev_runtimes_share_supported_plugin_type_names() {
+        let ty = BridgeType::Map(
+            Box::new(BridgeType::Scalar(BridgeScalar::String)),
+            Box::new(BridgeType::Array(Box::new(BridgeType::Optional(Box::new(
+                BridgeType::Scalar(BridgeScalar::Int32),
+            ))))),
+        );
+
+        assert_eq!(ty.swift_type(), "[String: [Int32?]]");
+        assert_eq!(ty.kotlin_type(), "Map<String, List<Int?>>");
+        assert_eq!(ty.swift_dev_type(), ty.swift_type());
+        assert_eq!(ty.kotlin_dev_type(), ty.kotlin_type());
+    }
+
+    #[test]
+    fn dev_type_names_keep_platform_booleans_typed_and_fallback_for_unsupported_shapes() {
+        let boolean = BridgeType::Scalar(BridgeScalar::Bool);
+        assert_eq!(boolean.swift_dev_type(), "Bool");
+        assert_eq!(boolean.kotlin_dev_type(), "Boolean");
+
+        let signal = BridgeType::Signal(Box::new(BridgeType::Scalar(BridgeScalar::Int32)));
+        assert_eq!(signal.swift_type(), "NexaSignal<Int32>");
+        assert_eq!(signal.kotlin_type(), "NexaSignal<Int>");
+        assert_eq!(signal.swift_dev_type(), "Any");
+        assert_eq!(signal.kotlin_dev_type(), "Any");
+    }
 }

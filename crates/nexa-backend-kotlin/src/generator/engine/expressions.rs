@@ -32,6 +32,16 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
     let render = |value: &Expr| expression_with_locals(value, locals);
     match expr {
         Expr::This(_) => "this".to_owned(),
+        Expr::ComponentRefCreate {
+            namespace, name, ..
+        } => {
+            let reference_type = if namespace == "Nexa" {
+                format!("{}Ref", nexa_codegen::names::struct_name(name))
+            } else {
+                format!("{name}Ref")
+            };
+            format!("{reference_type}()")
+        }
         Expr::String(value) => kotlin_string(value),
         Expr::Interpolation(parts) => {
             let mut value = String::from("\"");
@@ -51,6 +61,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             value
         }
         Expr::LocalizedText { key, value, .. } => localized_text_expression(key, value, locals),
+        Expr::Located { expression, .. } => render(expression),
         Expr::Bool(value) => value.to_string(),
         Expr::IsRegularWidth => "(LocalConfiguration.current.screenWidthDp >= 600)".to_owned(),
         Expr::IsCompactWidth => "(LocalConfiguration.current.screenWidthDp < 600)".to_owned(),
@@ -162,12 +173,14 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 MemberKind::ClassStaticField(name) => nexa_codegen::names::state_name(name),
                 MemberKind::PluginField(name) => name.clone(),
                 MemberKind::NetworkStatusCode => "statusCode".to_owned(),
-                MemberKind::NetworkHeaders => "headers".to_owned(),
                 MemberKind::NetworkBody => "text".to_owned(),
                 MemberKind::CollectionCount => "size".to_owned(),
                 MemberKind::CollectionIsEmpty => "isEmpty()".to_owned(),
                 MemberKind::StringTrimmed => "trim()".to_owned(),
                 MemberKind::SignalValue => "value".to_owned(),
+                MemberKind::ResultIsSuccess => "isSuccess".to_owned(),
+                MemberKind::ResultValue => "getOrNull()".to_owned(),
+                MemberKind::ResultError => "errorOrNull()".to_owned(),
             };
             format!(
                 "{}{}{}",
@@ -333,8 +346,12 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         }
         Expr::FileExists { path } => format!("NexaFile.exists({})", render(path)),
         Expr::FileReadText { path } => format!("NexaFile.readText({})", render(path)),
+        Expr::FileReadBytes { path } => format!("NexaFile.read({})", render(path)),
         Expr::FileWriteText { path, contents } => {
             format!("NexaFile.writeText({}, {})", render(contents), render(path))
+        }
+        Expr::FileWriteBytes { path, contents } => {
+            format!("NexaFile.write({}, {})", render(contents), render(path))
         }
         Expr::FileDelete { path } => format!("NexaFile.delete({})", render(path)),
         // `ByteArray` conversions stay in the standard library; `fromText`
@@ -544,6 +561,26 @@ fn native_call(
         .iter()
         .map(|(_, value)| expression_with_locals(value, locals))
         .collect::<Vec<_>>();
+    if namespace == "Storage"
+        && let Some(codec) = codecs.first()
+    {
+        let key = rendered.first().map(String::as_str).unwrap_or("\"\"");
+        let context = "NexaRuntime.context()";
+        return match name {
+            "get" => {
+                let parse = nexa_codegen::value::json_parse_name(&codec.ty);
+                format!(
+                    "NexaStorage.getJson({context}, {key})?.let {{ raw -> when (val decoded = {parse}(raw)) {{ is NexaResult.Success -> decoded.value; is NexaResult.Failure -> null }} }}"
+                )
+            }
+            "set" => {
+                let value = rendered.get(1).map(String::as_str).unwrap_or("null");
+                let stringify = nexa_codegen::value::json_stringify_name(&codec.ty);
+                format!("NexaStorage.setJson({context}, {key}, {stringify}({value}))")
+            }
+            _ => format!("NexaStorage.unsupportedTypedCall_{name}()"),
+        };
+    }
     if namespace == "Json" {
         let raw_or_value = rendered.first().map(String::as_str).unwrap_or("\"\"");
         if let Some(codec) = codecs.first() {
@@ -643,7 +680,7 @@ fn native_call(
                 _ => format!("{rendered_receiver}.{name}()"),
             };
         }
-        let native_name = if namespace.starts_with("__NexaUserClass:") {
+        let native_name = if namespace.starts_with("__NexaUserClass:") || namespace == "Nexa" {
             nexa_codegen::names::function_name(name)
         } else {
             name.to_owned()
@@ -686,10 +723,15 @@ fn native_call(
         ),
         ("Network", "isOnline") => "NexaNetwork.isOnline(NexaRuntime.context())".to_owned(),
         ("Network", "upload") => format!(
-            "NexaNetwork.upload(NexaRuntime.context(), {}, {}, {})",
+            "NexaNetwork.upload(NexaRuntime.context(), {}, {}, {}, {}, {}, {}, {}, {})",
             rendered.first().map(String::as_str).unwrap_or("\"\""),
             rendered.get(1).map(String::as_str).unwrap_or("\"\""),
             rendered.get(2).map(String::as_str).unwrap_or("emptyMap()"),
+            rendered.get(3).map(String::as_str).unwrap_or("emptyMap()"),
+            rendered.get(4).map(String::as_str).unwrap_or("30.0"),
+            rendered.get(5).map(String::as_str).unwrap_or("true"),
+            rendered.get(6).map(String::as_str).unwrap_or("64L * 1024L * 1024L"),
+            rendered.get(7).map(String::as_str).unwrap_or("emptySet()"),
         ),
         ("Haptics", "impact") => {
             let style = arguments
@@ -755,19 +797,25 @@ fn native_call(
             rendered.first().map(String::as_str).unwrap_or("0")
         ),
         ("SecureStorage", "get") => format!(
-            "NexaSecureStorage.get(NexaRuntime.context(), {})",
-            rendered.first().map(String::as_str).unwrap_or("\"\"")
+            "NexaSecureStorage.get(NexaRuntime.context(), {}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("null")
         ),
         ("SecureStorage", "set") => format!(
-            "NexaSecureStorage.set(NexaRuntime.context(), {}, {})",
+            "NexaSecureStorage.set(NexaRuntime.context(), {}, {}, {})",
             rendered.first().map(String::as_str).unwrap_or("\"\""),
-            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+            rendered.get(1).map(String::as_str).unwrap_or("\"\""),
+            rendered.get(2).map(String::as_str).unwrap_or("null")
         ),
         ("SecureStorage", "delete") => format!(
-            "NexaSecureStorage.delete(NexaRuntime.context(), {})",
-            rendered.first().map(String::as_str).unwrap_or("\"\"")
+            "NexaSecureStorage.delete(NexaRuntime.context(), {}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("null")
         ),
-        ("SecureStorage", "clear") => "NexaSecureStorage.clear(NexaRuntime.context())".to_owned(),
+        ("SecureStorage", "clear") => format!(
+            "NexaSecureStorage.clear(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("null")
+        ),
         ("Storage", "getString") => format!(
             "NexaStorage.getString(NexaRuntime.context(), {})",
             rendered.first().map(String::as_str).unwrap_or("\"\"")
@@ -776,6 +824,33 @@ fn native_call(
             "NexaStorage.setString(NexaRuntime.context(), {}, {})",
             rendered.first().map(String::as_str).unwrap_or("\"\"").to_owned(),
             rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "getBool") => format!(
+            "NexaStorage.getBool(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "setBool") => format!(
+            "NexaStorage.setBool(NexaRuntime.context(), {}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"").to_owned(),
+            rendered.get(1).map(String::as_str).unwrap_or("false")
+        ),
+        ("Storage", "getInt64") => format!(
+            "NexaStorage.getInt64(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "setInt64") => format!(
+            "NexaStorage.setInt64(NexaRuntime.context(), {}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"").to_owned(),
+            rendered.get(1).map(String::as_str).unwrap_or("0L")
+        ),
+        ("Storage", "getFloat64") => format!(
+            "NexaStorage.getFloat64(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "setFloat64") => format!(
+            "NexaStorage.setFloat64(NexaRuntime.context(), {}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"").to_owned(),
+            rendered.get(1).map(String::as_str).unwrap_or("0.0")
         ),
         ("Storage", "delete") => format!(
             "NexaStorage.delete(NexaRuntime.context(), {})",
@@ -940,17 +1015,17 @@ fn render_network_request(
     let method = render(&request.method);
     let headers = render(&request.headers);
     let timeout = render(&request.timeout);
-    let use_cache = render(&request.use_cache);
+    let cache_policy = render(&request.cache_policy);
     let follow_redirects = render(&request.follow_redirects);
     let max_response_bytes = render(&request.max_response_bytes);
     let certificate_pins = render(&request.certificate_pins);
     match destination {
         Some(destination) => format!(
-            "NexaNetwork.download(NexaRuntime.context(), {url}, {}, {method}, {body}, {headers}, ({timeout} * 1000.0).toLong(), {use_cache}, {follow_redirects}, {max_response_bytes}, {certificate_pins})",
+            "NexaNetwork.download(NexaRuntime.context(), {url}, {}, {method}, {body}, {headers}, ({timeout} * 1000.0).toLong(), {cache_policy}, {follow_redirects}, {max_response_bytes}, {certificate_pins})",
             render(destination),
         ),
         None => format!(
-            "NexaNetwork.fetch(NexaRuntime.context(), {url}, {method}, {body}, {headers}, ({timeout} * 1000.0).toLong(), {use_cache}, {follow_redirects}, {max_response_bytes}, {certificate_pins})"
+            "NexaNetwork.fetch(NexaRuntime.context(), {url}, {method}, {body}, {headers}, ({timeout} * 1000.0).toLong(), {cache_policy}, {follow_redirects}, {max_response_bytes}, {certificate_pins})"
         ),
     }
 }
@@ -1391,7 +1466,7 @@ mod tests {
 
         assert_eq!(
             expression(&Expr::TryAwait(Box::new(call))),
-            "NexaNetwork.upload(NexaRuntime.context(), \"https://example.com\", \"receipt.pdf\", mapOf())"
+            "NexaNetwork.upload(NexaRuntime.context(), \"https://example.com\", \"receipt.pdf\", mapOf(), emptyMap(), 30.0, true, 64L * 1024L * 1024L, emptySet())"
         );
     }
 
@@ -1558,6 +1633,29 @@ mod tests {
     }
 
     #[test]
+    fn division_and_remainder_use_kotlin_integer_and_float_semantics() {
+        let operation = |op, ty| Expr::Arithmetic {
+            op,
+            left: Box::new(Expr::State("value".to_owned(), Type::Numeric(ty))),
+            right: Box::new(Expr::State("divisor".to_owned(), Type::Numeric(ty))),
+            ty,
+        };
+
+        assert_eq!(
+            expression(&operation(ArithmeticOp::Divide, NumericType::Int32)),
+            "(nexa_value / nexa_divisor)"
+        );
+        assert_eq!(
+            expression(&operation(ArithmeticOp::Remainder, NumericType::Int32)),
+            "(nexa_value % nexa_divisor)"
+        );
+        assert_eq!(
+            expression(&operation(ArithmeticOp::Remainder, NumericType::Float64)),
+            "(nexa_value % nexa_divisor)"
+        );
+    }
+
+    #[test]
     fn string_concatenation_uses_the_native_operator() {
         let concat = Expr::Concat(
             Box::new(Expr::String("Nexa".to_owned())),
@@ -1571,16 +1669,42 @@ mod tests {
     fn file_calls_use_the_generated_native_helper_names_and_argument_order() {
         let path = || Box::new(Expr::String("notes.txt".to_owned()));
         let read = Expr::Await(Box::new(Expr::FileReadText { path: path() }));
+        let read_bytes = Expr::Await(Box::new(Expr::FileReadBytes { path: path() }));
         let write = Expr::Await(Box::new(Expr::FileWriteText {
             contents: Box::new(Expr::String("saved".to_owned())),
+            path: path(),
+        }));
+        let write_bytes = Expr::Await(Box::new(Expr::FileWriteBytes {
+            contents: Box::new(Expr::NativeCall {
+                receiver: None,
+                namespace: "Crypto".to_owned(),
+                name: "randomBytes".to_owned(),
+                arguments: vec![(
+                    "count".to_owned(),
+                    Expr::Number {
+                        raw: "4".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                )],
+                codecs: Vec::new(),
+                return_type: Type::Bytes,
+                source_span: None,
+                is_async: false,
+                is_throwing: false,
+            }),
             path: path(),
         }));
         let delete = Expr::Await(Box::new(Expr::FileDelete { path: path() }));
 
         assert_eq!(expression(&read), "NexaFile.readText(\"notes.txt\")");
+        assert_eq!(expression(&read_bytes), "NexaFile.read(\"notes.txt\")");
         assert_eq!(
             expression(&write),
             "NexaFile.writeText(\"saved\", \"notes.txt\")"
+        );
+        assert_eq!(
+            expression(&write_bytes),
+            "NexaFile.write(nexaCryptoRandomBytes(4), \"notes.txt\")"
         );
         assert_eq!(expression(&delete), "NexaFile.delete(\"notes.txt\")");
     }
@@ -1759,6 +1883,26 @@ mod tests {
         assert_eq!(
             expression(&sorted),
             "nexa_values.sortedBy { value -> value }"
+        );
+    }
+
+    #[test]
+    fn component_ref_creation_uses_builtin_and_plugin_native_names() {
+        assert_eq!(
+            expression(&Expr::ComponentRefCreate {
+                namespace: "Nexa".to_owned(),
+                name: "FastList".to_owned(),
+                identity: "test-list-ref".to_owned(),
+            }),
+            "NexaFastListRef()"
+        );
+        assert_eq!(
+            expression(&Expr::ComponentRefCreate {
+                namespace: "Video".to_owned(),
+                name: "VideoPlayer".to_owned(),
+                identity: "test-video-ref".to_owned(),
+            }),
+            "VideoPlayerRef()"
         );
     }
 }

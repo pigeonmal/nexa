@@ -73,7 +73,7 @@ nexa dev
 | **Live Development** | `nexa dev [--ios \| --android]` | Boots simulator/emulator with live DevRuntime hot reload. |
 | **Run Tests** | `nexa test [--unit-only]` | Executes all in-language `.nx` `test` blocks and native test runners. |
 | **Release Build** | `nexa build --release` | Emits signed Android AABs and iOS production IPA archives. |
-| **Health Check** | `nexa doctor` | Verifies local Xcode, Android SDK, Rust, and Clang toolchains. |
+| **Health Check** | `nexa doctor` | Checks native toolchains, Android SDK, and configured plugin dependencies without fetching packages. |
 | **Plugin Authoring**| `nexa plugin new\|check\|generate` | Scaffolds, validates, and generates local plugin contracts. There is no registry install command. |
 
 ### Hot Reload Interactive Keys

@@ -44,13 +44,15 @@ pub(super) fn copy_ios_project_images(
         let filename = format!("{}.{}", image.name, ios_asset_extension(image));
         let destination = directory.join(&filename);
         if image.extension == "webp" {
-            image::open(&image.source)
-                .map_err(|error| format!("{}: {error}", image.source.display()))?
-                .save(&destination)
-                .map_err(|error| format!("{}: {error}", destination.display()))?;
-        } else {
-            fs::copy(&image.source, &destination)
+            let decoded = image::open(&image.source)
                 .map_err(|error| format!("{}: {error}", image.source.display()))?;
+            let mut encoded = std::io::Cursor::new(Vec::new());
+            decoded
+                .write_to(&mut encoded, image::ImageFormat::Png)
+                .map_err(|error| format!("{}: {error}", destination.display()))?;
+            super::file_ops::write_bytes_if_changed(&destination, encoded.get_ref())?;
+        } else {
+            copy_if_changed(&image.source, &destination)?;
         }
         write_if_changed(
             &directory.join("Contents.json"),
@@ -100,8 +102,7 @@ pub(super) fn copy_android_project_images(
         ensure_owned_destination(&destination, &marker, &filename)?;
         fs::create_dir_all(&resources)
             .map_err(|error| format!("{}: {error}", resources.display()))?;
-        fs::copy(&image.source, &destination)
-            .map_err(|error| format!("{}: {error}", image.source.display()))?;
+        copy_if_changed(&image.source, &destination)?;
     }
     write_marker(&marker, &generated)
 }
@@ -220,6 +221,27 @@ fn ensure_owned_destination(destination: &Path, marker: &Path, name: &str) -> Re
             destination.display()
         ));
     }
+    Ok(())
+}
+
+fn copy_if_changed(source: &Path, destination: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(format!(
+                "refusing to overwrite generated asset symlink: {}",
+                destination.display()
+            ));
+        }
+        Ok(metadata)
+            if metadata.is_file() && super::file_ops::files_equal(source, destination)? =>
+        {
+            return Ok(());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("{}: {error}", destination.display())),
+    }
+    fs::copy(source, destination).map_err(|error| format!("{}: {error}", source.display()))?;
     Ok(())
 }
 
@@ -689,10 +711,7 @@ fn adaptive_icon_xml(resource_name: &str, include_monochrome: bool) -> String {
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
-    if fs::read_to_string(path).is_ok_and(|existing| existing == contents) {
-        return Ok(());
-    }
-    fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
+    super::file_ops::write_bytes_if_changed(path, contents.as_bytes())
 }
 
 #[cfg(test)]

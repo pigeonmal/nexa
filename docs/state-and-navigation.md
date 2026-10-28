@@ -100,8 +100,18 @@ app BrandedTabs {
 
     body {
         AppBottomBar(selected: selectedTab) {
-            Tab(index: 0, label: "Home", icon: "home") { HomeScreen() }
-            Tab(index: 1, label: "Profile", icon: "person") { ProfileScreen() }
+            Tab(index: 0, label: "Home", icon: "home") {
+                Column(spacing: 8, padding: 16) {
+                    Text("Your latest updates", fontSize: 22, fontWeight: Bold)
+                    Text("Browse the latest products.")
+                }
+            }
+            Tab(index: 1, label: "Profile", icon: "person") {
+                Column(spacing: 8, padding: 16) {
+                    Text("Alex Morgan", fontSize: 22, fontWeight: Bold)
+                    Text("Account preferences and saved addresses.")
+                }
+            }
 
             TabBar {
                 Row(spacing: 24, alignment: Center, padding: 12, background: "#09090B") {
@@ -155,28 +165,26 @@ app Inventory {
 
 ## External links and modal content
 
-`Link(url: ...)` opens a URL through the platform handler. Incoming universal-link routing is not part of the current Nexa syntax.
+`Link(url: ...)` opens a URL through the platform handler. Incoming links use the `deepLinks` app configuration and a screen slug. Scalar screen arguments can follow the slug as path segments in declaration order, or use query parameters named after the screen arguments. Path values take precedence over query values. For example, both `https://links.example.com/product-details/42/2` and `https://links.example.com/product-details?id=42&page=2` open `ProductDetails(id: "42", page: 2)`. Invalid argument values and extra path segments are ignored.
 
-`BottomSheet`, `Dialog`, and `ConfirmationDialog` use mutable boolean state.
-For explicit sheet commands, call `BottomSheet.present(state)` or
-`BottomSheet.dismiss(state)`; both update that same state and keep the native
-presentation animation.
+`Dialog` and `ConfirmationDialog` use mutable boolean state. `BottomSheet` uses
+a typed component reference so presentation is an explicit action.
 
 ```nx
 app AccountHelp {
-    state showHelp: Bool = false
+    let helpSheetRef = ComponentRef<BottomSheet>()
 
     body {
         Column(spacing: 12, padding: 16) {
-            Button("Help options") { BottomSheet.present(showHelp) }
+            Button("Help options") { helpSheetRef.present() }
             Link(url: "https://support.example.com/account") {
                 Text("Visit account help")
             }
-            BottomSheet(isPresented: showHelp, detents: [Medium, Expanded]) {
+            BottomSheet(ref: helpSheetRef, detents: [0.5, 1.0]) {
                 Column(spacing: 12, padding: 16) {
                     Text("Account help")
                     Text("Need help signing in?")
-                    Button("Close") { BottomSheet.dismiss(showHelp) }
+                    Button("Close") { helpSheetRef.dismiss() }
                 }
             }
         }

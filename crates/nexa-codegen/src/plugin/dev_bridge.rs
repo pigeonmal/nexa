@@ -14,7 +14,7 @@ use super::bridge_plan::{
 
 pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
     let mut out = String::from(
-        "import Foundation\nimport SwiftUI\n\ninternal struct NexaDevPluginFailure: Error, @unchecked Sendable {\n    let namespace: String\n    let errorType: String\n    let variant: String\n    let payload: [String: Any]\n}\n\n@MainActor\ninternal enum NexaDevPluginBridge {\n    static func construct(namespace: String, name: String, arguments: [Any]) -> (Bool, Any) {\n        switch (namespace, name) {\n",
+        "import Foundation\nimport SwiftUI\n\ninternal struct NexaDevPluginFailure: Error, @unchecked Sendable {\n    let namespace: String\n    let errorType: String\n    let variant: String\n    let payload: [String: Any]\n    var sourceFile: String? = nil\n    var sourceLine: Int? = nil\n    var sourceColumn: Int? = nil\n}\n\n@MainActor\ninternal enum NexaDevPluginBridge {\n    static func construct(namespace: String, name: String, arguments: [Any]) -> (Bool, Any) {\n        switch (namespace, name) {\n",
     );
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_swift_contract(contract)?;
@@ -30,9 +30,21 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
             }
         }
     }
-    out.push_str(
-        "        default: return (false, NSNull())\n        }\n    }\n\n    static func invokeSync(namespace: String, name: String, options: [String: Any], codecs: [Any], enumCases: [String: [String]]) -> (Bool, Any) {\n        switch (namespace, name) {\n",
-    );
+    out.push_str("        default: return (false, NSNull())\n        }\n    }\n\n    static func constructComponentRef(namespace: String, name: String) -> Any? {\n        switch (namespace, name) {\n");
+    for (namespace, contract) in plugins {
+        let plan = BridgePlan::validate_swift_contract(contract)?;
+        for interface in plan.interfaces.iter().filter(|interface| {
+            interface.kind == InterfaceKind::NativeComponent && !interface.methods.is_empty()
+        }) {
+            out.push_str(&format!(
+                "        case (\"{}\", \"{}\"): return {}Ref()\n",
+                swift_escape(namespace),
+                swift_escape(&interface.name),
+                interface.name
+            ));
+        }
+    }
+    out.push_str("        default: return nil\n        }\n    }\n\n    static func invokeSync(namespace: String, name: String, options: [String: Any], codecs: [Any], enumCases: [String: [String]]) -> (Bool, Any) {\n        switch (namespace, name) {\n");
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_swift_contract(contract)?;
         for interface in plan
@@ -70,10 +82,12 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
         "        default: return (false, NSNull())\n        }\n    }\n\n    static func invokeInstanceSync(receiver: Any, namespace: String, name: String, options: [String: Any], codecs: [Any], enumCases: [String: [String]]) -> (Bool, Any) {\n",
     );
     render_swift_instance_methods(&mut out, plugins, false)?;
+    render_swift_component_ref_methods(&mut out, plugins, false)?;
     out.push_str(
         "        return (false, NSNull())\n    }\n\n    static func invokeInstanceAsync(receiver: Any, namespace: String, name: String, options: [String: Any], codecs: [Any], enumCases: [String: [String]]) async throws -> (Bool, Any) {\n",
     );
     render_swift_instance_methods(&mut out, plugins, true)?;
+    render_swift_component_ref_methods(&mut out, plugins, true)?;
     out.push_str("        return (false, NSNull())\n    }\n\n");
     render_swift_instance_properties(&mut out, plugins)?;
     render_swift_instance_events(&mut out, plugins)?;
@@ -87,7 +101,7 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
 
 pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
     let mut out = String::from(
-        "import android.util.Base64\nimport org.json.JSONObject\n\ninternal class NexaDevPluginFailure(\n    val namespace: String,\n    val errorType: String,\n    val variant: String,\n    val payload: Map<String, Any>,\n    cause: Throwable? = null,\n) : Exception(\"$namespace.$errorType.$variant\", cause)\n\ninternal object NexaDevPluginBridge {\n    fun construct(namespace: String, name: String, arguments: List<Any>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
+        "import android.util.Base64\nimport org.json.JSONObject\n\ninternal class NexaDevPluginFailure(\n    val namespace: String,\n    val errorType: String,\n    val variant: String,\n    val payload: Map<String, Any>,\n    cause: Throwable? = null,\n    var sourceFile: String? = null,\n    var sourceLine: Int? = null,\n    var sourceColumn: Int? = null,\n) : Exception(\"$namespace.$errorType.$variant\", cause)\n\ninternal object NexaDevPluginBridge {\n    fun construct(namespace: String, name: String, arguments: List<Any>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
     );
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
@@ -121,9 +135,21 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
             }
         }
     }
-    out.push_str(
-        "            else -> false to JSONObject.NULL\n        }\n\n    suspend fun invokeAsync(namespace: String, name: String, options: Map<String, Any>, codecs: List<Any>, enumCases: Map<String, List<String>>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
-    );
+    out.push_str("            else -> false to JSONObject.NULL\n        }\n\n    fun constructComponentRef(namespace: String, name: String): Any? =\n        when (\"$namespace.$name\") {\n");
+    for (namespace, contract) in plugins {
+        let plan = BridgePlan::validate_kotlin_contract(contract)?;
+        for interface in plan.interfaces.iter().filter(|interface| {
+            interface.kind == InterfaceKind::NativeComponent && !interface.methods.is_empty()
+        }) {
+            out.push_str(&format!(
+                "            \"{}.{}\" -> {}Ref()\n",
+                kotlin_escape(namespace),
+                kotlin_escape(&interface.name),
+                interface.name
+            ));
+        }
+    }
+    out.push_str("            else -> null\n        }\n\n    suspend fun invokeAsync(namespace: String, name: String, options: Map<String, Any>, codecs: List<Any>, enumCases: Map<String, List<String>>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n");
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
         for interface in plan
@@ -141,8 +167,10 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
     }
     out.push_str("            else -> false to JSONObject.NULL\n        }\n\n    fun invokeInstanceSync(receiver: Any, namespace: String, name: String, options: Map<String, Any>, codecs: List<Any>, enumCases: Map<String, List<String>>): Pair<Boolean, Any> {\n");
     render_kotlin_instance_methods(&mut out, plugins, false)?;
+    render_kotlin_component_ref_methods(&mut out, plugins, false)?;
     out.push_str("        return false to JSONObject.NULL\n    }\n\n    suspend fun invokeInstanceAsync(receiver: Any, namespace: String, name: String, options: Map<String, Any>, codecs: List<Any>, enumCases: Map<String, List<String>>): Pair<Boolean, Any> {\n");
     render_kotlin_instance_methods(&mut out, plugins, true)?;
+    render_kotlin_component_ref_methods(&mut out, plugins, true)?;
     out.push_str("        return false to JSONObject.NULL\n    }\n\n");
     render_kotlin_instance_properties(&mut out, plugins)?;
     render_kotlin_instance_events(&mut out, plugins)?;
@@ -590,7 +618,7 @@ fn render_swift_components(
     out: &mut String,
     plugins: &[(String, PluginIdl)],
 ) -> Result<(), String> {
-    out.push_str("    static func renderComponent(namespace: String, name: String, arguments: [String: Any], events: [String: ([Any]) -> Void], content: AnyView) -> AnyView? {\n        switch (namespace, name) {\n");
+    out.push_str("    static func renderComponent(namespace: String, name: String, arguments: [String: Any], events: [String: ([Any]) -> Void], componentRef: Any?, content: AnyView) -> AnyView? {\n        switch (namespace, name) {\n");
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_swift_contract(contract)?;
         for interface in plan
@@ -688,6 +716,9 @@ fn render_swift_components(
                     format!("events[\"{callback_property}\"].map {{ handler in {closure} }}")
                 };
                 call_arguments.push(format!("{callback_property}: {callback}"));
+            }
+            if !interface.methods.is_empty() {
+                call_arguments.push(format!("ref: componentRef as? {}Ref", interface.name));
             }
             if interface.has_content_slot {
                 call_arguments.push("content: { content }".to_owned());
@@ -844,7 +875,7 @@ fn render_kotlin_components(
     out: &mut String,
     plugins: &[(String, PluginIdl)],
 ) -> Result<(), String> {
-    out.push_str("    @Composable fun renderComponent(namespace: String, name: String, arguments: Map<String, Any>, events: Map<String, (List<Any>) -> Unit>, content: @Composable () -> Unit): Boolean {\n        when (\"$namespace.$name\") {\n");
+    out.push_str("    @Composable fun renderComponent(namespace: String, name: String, arguments: Map<String, Any>, events: Map<String, (List<Any>) -> Unit>, componentRef: Any?, content: @Composable () -> Unit): Boolean {\n        when (\"$namespace.$name\") {\n");
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
         for interface in plan
@@ -941,6 +972,9 @@ fn render_kotlin_components(
                     )
                 };
                 args.push(format!("{property} = {callback}"));
+            }
+            if !interface.methods.is_empty() {
+                args.push(format!("ref = componentRef as? {}Ref", interface.name));
             }
             if interface.has_content_slot {
                 args.push("content = content".to_owned());
@@ -1108,74 +1142,11 @@ fn supported_struct_value(plan: &BridgePlan, name: &str, depth: usize) -> bool {
 }
 
 fn swift_type_for_dev(ty: &BridgeType) -> String {
-    match ty {
-        BridgeType::Scalar(BridgeScalar::Void) => "Void".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bool) => "Bool".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int8) => "Int8".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int16) => "Int16".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int32) => "Int32".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int64) => "Int64".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt8) => "UInt8".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt16) => "UInt16".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt32) => "UInt32".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt64) => "UInt64".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Float32) => "Float".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
-        BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bytes) => "Data".to_owned(),
-        BridgeType::Scalar(BridgeScalar::BufferView) => "Data".to_owned(),
-        BridgeType::Named { name, .. } => name.clone(),
-        BridgeType::Array(inner) => format!("[{}]", swift_type_for_dev(inner)),
-        BridgeType::Set(inner) => format!("Set<{}>", swift_type_for_dev(inner)),
-        BridgeType::Map(key, value) => format!(
-            "[{}: {}]",
-            swift_type_for_dev(key),
-            swift_type_for_dev(value)
-        ),
-        BridgeType::Pair(first, second) => format!(
-            "({}, {})",
-            swift_type_for_dev(first),
-            swift_type_for_dev(second)
-        ),
-        BridgeType::Triple(first, second, third) => format!(
-            "({}, {}, {})",
-            swift_type_for_dev(first),
-            swift_type_for_dev(second),
-            swift_type_for_dev(third)
-        ),
-        BridgeType::Optional(inner) => format!("{}?", swift_type_for_dev(inner)),
-        _ => "Any".to_owned(),
-    }
+    ty.swift_dev_type()
 }
 
 fn kotlin_type_for_dev(ty: &BridgeType) -> String {
-    match ty {
-        BridgeType::Scalar(BridgeScalar::Void) => "Unit".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bool) => "Boolean".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int8) => "Byte".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int16) => "Short".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int32) => "Int".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int64) => "Long".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt8) => "UByte".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt16) => "UShort".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt32) => "UInt".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt64) => "ULong".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Float32) => "Float".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
-        BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bytes) => "ByteArray".to_owned(),
-        BridgeType::Scalar(BridgeScalar::BufferView) => "ByteArray".to_owned(),
-        BridgeType::Named { name, .. } => name.clone(),
-        BridgeType::Array(inner) => format!("List<{}>", kotlin_type_for_dev(inner)),
-        BridgeType::Set(inner) => format!("Set<{}>", kotlin_type_for_dev(inner)),
-        BridgeType::Map(key, value) => format!(
-            "Map<{}, {}>",
-            kotlin_type_for_dev(key),
-            kotlin_type_for_dev(value)
-        ),
-        BridgeType::Optional(inner) => format!("{}?", kotlin_type_for_dev(inner)),
-        _ => "Any".to_owned(),
-    }
+    ty.kotlin_dev_type()
 }
 
 fn swift_literal_for_dev(literal: &nexa_plugin_idl::Literal) -> String {
@@ -2875,6 +2846,91 @@ fn render_swift_instance_methods(
     Ok(())
 }
 
+fn render_swift_component_ref_methods(
+    out: &mut String,
+    plugins: &[(String, PluginIdl)],
+    asynchronous: bool,
+) -> Result<(), String> {
+    for (namespace, contract) in plugins {
+        let plan = BridgePlan::validate_swift_contract(contract)?;
+        for interface in plan.interfaces.iter().filter(|interface| {
+            interface.kind == InterfaceKind::NativeComponent && !interface.methods.is_empty()
+        }) {
+            for method in &interface.methods {
+                if !supported(method, &plan)
+                    || method.is_async != asynchronous
+                    || !method.type_parameters.is_empty()
+                {
+                    continue;
+                }
+                out.push_str(&format!(
+                    "        if namespace == \"{}\", name == \"{}\", let nexaReceiver = receiver as? {}Ref {{\n",
+                    swift_escape(namespace), swift_escape(&method.name), interface.name
+                ));
+                for (index, parameter) in method.parameters.iter().enumerate() {
+                    render_swift_decode_argument(
+                        out,
+                        &plan,
+                        namespace,
+                        index,
+                        &parameter.ty,
+                        &format!("options[\"{}\"]", swift_escape(&parameter.name)),
+                        "            ",
+                    );
+                }
+                let arguments = (0..method.parameters.len())
+                    .map(|index| format!("nexaArg{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let await_prefix = if asynchronous { "await " } else { "" };
+                out.push_str(&format!(
+                    "            let nexaRefResult = {await_prefix}nexaReceiver.{}({arguments})\n            switch nexaRefResult {{\n",
+                    method.name
+                ));
+                if method.success_type().is_void() {
+                    out.push_str("            case .success: return (true, [\"Ok\": NSNull()])\n");
+                } else {
+                    let encoded = swift_encode_dev_value(
+                        &plan,
+                        method.success_type(),
+                        "nexaSuccess",
+                        namespace,
+                        0,
+                    )
+                    .ok_or_else(|| {
+                        format!(
+                            "unsupported Dev component ref return type on {}",
+                            method.name
+                        )
+                    })?;
+                    out.push_str(&format!(
+                        "            case .success(let nexaSuccess): return (true, [\"Ok\": {encoded}])\n"
+                    ));
+                }
+                out.push_str("            case .failure(.notAttached): return (true, [\"Err\": [\"NotAttached\": NSNull()]])\n");
+                if let Some(error_name) = method.error_type() {
+                    let error_type = BridgeType::Named {
+                        name: error_name.to_owned(),
+                        kind: BridgeNamedKind::Enum,
+                    };
+                    let encoded =
+                        swift_encode_dev_value(&plan, &error_type, "nexaFailure", namespace, 0)
+                            .ok_or_else(|| {
+                                format!("unsupported Dev component ref error type `{error_name}`")
+                            })?;
+                    out.push_str(&format!(
+                        "            case .failure(.failure(let nexaFailure)): return (true, [\"Err\": [\"Failure\": {encoded}]])\n"
+                    ));
+                } else {
+                    out.push_str("            case .failure(.failure(let nexaFailure)): switch nexaFailure {}\n");
+                }
+                out.push_str("            }\n        }\n");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn render_kotlin_instance_methods(
     out: &mut String,
     plugins: &[(String, PluginIdl)],
@@ -2997,6 +3053,94 @@ fn render_kotlin_instance_methods(
                     ));
                 }
                 out.push_str("        }\n");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn render_kotlin_component_ref_methods(
+    out: &mut String,
+    plugins: &[(String, PluginIdl)],
+    asynchronous: bool,
+) -> Result<(), String> {
+    for (namespace, contract) in plugins {
+        let plan = BridgePlan::validate_kotlin_contract(contract)?;
+        for interface in plan.interfaces.iter().filter(|interface| {
+            interface.kind == InterfaceKind::NativeComponent && !interface.methods.is_empty()
+        }) {
+            for method in &interface.methods {
+                if !supported(method, &plan)
+                    || method.is_async != asynchronous
+                    || !method.type_parameters.is_empty()
+                {
+                    continue;
+                }
+                out.push_str(&format!(
+                    "        if (namespace == \"{}\" && name == \"{}\" && receiver is {}Ref) {{\n            val nexaReceiver = receiver\n",
+                    kotlin_escape(namespace), kotlin_escape(&method.name), interface.name
+                ));
+                for (index, parameter) in method.parameters.iter().enumerate() {
+                    let error = format!(
+                        "Invalid argument `{}` for {}.{}",
+                        parameter.name, namespace, method.name
+                    );
+                    render_kotlin_decode_argument(
+                        out,
+                        &plan,
+                        namespace,
+                        index,
+                        &parameter.ty,
+                        &format!("options[\"{}\"]", kotlin_escape(&parameter.name)),
+                        &error,
+                        "            ",
+                    );
+                }
+                let arguments = (0..method.parameters.len())
+                    .map(|index| format!("nexaArg{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let invocation = format!("nexaReceiver.{}({arguments})", method.name);
+                out.push_str(&format!("            val nexaRefResult = {invocation}\n            when (nexaRefResult) {{\n"));
+                if method.success_type().is_void() {
+                    out.push_str("                is dev.nexa.core.NexaResult.Success -> return true to mapOf(\"Ok\" to JSONObject.NULL)\n");
+                } else {
+                    let encoded = kotlin_encode_dev_value(
+                        &plan,
+                        method.success_type(),
+                        "nexaRefResult.value",
+                        namespace,
+                        0,
+                    )
+                    .ok_or_else(|| {
+                        format!(
+                            "unsupported Dev component ref return type on {}",
+                            method.name
+                        )
+                    })?;
+                    out.push_str(&format!(
+                        "                is dev.nexa.core.NexaResult.Success -> return true to mapOf(\"Ok\" to {encoded})\n"
+                    ));
+                }
+                out.push_str("                is dev.nexa.core.NexaResult.Failure -> when (val nexaError = nexaRefResult.error) {\n                    is dev.nexa.core.NexaComponentRefError.NotAttached -> return true to mapOf(\"Err\" to mapOf(\"NotAttached\" to JSONObject.NULL))\n");
+                if let Some(error_name) = method.error_type() {
+                    let error_type = BridgeType::Named {
+                        name: error_name.to_owned(),
+                        kind: BridgeNamedKind::Enum,
+                    };
+                    let encoded =
+                        kotlin_encode_dev_value(&plan, &error_type, "nexaFailure", namespace, 0)
+                            .ok_or_else(|| {
+                                format!("unsupported Dev component ref error type `{error_name}`")
+                            })?;
+                    out.push_str(&format!(
+                        "                    is dev.nexa.core.NexaComponentRefError.Failure<*> -> {{ val nexaFailure = nexaError.failure as? {} ?: return false to JSONObject.NULL; return true to mapOf(\"Err\" to mapOf(\"Failure\" to {encoded})) }}\n",
+                        error_name
+                    ));
+                } else {
+                    out.push_str("                    is dev.nexa.core.NexaComponentRefError.Failure<*> -> return true to mapOf(\"Err\" to mapOf(\"NotAttached\" to JSONObject.NULL))\n");
+                }
+                out.push_str("                }\n            }\n        }\n");
             }
         }
     }
@@ -3730,6 +3874,23 @@ mod tests {
         )]
     }
 
+    fn ref_component() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Media".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                error PlayerFailure { seekFailed }
+                native component VideoView {
+                    prop title: String
+                    fn seek(position: Float64) -> String throws PlayerFailure
+                    async fn currentSource() -> String throws PlayerFailure
+                }
+                "#,
+            )
+            .expect("parse typed native component ref methods"),
+        )]
+    }
+
     #[test]
     fn swift_bridge_emits_direct_typed_calls_for_service_scalars_and_bytes() {
         let generated = swift(&fast_math()).expect("render Swift dev bridge");
@@ -4120,5 +4281,37 @@ mod tests {
         assert!(generated.contains("nexaReceiver.prepare(nexaArg0)"));
         assert!(generated.contains("throw nexaDevFailureVideoPlayerPlayerError(error)"));
         assert!(generated.contains("\"message\" to error.message"));
+    }
+
+    #[test]
+    fn component_ref_methods_use_direct_calls_in_both_dev_bridges() {
+        let contracts = ref_component();
+        let swift = swift(&contracts).expect("render Swift Dev bridge");
+        assert!(swift.contains("var sourceFile: String? = nil"));
+        assert!(swift.contains("var sourceLine: Int? = nil"));
+        assert!(swift.contains("var sourceColumn: Int? = nil"));
+        assert!(swift.contains(
+            "static func constructComponentRef(namespace: String, name: String) -> Any?"
+        ));
+        assert!(swift.contains("case (\"Media\", \"VideoView\"): return VideoViewRef()"));
+        assert!(swift.contains("ref: componentRef as? VideoViewRef"));
+        assert!(swift.contains("nexaReceiver.seek(nexaArg0)"));
+        assert!(swift.contains("await nexaReceiver.currentSource()"));
+        assert!(swift.contains(".failure(.notAttached)"));
+        assert!(swift.contains(".failure(.failure(let nexaFailure))"));
+
+        let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
+        assert!(kotlin.contains("var sourceFile: String? = null"));
+        assert!(kotlin.contains("var sourceLine: Int? = null"));
+        assert!(kotlin.contains("var sourceColumn: Int? = null"));
+        assert!(
+            kotlin.contains("fun constructComponentRef(namespace: String, name: String): Any?")
+        );
+        assert!(kotlin.contains("\"Media.VideoView\" -> VideoViewRef()"));
+        assert!(kotlin.contains("ref = componentRef as? VideoViewRef"));
+        assert!(kotlin.contains("nexaReceiver.seek(nexaArg0)"));
+        assert!(kotlin.contains("nexaReceiver.currentSource()"));
+        assert!(kotlin.contains("dev.nexa.core.NexaComponentRefError.NotAttached"));
+        assert!(kotlin.contains("dev.nexa.core.NexaComponentRefError.Failure<*>"));
     }
 }

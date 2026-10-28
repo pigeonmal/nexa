@@ -1,6 +1,10 @@
 use std::{fs, path::PathBuf};
 
 #[allow(dead_code)]
+#[path = "../src/project/file_ops.rs"]
+mod file_ops;
+
+#[allow(dead_code)]
 #[path = "../src/project/localization.rs"]
 mod localization;
 
@@ -61,9 +65,56 @@ fn app_images_are_copied_to_ios_catalog_and_android_drawables_deterministically(
 
     let ios_marker = output.join("ios/Demo/.nexa-project-images");
     let marker_before = fs::read(&ios_marker).unwrap();
+    let unchanged_outputs = [
+        ios_image.clone(),
+        ios_webp_image.clone(),
+        android_image.clone(),
+        android_webp_image.clone(),
+    ]
+    .into_iter()
+    .map(|path| {
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        (path, modified)
+    })
+    .collect::<Vec<_>>();
+    std::thread::sleep(std::time::Duration::from_millis(25));
     assets::copy_ios_project_images(project.path(), &output, "Demo")
         .expect("regenerate iOS images");
+    assets::copy_android_project_images(project.path(), &output)
+        .expect("regenerate Android images");
     assert_eq!(marker_before, fs::read(ios_marker).unwrap());
+    for (path, modified) in unchanged_outputs {
+        assert_eq!(
+            modified,
+            fs::metadata(&path).unwrap().modified().unwrap(),
+            "unchanged asset should not be rewritten: {}",
+            path.display()
+        );
+    }
+
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([90, 80, 70, 255]))
+        .save(&source)
+        .expect("modify PNG source");
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([70, 80, 90, 255]))
+        .save(&webp_source)
+        .expect("modify WebP source");
+    assets::copy_ios_project_images(project.path(), &output, "Demo")
+        .expect("update changed iOS images");
+    assets::copy_android_project_images(project.path(), &output)
+        .expect("update changed Android images");
+    assert_eq!(fs::read(&source).unwrap(), fs::read(&ios_image).unwrap());
+    assert_eq!(
+        fs::read(&source).unwrap(),
+        fs::read(&android_image).unwrap()
+    );
+    assert_eq!(
+        image::open(&webp_source).unwrap().to_rgba8(),
+        image::open(&ios_webp_image).unwrap().to_rgba8()
+    );
+    assert_eq!(
+        fs::read(&webp_source).unwrap(),
+        fs::read(&android_webp_image).unwrap()
+    );
 
     fs::remove_file(source).expect("remove source image");
     fs::remove_file(webp_source).expect("remove WebP source image");

@@ -248,6 +248,7 @@ fn component_call(name: &str) -> Node {
     Node::ComponentCall {
         name: name.to_owned(),
         arguments: vec![("title".to_owned(), Expr::String("Title".to_owned()))],
+        component_ref: None,
         children: Some(vec![text("Projected child")]),
     }
 }
@@ -261,6 +262,7 @@ fn component(name: &str) -> Component {
             ty: Type::String,
         }],
         states: Vec::new(),
+        ref_methods: Vec::new(),
         body: vec![text("Component body"), Node::Content],
         on_appear: None,
         on_appear_async: false,
@@ -307,6 +309,7 @@ fn inserting_a_different_sibling_kind_preserves_existing_node_identity() {
                     shape: None,
                     tint: None,
                     glass: false,
+                    accessibility_label: None,
                     actions: Vec::new(),
                 },
                 text("Keep"),

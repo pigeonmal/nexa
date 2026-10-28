@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use super::plan::ProjectPlan;
+use super::{file_ops::write_bytes_if_changed, plan::ProjectPlan};
 
 /// Writes every generated source unit under the plan's source directory.
 pub fn write_source_units(root: &Path, plan: &ProjectPlan) -> Result<Vec<String>, String> {
@@ -57,18 +57,6 @@ pub fn write_binaries(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
         write_bytes_if_changed(&root.join(&file.path), &file.contents)?;
     }
     Ok(())
-}
-
-/// Writes bytes to `path` only when they differ from what is on disk.
-fn write_bytes_if_changed(path: &Path, contents: &[u8]) -> Result<(), String> {
-    if path.is_file() && std::fs::read(path).ok().as_deref() == Some(contents) {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("{}: {error}", parent.display()))?;
-    }
-    std::fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// Sets the executable bit on the paths the plan marks executable.
@@ -170,14 +158,7 @@ pub fn remove_stale_units(
 
 /// Writes `contents` to `path` only when they differ from what is on disk.
 pub fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
-    if path.is_file() && std::fs::read_to_string(path).ok().as_deref() == Some(contents) {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("{}: {error}", parent.display()))?;
-    }
-    std::fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
+    write_bytes_if_changed(path, contents.as_bytes())
 }
 
 #[cfg(test)]

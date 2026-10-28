@@ -11,6 +11,8 @@ pub(super) fn lower_style(
     style: ast::LayoutStyle,
     themes: &ThemeSymbols,
 ) -> Result<ViewStyle, CompileError> {
+    let width_span = style.width.as_ref().map(ast::Expr::span);
+    let height_span = style.height.as_ref().map(ast::Expr::span);
     let min_width_span = style.min_width.as_ref().map(ast::Expr::span);
     let max_width_span = style.max_width.as_ref().map(ast::Expr::span);
     let min_height_span = style.min_height.as_ref().map(ast::Expr::span);
@@ -38,6 +40,24 @@ pub(super) fn lower_style(
         min_height,
         max_height,
         min_height_span.or(max_height_span).unwrap_or_default(),
+        "minHeight",
+        "maxHeight",
+    )?;
+    validate_fixed_dimension_bounds(
+        width,
+        min_width,
+        max_width,
+        width_span.unwrap_or_default(),
+        "width",
+        "minWidth",
+        "maxWidth",
+    )?;
+    validate_fixed_dimension_bounds(
+        height,
+        min_height,
+        max_height,
+        height_span.unwrap_or_default(),
+        "height",
         "minHeight",
         "maxHeight",
     )?;
@@ -349,6 +369,33 @@ fn validate_bounds(
         return Err(CompileError::new(
             span,
             format!("`{minimum_name}` cannot be greater than `{maximum_name}`"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_fixed_dimension_bounds(
+    value: Option<f32>,
+    minimum: Option<f32>,
+    maximum: Option<f32>,
+    span: Span,
+    value_name: &str,
+    minimum_name: &str,
+    maximum_name: &str,
+) -> Result<(), CompileError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if minimum.is_some_and(|minimum| value < minimum) {
+        return Err(CompileError::new(
+            span,
+            format!("`{value_name}` cannot be less than `{minimum_name}`"),
+        ));
+    }
+    if maximum.is_some_and(|maximum| value > maximum) {
+        return Err(CompileError::new(
+            span,
+            format!("`{value_name}` cannot be greater than `{maximum_name}`"),
         ));
     }
     Ok(())

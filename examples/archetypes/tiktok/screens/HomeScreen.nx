@@ -24,8 +24,8 @@ component HomeScreen() {
     state likedIds: Set<String> = []
     state savedIds: Set<String> = []
     state followingCreator: Bool = false
-    state commentsOpen: Bool = false
-    state searchOpen: Bool = false
+    let commentsSheetRef = ComponentRef<BottomSheet>()
+    let searchSheetRef = ComponentRef<BottomSheet>()
     state searchQuery: String = ""
     state commentDraft: String = ""
     state comments: Array<String> = ["This is such a good reminder.", "Adding this to the weekend list ✨", "Where was this filmed?"]
@@ -205,7 +205,7 @@ component HomeScreen() {
                     Spacer()
                     Pressable(accessibilityLabel: "Search videos", accessibilityRole: Button) {
                         Icon(system: "search", description: "Search", size: 23, tint: "#FFFFFF")
-                    }.onTap { searchOpen = true }
+                    }.onTap { searchSheetRef.present() }
                 }
                 Spacer()
                 Row(spacing: 8, alignment: End, padding: 13) {
@@ -247,7 +247,7 @@ component HomeScreen() {
                                 Icon(system: "comment_filled", description: "Comments", size: 27, tint: "#FFFFFF")
                                 Text(clips[page].commentCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
-                        }.onTap { commentsOpen = true }
+                        }.onTap { commentsSheetRef.present() }
                         Pressable(accessibilityLabel: "Save video", accessibilityRole: Button) {
                             Column(spacing: 2, alignment: Center) {
                                 if clips[page].id in savedIds { Icon(system: "bookmark_filled", description: "Saved", size: 25, tint: "#F4D548") } else { Icon(system: "bookmark", description: "Save", size: 25, tint: "#FFFFFF") }
@@ -278,7 +278,7 @@ component HomeScreen() {
             }
         }
 
-        BottomSheet(isPresented: commentsOpen, detents: [Medium, Expanded]) {
+        BottomSheet(ref: commentsSheetRef, detents: [0.5, 1.0]) {
             Column(spacing: 12, padding: 16, background: "#17171B") {
                 Text("Comments · \(clips[page].commentCount)", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 FastList(comments, key: .self, rowHeight: 54, accessibilityLabel: "Video comments") { comment, index in
@@ -304,7 +304,7 @@ component HomeScreen() {
             }
         }
 
-        BottomSheet(isPresented: searchOpen, detents: [Medium, Expanded]) {
+        BottomSheet(ref: searchSheetRef, detents: [0.5, 1.0]) {
             Column(spacing: 14, padding: 18, background: "#17171B") {
                 Text("Search", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 TextInput(value: searchQuery, placeholder: "Search creators, sounds, videos", searchable: true)

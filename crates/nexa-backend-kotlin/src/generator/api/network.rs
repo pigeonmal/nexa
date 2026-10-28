@@ -149,10 +149,33 @@ pub(crate) fn render(
         });
         out.push_str(
             r#"    val statusCode: Int,
-    val headers: Map<String, List<String>>,
+    internal val headers: List<Pair<String, String>>,
     val body: ByteArray,
 ) {
     val text: String get() = body.toString(Charsets.UTF_8)
+
+    fun getHeader(name: String): String? =
+        headers.firstOrNull { it.first.equals(name, ignoreCase = true) }?.second
+
+    fun getHeaders(name: String): List<String> = buildList {
+        for ((headerName, value) in headers) {
+            if (headerName.equals(name, ignoreCase = true)) {
+                add(value)
+            }
+        }
+    }
+
+    fun getCookie(): String = getHeaders("Set-Cookie")
+        .mapNotNull { value ->
+            val pair = value.substringBefore(';').trim()
+            val equals = pair.indexOf('=')
+            if (equals <= 0) null else {
+                val name = pair.substring(0, equals).trim()
+                val cookieValue = pair.substring(equals + 1).trim()
+                if (name.isEmpty()) null else "$name=$cookieValue"
+            }
+        }
+        .joinToString("; ")
 }
 
 private class NexaNetworkException(message: String) : Exception(message)
@@ -333,7 +356,7 @@ private class NexaCronetRequestClient(
         body: ByteArray?,
         maxResponseBytes: Long,
         followRedirects: Boolean,
-        useCache: Boolean = true,
+        cachePolicy: String = "Default",
         sink: OutputStream? = null,
         uploadProvider: UploadDataProvider? = null,
     ): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
@@ -385,7 +408,7 @@ private class NexaCronetRequestClient(
 
             override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
                 if (completed.compareAndSet(false, true)) continuation.resume(
-                    NexaNetworkResponse(info.httpStatusCode, info.allHeaders, output?.toByteArray() ?: ByteArray(0))
+                    NexaNetworkResponse(info.httpStatusCode, info.allHeaders.flatMap { (name, values) -> values.map { name to it } }, output?.toByteArray() ?: ByteArray(0))
                 )
             }
 
@@ -399,8 +422,14 @@ private class NexaCronetRequestClient(
         }
         val builder = engine.newUrlRequestBuilder(url, callback, NexaCronetRuntime.executor())
             .setHttpMethod(method)
-        if (!useCache) builder.disableCache()
-        for ((name, value) in headers) builder.addHeader(name, value)
+        when (cachePolicy) {
+            "Reload" -> builder.disableCache()
+            "CacheOnly" -> builder.addHeader("Cache-Control", "only-if-cached, max-stale")
+        }
+        for ((name, value) in headers) {
+            if (cachePolicy == "CacheOnly" && name.equals("Cache-Control", ignoreCase = true)) continue
+            builder.addHeader(name, value)
+        }
         if (body != null && uploadProvider != null) {
             fail(IllegalArgumentException("request body must have one source"))
             return@suspendCancellableCoroutine
@@ -463,7 +492,7 @@ private class NexaCronetImageRequestClient(
 
             override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
                 if (completed.compareAndSet(false, true)) continuation.resume(
-                    NexaNetworkResponse(info.httpStatusCode, info.allHeaders, output.toByteArray())
+                    NexaNetworkResponse(info.httpStatusCode, info.allHeaders.flatMap { (name, values) -> values.map { name to it } }, output.toByteArray())
                 )
             }
 
@@ -501,6 +530,12 @@ private class NexaCronetImageRequestClient(
 }
 
 public object NexaNetwork {
+    private fun requireSuccessful(response: NexaNetworkResponse) {
+        if (response.statusCode !in 200..299) {
+            throw NexaNetworkException("HTTP ${response.statusCode}")
+        }
+    }
+
 "#,
         );
         if include_network_connectivity {
@@ -514,7 +549,7 @@ public object NexaNetwork {
         body: ByteArray? = null,
         headers: Map<String, String> = emptyMap(),
         timeoutMillis: Long = 30_000L,
-        useCache: Boolean = true,
+        cachePolicy: String = "Default",
         followRedirects: Boolean = true,
         maxResponseBytes: Long = 64L * 1024L * 1024L,
         certificatePins: Set<String> = emptySet(),
@@ -534,11 +569,8 @@ public object NexaNetwork {
                 body,
                 maxResponseBytes,
                 followRedirects,
-                useCache,
+                cachePolicy,
             )
-        }
-        if (response.statusCode !in 200..299) {
-            throw NexaNetworkException("HTTP ${response.statusCode}")
         }
         return response
     }
@@ -551,37 +583,46 @@ public object NexaNetwork {
         body: ByteArray? = null,
         headers: Map<String, String> = emptyMap(),
         timeoutMillis: Long = 30_000L,
-        useCache: Boolean = true,
+        cachePolicy: String = "Default",
         followRedirects: Boolean = true,
         maxResponseBytes: Long = 64L * 1024L * 1024L,
         certificatePins: Set<String> = emptySet(),
     ): Boolean {
         withContext(Dispatchers.IO) {
             val destination = File(destinationPath)
-            destination.parentFile?.mkdirs()
-            FileOutputStream(destination).use { output ->
-                val host = Uri.parse(url).host
-                val pins = if (host != null && certificatePins.isNotEmpty()) {
-                    mapOf(host to certificatePins.map(::hexPin).toSet())
-                } else {
-                    emptyMap()
+            val parent = destination.absoluteFile.parentFile ?: File(".")
+            if (!parent.isDirectory && !parent.mkdirs() && !parent.isDirectory) {
+                throw java.io.IOException("could not create download directory")
+            }
+            val temporaryFile = File.createTempFile("nexa-download-", ".tmp", parent)
+            try {
+                FileOutputStream(temporaryFile).use { output ->
+                    val host = Uri.parse(url).host
+                    val pins = if (host != null && certificatePins.isNotEmpty()) {
+                        mapOf(host to certificatePins.map(::hexPin).toSet())
+                    } else {
+                        emptyMap()
+                    }
+                    val engine = NexaCronetRuntime.engine(context, pins)
+                    val response = withTimeout(timeoutMillis) {
+                        NexaCronetRequestClient(engine).execute(
+                            url,
+                            method,
+                            headers,
+                            body,
+                            maxResponseBytes,
+                            followRedirects,
+                            cachePolicy,
+                            output,
+                        )
+                    }
+                    requireSuccessful(response)
                 }
-                val engine = NexaCronetRuntime.engine(context, pins)
-                val response = withTimeout(timeoutMillis) {
-                    NexaCronetRequestClient(engine).execute(
-                        url,
-                        method,
-                        headers,
-                        body,
-                        maxResponseBytes,
-                        followRedirects,
-                        useCache,
-                        output,
-                    )
-                }
-                if (response.statusCode !in 200..299) {
-                    throw NexaNetworkException("HTTP ${response.statusCode}")
-                }
+                // The temporary file is a sibling, so rename replaces an
+                // existing destination atomically on the same filesystem.
+                android.system.Os.rename(temporaryFile.absolutePath, destination.absolutePath)
+            } finally {
+                temporaryFile.delete()
             }
         }
         return true
@@ -592,26 +633,36 @@ public object NexaNetwork {
         url: String,
         filePath: String,
         fields: Map<String, String> = emptyMap(),
-        timeoutMillis: Long = 60_000L,
+        headers: Map<String, String> = emptyMap(),
+        timeout: Double = 30.0,
+        followRedirects: Boolean = true,
         maxResponseBytes: Long = 64L * 1024L * 1024L,
+        certificatePins: Set<String> = emptySet(),
     ): NexaNetworkResponse {
         val source = File(filePath)
         require(source.isFile) { "upload file does not exist: $filePath" }
         val boundary = "Nexa-${java.util.UUID.randomUUID()}"
-        val response = withTimeout(timeoutMillis) {
-            NexaCronetRequestClient(NexaCronetRuntime.engine(context)).execute(
+        val host = Uri.parse(url).host
+        val pins = if (host != null && certificatePins.isNotEmpty()) {
+            mapOf(host to certificatePins.map(::hexPin).toSet())
+        } else {
+            emptyMap()
+        }
+        val requestHeaders = headers.toMutableMap().apply {
+            keys.filter { it.equals("Content-Type", ignoreCase = true) }.forEach { remove(it) }
+            put("Content-Type", "multipart/form-data; boundary=$boundary")
+        }
+        val response = withTimeout((timeout * 1000.0).toLong()) {
+            NexaCronetRequestClient(NexaCronetRuntime.engine(context, pins)).execute(
                 url = url,
                 method = "POST",
-                headers = mapOf("Content-Type" to "multipart/form-data; boundary=$boundary"),
+                headers = requestHeaders,
                 body = null,
                 maxResponseBytes = maxResponseBytes,
-                followRedirects = true,
-                useCache = false,
+                followRedirects = followRedirects,
+                cachePolicy = "Reload",
                 uploadProvider = NexaMultipartUploadProvider(source, fields, boundary),
             )
-        }
-        if (response.statusCode !in 200..299) {
-            throw NexaNetworkException("HTTP ${response.statusCode}")
         }
         return response
     }
@@ -628,20 +679,20 @@ public object NexaNetwork {
     if include_path {
         out.push_str(
             r#"public object NexaPath {
-    public fun documents(context: Context, vararg components: String): String =
-        components.fold(context.filesDir) { file, component -> File(file, component) }.path
+    public fun documents(context: Context): String =
+        context.filesDir.path
 
-    public fun caches(context: Context, vararg components: String): String =
-        components.fold(context.cacheDir) { file, component -> File(file, component) }.path
+    public fun caches(context: Context): String =
+        context.cacheDir.path
 
-    public fun temporary(context: Context, vararg components: String): String =
-        components.fold(context.externalCacheDir ?: context.cacheDir) { file, component -> File(file, component) }.path
+    public fun temporary(context: Context): String =
+        (context.externalCacheDir ?: context.cacheDir).path
 
-    public fun appSupport(context: Context, vararg components: String): String =
-        components.fold(context.noBackupFilesDir) { file, component -> File(file, component) }.path
+    public fun appSupport(context: Context): String =
+        context.noBackupFilesDir.path
 
-    public fun join(path: String, vararg components: String): String =
-        components.fold(File(path)) { file, component -> File(file, component) }.path
+    public fun join(path: String, component: String): String =
+        File(File(path), component).path
 }
 
 "#,
@@ -656,7 +707,7 @@ public object NexaNetwork {
             out.push_str(
                 r#"    public suspend fun read(path: String): ByteArray = withContext(Dispatchers.IO) { File(path).readBytes() }
 
-    public suspend fun write(data: ByteArray, path: String) = withContext(Dispatchers.IO) {
+    public suspend fun write(data: ByteArray, path: String): Boolean = withContext(Dispatchers.IO) {
         val file = File(path)
         file.parentFile?.mkdirs()
         val atomicFile = android.util.AtomicFile(file)
@@ -668,13 +719,13 @@ public object NexaNetwork {
             atomicFile.failWrite(output)
             throw failure
         }
+        true
     }
 
     public suspend fun readText(path: String): String = read(path).toString(Charsets.UTF_8)
 
     public suspend fun writeText(text: String, path: String): Boolean {
-        write(text.toByteArray(Charsets.UTF_8), path)
-        return true
+        return write(text.toByteArray(Charsets.UTF_8), path)
     }
 
     public suspend fun delete(path: String): Boolean = withContext(Dispatchers.IO) {
@@ -720,9 +771,9 @@ private class NexaCronetNetworkClient(
     }
 }
 
-private fun Map<String, List<String>>.toNetworkHeaders(): NetworkHeaders {
+private fun List<Pair<String, String>>.toNetworkHeaders(): NetworkHeaders {
     val builder = NetworkHeaders.Builder()
-    for ((name, values) in this) for (value in values) builder.add(name, value)
+    for ((name, value) in this) builder.add(name, value)
     return builder.build()
 }
 
@@ -763,6 +814,43 @@ mod tests {
     use super::render;
 
     #[test]
+    fn path_helpers_match_the_single_component_language_api() {
+        let mut output = SourceWriter::new();
+        render(&mut output, false, false, true, false, false, false);
+
+        assert!(output.contains("public fun documents(context: Context): String"));
+        assert!(output.contains("public fun caches(context: Context): String"));
+        assert!(output.contains("public fun temporary(context: Context): String"));
+        assert!(output.contains("public fun appSupport(context: Context): String"));
+        assert!(output.contains("public fun join(path: String, component: String): String"));
+        assert!(!output.contains("vararg components: String"));
+        assert!(!output.contains("components.fold("));
+    }
+
+    #[test]
+    fn outgoing_requests_accept_string_maps() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+
+        assert!(output.contains("headers: Map<String, String> = emptyMap()"));
+        assert!(output.contains("internal val headers: List<Pair<String, String>>"));
+        assert!(!output.contains("NexaHttpHeader"));
+        assert!(output.contains("fun getHeaders(name: String): List<String>"));
+        assert!(output.contains("fun getCookie(): String"));
+        assert!(output.contains("equals(name, ignoreCase = true)"));
+        assert!(output.contains("getHeaders(\"Set-Cookie\")"));
+        assert!(output.contains("substringBefore(';').trim()"));
+        assert!(output.contains("pair.indexOf('=')"));
+        assert!(output.contains("pair.substring(equals + 1).trim()"));
+        assert!(output.contains("joinToString(\"; \")"));
+        assert!(output.contains("for ((name, value) in headers) {"));
+        assert!(output.contains(
+            "if (cachePolicy == \"CacheOnly\" && name.equals(\"Cache-Control\", ignoreCase = true)) continue"
+        ));
+        assert!(output.contains("builder.addHeader(name, value)"));
+    }
+
+    #[test]
     fn network_pins_require_64_character_sha256_spki_hex_values() {
         let mut output = SourceWriter::new();
         render(&mut output, true, false, false, false, false, false);
@@ -777,6 +865,37 @@ mod tests {
     }
 
     #[test]
+    fn downloads_stream_to_a_temporary_sibling_before_replacing_the_destination() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+        let download = output
+            .as_str()
+            .split_once("public suspend fun download(")
+            .expect("find generated download helper")
+            .1
+            .split_once("public suspend fun upload(")
+            .expect("find end of generated download helper")
+            .0;
+
+        assert!(download.contains("File.createTempFile(\"nexa-download-\", \".tmp\", parent)"));
+        assert!(download.contains("FileOutputStream(temporaryFile).use { output ->"));
+        assert!(download.contains(
+            "android.system.Os.rename(temporaryFile.absolutePath, destination.absolutePath)"
+        ));
+        assert!(download.contains("finally {\n                temporaryFile.delete()"));
+        assert!(!download.contains("FileOutputStream(destination)"));
+        assert!(
+            download
+                .find("requireSuccessful(response)")
+                .expect("validate HTTP result")
+                < download
+                    .find("android.system.Os.rename(")
+                    .expect("commit completed download"),
+            "failed HTTP responses must not replace the destination"
+        );
+    }
+
+    #[test]
     fn network_cache_uses_the_generated_project_cronet_configuration() {
         let mut output = SourceWriter::new();
         render(&mut output, true, false, false, false, false, false);
@@ -786,6 +905,16 @@ mod tests {
         assert!(!output.contains(
             ".enableHttpCache(\n                CronetEngine.Builder.HTTP_CACHE_DISK,\n                64L * 1024L * 1024L"
         ));
+    }
+
+    #[test]
+    fn cronet_image_adapter_preserves_each_response_header_value() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, true, false, false, false, false);
+
+        assert!(output.contains("headers = response.headers.toNetworkHeaders()"));
+        assert!(output.contains("private fun List<Pair<String, String>>.toNetworkHeaders()"));
+        assert!(output.contains("for ((name, value) in this) builder.add(name, value)"));
     }
 
     #[test]
@@ -806,12 +935,49 @@ mod tests {
         let mut output = SourceWriter::new();
         render(&mut output, true, false, false, false, false, false);
 
+        assert!(output.contains("private fun requireSuccessful(response: NexaNetworkResponse)"));
+        assert_eq!(
+            output
+                .as_str()
+                .matches("requireSuccessful(response)")
+                .count(),
+            1
+        );
+        assert_eq!(
+            output
+                .as_str()
+                .matches("response.statusCode !in 200..299")
+                .count(),
+            1
+        );
+        let fetch = output
+            .as_str()
+            .split_once("public suspend fun fetch(")
+            .expect("find generated fetch helper")
+            .1
+            .split_once("public suspend fun download(")
+            .expect("find end of generated fetch helper")
+            .0;
+        assert!(!fetch.contains("requireSuccessful(response)"));
+        let upload = output
+            .as_str()
+            .split_once("public suspend fun upload(")
+            .expect("find generated upload helper")
+            .1;
+        assert!(!upload.contains("requireSuccessful(response)"));
         assert!(output.contains("public suspend fun upload("));
         assert!(output.contains("NexaMultipartUploadProvider(source, fields, boundary)"));
         assert!(output.contains("input.read(byteBuffer)"));
         assert!(output.contains("uploadDataSink.onReadSucceeded(phase == 4)"));
         assert!(!output.contains("writeMultipartBody"));
         assert!(!output.contains("nexa-upload-"));
+        assert!(output.contains("timeout: Double = 30.0"));
+        assert!(output.contains("followRedirects: Boolean = true"));
+        assert!(output.contains("NexaCronetRuntime.engine(context, pins)"));
+        assert!(output.contains("equals(\"Content-Type\", ignoreCase = true)"));
+        assert!(
+            output.contains("put(\"Content-Type\", \"multipart/form-data; boundary=$boundary\")")
+        );
     }
 
     #[test]

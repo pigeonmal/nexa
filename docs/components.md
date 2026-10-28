@@ -48,11 +48,38 @@ The exact layout, typography, accessibility, and visual options are listed for e
 
 Layout defaults are shared by iOS and Android: `Column` aligns its children and text to `Center`, `Row` aligns children vertically to `Center` and starts its horizontal arrangement at `Start`, and `Stack` centers its content. Omitted `padding` adds no inset. Explicit layout parameters replace these defaults.
 
+`width` and `height` set a fixed content size. `minWidth`, `maxWidth`, `minHeight`, and `maxHeight` constrain that size or the content's natural size. A fixed size must fit within any supplied bounds; contradictory values are compile errors. Padding is added outside the content size, so it increases the component's total size.
+
 `Row(alignment:)` positions children vertically (`Start`, `Center`, or `End`). Use `horizontalArrangement: Start|Center|End` to place the child group across the available width; it defaults to `Start`. Setting `horizontalArrangement` makes the Row use available width, constrained by any explicit width bounds.
 
 ## Input and interaction
 
 Bind controls directly to declared `state`. A `TextInput` accepts `value` and `placeholder`; use `.onChange { ... }` only when extra action work is needed. `Button` action blocks contain app state updates.
+
+### Button
+
+`Button` renders a native action on both platforms. Its optional `accessibilityLabel` is useful for icon-only actions; without it, assistive technology uses the visible label or the platform's native icon description.
+
+| Parameter | Type | Default | Behavior |
+|---|---|---|---|
+| `label` | `String` expression | Required positional value | Visible button text. |
+| `comment` | `String` | None | Translator context for the visible label. |
+| `icon` | Shared system icon name (`String`) | None | Adds a shared catalog icon; unknown names are compile errors. |
+| `loading` | `Bool` expression | `false` | Replaces the label with a native progress indicator and disables activation. |
+| `disabled` | `Bool` expression | `false` | Disables activation while retaining the label. |
+| `style` | `BorderedProminent`, `Bordered`, `Borderless`, or `Plain` | `BorderedProminent` | Selects the shared button treatment. |
+| `size` | `Small`, `Regular`, or `Large` | Native default | Selects the native control size. |
+| `shape` | `Capsule`, `Circle`, or `Rounded(radius)` | Shared capsule | Selects the outline shape. |
+| `tint` | Color expression (`String`) | Platform accent | Overrides the button tint. |
+| `glass` | `Bool` | `false` | Enables the native glass treatment where available. |
+| `accessibilityLabel` | `String` expression | Native label | Overrides the accessible name, including while the button is loading. |
+| action block | Actions | Required | Runs when the enabled button is activated. |
+
+```nx
+Button("", icon: "add", shape: Circle, accessibilityLabel: "Add task") {
+    taskCount = taskCount + 1
+}
+```
 
 ```nx
 app AccountPreferences {
@@ -117,9 +144,12 @@ indeterminate animation; provide a `Float64` value for determinate progress.
 Determinate mode uses SwiftUI `ProgressView` on iOS and Material 3
 `LinearProgressIndicator` on Android. Indeterminate mode uses an animated SwiftUI
 bar on iOS and the native Material 3 linear indicator on Android. Set
-`android_wave` to opt into Android Material 3's native wavy indicator in either
+`androidWave` to opt into Android Material 3's native wavy indicator in either
 mode; iOS accepts and ignores that Android-specific argument. Determinate values
 are clamped to `0...1`; NaN and infinity render as zero.
+
+If an app used the former `android_wave` spelling, rename it to `androidWave`;
+the compiler accepts only the camelCase name.
 
 | Argument | Type | Default | Behavior |
 |---|---|---|---|
@@ -128,7 +158,7 @@ are clamped to `0...1`; NaN and infinity render as zero.
 | `trackColor` | `Color` (`String` expression) | Platform native track | Colors the unfilled track in both modes. |
 | `thickness` | `Float` (dp/pt) | Platform native thickness | Sets the bar height. Must be finite and non-negative. |
 | `cornerRadius` | `Float` (dp/pt) | Platform native shape; half the custom thickness when omitted | Sets the bar and track corner radius in both modes. Must be finite and non-negative. |
-| `android_wave` | `Bool` | `false` | Uses Android Material 3's native wavy indicator in determinate or indeterminate mode. iOS accepts the shared argument and ignores it. Android projects using this argument select Material 3 1.5.0-beta01 or later. |
+| `androidWave` | `Bool` | `false` | Uses Android Material 3's native wavy indicator in determinate or indeterminate mode. iOS accepts the shared argument and ignores it. Android projects using this argument select Material 3 1.5.0-beta01 or later. |
 | `accessibilityLabel` | `String` | Omitted | Names the progress indicator for assistive technology. |
 | `accessibilityHint` | `String` | Omitted | Adds usage guidance for assistive technology. |
 | `accessibilityValue` | `String` | Native progress value | Overrides the announced progress value. |
@@ -150,7 +180,7 @@ app BackupStatus {
                 trackColor: backupTrack,
                 thickness: 8,
                 cornerRadius: 4,
-                android_wave: true,
+                androidWave: true,
                 accessibilityLabel: "Backup upload",
                 accessibilityValue: "45 percent"
             )
@@ -174,7 +204,7 @@ omitted dimensions keep the 40-point/dp diameter and 4-point/dp stroke defaults.
 | `trackColor` | `Color` (`String` expression) | Tint at 16% opacity | Colors the unfilled track. |
 | `size` | `Float` (dp/pt) | `40` | Sets the indicator diameter. Must be finite and non-negative. |
 | `thickness` | `Float` (dp/pt) | `4` | Sets the arc and track stroke width. Must be finite and non-negative. |
-| `android_wave` | `Bool` | `false` | Uses Android Material 3's native circular wavy indicator. iOS accepts and ignores it. Android projects using this argument select Material 3 1.5.0-beta01 or later. |
+| `androidWave` | `Bool` | `false` | Uses Android Material 3's native circular wavy indicator. iOS accepts and ignores it. Android projects using this argument select Material 3 1.5.0-beta01 or later. |
 | `accessibilityLabel` | `String` | Omitted | Names the progress indicator for assistive technology. |
 | `accessibilityHint` | `String` | Omitted | Adds usage guidance for assistive technology. |
 | `accessibilityValue` | `String` | Native progress value | Overrides the announced progress value. |
@@ -197,7 +227,7 @@ app UploadStatus {
                 accessibilityLabel: "Project archive upload",
                 accessibilityValue: "45 percent"
             )
-            ProgressRing(android_wave: true)
+            ProgressRing(androidWave: true)
         }
     }
 }
@@ -205,30 +235,37 @@ app UploadStatus {
 
 ## Repeated data
 
-`FastList` is the virtualized list component. Pass exactly one data source (`collection`, `count:`, or `sections:`), a row key when rendering a collection, and an explicit binding block. The compiler checks the number and type of row bindings. When `rowHeight` is set, row content is vertically centered within that height on both platforms. When omitted, rows grow to fit their content and have a shared minimum height of 52 pt/dp.
+`FastList` is the virtualized list component. Pass exactly one data source
+(`collection`, `count:`, or `sections:`) and an explicit binding block.
+
+Add a row key when collection rows can move, be inserted, or be removed.
+Without `key`, row identity follows position and the compiler warns. Use
+`key: .id` for records and `key: .self` for values with unique scalar identity.
+
+The compiler checks the number and type of row bindings. When `rowHeight` is
+set, row content is vertically centered within that height on both platforms.
+When omitted, rows grow to fit their content and have a shared minimum height
+of 52 pt/dp.
 
 | Parameter | Type | Required/default | Behavior |
 |---|---|---|---|
 | Data source | `Array<T>`, `count: Int32`, or `sections: Array<Array<T>>` | Exactly one source | Positional arrays and named `count:` or `sections:` sources are supported. |
-| `key` | Statically known scalar item property | Required for collection sources | Declared in the list row binding; provides stable identity for virtualized items. |
+| `key` | Statically known scalar item property | Omitted | Recommended for collection rows whose order or membership can change; without it, identity follows the row position. Use `.self` for unique scalar rows or a stable item property such as `.id`. |
 | `axis` | `Vertical`, `Horizontal`, `Grid(Int32)`, `AutoGrid(Int32)`, or `Masonry(Int32)` | `Vertical` | `Grid(columns)` fixes the column count. `AutoGrid(minCellWidth)` fits columns to available width. `Masonry(columns)` places variable-height items into the currently shortest column. Both numeric arguments must be positive integer literals. Masonry is a flat vertical list and cannot use `rowHeight`, `reverseLayout`, `pageSnap`, sticky headers, reordering, or swipe actions. |
 | `rowHeight` | `Float64` | Content-sized, with a 52 pt/dp minimum | Optional fixed row height; for horizontal lists it sets item height while item width comes from row content, and for grids it is the cell height. Row content is vertically centered within the fixed height. Without it, content can grow rows beyond the shared minimum. Must be greater than zero. |
 | `spacing` | `Float64` | `0` | Gap between adjacent items. Applies along the list axis, or to both rows and columns for `Grid`, `AutoGrid`, and `Masonry`; `pageSnap` requires zero spacing. |
-| `scrollPosition` | `Int32` state | Omitted | Binds the leading unobscured data-row index for supported flat lists; rows behind a sticky header do not count as visible. |
+| `scrollPosition` | Mutable `Int32` state | Omitted | Binds and reports the leading unobscured data-row index for flat lists; rows behind a sticky header do not count as visible. |
 | `scrollEnabled` | `Bool` expression | Platform default | Enables or disables user-driven scrolling for flat, sectioned, and adaptive-grid lists; supports reactive state. |
 | `reverseLayout` | `Bool` | `false` | Reverses a flat vertical list; cannot be combined with sections, sticky headers, or page snapping. |
 | `pageSnap` | `Bool` | `false` | Pages a flat vertical list by viewport height; omit `rowHeight`. |
 | `showDividers` | `Bool` | `true` | Shows automatically rendered separators between rows in vertical flat and sectioned lists. Set to `false` to hide them. Horizontal lists, grids, and page-snapping lists do not draw row separators. |
+| `ref` | `ComponentRef<FastList>` | Omitted | Attaches a typed imperative handle for the current list instance. Calls made while it is detached return the typed not-attached failure. |
 | `accessibilityLabel` | `String` | Omitted | Accessible label for the list. |
 
 | Modifier | Arguments and body | Behavior |
 |---|---|---|
 | `.onEndReached { ... }` | Actions | Runs once when the final data row becomes visible; it can run again after the item count changes. |
 | `.onScroll { ... }` | Actions | Runs when the leading unobscured data row changes, not for every pixel; the initial viewport does not emit it. |
-| `.scrollToIndex(index: position)` | Mutable `Int32` state | Controls the leading visible row and is updated as the user scrolls. This is the fluent form of `scrollPosition: position`; use one form per list. |
-| `.scrollToTop(trigger: command)` | Mutable `Int32` state | Scrolls to the start when the trigger changes. Increment the trigger to issue the command again. |
-| `.scrollToEnd(trigger: command)` | Mutable `Int32` state | Scrolls to the end when the trigger changes. Increment the trigger to issue the command again. |
-| `.scrollToOffset(offset: value)` | Mutable `Float64` state | Scrolls to an absolute content offset in logical points/dp when the value changes. Negative values are clamped to zero; page snapping does not support offsets. |
 | `.onMove(enabled:) { from, to -> ... }` | Optional `Bool` (`true`); event actions | Reorders an array-backed vertical list; the platform list surface is selected automatically. Android starts reordering with a long-press and drag. Reordering and swipe actions are separate interaction modes on both platforms; turn reordering off to reveal swipe actions. |
 | `.stickyHeader { ... }` | Nodes | Adds a header to a flat vertical list. |
 | `.sectionHeader { section -> ... }` | Nodes | Renders a header for each `sections:` group. |
@@ -242,13 +279,9 @@ FastList(videos, key: .id, axis: AutoGrid(168), rowHeight: 240) { video, index i
 }
 ```
 
-Use `Masonry` when cards have different heights. Programmatic commands share one list state and run when their argument changes:
+Use `Masonry` when cards have different heights:
 
 ```nx
-state topCommand: Int32 = 0
-state endCommand: Int32 = 0
-state cardOffset: Float64 = 0
-
 FastList(count: 40, axis: Masonry(2), spacing: 12) { index in
     Column(padding: 12, background: "#E8F0FF", cornerRadius: 12) {
         Text("Card \(index)", fontWeight: Semibold)
@@ -257,9 +290,65 @@ FastList(count: 40, axis: Masonry(2), spacing: 12) { index in
         }
     }
 }
-    .scrollToTop(trigger: topCommand)
-    .scrollToEnd(trigger: endCommand)
-    .scrollToOffset(offset: cardOffset)
+```
+
+Use `ComponentRef<FastList>()` when an action needs to scroll a list. The handle
+stays the same across updates and is attached only while that list instance is
+mounted:
+
+```nx
+struct OrderSummary {
+    id: Int32,
+    itemName: String,
+    status: String,
+}
+
+app OrderQueue {
+    let queueRef = ComponentRef<FastList>()
+    state orders: Array<OrderSummary> = [
+        OrderSummary(701, "Travel mug", "Packing"),
+        OrderSummary(702, "Notebook set", "Ready")
+    ]
+
+    body {
+        Column(spacing: 8) {
+            Button("Show the last order") {
+                queueRef.scrollToIndex(
+                    index: orders.count - 1,
+                    animated: true,
+                    viewPosition: 0.5
+                )
+            }
+            Button("Return to the first order") {
+                queueRef.scrollToTop()
+            }
+            FastList(orders, key: .id, ref: queueRef) { order, index in
+                Row(spacing: 8) {
+                    Text("\(index + 1). \(order.itemName)")
+                    Spacer()
+                    Text(order.status)
+                }
+            }
+        }
+    }
+}
+```
+
+`scrollToIndex` takes an optional `animated: Bool = true` and
+`viewPosition: Float64 = 0.0`. Position `0.0` places the row at the viewport
+start, `0.5` centers it, and `1.0` places it at the end. Values are clamped to
+that range. `scrollToTop`, `scrollToEnd`, and `scrollToOffset(offset:)` also
+take `animated: Bool = true`.
+
+Each method returns a `Result`. It succeeds while the list is mounted; if the
+list is not attached, it returns `ComponentRefError.notAttached`.
+
+```nx
+queueRef.scrollToIndex(index: 20) // animated, at the viewport start
+queueRef.scrollToIndex(index: 20, viewPosition: 0.5) // center the row
+queueRef.scrollToIndex(index: 20, animated: false, viewPosition: 1.0) // jump to the end
+queueRef.scrollToEnd(animated: false)
+queueRef.scrollToOffset(offset: 240.0, animated: true)
 ```
 
 ```nx
@@ -289,9 +378,136 @@ app OrderHistory {
 }
 ```
 
+## Reusable components and typed refs
+
+A reusable `.nx` component can expose a typed API by declaring methods inside
+its component body. Create a matching `ComponentRef` and pass it with `ref:`.
+Methods can be synchronous or `async`. A method that propagates a plugin error
+declares that error type after `throws`; its ref call returns a typed `Result`.
+Calls made while the component is unmounted report `notAttached`.
+
+Async and failure support follows the component's declared API:
+
+| Ref target | Async methods | Typed method failures | Notes |
+|---|---|---|---|
+| Built-in `FastList` | Its current scroll commands are synchronous | Only `notAttached` | Scrolling is an immediate command; the API has no other failure case. |
+| Reusable `.nx` component | Yes | Yes, with `Result<T, AppError>` using a local enum, or `throws Namespace.ErrorType` for a plugin error | The method body can await async work. A returned `Result` failure becomes the ref call's typed failure. |
+| Native plugin component | Yes | Yes, from the component's `.nxid` method signature | The Swift and Kotlin implementations attach the method to the component's ref. |
+
+So the sync-only behavior applies to the built-in `FastList` scroll commands;
+reusable and native plugin component methods support async calls and typed
+failures.
+
+Use an app enum when the reusable component owns its failure cases. The ref
+call keeps those cases in its `Result` and adds `notAttached` to the same typed
+failure channel:
+
+```nx
+enum ProfileLoadError { offline, notCached }
+
+component ProfileStatus() {
+    async fn loadName() -> Result<String, ProfileLoadError> {
+        return Err(ProfileLoadError.offline)
+    }
+
+    body { Text("Profile") }
+}
+
+app ProfileScreen {
+    let profileRef = ComponentRef<ProfileStatus>()
+
+    body {
+        ProfileStatus(ref: profileRef)
+        OnAppear async {
+            let result: Result<String, ComponentRefError<ProfileLoadError>> =
+                await profileRef.loadName()
+        }
+    }
+}
+```
+
+```nx
+component QuantityStepper() {
+    state quantity: Int32 = 1
+
+    fn add(amount: Int32) -> Void {
+        quantity = quantity + amount
+    }
+
+    body {
+        Text("Quantity: \(quantity)")
+    }
+}
+
+app Cart {
+    let stepperRef = ComponentRef<QuantityStepper>()
+
+    body {
+        Column {
+            QuantityStepper(ref: stepperRef)
+            Button("Add two") {
+                stepperRef.add(amount: 2)
+            }
+        }
+    }
+}
+```
+
+The handle keeps the same identity across updates. A component without declared
+ref methods cannot be used as `ComponentRef<T>` or receive `ref:`. Each method
+uses the types in its declaration and returns
+`Result<Return, ComponentRefError<Failure>>`. A normal non-throwing method uses
+`Void` for `Failure`. A method returning `Result<Value, AppError>` exposes
+`Result<Value, ComponentRefError<AppError>>`; its success or failure is passed
+through directly. A `throws Namespace.ErrorType` method uses that plugin error
+as `Failure`. Choose one failure style for each method instead of combining
+`throws` and `Result`.
+
+```nx
+plugin "plugins/video" as Video
+
+component PlayerControls(player: Video.Player) {
+    async fn currentSource() -> String throws Video.PlayerFailure {
+        return await player.currentSource()
+    }
+
+    fn seek(position: Float64) -> Void throws Video.PlayerFailure {
+        player.seek(position: position)
+    }
+
+    body { Text("Playback controls") }
+}
+
+app LessonPlayback {
+    let player = Video.Player("lesson-player")
+    let controlsRef = ComponentRef<PlayerControls>()
+
+    body {
+        PlayerControls(player: player, ref: controlsRef)
+        OnAppear async {
+            let source: Result<String, ComponentRefError<Video.PlayerFailure>> =
+                await controlsRef.currentSource()
+        }
+        Button("Seek to the preview") {
+            let result: Result<Void, ComponentRefError<Video.PlayerFailure>> =
+                controlsRef.seek(position: 30.0)
+        }
+    }
+}
+```
+
+`await` is required when calling an async ref method. The result keeps the
+plugin's declared error type, so callers can handle not-attached and plugin
+failures without a platform-specific exception API.
+
 ## Navigation and modal content
 
-Declare destinations as `screen` blocks and select the root with `NavigationStack(root: ...)`. A `NavigationLink` takes a declared destination. Incoming URL routing is not part of the current language surface; use `Link(url: ...)` to open an external URL.
+Declare destinations as `screen` blocks and select the root with `NavigationStack(root: ...)`. A `NavigationLink` is a declarative link in the view tree; `Navigation.push(...)` and `Navigation.back()` are imperative actions that work in foreground action blocks, including button, lifecycle, list, and plugin event actions. `NavigationBack` draws a back control; `Navigation.back()` only performs the pop. App links configured with `deepLinks` route incoming URLs by screen slug and scalar arguments in the path or named query parameters; use `Link(url: ...)` to open an external URL.
+
+Pass route arguments positionally in the destination's declaration order. The
+compiler checks the destination and each argument type. A screen declared in
+the same `.nx` file is available directly. A screen declared in another source
+file is available after importing that file relative to the importing source.
 
 `NavigationStack` uses the platform's native inline title by default: SwiftUI's centered inline title on iOS and Material 3's centered top app bar on Android. Set `titleAlignment: Leading` to place the title beside Back; set `Center` to keep the centered layout. Set `titleMode: Large` for SwiftUI's large title and Material 3's expanding large top app bar.
 
@@ -309,6 +525,9 @@ app SupportCenter {
             NavigationLink(destination: ContactSupport) {
                 Text("Contact support")
             }
+            Button("Open order details") {
+                Navigation.push(OrderDetail(101))
+            }
         }
     }
 
@@ -319,6 +538,16 @@ app SupportCenter {
                 Text("Open help center")
             }
             NavigationBack(label: "Back to support")
+            Button("Close this screen") {
+                Navigation.back()
+            }
+        }
+    }
+
+    screen OrderDetail(orderID: Int32) {
+        Column(spacing: 8, padding: 16) {
+            Text("Order \(orderID)", fontSize: 22, fontWeight: Bold)
+            Button("Back to support") { Navigation.back() }
         }
     }
 
@@ -328,72 +557,72 @@ app SupportCenter {
 }
 ```
 
+For a destination stored in `screens/OrderDetail.nx`, add this at the top of
+`App.nx`: `import "screens/OrderDetail.nx"`. Then push it with
+`Navigation.push(OrderDetail(orderID))`, using a value whose type matches the
+screen parameter. No import is needed for a screen in the current file.
+
 ### BottomSheet
 
-`BottomSheet` uses SwiftUI `.sheet` on iOS and Material 3 `ModalBottomSheet` on
-Android for native detents. Use fractional `snapPoints` for custom heights; the
-Android Compose sheet keeps the Material 3 surface and gestures while providing
-the requested anchors. The child block uses Nexa `Column` defaults on both
+`BottomSheet` uses SwiftUI `.sheet` on iOS and a Compose sheet on Android. Both
+platforms use the same `detents` fractions, so custom heights do not need a
+second parameter. Drag the sheet to change its height; Nexa keeps the selected
+height inside the native view. The child block uses Nexa `Column` defaults on both
 platforms: children are centered horizontally and start at the top of the
 available content area immediately after the native drag indicator. The sheet
-adds a compact uniform 8 pt/dp content inset by default. Set `contentPadding` to
-zero or a larger value to override it; padding on child layouts adds to the
-sheet inset.
+adds no content inset by default. Set `contentPadding` to add a uniform inset;
+padding on child layouts adds to it.
 
 <!-- nexadoc:begin BOTTOM_SHEET_PARAMETERS -->
 | Parameter | Type | Default | Behavior |
 |---|---|---|---|
-| `isPresented` | mutable `Bool` state | Required | Controls presentation and is reset after native dismissal |
-| `contentPadding` | non-negative `Dp` number | 8 dp | Uniform inset around sheet content; explicit child padding adds to it |
-| `detents` | `Array<SheetDetent>` (`Medium`, `Expanded`) | `[Medium, Expanded]` | Available native resting sizes; at least one unique size is required and cannot be combined with `snapPoints` |
-| `initialDetent` | `SheetDetent` | First entry in `detents` | Must be one of the configured detents; cannot be combined with `snapPoints` |
-| `snapPoints` | `Array<Number>` fractions in `(0, 1]` | Platform detents | Custom visible-height fractions, ordered from smallest to largest; cannot be combined with `detents` |
-| `initialSnapPoint` | `Number` fraction in `(0, 1]` | First entry in `snapPoints` | Must match one configured snap point and requires `snapPoints` |
-| `selectedSnapPoint` | mutable `Float64` state | Unbound; uses `initialSnapPoint` | Two-way current snap selection; requires `snapPoints` and cannot be combined with `initialSnapPoint` |
+| `ref` | `ComponentRef<BottomSheet>` | Required | Controls presentation through the typed `present()` and `dismiss()` methods |
+| `contentPadding` | non-negative `Dp` number | 0 dp | Uniform inset around sheet content; explicit child padding adds to it |
+| `detents` | `Array<Float64>` fractions in `(0, 1]` | `[0.5, 1.0]` | Available resting heights as fractions of screen height; at least one unique ascending value is required |
+| `initialDetent` | `Float64` fraction in `(0, 1]` | First entry in `detents` | Initial resting height; must match one configured detent |
 | `showDragIndicator` | `Bool` | `true` | Shows or hides the platform-native drag indicator |
-| `allowsDismissal` | `Bool` | `true` | Allows drag dismissal and outside-tap dismissal for modal sheets; Android Back also obeys `shouldDismissOnBackPress`; state changes can always close the sheet |
+| `allowsDismissal` | `Bool` | `true` | Allows drag dismissal and outside-tap dismissal for modal sheets; Android Back also obeys `shouldDismissOnBackPress`; `ref.dismiss()` can always close the sheet |
 | `allowsBackgroundInteraction` | `Bool` | `false` | Removes the modal barrier and lets taps reach the screen behind the sheet (iOS 16.4+) |
 | `shouldDismissOnBackPress` | `Bool` | `true` | On Android, Back dismisses when `allowsDismissal` is also true; otherwise Back is consumed while the sheet stays open |
 | `backgroundColor` | color string or `String` state | Platform sheet surface | Overrides the sheet surface color; use `#00000000` for a transparent surface |
 | `scrimColor` | color string or `String` state | Platform modal scrim | Overrides the Android modal dim layer; a transparent color does not remove the modal barrier |
 <!-- nexadoc:end BOTTOM_SHEET_PARAMETERS -->
 
-Attach `.onDismiss { ... }` to run actions after the sheet closes. The callback
-runs for user dismissal and when the bound state is set to false. The selected
-`initialDetent` must appear in `detents`; `initialSnapPoint` must match
-`snapPoints`. At least one unique native detent or one ascending custom snap
-point is required. `allowsDismissal: false` disables drag-to-dismiss; setting the
-bound state to false from child content still closes it. `shouldDismissOnBackPress:
+A single ascending fractional list defines every resting height. For example,
+`detents: [0.25, 0.5, 0.85]` allows 25%, 50%, and 85% heights. `initialDetent`
+must match one entry in that list. `allowsDismissal: false` disables drag-to-dismiss;
+`ref.dismiss()` can still close the sheet. `shouldDismissOnBackPress:
 false` consumes Android Back while keeping the sheet open. `allowsBackgroundInteraction:
 true` makes the sheet non-modal: taps outside its surface reach the screen behind
 it and do not close the sheet. On iOS 16.4 or later this uses SwiftUI background
 interaction; on Android the sheet is presented as a native Compose overlay rather
 than a modal dialog.
 
-Use `BottomSheet.present(isPresented)` and `BottomSheet.dismiss(isPresented)` in
-actions when you want explicit presentation commands; they write the same bound
-state and preserve the native transition. For a custom sheet that can be changed
-programmatically, bind `selectedSnapPoint` to a mutable `Float64` state and call
-`BottomSheet.snapTo(selectedSnapPoint, snapPoint)`. The selected state tracks
-both these commands and user drag changes. `snapPoint` is matched to the closest
-configured value in `snapPoints`.
+Create one `ComponentRef<BottomSheet>` for each sheet. Call `present()` and
+`dismiss()` from any action context, including buttons, lifecycle actions, and
+custom component methods. These calls return
+`Result<Void, ComponentRefError<Void>>`; a call made while the sheet is not
+attached returns `notAttached`. A native drag or Back dismissal does not require
+an extra state update.
 
 To stack a sub-sheet above an open sheet, declare the second `BottomSheet`
-inside the first sheet's child content and give it its own `isPresented` state.
-Call `BottomSheet.present(childPresented)` from the parent content; the parent
-stays presented while the child is open. Dismissing the child reveals the same
-parent sheet and preserves its state. This nested declaration uses SwiftUI's
+inside the first sheet's child content and give it its own reference. Calling
+`present()` on the child keeps the parent open underneath. Calling `dismiss()`
+on the child reveals the same parent sheet and preserves its state. This nested declaration uses SwiftUI's
 native sheet presenter on iOS and a second Material 3 modal sheet on Android.
 
 ```nx
-BottomSheet(isPresented: taskPresented, detents: [Medium, Expanded]) {
+let taskSheetRef = ComponentRef<BottomSheet>()
+let taskActionsSheetRef = ComponentRef<BottomSheet>()
+
+BottomSheet(ref: taskSheetRef, detents: [0.5, 1.0]) {
     Column(spacing: 12, padding: 16) {
         Text("Task details")
-        Button("More actions") { BottomSheet.present(taskActionsPresented) }
-        BottomSheet(isPresented: taskActionsPresented, detents: [Medium]) {
+        Button("More actions") { taskActionsSheetRef.present() }
+        BottomSheet(ref: taskActionsSheetRef, detents: [0.5]) {
             Column(spacing: 12, padding: 16) {
                 Text("Task actions")
-                Button("Return to task") { BottomSheet.dismiss(taskActionsPresented) }
+                Button("Return to task") { taskActionsSheetRef.dismiss() }
             }
         }
     }
@@ -402,20 +631,19 @@ BottomSheet(isPresented: taskPresented, detents: [Medium, Expanded]) {
 
 For an edit or details sheet, compose a header from ordinary Nexa layout and
 buttons. A Save action can update state while leaving the sheet open; a close
-button can set its presentation state to false so the platform dismissal
-animation runs.
+button calls `dismiss()` so the platform dismissal animation runs.
 
 ```nx
 screen DeliveryAddressEditor {
-    state editorPresented: Bool = false
+    let editorSheetRef = ComponentRef<BottomSheet>()
     state addressSaved: Bool = false
 
     body {
         Column(spacing: 12, padding: 16) {
             Button("Edit delivery address") {
-                BottomSheet.present(editorPresented)
+                editorSheetRef.present()
             }
-            BottomSheet(isPresented: editorPresented, detents: [Medium, Expanded]) {
+            BottomSheet(ref: editorSheetRef, detents: [0.5, 1.0]) {
                 Column(spacing: 12, padding: 20, alignment: Start) {
                     Row(spacing: 12) {
                         Text("Edit delivery address", fontSize: 20, fontWeight: Semibold)
@@ -424,7 +652,7 @@ screen DeliveryAddressEditor {
                             addressSaved = true
                         }
                         Button("Close", icon: "close", style: Plain) {
-                            BottomSheet.dismiss(editorPresented)
+                            editorSheetRef.dismiss()
                         }
                     }
                     Text(addressSaved ? "Address saved" : "Unsaved changes")
@@ -435,9 +663,9 @@ screen DeliveryAddressEditor {
 }
 ```
 
-Android's native detents retain Material 3 keyboard handling. Custom snap points
-are fractions of the available height and keep the same sheet surface, drag
-indicator, dismissal, and keyboard behavior.
+Detents are fractions of the available height on both platforms. Custom values
+use the same sheet surface, drag indicator, dismissal, and keyboard handling as
+the default half and full heights.
 
 `backgroundColor` colors the sheet surface; `scrimColor` colors the modal layer
 behind it. Leave `backgroundColor` omitted to keep the native sheet surface.
@@ -450,7 +678,7 @@ dimming and allow taps through.
 
 ```nx
 screen TaskEditor {
-    state editorPresented: Bool = false
+    let editorSheetRef = ComponentRef<BottomSheet>()
     state editorSurface: String = "#F1F5F9"
     state note: String = ""
     state didDismissEditor: Bool = false
@@ -458,12 +686,12 @@ screen TaskEditor {
     body {
         Column(spacing: 12, padding: 16) {
             Button("Edit task") {
-                editorPresented = true
+                editorSheetRef.present()
             }
             BottomSheet(
-                isPresented: editorPresented,
-                snapPoints: [0.3, 0.55, 0.9],
-                initialSnapPoint: 0.55,
+                ref: editorSheetRef,
+                detents: [0.3, 0.55, 0.9],
+                initialDetent: 0.55,
                 showDragIndicator: true,
                 allowsDismissal: true,
                 backgroundColor: editorSurface
@@ -473,7 +701,7 @@ screen TaskEditor {
                     Text("Update the task details and add an optional note.")
                     TextInput(value: note, placeholder: "Note", accessibilityLabel: "Task note")
                     Button("Done") {
-                        editorPresented = false
+                        editorSheetRef.dismiss()
                     }
                 }
             }.onDismiss {

@@ -223,30 +223,219 @@ fn collect_source_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), Str
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckDiagnosticOutput {
+    severity: &'static str,
+    code: Option<String>,
+    file: Option<String>,
+    span: Option<nexa_compiler::Span>,
+    message: String,
+}
+
+impl CheckDiagnosticOutput {
+    fn from_warning(warning: nexa_compiler::CompileWarning) -> Self {
+        Self {
+            severity: "warning",
+            code: Some(warning.code.as_str().to_owned()),
+            file: warning.file,
+            span: Some(warning.span),
+            message: warning.message,
+        }
+    }
+
+    fn from_error(error: nexa_compiler::CompileError) -> Self {
+        Self {
+            severity: "error",
+            code: None,
+            file: error.file,
+            span: Some(error.span),
+            message: error.message,
+        }
+    }
+
+    fn from_message(message: impl Into<String>) -> Self {
+        Self {
+            severity: "error",
+            code: None,
+            file: None,
+            span: None,
+            message: message.into(),
+        }
+    }
+
+    fn display(&self) -> String {
+        match (&self.file, &self.span) {
+            (Some(file), Some(span)) if self.severity == "warning" => format!(
+                "{file}:{}:{}: warning[{}]: {}",
+                span.line,
+                span.column,
+                self.code.as_deref().unwrap_or("NEXA-W0000"),
+                self.message
+            ),
+            (Some(file), Some(span)) => {
+                format!(
+                    "{file}:{}:{}: error: {}",
+                    span.line, span.column, self.message
+                )
+            }
+            (None, Some(span)) if self.severity == "warning" => format!(
+                "{}:{}: warning[{}]: {}",
+                span.line,
+                span.column,
+                self.code.as_deref().unwrap_or("NEXA-W0000"),
+                self.message
+            ),
+            (None, Some(span)) => format!("{}:{}: error: {}", span.line, span.column, self.message),
+            (None, None) if self.severity == "warning" => format!("warning: {}", self.message),
+            _ => self.message.clone(),
+        }
+    }
+}
+
+struct CheckFailure(Box<CheckDiagnosticOutput>);
+
+impl From<String> for CheckFailure {
+    fn from(message: String) -> Self {
+        Self(Box::new(CheckDiagnosticOutput::from_message(message)))
+    }
+}
+
+impl From<&str> for CheckFailure {
+    fn from(message: &str) -> Self {
+        Self(Box::new(CheckDiagnosticOutput::from_message(message)))
+    }
+}
+
+impl From<nexa_compiler::CompileError> for CheckFailure {
+    fn from(error: nexa_compiler::CompileError) -> Self {
+        Self(Box::new(CheckDiagnosticOutput::from_error(error)))
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckReport {
+    format_version: u32,
+    ok: bool,
+    platform: String,
+    diagnostics: Vec<CheckDiagnosticOutput>,
+    error: Option<String>,
+}
+
+fn print_check_report(report: &CheckReport) -> Result<(), String> {
+    let json = serde_json::to_string(report)
+        .map_err(|error| format!("could not serialize `nexa check --json` report: {error}"))?;
+    println!("{json}");
+    Ok(())
+}
+
 fn check_project(args: &[String]) -> Result<(), String> {
+    let json = args.iter().any(|argument| argument == "--json");
+    if args
+        .iter()
+        .any(|argument| matches!(argument.as_str(), "--help" | "-h"))
+    {
+        println!(
+            "Usage: nexa check [--ios | --android] [--deny-warnings] [--audit] [--locked] [--json]"
+        );
+        return Ok(());
+    }
+    let args = args
+        .iter()
+        .filter(|argument| argument.as_str() != "--json")
+        .cloned()
+        .collect::<Vec<_>>();
+    if json && args.iter().any(|argument| argument == "--audit") {
+        let report = CheckReport {
+            format_version: 1,
+            ok: false,
+            platform: check_platform_name(&args),
+            diagnostics: vec![CheckDiagnosticOutput::from_message(
+                "`--audit` cannot be combined with `--json`; run `nexa audit` separately",
+            )],
+            error: Some("check failed".to_owned()),
+        };
+        print_check_report(&report)?;
+        return Err("check failed; see JSON diagnostics on stdout".to_owned());
+    }
+    let result = check_project_inner(&args);
+    if !json {
+        let report = result.map_err(|diagnostic| diagnostic.0.display())?;
+        for diagnostic in &report.diagnostics {
+            eprintln!("{}", diagnostic.display());
+        }
+        if let Some(error) = report.error {
+            return Err(error);
+        }
+        println!("check passed ({})", report.platform);
+        if args.iter().any(|argument| argument == "--audit") {
+            let root = env::current_dir().map_err(|error| error.to_string())?;
+            let entry = find_entry(&root)?;
+            crate::audit::run(&[
+                entry.display().to_string(),
+                "--target".to_owned(),
+                report.platform,
+            ])?;
+        }
+        return Ok(());
+    }
+
+    match result {
+        Ok(report) => {
+            let failed = !report.ok;
+            let failure = report.error.clone();
+            print_check_report(&report)?;
+            if failed {
+                Err(failure.unwrap_or_else(|| "check failed".to_owned()))
+            } else {
+                Ok(())
+            }
+        }
+        Err(diagnostic) => {
+            let report = CheckReport {
+                format_version: 1,
+                ok: false,
+                platform: check_platform_name(&args),
+                diagnostics: vec![*diagnostic.0],
+                error: Some("check failed".to_owned()),
+            };
+            print_check_report(&report)?;
+            Err("check failed; see JSON diagnostics on stdout".to_owned())
+        }
+    }
+}
+
+fn check_platform_name(args: &[String]) -> String {
+    if args.iter().any(|argument| argument == "--ios") {
+        "ios".to_owned()
+    } else if args.iter().any(|argument| argument == "--android") {
+        "android".to_owned()
+    } else {
+        "all".to_owned()
+    }
+}
+
+fn check_project_inner(args: &[String]) -> Result<CheckReport, CheckFailure> {
     let mut platform = "all".to_owned();
     let mut platform_set = false;
     let mut deny_warnings = false;
     let mut locked = false;
-    let mut audit_enabled = false;
     for argument in args {
         match argument.as_str() {
             "--ios" => set_platform(&mut platform, &mut platform_set, "ios")?,
             "--android" => set_platform(&mut platform, &mut platform_set, "android")?,
             "--deny-warnings" => deny_warnings = true,
-            "--audit" => audit_enabled = true,
+            "--audit" => {}
             "--locked" => locked = true,
-            "--help" | "-h" => {
-                println!(
-                    "Usage: nexa check [--ios | --android] [--deny-warnings] [--audit] [--locked]"
-                );
-                return Ok(());
+            "--help" | "-h" => {}
+            option if option.starts_with('-') => {
+                return Err(format!("unknown option `{option}`").into());
             }
-            option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
             value => {
-                return Err(format!(
-                    "unexpected argument `{value}`; run `nexa check --help`"
-                ));
+                return Err(
+                    format!("unexpected argument `{value}`; run `nexa check --help`").into(),
+                );
             }
         }
     }
@@ -256,7 +445,7 @@ fn check_project(args: &[String]) -> Result<(), String> {
     let entry_source =
         fs::read_to_string(&entry).map_err(|error| format!("{}: {error}", entry.display()))?;
     let program = nexa_syntax::parse_program(&entry_source)
-        .map_err(|error| format!("{}: {error}", entry.display()))?;
+        .map_err(|error| error.with_file(entry.display().to_string()))?;
     let app_name = type_name(
         program
             .app
@@ -285,30 +474,33 @@ fn check_project(args: &[String]) -> Result<(), String> {
         &entry,
         &targets,
         &resolved.plugin_roots,
-    )
-    .map_err(|error| error.to_string())?;
-    let mut warnings = std::collections::BTreeSet::new();
+    )?;
+    let mut warnings = std::collections::BTreeMap::new();
     for (target, compilation) in targets.iter().copied().zip(compilations) {
+        let packages = crate::project::plugin_package::packages_for_module(
+            &compilation.plugins,
+            &compilation.module,
+        );
+        for warning in crate::project::validate_permission_configuration(
+            &compilation.module,
+            &packages,
+            &project_config,
+            &config_path,
+            target,
+        )? {
+            warnings.entry(warning.to_string()).or_insert(warning);
+        }
         if target == nexa_compiler::Target::Kotlin {
-            let packages = crate::project::plugin_package::packages_for_module(
-                &compilation.plugins,
-                &compilation.module,
-            );
             let requirements = packages
                 .iter()
                 .map(|plugin| (plugin.namespace.as_str(), plugin.artifacts.android_min_sdk))
                 .collect::<Vec<_>>();
             project_config.validate_android_plugin_minimums(&requirements)?;
-            crate::project::validate_android_background_task_minimum(
-                &compilation.module,
-                &project_config,
-            )?;
+            let features =
+                nexa_backend_kotlin::KotlinBackend.analyze_project_features(&compilation.module);
+            crate::project::validate_android_feature_minimums(features, false, &project_config)?;
         }
         if target == nexa_compiler::Target::Swift {
-            let packages = crate::project::plugin_package::packages_for_module(
-                &compilation.plugins,
-                &compilation.module,
-            );
             crate::project::validate_ios_background_task_minimum(
                 &compilation.module,
                 &packages,
@@ -316,20 +508,22 @@ fn check_project(args: &[String]) -> Result<(), String> {
             )?;
         }
         for warning in compilation.warnings {
-            warnings.insert(warning.to_string());
+            warnings.entry(warning.to_string()).or_insert(warning);
         }
     }
-    for warning in &warnings {
-        eprintln!("{warning}");
-    }
-    if deny_warnings && !warnings.is_empty() {
-        return Err(format!("{} warning(s) treated as errors", warnings.len()));
-    }
-    println!("check passed ({platform})");
-    if audit_enabled {
-        crate::audit::run(&[entry.display().to_string(), "--target".to_owned(), platform])?;
-    }
-    Ok(())
+    let failed = deny_warnings && !warnings.is_empty();
+    let diagnostics = warnings
+        .into_values()
+        .map(CheckDiagnosticOutput::from_warning)
+        .collect::<Vec<_>>();
+    let error = failed.then(|| format!("{} warning(s) treated as errors", diagnostics.len()));
+    Ok(CheckReport {
+        format_version: 1,
+        ok: !failed,
+        platform,
+        diagnostics,
+        error,
+    })
 }
 
 fn native_command(command: &str, args: &[String]) -> Result<(), String> {
@@ -341,6 +535,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     let mut platform_set = false;
     let mut once = false;
     let mut compile_only = false;
+    let mut dry_run = false;
     let mut locked = false;
     let mut unit_only = false;
     let mut cursor = 0;
@@ -379,6 +574,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             "--compile-only" => {
                 return Err("`--compile-only` is only supported by `nexa dev`".to_owned());
             }
+            "--dry-run" => dry_run = true,
             "--locked" => locked = true,
             "--unit-only" if command == "test" => unit_only = true,
             "--unit-only" => {
@@ -421,10 +617,14 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
         output.push(flavor);
     }
     let entry = find_entry(&root)?;
+    if unit_only && dry_run {
+        print_build_plan(command, &platform, once, compile_only, unit_only);
+        return Ok(());
+    }
     if unit_only {
         return run_in_language_tests(&entry, &platform, locked);
     }
-    if command == "release" && matches!(platform.as_str(), "android" | "all") {
+    if !dry_run && command == "release" && matches!(platform.as_str(), "android" | "all") {
         validate_android_release_signing()?;
     }
     let project_name = nexa_syntax::parse_program(
@@ -482,6 +682,11 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     if once && compile_only {
         return Err("choose only one of `--once` and `--compile-only`".to_owned());
     }
+    if dry_run {
+        print_build_plan(command, &platform, once, compile_only, unit_only);
+        return Ok(());
+    }
+    preflight_native_toolchains(&platform, command, compile_only)?;
     let mut project_args = vec![
         entry.display().to_string(),
         "--target".to_owned(),
@@ -578,7 +783,90 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     }
 }
 
+fn print_build_plan(
+    command: &str,
+    platform: &str,
+    once: bool,
+    compile_only: bool,
+    unit_only: bool,
+) {
+    println!(
+        "Dry-run build plan only; dependency, lockfile, native build, toolchain, and signing checks are skipped."
+    );
+    for (index, step) in build_plan_steps(command, platform, once, compile_only, unit_only)
+        .iter()
+        .enumerate()
+    {
+        println!("  {}. {step}", index + 1);
+    }
+}
+
+fn build_plan_steps(
+    command: &str,
+    platform: &str,
+    once: bool,
+    compile_only: bool,
+    unit_only: bool,
+) -> Vec<String> {
+    if unit_only {
+        return vec!["Compile and run `.nx` unit tests without native hosts.".to_owned()];
+    }
+
+    let mut steps = match command {
+        "dev" if once => vec!["Compile the app and generate one-shot DevRuntime hosts.".to_owned()],
+        "dev" if compile_only => vec![
+            "Compile DevRuntime modules, start the local server, and generate debug hosts without launching the app."
+                .to_owned(),
+        ],
+        "dev" => vec![
+            "Compile DevRuntime modules and start the local hot-reload server.".to_owned(),
+            "Generate debug hosts for the selected platforms.".to_owned(),
+        ],
+        "test" => vec![
+            "Compile the app and its `.nx` test blocks, then generate native test hosts."
+                .to_owned(),
+        ],
+        "release" => vec!["Compile the app and generate native Release projects.".to_owned()],
+        _ => vec!["Validate the project and generate native projects.".to_owned()],
+    };
+
+    for &target in selected_platforms(platform) {
+        let build = match (command, target) {
+            ("release", "ios") => "Archive the iOS app and export an IPA with Xcode.",
+            ("release", "android") => "Build the signed Android AAB with Gradle.",
+            ("test", "ios") => "Build the iOS test host with Xcode.",
+            ("test", "android") => "Build the Android test host with Gradle.",
+            (_, "ios") => "Build the iOS app with Xcode.",
+            (_, "android") => "Build the Android app with Gradle.",
+            _ => continue,
+        };
+        steps.push(build.to_owned());
+    }
+
+    if command == "dev" && !compile_only {
+        let launch_step = if once {
+            "Install and launch the app once on the selected simulator or emulator."
+        } else {
+            "Install and launch the app on the selected simulator or emulator."
+        };
+        steps.push(launch_step.to_owned());
+        if !once {
+            steps.push("Watch `.nx` files and send changes to the running app.".to_owned());
+        }
+    }
+    steps
+}
+
+fn selected_platforms(platform: &str) -> &'static [&'static str] {
+    match platform {
+        "ios" => &["ios"],
+        "android" => &["android"],
+        _ => &["ios", "android"],
+    }
+}
+
 fn build_command(args: &[String]) -> Result<(), String> {
+    eprintln!("`nexa build` is deprecated; use `nexa release`.");
     if args
         .iter()
         .any(|argument| matches!(argument.as_str(), "--help" | "-h"))
@@ -612,7 +900,7 @@ fn release_build_arguments(args: &[String]) -> Result<Vec<String>, String> {
         }
     }
     if !release_selected {
-        return Err("`nexa build` requires `--release`".to_owned());
+        return Err("`nexa build` requires `--release`; use `nexa release` instead".to_owned());
     }
     if let Some(artifact) = artifact {
         let (platform, platform_flag) = if artifact == "ipa" {
@@ -742,6 +1030,7 @@ fn watch_sources(
     plugin_roots: &mut HashMap<String, PathBuf>,
 ) -> Result<(), String> {
     let mut performance_overlay_enabled = false;
+    let mut runtime_trace_enabled = false;
     let mut native_rebuild_pending = false;
     let mut active_device: Option<(String, String)> = None;
     let (device_log_sender, device_log_receiver) = mpsc::channel();
@@ -902,6 +1191,14 @@ fn watch_sources(
                     "off"
                 };
                 dashboard.info(format!("Nexa performance overlay {state}."));
+            }
+            Some(DevConsoleCommand::ToggleRuntimeTrace) => {
+                runtime_trace_enabled = !runtime_trace_enabled;
+                context.server.set_runtime_trace(runtime_trace_enabled);
+                let state = if runtime_trace_enabled { "on" } else { "off" };
+                dashboard.info(format!(
+                    "Nexa runtime trace {state}. Trace events omit values."
+                ));
             }
             Some(DevConsoleCommand::ClearConsole) => {
                 dashboard.clear();
@@ -1775,6 +2072,7 @@ enum DevConsoleCommand {
     Rebuild,
     NextDevice,
     TogglePerformanceOverlay,
+    ToggleRuntimeTrace,
     ClearConsole,
     Stop,
     SourceChanges(Vec<PathBuf>),
@@ -1783,7 +2081,7 @@ enum DevConsoleCommand {
 
 fn print_dev_welcome() {
     println!(
-        "\nWelcome to Nexa dev\n  r          Hot reload the current source\n  Shift+R    Hot restart and reset app state\n  b          Rebuild and relaunch the native app\n  d          Cycle to the next connected iOS or Android device\n  p          Toggle the performance overlay (FPS and frame time)\n  l          Clear the console\n  q          Stop the dev session\n  Ctrl-C     Stop the dev session\n\nBuild and device logs will appear below.\n"
+        "\nWelcome to Nexa dev\n  r          Hot reload the current source\n  Shift+R    Hot restart and reset app state\n  b          Rebuild and relaunch the native app\n  d          Cycle to the next connected iOS or Android device\n  p          Toggle the performance overlay (FPS and frame time)\n  t          Toggle redacted runtime trace events\n  l          Clear the console\n  q          Stop the dev session\n  Ctrl-C     Stop the dev session\n\nBuild and device logs will appear below.\n"
     );
 }
 
@@ -1843,6 +2141,7 @@ fn start_dev_console_input() -> (
                             KeyCode::Char('p' | 'P') => {
                                 Some(DevConsoleCommand::TogglePerformanceOverlay)
                             }
+                            KeyCode::Char('t' | 'T') => Some(DevConsoleCommand::ToggleRuntimeTrace),
                             KeyCode::Char('l' | 'L') => Some(DevConsoleCommand::ClearConsole),
                             KeyCode::Char('q' | 'Q') => Some(DevConsoleCommand::Stop),
                             _ => None,
@@ -1869,11 +2168,12 @@ fn start_dev_console_input() -> (
                 "b" | "B" => Some(DevConsoleCommand::Rebuild),
                 "d" | "D" => Some(DevConsoleCommand::NextDevice),
                 "p" | "P" => Some(DevConsoleCommand::TogglePerformanceOverlay),
+                "t" | "T" => Some(DevConsoleCommand::ToggleRuntimeTrace),
                 "l" | "L" => Some(DevConsoleCommand::ClearConsole),
                 "q" | "quit" | "exit" => Some(DevConsoleCommand::Stop),
                 "" => None,
                 value => {
-                    eprintln!("unknown Nexa dev shortcut `{value}`; use r, R, b, d, p, l, or q");
+                    eprintln!("unknown Nexa dev shortcut `{value}`; use r, R, b, d, p, t, l, or q");
                     None
                 }
             };
@@ -2325,10 +2625,6 @@ fn build_ios(root: &Path, app_name: &str, mode: BuildMode) -> Result<(), String>
     } else {
         None
     };
-    require_command(
-        "xcodebuild",
-        "Install Xcode and select it with xcode-select.",
-    )?;
     let project = root.join("ios").join(format!("{app_name}.xcodeproj"));
     let mut command = Command::new("xcodebuild");
     command
@@ -2751,27 +3047,329 @@ fn parse_android_signing_properties(path: &Path) -> Result<BTreeMap<String, Stri
 
 fn doctor() -> Result<(), String> {
     let mut failed = false;
-    for (name, args) in [
-        ("rustc", vec!["--version"]),
-        ("cargo", vec!["--version"]),
-        ("xcodebuild", vec!["-version"]),
-        ("xcrun", vec!["simctl", "list", "devices", "available"]),
-        ("java", vec!["-version"]),
-        ("adb", vec!["version"]),
+    for (label, name, args) in [
+        ("Rust compiler", "rustc", vec!["--version"]),
+        ("Cargo", "cargo", vec!["--version"]),
+        ("Xcode", "xcodebuild", vec!["-version"]),
+        (
+            "iOS Simulator",
+            "xcrun",
+            vec!["simctl", "list", "devices", "available", "-j"],
+        ),
+        ("Java", "java", vec!["-version"]),
+        ("JDK compiler", "javac", vec!["--version"]),
+        ("Android platform tools", "adb", vec!["version"]),
+        ("Clang", "clang", vec!["--version"]),
     ] {
         match Command::new(name).args(args).output() {
-            Ok(output) if output.status.success() => println!("✓ {name}"),
-            _ => {
+            Ok(output) if output.status.success() => {
+                if name == "xcrun" {
+                    if has_available_simulator(&output.stdout) {
+                        println!("✓ {label}: at least one available simulator");
+                    } else {
+                        failed = true;
+                        print_doctor_failure(
+                            label,
+                            "no available simulator device was found",
+                            doctor_repair_hint(label),
+                        );
+                    }
+                } else {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let detail = stdout
+                        .lines()
+                        .chain(stderr.lines())
+                        .find(|line| !line.trim().is_empty())
+                        .map(str::trim)
+                        .unwrap_or("available")
+                        .to_owned();
+                    if let Some(minimum) = doctor_minimum_version(label) {
+                        match parse_version(&detail) {
+                            Some(actual) if actual < minimum => {
+                                failed = true;
+                                print_doctor_failure(
+                                    label,
+                                    &format!(
+                                        "{detail} is older than the required version {}",
+                                        format_version(minimum)
+                                    ),
+                                    doctor_repair_hint(label),
+                                );
+                                continue;
+                            }
+                            None => {
+                                failed = true;
+                                print_doctor_failure(
+                                    label,
+                                    &format!("could not read a version from `{detail}`"),
+                                    doctor_repair_hint(label),
+                                );
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                    println!("✓ {label}: {detail}");
+                }
+            }
+            Ok(output) => {
                 failed = true;
-                println!("✗ {name}");
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let detail = stderr
+                    .lines()
+                    .find(|line| !line.trim().is_empty())
+                    .map(str::trim)
+                    .unwrap_or("command failed")
+                    .to_owned();
+                print_doctor_failure(label, &detail, doctor_repair_hint(label));
+            }
+            Err(error) => {
+                failed = true;
+                print_doctor_failure(label, &error.to_string(), doctor_repair_hint(label));
             }
         }
     }
+    let root =
+        env::current_dir().map_err(|error| format!("cannot read current directory: {error}"))?;
+    let sdk = android_sdk_path(
+        &root,
+        env::var_os("ANDROID_HOME").as_deref(),
+        env::var_os("ANDROID_SDK_ROOT").as_deref(),
+        env::var_os("HOME").as_deref().map(Path::new),
+        env::var_os("LOCALAPPDATA").as_deref().map(Path::new),
+    );
+    if let Some(path) = sdk {
+        println!("✓ Android SDK: {}", path.display());
+        if android_sdk_has_compile_platform(&path) {
+            println!(
+                "✓ Android compile SDK: API {}",
+                crate::config::ANDROID_COMPILE_SDK
+            );
+        } else {
+            failed = true;
+            print_doctor_failure(
+                "Android compile SDK",
+                &format!(
+                    "API {} is not installed",
+                    crate::config::ANDROID_COMPILE_SDK
+                ),
+                doctor_repair_hint("Android compile SDK"),
+            );
+        }
+        let emulator_name = if cfg!(windows) {
+            "emulator.exe"
+        } else {
+            "emulator"
+        };
+        let avd_output = path.join("emulator").join(emulator_name);
+        if avd_output.is_file() {
+            match Command::new(&avd_output).arg("-list-avds").output() {
+                Ok(output)
+                    if output.status.success()
+                        && !String::from_utf8_lossy(&output.stdout).trim().is_empty() =>
+                {
+                    let count = String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .filter(|line| !line.trim().is_empty())
+                        .count();
+                    println!("✓ Android emulator: {count} AVD(s) configured");
+                }
+                _ => println!(
+                    "! Android emulator: no AVD is configured. Create one in Android Studio's Device Manager and install its Android system image."
+                ),
+            }
+        } else {
+            println!(
+                "! Android emulator: emulator tools are missing. Install Android Emulator in Android Studio's SDK Manager."
+            );
+        }
+    } else {
+        failed = true;
+        print_doctor_failure(
+            "Android SDK",
+            "no installed SDK was found",
+            doctor_repair_hint("Android SDK"),
+        );
+    }
+    let dependencies = crate::config::load_plugin_dependencies(&root.join("nexa.config.nx"));
+    match dependencies {
+        Ok(dependencies) => match crate::dependencies::check_offline(&root, &dependencies) {
+            Ok(()) if dependencies.is_empty() => {
+                println!("✓ Plugin setup: no dependencies configured");
+            }
+            Ok(()) => println!(
+                "✓ Plugin setup: {} dependencies and lockfile are valid",
+                dependencies.len()
+            ),
+            Err(error) => {
+                failed = true;
+                println!("✗ Plugin setup: {error}");
+            }
+        },
+        Err(error) => {
+            failed = true;
+            println!("✗ Plugin setup: {error}");
+        }
+    }
     if failed {
-        Err("one or more platform tools are missing; see https://nexa.dev/docs/setup".to_owned())
+        Err("one or more environment checks failed; see https://nexa.dev/docs/setup".to_owned())
     } else {
         Ok(())
     }
+}
+
+fn print_doctor_failure(label: &str, detail: &str, hint: &str) {
+    println!("✗ {label}: {detail}\n  Fix: {hint}");
+}
+
+fn doctor_repair_hint(label: &str) -> &'static str {
+    match label {
+        "Rust compiler" | "Cargo" => "Install Rust with rustup, then run `rustup update stable`.",
+        "Xcode" => {
+            "Install Xcode 15 or newer, select it with `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, then accept the license with `sudo xcodebuild -license accept`."
+        }
+        "iOS Simulator" => {
+            "In Xcode, download an iOS Simulator runtime, then create an iPhone or iPad simulator in Devices and Simulators."
+        }
+        "Java" => "Install JDK 17 or newer and set `JAVA_HOME` to that JDK.",
+        "Android platform tools" => {
+            "Install Android SDK Platform-Tools in Android Studio's SDK Manager and add `<android-sdk>/platform-tools` to `PATH`."
+        }
+        "Clang" => {
+            "On macOS, run `xcode-select --install`; on Linux, install Clang with your distribution's package manager."
+        }
+        "Android SDK" => {
+            "Install Android SDK in Android Studio, then set `ANDROID_HOME` or `ANDROID_SDK_ROOT` to the SDK directory."
+        }
+        "Android compile SDK" => {
+            "In Android Studio's SDK Manager, install Android SDK Platform for the required API level shown above."
+        }
+        _ => "Follow the Nexa toolchain setup guide and rerun `nexa doctor`.",
+    }
+}
+
+fn has_available_simulator(json: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(json)
+        .ok()
+        .and_then(|value| value.get("devices").cloned())
+        .and_then(|value| value.as_object().cloned())
+        .is_some_and(|platforms| {
+            platforms.values().any(|devices| {
+                devices
+                    .as_array()
+                    .is_some_and(|devices| !devices.is_empty())
+            })
+        })
+}
+
+fn doctor_minimum_version(label: &str) -> Option<(u32, u32, u32)> {
+    match label {
+        "Rust compiler" | "Cargo" => Some((1, 85, 0)),
+        "Xcode" => Some((15, 0, 0)),
+        "Java" | "JDK compiler" => Some((17, 0, 0)),
+        _ => None,
+    }
+}
+
+fn android_sdk_has_compile_platform(sdk_root: &Path) -> bool {
+    let platform_prefix = format!("android-{}", crate::config::ANDROID_COMPILE_SDK);
+    fs::read_dir(sdk_root.join("platforms"))
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| android_platform_name_matches_api(name, &platform_prefix))
+                && entry.path().join("android.jar").is_file()
+        })
+}
+
+fn android_platform_name_matches_api(name: &str, platform_prefix: &str) -> bool {
+    let Some(version) = name.strip_prefix(platform_prefix) else {
+        return false;
+    };
+    version.is_empty()
+        || version.strip_prefix('.').is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .split('.')
+                    .all(|part| part.parse::<u32>().is_ok_and(|value| value == 0))
+        })
+}
+
+fn parse_version(value: &str) -> Option<(u32, u32, u32)> {
+    for token in value
+        .split(|character: char| !character.is_ascii_digit() && character != '.')
+        .filter(|token| !token.is_empty())
+    {
+        let mut parts = token.split('.');
+        let Ok(major) = parts.next()?.parse() else {
+            continue;
+        };
+        let Ok(minor) = parts.next().unwrap_or("0").parse() else {
+            continue;
+        };
+        let Ok(patch) = parts.next().unwrap_or("0").parse() else {
+            continue;
+        };
+        return Some((major, minor, patch));
+    }
+    None
+}
+
+fn format_version(version: (u32, u32, u32)) -> String {
+    format!("{}.{}.{}", version.0, version.1, version.2)
+}
+
+fn android_sdk_path(
+    project_root: &Path,
+    android_home: Option<&std::ffi::OsStr>,
+    android_sdk_root: Option<&std::ffi::OsStr>,
+    _home: Option<&Path>,
+    _local_app_data: Option<&Path>,
+) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    for properties in [
+        project_root.join("build/android/local.properties"),
+        project_root.join("android/local.properties"),
+    ] {
+        if let Ok(contents) = fs::read_to_string(properties) {
+            for line in contents.lines() {
+                let Some((key, value)) = line.split_once('=') else {
+                    continue;
+                };
+                if key.trim() == "sdk.dir" {
+                    candidates.push(PathBuf::from(
+                        value.trim().replace("\\:", ":").replace("\\\\", "\\"),
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+    candidates.extend(
+        [android_home, android_sdk_root]
+            .into_iter()
+            .flatten()
+            .map(PathBuf::from),
+    );
+    #[cfg(target_os = "macos")]
+    if let Some(home) = _home {
+        candidates.push(home.join("Library/Android/sdk"));
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(home) = _home {
+        candidates.push(home.join("Android/Sdk"));
+    }
+    #[cfg(target_os = "windows")]
+    if let Some(local_app_data) = _local_app_data {
+        candidates.push(local_app_data.join("Android/Sdk"));
+    }
+    candidates.into_iter().find(|path| path.is_dir())
 }
 
 fn find_entry(root: &Path) -> Result<PathBuf, String> {
@@ -3147,12 +3745,69 @@ fn type_name(value: &str) -> String {
     result
 }
 
-fn require_command(program: &str, hint: &str) -> Result<(), String> {
-    if Command::new(program).arg("--version").output().is_ok() {
-        Ok(())
-    } else {
-        Err(format!("`{program}` is required. {hint}"))
+fn preflight_native_toolchains(
+    platform: &str,
+    command: &str,
+    compile_only: bool,
+) -> Result<(), String> {
+    preflight_native_toolchains_with(platform, command, compile_only, check_native_tool)
+}
+
+fn preflight_native_toolchains_with(
+    platform: &str,
+    command: &str,
+    compile_only: bool,
+    mut check: impl FnMut(&str, &[&str], &str) -> Result<(), String>,
+) -> Result<(), String> {
+    let launches_device = command == "dev" && !compile_only;
+    if matches!(platform, "ios" | "all") {
+        check(
+            "xcodebuild",
+            &["-version"],
+            "Install Xcode and select it with xcode-select.",
+        )?;
+        if launches_device {
+            check(
+                "xcrun",
+                &["simctl", "list", "devices", "available"],
+                "Install an iOS Simulator runtime with Xcode.",
+            )?;
+        }
     }
+    if matches!(platform, "android" | "all") {
+        check(
+            "java",
+            &["-version"],
+            "Install a JDK supported by the Android Gradle plugin.",
+        )?;
+        if launches_device {
+            check(
+                "adb",
+                &["version"],
+                "Install Android platform tools and make `adb` available on PATH.",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn check_native_tool(program: &str, args: &[&str], hint: &str) -> Result<(), String> {
+    let invocation = format!("{program} {}", args.join(" "));
+    let output = Command::new(program).args(args).output().map_err(|error| {
+        format!("native build preflight could not start `{invocation}`: {error}. {hint}")
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    let detail = if detail.is_empty() {
+        format!("process exited with {}", output.status)
+    } else {
+        detail
+    };
+    Err(format!(
+        "native build preflight failed for `{invocation}`: {detail}. {hint}"
+    ))
 }
 
 fn run_command(mut command: Command, label: &str) -> Result<(), String> {
@@ -3173,7 +3828,7 @@ fn ensure_success(status: ExitStatus, label: &str) -> Result<(), String> {
 
 fn print_help() {
     println!(
-        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--audit] [--locked]\n  nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]\n  nexa fmt [<file-or-directory> ...] [--check]\n  nexa dev [--ios | --android | --all] [--locked]\n  nexa test [--ios | --android | --all] [--locked]\n  nexa test --unit-only [--ios | --android] [--locked]\n  nexa build --release [--ios | --android | --all] [--ipa | --aab]\n  nexa release [--ios | --android | --all] [--locked]\n  nexa doctor\n  nexa plugin new | check | generate\n\nRun `nexa <command> --help` for command options."
+        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--json] [--audit] [--locked]\n  nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--optimization-report] [--out <path>]\n  nexa fmt [<file-or-directory> ...] [--check]\n  nexa dev [--ios | --android | --all] [--dry-run] [--locked]\n  nexa test [--ios | --android | --all] [--dry-run] [--locked]\n  nexa test --unit-only [--ios | --android] [--dry-run] [--locked]\n  nexa release [--ios | --android | --all] [--dry-run] [--locked]\n  nexa doctor\n  nexa plugin new | check | generate | doc\n\nRun `nexa <command> --help` for command options."
     );
 }
 
@@ -3185,24 +3840,22 @@ fn print_command_help(command: &str) {
         }
         "audit" => crate::audit::print_help(),
         "fmt" => println!("Usage: nexa fmt [<file-or-directory> ...] [--check]"),
-        "build" => println!(
-            "Usage: nexa build --release [--ios | --android | --all] [--ipa | --aab] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\n`--ipa` selects iOS and `--aab` selects Android when no platform is given."
-        ),
+        "build" => println!("`nexa build` is deprecated; use `nexa release`."),
         "dev" => {
             println!(
-                "Usage: nexa dev [--ios | --android | --all] [--arch <architecture>] [--once | --compile-only] [--flavor <name>] [--out <directory>] [--locked]\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, `d` cycles connected devices, `p` toggles the performance overlay, `l` clears logs, and `q` stops the session."
+                "Usage: nexa dev [--ios | --android | --all] [--arch <architecture>] [--once | --compile-only] [--flavor <name>] [--out <directory>] [--dry-run] [--locked]\n`--dry-run` prints the planned steps without running them.\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, `d` cycles connected devices, `p` toggles the performance overlay, `t` toggles redacted runtime trace events, `l` clears logs, and `q` stops the session."
             )
         }
         "test" => {
             println!(
-                "Usage: nexa test [--ios | --android | --all] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\n       nexa test --unit-only [--ios | --android] [--locked]"
+                "Usage: nexa test [--ios | --android | --all] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--dry-run] [--locked]\n       nexa test --unit-only [--ios | --android] [--dry-run] [--locked]\n`--dry-run` prints the planned steps without running them."
             )
         }
         "release" => println!(
-            "Usage: nexa release [--ios | --android | --all] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Android signing uses .nexa/signing.properties or NEXA_ANDROID_* environment variables; iOS signing uses Xcode."
+            "Usage: nexa release [--ios | --android | --all] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--dry-run] [--locked]\n`--dry-run` prints the planned steps without running them. Builds an iOS archive or Android AAB. Android signing uses .nexa/signing.properties or NEXA_ANDROID_* environment variables; iOS signing uses Xcode."
         ),
         "plugin" => println!(
-            "Usage:\n  nexa plugin new <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure] (alias)\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"
+            "Usage:\n  nexa plugin new <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]\n  nexa plugin doc <package-directory|native.nxid> [--out <file>]\n\n`nexa plugin init` is deprecated; use `nexa plugin new`."
         ),
         _ => print_help(),
     }
@@ -3222,17 +3875,180 @@ fn set_flavor(current: &mut Option<String>, requested: &str) -> Result<(), Strin
 mod tests {
     use super::{
         DashboardLine, DevDashboard, DeviceLogDeduplicator, DeviceLogLine,
-        android_log_line_matches_pid, changed_paths, clip_terminal_text, is_relevant_dev_path,
+        android_log_line_matches_pid, android_platform_name_matches_api,
+        android_sdk_has_compile_platform, android_sdk_path, changed_paths, clip_terminal_text,
+        doctor_minimum_version, doctor_repair_hint, has_available_simulator, is_relevant_dev_path,
         parse_android_devices, parse_android_process_id, parse_dev_diagnostic,
-        parse_ios_simulator_devices, release_build_arguments, requires_native_rebuild, run,
-        run_in_language_tests, sanitize_terminal_text, select_native_platform, source_fingerprint,
-        write_dashboard_row,
+        parse_ios_simulator_devices, parse_version, preflight_native_toolchains_with,
+        release_build_arguments, requires_native_rebuild, run, run_in_language_tests,
+        sanitize_terminal_text, select_native_platform, source_fingerprint, write_dashboard_row,
     };
     use crossterm::style::Color;
     use nexa_testkit::{TempDir, TestProject};
     use std::collections::{HashMap, VecDeque};
     use std::fs;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn doctor_finds_sdk_from_project_properties_before_environment() {
+        let scratch = TempDir::new("nexa-doctor-android-sdk");
+        let project = scratch.path().join("project");
+        let local_sdk = scratch.path().join("local-sdk");
+        let environment_sdk = scratch.path().join("environment-sdk");
+        fs::create_dir_all(project.join("android")).expect("create project Android directory");
+        fs::create_dir_all(&local_sdk).expect("create local SDK directory");
+        fs::create_dir_all(&environment_sdk).expect("create environment SDK directory");
+        fs::write(
+            project.join("android/local.properties"),
+            format!("sdk.dir={}\n", local_sdk.display()),
+        )
+        .expect("write local Android SDK location");
+
+        let found = android_sdk_path(
+            &project,
+            Some(environment_sdk.as_os_str()),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(found, Some(local_sdk));
+    }
+
+    #[test]
+    fn doctor_checks_minimum_versions_and_points_to_specific_fixes() {
+        assert_eq!(
+            parse_version("rustc 1.85.2 (abcd 2026-10-01)"),
+            Some((1, 85, 2))
+        );
+        assert_eq!(parse_version("Xcode 27.0"), Some((27, 0, 0)));
+        assert_eq!(
+            parse_version(r#"openjdk version "17.0.16""#),
+            Some((17, 0, 16))
+        );
+        assert_eq!(doctor_minimum_version("Rust compiler"), Some((1, 85, 0)));
+        assert_eq!(doctor_minimum_version("Cargo"), Some((1, 85, 0)));
+        assert_eq!(doctor_minimum_version("Xcode"), Some((15, 0, 0)));
+        assert_eq!(doctor_minimum_version("Java"), Some((17, 0, 0)));
+        assert_eq!(doctor_minimum_version("Clang"), None);
+
+        assert!(doctor_repair_hint("Xcode").contains("xcode-select"));
+        assert!(doctor_repair_hint("iOS Simulator").contains("Simulator runtime"));
+        assert!(doctor_repair_hint("Java").contains("JDK 17"));
+        assert!(doctor_repair_hint("Android platform tools").contains("platform-tools"));
+        assert!(doctor_repair_hint("Android SDK").contains("ANDROID_SDK_ROOT"));
+    }
+
+    #[test]
+    fn doctor_detects_when_xcode_has_no_available_simulator_devices() {
+        assert!(has_available_simulator(
+            br#"{"devices":{"iOS 27.0":[{"name":"iPhone 17"}]}}"#
+        ));
+        assert!(!has_available_simulator(br#"{"devices":{"iOS 27.0":[]}}"#));
+        assert!(!has_available_simulator(b"not JSON"));
+    }
+
+    #[test]
+    fn doctor_checks_the_android_platform_used_by_generated_projects() {
+        let scratch = TempDir::new("nexa-doctor-android-platform");
+        let sdk = scratch.path();
+        let platform = sdk
+            .join("platforms")
+            .join(format!("android-{}", crate::config::ANDROID_COMPILE_SDK));
+        fs::create_dir_all(&platform).expect("create Android platform directory");
+        let android_jar = platform.join("android.jar");
+        fs::write(&android_jar, "").expect("create Android platform stub");
+
+        let prefix = format!("android-{}", crate::config::ANDROID_COMPILE_SDK);
+        assert!(android_platform_name_matches_api(&prefix, &prefix));
+        assert!(android_platform_name_matches_api(
+            &format!("{prefix}.0"),
+            &prefix,
+        ));
+        assert!(!android_platform_name_matches_api(
+            &format!("{prefix}0"),
+            &prefix,
+        ));
+        assert!(android_sdk_has_compile_platform(sdk));
+
+        fs::remove_file(android_jar).expect("remove Android platform stub");
+        assert!(!android_sdk_has_compile_platform(sdk));
+    }
+
+    #[test]
+    fn native_preflight_checks_only_tools_needed_by_the_selected_build() {
+        let cases = [
+            ("android", "dev", true, vec![("java", vec!["-version"])]),
+            ("ios", "dev", true, vec![("xcodebuild", vec!["-version"])]),
+            (
+                "ios",
+                "dev",
+                false,
+                vec![
+                    ("xcodebuild", vec!["-version"]),
+                    ("xcrun", vec!["simctl", "list", "devices", "available"]),
+                ],
+            ),
+            (
+                "all",
+                "dev",
+                false,
+                vec![
+                    ("xcodebuild", vec!["-version"]),
+                    ("xcrun", vec!["simctl", "list", "devices", "available"]),
+                    ("java", vec!["-version"]),
+                    ("adb", vec!["version"]),
+                ],
+            ),
+            (
+                "android",
+                "release",
+                false,
+                vec![("java", vec!["-version"])],
+            ),
+        ];
+
+        for (platform, command, compile_only, expected) in cases {
+            let mut actual = Vec::new();
+            preflight_native_toolchains_with(
+                platform,
+                command,
+                compile_only,
+                |program, args, _hint| {
+                    actual.push((
+                        program.to_owned(),
+                        args.iter().map(|argument| (*argument).to_owned()).collect(),
+                    ));
+                    Ok(())
+                },
+            )
+            .expect("the injected tool checks succeed");
+            let expected = expected
+                .into_iter()
+                .map(|(program, args)| {
+                    (
+                        program.to_owned(),
+                        args.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected, "{platform} {command} preflight");
+        }
+    }
+
+    #[test]
+    fn native_preflight_stops_before_build_when_a_tool_check_fails() {
+        let mut calls = Vec::new();
+        let error =
+            preflight_native_toolchains_with("android", "dev", false, |program, _args, _hint| {
+                calls.push(program.to_owned());
+                Err(format!("{program} is unavailable"))
+            })
+            .expect_err("a missing tool should stop the preflight");
+
+        assert_eq!(calls, ["java"]);
+        assert_eq!(error, "java is unavailable");
+    }
 
     #[test]
     fn dashboard_rows_clip_text_and_sanitize_terminal_controls() {

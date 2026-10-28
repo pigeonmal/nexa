@@ -62,6 +62,65 @@ fn dev_boundary(enum_name: &str, variant_name: &str) -> Option<&'static str> {
 }
 
 #[test]
+fn sync_and_async_dev_calls_share_native_builtin_dispatch() {
+    let swift = include_str!("../../../runtime/ios/NexaDevNativeApis.swift");
+    let kotlin = include_str!("../../../runtime/android/NexaDevNativeApis.kt");
+
+    let swift_shared = swift
+        .split_once("private func invokeSharedNative(")
+        .expect("iOS shared native dispatcher")
+        .1
+        .split_once("func invokeNativeAsync(")
+        .expect("iOS async dispatcher")
+        .0;
+    let kotlin_shared = kotlin
+        .split_once("private fun NexaDevStateStore.invokeSharedNative(")
+        .expect("Android shared native dispatcher")
+        .1
+        .split_once("internal suspend fun NexaDevStateStore.invokeNativeAsync(")
+        .expect("Android async dispatcher")
+        .0;
+
+    for namespace in ["Clipboard", "Storage", "Locale", "Crypto", "Path", "File"] {
+        assert!(
+            swift_shared.contains(&format!("case \"{namespace}\""))
+                || swift_shared.contains(&format!("case \"{namespace}\" where")),
+            "iOS shared dispatcher is missing {namespace}"
+        );
+        assert!(
+            kotlin_shared.contains(&format!("\"{namespace}\" ->")),
+            "Android shared dispatcher is missing {namespace}"
+        );
+    }
+    assert_eq!(
+        swift
+            .matches("invokeSharedNative(\n            namespace: namespace")
+            .count(),
+        2,
+        "iOS sync and async calls must use the shared dispatcher"
+    );
+    assert_eq!(
+        kotlin
+            .matches("invokeSharedNative(namespace, name, options, codecs)")
+            .count(),
+        2,
+        "Android sync and async calls must use the shared dispatcher"
+    );
+}
+
+#[test]
+fn android_dev_network_headers_are_checked_before_string_map_use() {
+    let kotlin = include_str!("../../../runtime/android/NexaDevNativeApis.kt");
+
+    assert!(kotlin.contains("private fun nexaDevStringMap(value: Any?): Map<String, String>"));
+    assert!(kotlin.contains("val headers = nexaDevStringMap(options[\"headers\"])"));
+    assert!(
+        !kotlin.contains("as? Map<String, String>"),
+        "runtime header decoding must avoid Kotlin's unchecked generic map cast"
+    );
+}
+
+#[test]
 fn user_classes_are_interpreted_by_both_dev_runtimes() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
@@ -87,6 +146,202 @@ fn user_classes_are_interpreted_by_both_dev_runtimes() {
     }
     assert!(swift_classes.contains("functionScope.merge(instance.fields)"));
     assert!(kotlin.contains("callLocals = instance.fields.toMutableMap()"));
+}
+
+#[test]
+fn reusable_component_refs_capture_typed_methods_in_both_dev_runtimes() {
+    let (root, _) = fixture();
+    let swift_state = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS DevRuntime state store");
+    let swift_renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    let swift_native = fs::read_to_string(root.join("../../runtime/ios/NexaDevNativeApis.swift"))
+        .expect("read iOS DevRuntime native calls");
+    let kotlin_state = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android DevRuntime state store");
+    let kotlin_renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+    let kotlin_native = fs::read_to_string(root.join("../../runtime/android/NexaDevNativeApis.kt"))
+        .expect("read Android DevRuntime native calls");
+
+    for (runtime, source, markers) in [
+        (
+            "iOS",
+            swift_state.as_str(),
+            vec![
+                "NexaDevKeys.refMethods",
+                "functions = installedFunctions",
+                "attachedParameters",
+            ],
+        ),
+        (
+            "Android",
+            kotlin_state.as_str(),
+            vec![
+                "NexaDevKeys.REF_METHODS",
+                "functions = installedFunctions",
+                "attachedParameters",
+            ],
+        ),
+    ] {
+        for marker in markers {
+            assert!(
+                source.contains(marker),
+                "{runtime} DevRuntime is missing {marker}"
+            );
+        }
+    }
+
+    for (runtime, source, markers) in [
+        (
+            "iOS",
+            swift_renderer.as_str(),
+            vec![
+                "componentRef?.attach(scope: componentScope, parameters: componentParameters)",
+                "component/\\(name)/\\(componentIdentity)",
+                "componentRef.map { \"ref/\\($0.identity)\" } ?? identity",
+                "store.clearNativeTasks(scope: componentScope)",
+            ],
+        ),
+        (
+            "Android",
+            kotlin_renderer.as_str(),
+            vec![
+                "componentRef?.attach(componentScope, parameters)",
+                "component/$name/ref/${it.identity}",
+                "componentInstanceId = remember(name) { java.util.UUID.randomUUID().toString() }",
+                "store.clearNativeTasks(componentScope)",
+            ],
+        ),
+    ] {
+        for marker in markers {
+            assert!(
+                source.contains(marker),
+                "{runtime} DevRuntime is missing {marker}"
+            );
+        }
+    }
+
+    assert!(kotlin_state.contains("attachedParameters = parameters"));
+    assert!(
+        !kotlin_state.contains("attachedParameters = parameters.toMap()"),
+        "component ref attachment should reuse the renderer-owned argument map"
+    );
+    assert!(swift_native.contains("locals: reference.attachedParameters"));
+    assert!(swift_native.contains("[\"Err\": [\"NotAttached\": NSNull()]]"));
+    assert!(swift_native.contains("if declaration[\"is_async\"] as? Bool == true"));
+    assert!(swift_native.contains("nexaDevComponentRefFailure(failure)"));
+    assert!(
+        swift_native.contains("nexaDevComponentRefResult(result, returnsResult: returnsResult)")
+    );
+    assert!(swift_native.contains("[\"Err\": [\"Failure\": failure]]"));
+    assert!(kotlin_native.contains("reference.attachedParameters"));
+    assert!(kotlin_native.contains("mapOf(\"Err\" to mapOf(\"NotAttached\" to JSONObject.NULL))"));
+    assert!(kotlin_native.contains("declaration.optBoolean(\"is_async\")"));
+    assert!(kotlin_native.contains("componentRefFailure(failure)"));
+    assert!(kotlin_native.contains("componentRefResult("));
+    assert!(kotlin_native.contains("\"Failure\" to (outcome[\"Err\"]"));
+}
+
+#[test]
+fn dev_runtime_installs_declarations_without_temporary_pair_collections() {
+    let (root, _) = fixture();
+    let swift_state = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS DevRuntime state store");
+    let kotlin_state = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android DevRuntime state store");
+
+    let swift_full_install = swift_state
+        .split_once("func install(module: [String: Any]) {")
+        .expect("find iOS module installation")
+        .1
+        .split_once("func pushNavigation(")
+        .expect("find end of iOS module installation")
+        .0;
+    assert!(
+        swift_full_install.contains("func installState(_ state: [String: Any], scope: String)")
+    );
+    assert!(swift_full_install.contains("for state in appStates"));
+    assert!(swift_full_install.contains("for state in screen[\"states\"]"));
+    assert!(swift_full_install.contains("currentScreens.insert(name)"));
+    assert!(
+        !swift_full_install.contains("appStates.map")
+            && !swift_full_install.contains("screens.flatMap")
+            && !swift_full_install.contains("compactMap"),
+        "iOS module install should avoid temporary declaration and screen arrays"
+    );
+
+    let kotlin_full_install = kotlin_state
+        .split_once("fun install(next: JSONObject) {")
+        .expect("find Android module installation")
+        .1
+        .split_once("fun hotRestart() {")
+        .expect("find end of Android module installation")
+        .0;
+    assert!(
+        kotlin_full_install.contains("fun installState(scope: String, declaration: JSONObject)")
+    );
+    assert!(kotlin_full_install.contains("installState(\"app\", it)"));
+    assert!(kotlin_full_install.contains("installState(\"screen/$screenName\", it)"));
+    assert!(kotlin_full_install.contains("currentScreens += screen.optString(\"name\")"));
+    assert!(
+        !kotlin_full_install.contains("mutableListOf<Pair<String, JSONObject>>")
+            && !kotlin_full_install.contains("declarations +=")
+            && !kotlin_full_install.contains(".mapNotNull("),
+        "Android module install should avoid temporary declaration and screen collections"
+    );
+
+    let swift_install = swift_state
+        .split_once("let functionDeclarations = module[\"functions\"]")
+        .expect("find iOS declaration installation")
+        .1
+        .split_once("var nextValues: [String: Any] = [:]")
+        .expect("find end of iOS declaration installation")
+        .0;
+    for marker in [
+        "for function in functionDeclarations",
+        "installedFunctions[name] = function",
+        "for declaration in structDeclarations",
+        "installedStructs[name] = declaration[\"fields\"]",
+        "for declaration in enumDeclarations",
+        "installedEnumCases[name] = declaration[\"cases\"]",
+    ] {
+        assert!(
+            swift_install.contains(marker),
+            "iOS install is missing {marker}"
+        );
+    }
+    assert!(
+        !swift_install.contains("compactMap"),
+        "iOS declaration install should build its maps in one pass"
+    );
+
+    let kotlin_install = kotlin_state
+        .split_once("val nextFunctions = next.optJSONArray(\"functions\")")
+        .expect("find Android declaration installation")
+        .1
+        .split_once("val nextValues = mutableMapOf<String, Any>()")
+        .expect("find end of Android declaration installation")
+        .0;
+    for marker in [
+        "for (index in 0 until nextFunctions.length())",
+        "installedFunctions[name] = function",
+        "installedClassTypes[classType.optString(\"name\")] = classType",
+        "for (index in 0 until nextStructs.length())",
+        "installedStructs[name] = declaration.optJSONArray(\"fields\")",
+        "for (index in 0 until nextEnums.length())",
+        "installedEnumCases[name] = (0 until cases.length()).map",
+    ] {
+        assert!(
+            kotlin_install.contains(marker),
+            "Android install is missing {marker}"
+        );
+    }
+    assert!(
+        !kotlin_install.contains("mapNotNull")
+            && !kotlin_install.contains("toMap().toMutableMap()"),
+        "Android declaration install should avoid temporary pair collections and copied maps"
+    );
 }
 
 #[test]
@@ -270,6 +525,13 @@ fn collect_parity_components(
                                 "font",
                             ]
                             .contains(&name.as_str()))
+                        || (invocation.name == "Button"
+                            && ["style", "size", "shape"].contains(&name.as_str()))
+                        || (invocation.name == "Toolbar" && name == "placement")
+                        || (invocation.name == "LinearGradient" && name == "direction")
+                        || (invocation.name == "Image" && name == "scale")
+                        || (invocation.name == "StatusBar" && name == "style")
+                        || (invocation.name == "KeyboardAware" && name == "dismiss")
                     {
                         let literal_name = match value {
                             Expr::EnumCase { case_name, .. } => Some(case_name.as_str()),
@@ -528,6 +790,37 @@ fn component_parity_app_exercises_every_catalog_component() {
         }
     }
 
+    for (argument, expected) in [
+        (
+            "style",
+            ["BorderedProminent", "Bordered", "Borderless", "Plain"].as_slice(),
+        ),
+        ("size", ["Small", "Regular", "Large"].as_slice()),
+        ("shape", ["Circle", "Capsule"].as_slice()),
+        ("placement", ["Leading", "Trailing"].as_slice()),
+        (
+            "direction",
+            [
+                "LeadingToTrailing",
+                "TrailingToLeading",
+                "TopToBottom",
+                "BottomToTop",
+            ]
+            .as_slice(),
+        ),
+        ("scale", ["Fit", "Fill"].as_slice()),
+        ("dismiss", ["Interactive", "Never"].as_slice()),
+    ] {
+        for value in expected {
+            assert!(
+                enum_arguments
+                    .get(argument)
+                    .is_some_and(|values| values.contains(*value)),
+                "component parity app is missing {argument} enum value {value}"
+            );
+        }
+    }
+
     for component in catalog::COMPONENTS {
         assert!(
             found.contains(component.name),
@@ -577,6 +870,87 @@ fn component_parity_app_exercises_every_catalog_component() {
         source.contains("scrollEnabled: allowGridScroll"),
         "FastList parity route must exercise reactive scroll enablement"
     );
+    assert!(
+        source.contains("shape: Rounded(12)"),
+        "ButtonCases must cover a parameterized rounded shape"
+    );
+    assert!(
+        source.contains("Appearance(mode: \"system\")")
+            && source.contains("Appearance(mode: \"light\")")
+            && source.contains("Appearance(mode: \"dark\")"),
+        "AppearanceCases must cover system, light, and dark modes"
+    );
+    assert!(
+        source.contains("canOpenDirection =!canOpenDirection")
+            && source.contains("when: canOpenDirection"),
+        "NavigationBackCases must cover both conditional-navigation states"
+    );
+    assert!(
+        source.contains("StatusBar(style: Default, hidden: false"),
+        "StatusBarCases must exercise the visible default configuration"
+    );
+}
+
+#[test]
+fn status_bar_static_style_and_visibility_options_compile_for_all_runtimes() {
+    let source = r#"
+app StatusBarOptionCoverage {
+    screen DefaultVisible {
+        StatusBar(style: Default, hidden: false)
+        Column { Text("Default visible") }
+    }
+    screen LightVisible {
+        StatusBar(style: Light, hidden: false)
+        Column { Text("Light visible") }
+    }
+    screen DarkVisible {
+        StatusBar(style: Dark, hidden: false)
+        Column { Text("Dark visible") }
+    }
+    screen DefaultHidden {
+        StatusBar(style: Default, hidden: true)
+        Column { Text("Default hidden") }
+    }
+    screen LightHidden {
+        StatusBar(style: Light, hidden: true)
+        Column { Text("Light hidden") }
+    }
+    screen DarkHidden {
+        StatusBar(style: Dark, hidden: true)
+        Column { Text("Dark hidden") }
+    }
+    body { NavigationStack(root: DefaultVisible) }
+}
+"#;
+
+    let swift =
+        nexa_compiler::compile_with_warnings_for_target(source, nexa_compiler::Target::Swift)
+            .expect("compile all static status-bar options for Swift")
+            .module;
+    let kotlin =
+        nexa_compiler::compile_with_warnings_for_target(source, nexa_compiler::Target::Kotlin)
+            .expect("compile all static status-bar options for Kotlin")
+            .module;
+    let swift_aot = SwiftBackend.generate(&swift);
+    let kotlin_aot = KotlinBackend.generate(&kotlin);
+    let swift_dev = SwiftBackend.generate_for_dev(&swift);
+    let (kotlin_dev, _) = KotlinBackend.generate_for_dev_with_project_features(&kotlin);
+
+    for output in [&swift_aot, &swift_dev] {
+        assert_eq!(output.matches(".statusBarHidden(true)").count(), 3);
+        assert!(output.contains(".preferredColorScheme(.dark)"));
+        assert!(output.contains(".preferredColorScheme(.light)"));
+    }
+    for output in [&kotlin_aot, &kotlin_dev] {
+        assert_eq!(
+            output
+                .matches("nexaController.hide(WindowInsetsCompat.Type.statusBars())")
+                .count(),
+            3
+        );
+        assert!(output.contains("nexaController.isAppearanceLightStatusBars = false"));
+        assert!(output.contains("nexaController.isAppearanceLightStatusBars = true"));
+    }
 }
 
 #[test]
@@ -1584,10 +1958,6 @@ fn keyed_fast_list_module(with_reordering: bool) -> Module {
                 item_extent: None,
                 index: "index".to_owned(),
                 key: Some(Expr::State("task".to_owned(), item_type.clone())),
-                scroll_position: None,
-                scroll_to_top: None,
-                scroll_to_end: None,
-                scroll_to_offset: None,
                 scroll_enabled: None,
                 children: vec![Node::Text {
                     value: Expr::State("task".to_owned(), item_type),
@@ -1604,6 +1974,8 @@ fn keyed_fast_list_module(with_reordering: bool) -> Module {
                 swipe_actions: None,
                 sticky_header: None,
                 refresh: None,
+                scroll_position: None,
+                component_ref: None,
                 spacing: 0.0,
             },
         }),
@@ -1809,6 +2181,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             shape: Some(nexa_ir::ButtonShape::Circle),
             tint: None,
             glass: true,
+            accessibility_label: None,
             actions: Vec::new(),
         },
         Node::Form {
@@ -1838,15 +2211,13 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             ],
         },
         Node::BottomSheet {
-            state: "showEditor".to_owned(),
-            content_padding: 8.0,
-            detents: vec![
-                nexa_ir::BottomSheetDetent::Medium,
-                nexa_ir::BottomSheetDetent::Expanded,
-            ],
-            snap_points: Vec::new(),
-            initial_snap_point: None,
-            selected_snap_point: None,
+            component_ref: Expr::ComponentRefCreate {
+                namespace: "Nexa".to_owned(),
+                name: "BottomSheet".to_owned(),
+                identity: "show-editor-sheet".to_owned(),
+            },
+            content_padding: 0.0,
+            detents: vec![0.5, 1.0],
             initial_detent: None,
             show_drag_indicator: true,
             allows_dismissal: true,
@@ -1874,6 +2245,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
                 shape: None,
                 tint: None,
                 glass: false,
+                accessibility_label: None,
                 actions: Vec::new(),
             }],
         },
@@ -2086,6 +2458,13 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     let kotlin_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime renderer");
 
+    assert!(
+        !swift.contains("AnyView"),
+        "iOS AOT output for stateful controls and shared components must preserve concrete view types"
+    );
+    assert!(swift_runtime.contains("} ?? label"));
+    assert!(kotlin_runtime.contains("?: label"));
+
     assert!(swift.contains("struct NexaColumnPrimitive<Content: View>"));
     assert!(
         swift.contains(
@@ -2204,8 +2583,8 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         );
     }
     for expected in [
-        "detents: [.medium, .large]",
-        "initialDetent: .medium",
+        "detents: [.fraction(0.5), .fraction(1)]",
+        "initialDetent: .fraction(0.5)",
         "showDragIndicator: true",
         "allowsDismissal: true",
         "backgroundColor: nil",
@@ -2376,6 +2755,16 @@ fn aot_prunes_unreachable_shared_components_while_dev_hosts_preload_them() {
 
     // DevRuntime preloads the full primitive catalog for hot-reloaded modules.
     // AOT release output emits only helpers reachable from the app's callsites.
+    let swift_pruned_bytes = swift_dev.len().saturating_sub(swift_release.len());
+    let kotlin_pruned_bytes = kotlin_dev.len().saturating_sub(kotlin_release.len());
+    assert!(
+        swift_pruned_bytes >= 10_000,
+        "iOS AOT should omit unused primitive source (saved {swift_pruned_bytes} bytes)"
+    );
+    assert!(
+        kotlin_pruned_bytes >= 10_000,
+        "Android AOT should omit unused primitive source (saved {kotlin_pruned_bytes} bytes)"
+    );
     assert!(
         kotlin_dev.contains("decorFitsSystemWindows = false"),
         "Android DevRuntime date picker must use edge-to-edge dialog insets"
@@ -2880,6 +3269,15 @@ fn semantic_text_font_roles_match_native_metrics_in_both_dev_runtimes() {
 }
 
 #[test]
+fn ios_dev_spacer_has_no_implicit_minimum_gap() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS dev renderer");
+    let spacer = section(&swift, "case \"Spacer\":", "case \"Divider\":");
+    assert!(spacer.contains("Spacer(minLength: 0)"));
+}
+
+#[test]
 fn calendar_day_arithmetic_has_native_and_dev_runtime_mappings() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
@@ -2952,6 +3350,47 @@ fn module_initializers_resolve_prior_values_during_install_and_hot_restart() {
     assert!(swift.contains("evaluate(initial, locals: initialLocals, scope: \"app\")"));
     assert!(kotlin.contains("evaluate(declaration.get(\"initial\"), initialLocals, scope)"));
     assert!(kotlin.contains("evaluate(state.get(\"initial\"), initialLocals, \"app\")"));
+}
+
+#[test]
+fn dev_runtime_state_migration_tracks_nested_enum_and_component_shapes() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS dev state");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state");
+
+    for (runtime, source, markers) in [
+        (
+            "iOS",
+            swift.as_str(),
+            vec![
+                "stateShapeSignature(_ type: Any?, enumCases: [String: [String]])",
+                "for child in object.values { collectEnumTypes(in: child) }",
+                "typeSignatures[identity] == signature",
+                "values where identity.hasPrefix(\"component/\")",
+                "nextTypes[identity] = signature",
+            ],
+        ),
+        (
+            "Android",
+            kotlin.as_str(),
+            vec![
+                "private fun stateShapeSignature(type: Any?, enumCases: Map<String, List<String>>): String",
+                "collectEnumTypes(value.opt(keys.next()))",
+                "previousType == typeSignature",
+                "identity.startsWith(\"component/\")",
+                "nextTypes[identity] = signature",
+            ],
+        ),
+    ] {
+        for marker in markers {
+            assert!(
+                source.contains(marker),
+                "{runtime} state migration missing {marker}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -3606,6 +4045,13 @@ fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
 
     assert!(ios_protocol.contains("NexaDevKeys.msgOpenInEditor"));
     assert!(ios_protocol.contains("NexaDevDiagnostic(file: file, line: line, column: column"));
+    assert!(ios_protocol.contains("pluginFailure?.sourceFile"));
+    assert!(ios_protocol.contains("pluginFailure?.sourceLine"));
+    assert!(ios_protocol.contains("pluginFailure?.sourceColumn"));
+    assert!(ios_state.contains("catch var failure as NexaDevPluginFailure"));
+    assert!(ios_state.contains("throw failure"));
+    assert!(ios_state.contains("catch let cancellation as CancellationError"));
+    assert!(ios_state.contains("attachSourceLocation(file: sourceFile"));
     assert!(ios_overlay.contains("Development diagnostics"));
     assert!(ios_overlay.contains("diagnostic.compactSourceLocation"));
     assert!(ios_overlay.contains(".background(Color(uiColor: .systemBackground)"));
@@ -3618,6 +4064,10 @@ fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
     assert!(ios_overlay.contains("item.stackTrace"));
     assert!(ios_overlay.contains("source mapping unavailable"));
     assert!(ios_state.contains("onRuntimeFailure?(error, capturedStack)"));
+    assert!(ios_state.contains("NexaDevLocatedRuntimeError"));
+    assert!(ios_state.contains("fields[\"source_file\"]"));
+    assert!(ios_protocol.contains("located?.sourceFile"));
+    assert!(ios_state.contains("fields[\"source_span\"]"));
     assert!(ios_actions.contains("self.reportRuntimeFailure(error)"));
     assert!(android_protocol.contains("NexaDevKeys.MSG_OPEN_IN_EDITOR"));
     assert!(android_protocol.contains("NexaDevDiagnostic("));
@@ -3634,9 +4084,36 @@ fn interactive_diagnostics_route_source_locations_from_both_dev_runtimes() {
     assert!(android_overlay.contains("diagnostic.stackTrace"));
     assert!(android_overlay.contains("source mapping unavailable"));
     assert!(android_state.contains("error.stackTraceToString()"));
+    assert!(android_state.contains("locateExpressionFailure"));
+    assert!(android_state.contains("fields.optString(\"source_file\")"));
+    assert!(android_state.contains("if (error is NexaDevPluginFailure)"));
+    assert!(android_state.contains("error is CancellationException"));
+    assert!(android_state.contains("return error"));
+    assert!(
+        android_state.contains("attachPendingPluginFailureLocation(fields, pendingPluginFailure)")
+    );
+    assert!(android_state.contains("pluginFailure?.sourceFile"));
     assert!(android_actions.contains("store.reportRuntimeFailure(error)"));
     assert!(server.contains("ClientMessage::OpenInEditor { file, line, column }"));
     assert!(cli.contains("vscode://file/"));
+}
+
+#[test]
+fn nested_plugin_failures_keep_the_innermost_source_location() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS dev state");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state");
+
+    assert!(
+        swift.contains("guard failure.sourceFile == nil else { return }"),
+        "iOS must not replace the innermost plugin failure location"
+    );
+    assert!(
+        kotlin.contains("if (sourceFile != null) return"),
+        "Android must not replace the innermost plugin failure location"
+    );
 }
 
 #[test]
@@ -4037,8 +4514,8 @@ fn keyboard_ergonomics_are_consumed_by_dev_runtime() {
             );
         }
     }
-    assert!(swift_native.contains("namespace == \"Keyboard\", name == \"dismiss\""));
-    assert!(kotlin_native.contains("namespace == \"Keyboard\" && name == \"dismiss\""));
+    assert!(swift_native.contains("case \"Keyboard\" where name == \"dismiss\":"));
+    assert!(kotlin_native.contains("\"Keyboard\" -> if (name == \"dismiss\")"));
     assert!(kotlin_renderer.contains("NexaKeyboardAwareColumnPrimitive("));
     assert!(kotlin_core.contains("foregroundActivity"));
     assert!(kotlin_core.contains("hideSoftInputFromWindow"));
@@ -4141,6 +4618,83 @@ fn hot_reload_patch_application_avoids_full_module_clones_and_long_retry_waits()
 
     assert!(android_state.contains("val updated = shallowCopy(root)"));
     assert!(android_state.contains("private fun shallowCopy(value: Any): Any?"));
+    let patch_apply = android_state
+        .split_once("fun applyPatch(patch: JSONObject): Boolean {")
+        .expect("find Android patch application")
+        .1
+        .split_once("private fun shallowCopy(")
+        .expect("find end of Android patch application")
+        .0;
+    assert!(patch_apply.contains("val root = module ?: return false"));
+    assert!(
+        patch_apply.contains("val operations = patch.optJSONArray(\"operations\") ?: return false")
+    );
+    assert!(patch_apply.contains("if (!applyOperation(updated, operation)) return false"));
+    assert!(patch_apply.contains("install(updated)\n        return true"));
+
+    let patch_handler = android_protocol
+        .split_once("NexaDevKeys.MSG_PATCH -> {")
+        .expect("find Android patch handler")
+        .1
+        .split_once("NexaDevKeys.MSG_DIAGNOSTICS -> {")
+        .expect("find end of Android patch handler")
+        .0;
+    let patch_applied = patch_handler
+        .find("store.applyPatch(patch)")
+        .expect("apply patch before acknowledging it");
+    let rejected_patch = patch_handler
+        .find("if (!applied.get())")
+        .expect("request a full module when Android rejects a patch");
+    let advanced_revision = patch_handler
+        .find("currentRevision = revision")
+        .expect("advance revision after successful patch application");
+    assert!(
+        patch_applied < rejected_patch && rejected_patch < advanced_revision,
+        "Android must keep the last good revision when a patch cannot be applied"
+    );
+    assert!(
+        patch_handler[rejected_patch..advanced_revision]
+            .contains("NexaDevKeys.MSG_REQUEST_FULL_MODULE")
+    );
+
+    let ios_patch_handler = ios_protocol
+        .split_once("case NexaDevKeys.msgPatch:")
+        .expect("find iOS patch handler")
+        .1
+        .split_once("case NexaDevKeys.msgDiagnostics:")
+        .expect("find end of iOS patch handler")
+        .0;
+    let ios_apply = ios_patch_handler
+        .find("Self.apply(operations, to: &nextModule)")
+        .expect("validate iOS patch operations");
+    let ios_install = ios_patch_handler
+        .find("store.install(module: nextModule)")
+        .expect("install iOS module only after applying patch");
+    let ios_revision = ios_patch_handler
+        .find("currentRevision = revision")
+        .expect("advance iOS revision after installing the patch");
+    assert!(
+        ios_apply < ios_install && ios_install < ios_revision,
+        "iOS must validate and install a patch before advancing its revision"
+    );
+    assert!(ios_patch_handler.contains("requestFullModule()"));
+
+    let patch_path_handling = android_state
+        .split_once(
+            "private fun applyOperation(root: JSONObject, operation: JSONObject): Boolean {",
+        )
+        .expect("find Android patch path handling")
+        .1
+        .split_once("fun publishDiagnostics(")
+        .expect("find end of Android patch path handling")
+        .0;
+    assert!(patch_path_handling.contains("updateContainer(root, path, 0, kind, value)"));
+    assert!(patch_path_handling.contains("path.indexOf('/', segmentStart)"));
+    assert!(
+        !patch_path_handling.contains("path.split('/')")
+            && !patch_path_handling.contains("filter(String::isNotEmpty).map"),
+        "patch traversal should avoid allocating and transforming a path-segment list"
+    );
     assert!(
         !android_state.contains("JSONObject(root.toString())"),
         "an ordinary Android patch must not serialize and reparse the full Dev IR module"
@@ -4174,10 +4728,6 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                 item_extent: Some(72.0),
                 index: "index".to_owned(),
                 key: None,
-                scroll_position: None,
-                scroll_to_top: None,
-                scroll_to_end: None,
-                scroll_to_offset: None,
                 scroll_enabled: None,
                 children: vec![row("Task title"), row("Task details")],
                 on_end_reached: None,
@@ -4193,10 +4743,13 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                     shape: None,
                     tint: None,
                     glass: false,
+                    accessibility_label: None,
                     actions: Vec::new(),
                 }]),
                 sticky_header: None,
                 refresh: None,
+                scroll_position: None,
+                component_ref: None,
                 spacing: 4.0,
             },
         }),
@@ -4250,20 +4803,33 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
     assert!(renderer.contains("if (swipeActions != null && (onMove == null || !moveEnabled))"));
     assert!(renderer.contains("userScrollEnabled = !swipeRowGestureActive.value"));
     assert!(renderer.contains("LocalNexaFastListSwipePagerLock provides swipeRowGestureActive"));
-    assert!(renderer.contains("Box(modifier = Modifier.fillMaxWidth().then(reorderModifier))"));
+    assert!(
+        renderer
+            .contains("val rowModifier = (if (reorderableItem) Modifier else itemParentModifier)")
+    );
+    assert!(renderer.contains(".then(reorderModifier),"));
     assert!(renderer.contains(
         "awaitFirstDown(\n                                    requireUnconsumed = false,"
     ));
     assert!(renderer.contains("PointerEventPass.Initial"));
     assert!(renderer.contains("withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis)"));
-    assert!(renderer.contains("minByOrNull { abs(it.offset + it.size / 2 - draggedCenter) }"));
-    assert!(renderer.contains("dragOffset.floatValue = dragDistance"));
+    assert!(renderer.contains("for (visibleIndex in visibleItems.indices)"));
+    assert!(renderer.contains("val distance = abs(itemCenter - draggedCenter)"));
+    assert!(renderer.contains("if (distance < targetDistance)"));
+    assert!(renderer.contains("reorderOffset.floatValue = dragDistance"));
     assert!(!renderer.contains("rowExtentPx"));
     assert!(renderer.contains("options.optDouble(\"spacing\", 0.0).coerceAtLeast(0.0).dp"));
     assert!(renderer.contains("options?.opt(\"scroll_enabled\")"));
     assert!(renderer.contains("userScrollEnabled = scrollEnabled &&"));
     assert!(renderer.contains("verticalArrangement = Arrangement.spacedBy(spacing)"));
     assert!(renderer.contains("val keyExpression = options?.opt(\"key\")"));
+    assert!(renderer.contains("animateStableRows && !pageSnap"));
+    assert!(renderer.contains("placementSpec = if ((reorderActiveIndex?.intValue ?: -1) < 0)"));
+    assert!(
+        renderer.contains(
+            "androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>()"
+        )
+    );
     assert!(
         renderer
             .contains("store.evaluate(expression, listRowLocals(itemIndex, sectionIndex), scope)")
@@ -4336,10 +4902,6 @@ fn divider_preferences_reach_dev_ir_and_both_runtime_renderers() {
                     scroll_enabled: None,
                     index: "index".to_owned(),
                     key: None,
-                    scroll_position: None,
-                    scroll_to_top: None,
-                    scroll_to_end: None,
-                    scroll_to_offset: None,
                     children: vec![text("First task"), text("Second task")],
                     on_end_reached: None,
                     on_scroll: None,
@@ -4347,6 +4909,8 @@ fn divider_preferences_reach_dev_ir_and_both_runtime_renderers() {
                     swipe_actions: None,
                     sticky_header: None,
                     refresh: None,
+                    scroll_position: None,
+                    component_ref: None,
                 },
             }),
         },
@@ -4416,10 +4980,6 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 item_extent: Some(64.0),
                 index: "index".to_owned(),
                 key: None,
-                scroll_position: None,
-                scroll_to_top: None,
-                scroll_to_end: None,
-                scroll_to_offset: None,
                 scroll_enabled: None,
                 children: vec![Node::Text {
                     value: Expr::String("AOT and DevRuntime row".to_owned()),
@@ -4431,6 +4991,8 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 swipe_actions: None,
                 sticky_header: None,
                 refresh: None,
+                scroll_position: None,
+                component_ref: None,
                 spacing: 4.0,
             },
         }),
@@ -4443,6 +5005,18 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
         .expect("read iOS DevRuntime list renderer");
 
     assert!(aot.contains("NexaFastListPrimitive(rowCount:"));
+    assert!(
+        aot.contains("func NexaFastListPrimitive<RowContent: View"),
+        "iOS AOT FastList must keep its row content statically typed"
+    );
+    assert!(
+        !aot.contains("AnyView"),
+        "iOS AOT FastList output must not erase the row view type"
+    );
+    assert!(
+        !keyed_action_aot.contains("AnyView"),
+        "iOS AOT keyed FastList rows must not erase the row view type"
+    );
     assert!(aot.contains(
         ".frame(\n                    minHeight: pageSnap ? nil : (rowHeight ?? CGFloat(52)),"
     ));
@@ -4495,12 +5069,31 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
     ] {
         assert!(renderer.contains(call), "DevRuntime omitted {call}");
     }
+    let masonry_branch = renderer
+        .split_once("} else if case let .masonry(columns) = axis, sectionCounts == nil {")
+        .expect("find iOS DevRuntime masonry FastList branch")
+        .1
+        .split_once("} else if case .vertical = axis, let sectionCounts, let sectionOffsets {")
+        .expect("find end of iOS DevRuntime masonry FastList branch")
+        .0;
+    let masonry_argument = masonry_branch
+        .find("masonry: true,")
+        .expect("masonry branch must pass the masonry argument");
+    let scroll_position_argument = masonry_branch
+        .find("scrollPosition: scrollPosition.map(Int32.init),")
+        .expect("masonry branch must pass the controlled scroll position");
+    assert!(
+        masonry_argument < scroll_position_argument,
+        "DevRuntime argument order must match NexaFastGridListPrimitive's Swift declaration"
+    );
     assert!(dev_host.contains("NexaFastListSwipePagerGestureBridge"));
     assert!(dev_host.contains("override func layoutSubviews()"));
     assert!(dev_host.contains("UILongPressGestureRecognizer"));
     assert!(dev_host.contains("minimumPressDuration = 0"));
     assert!(dev_host.contains("allowableMovement = .greatestFiniteMagnitude"));
     assert!(dev_host.contains("scrollView.isPagingEnabled"));
+    assert!(dev_host.contains("scrollView.contentSize.width > scrollView.bounds.width + 1"));
+    assert!(dev_host.contains("scrollView.contentSize.height <= scrollView.bounds.height + 1"));
     assert!(dev_host.contains("shouldRecognizeSimultaneouslyWith otherGestureRecognizer"));
     assert!(!dev_host.contains("localizedCaseInsensitiveContains(\"SwipeAction\")"));
     assert!(
@@ -4539,10 +5132,6 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 item_extent: None,
                 index: "index".to_owned(),
                 key: None,
-                scroll_position: None,
-                scroll_to_top: None,
-                scroll_to_end: None,
-                scroll_to_offset: None,
                 scroll_enabled: None,
                 children: vec![Node::Text {
                     value: Expr::String("Task".to_owned()),
@@ -4561,17 +5150,20 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                     shape: None,
                     tint: None,
                     glass: false,
+                    accessibility_label: None,
                     actions: Vec::new(),
                 }]),
                 sticky_header: None,
                 refresh: None,
+                scroll_position: None,
+                component_ref: None,
                 spacing: 0.0,
             },
         }),
     }]));
-    assert!(swipe_actions_aot.contains("NexaNativeListPrimitive(scrollEnabled: true) {"));
+    assert!(swipe_actions_aot.contains("NexaNativeListPrimitive(scrollEnabled: true, rowCount:"));
     assert!(swipe_actions_aot.contains(
-        "NexaNativeListRowPrimitive(showDividers: true, prioritizeSwipeActions: true) {"
+        "NexaNativeListRowPrimitive(position: listPosition, showDividers: true, prioritizeSwipeActions: true, reorderIndex: nil, reorderEnabled: false, onReorder: { source, destination in"
     ));
     assert!(swipe_actions_aot.contains("UILongPressGestureRecognizer"));
     assert!(swipe_actions_aot.contains("minimumPressDuration = 0"));
@@ -4649,10 +5241,6 @@ fn horizontal_fast_list_row_height_does_not_constrain_width_in_android() {
                 item_extent: Some(96.0),
                 index: "index".to_owned(),
                 key: None,
-                scroll_position: None,
-                scroll_to_top: None,
-                scroll_to_end: None,
-                scroll_to_offset: None,
                 scroll_enabled: None,
                 children: vec![Node::Text {
                     value: Expr::String("Horizontal row".to_owned()),
@@ -4664,6 +5252,8 @@ fn horizontal_fast_list_row_height_does_not_constrain_width_in_android() {
                 swipe_actions: None,
                 sticky_header: None,
                 refresh: None,
+                scroll_position: None,
+                component_ref: None,
                 spacing: 12.0,
             },
         }),
@@ -4715,13 +5305,14 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
     assert!(!android.contains("endReached = reached"));
     assert!(android.contains("private fun nexaDevLeadingVisibleDataItemIndex("));
     assert!(android.contains("nexaDevLeadingVisibleDataItemIndex("));
+    assert!(android.contains("for (item in visibleItems) {"));
+    assert!(android.contains(
+        "if (item.offset + item.size <= viewportStartOffset || item.offset >= viewportEndOffset) continue"
+    ));
     assert!(android.contains(
         "reverseLayout,\n                                                layoutInfo.viewportStartOffset,\n                                                layoutInfo.viewportEndOffset,"
     ));
     assert!(android.contains("viewportStartOffset: Int,\n    viewportEndOffset: Int,"));
-    assert!(android.contains(
-        "item.offset + item.size > viewportStartOffset && item.offset < viewportEndOffset"
-    ));
     assert!(android.contains(
         "if (item.offset + item.size <= viewportStartOffset || item.offset >= viewportEndOffset) return false"
     ));
@@ -4741,7 +5332,11 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
 
     assert!(ios.contains("Preference changes run during SwiftUI's update transaction."));
     assert!(ios.contains("DispatchQueue.main.async {"));
-    assert!(ios.contains("visibleRows.keys.contains(finalVisibleIndex)"));
+    assert!(ios.contains("for (index, frame) in offsets {"));
+    assert!(
+        ios.contains("if count > 0 && index == finalVisibleIndex { reachedEndCandidate = true }")
+    );
+    assert!(ios.contains("endReachedGate.claim(count: count)"));
     assert!(ios.contains("index != lastReportedVisibleIndex"));
     let ios_fast_list = ios
         .split_once("struct NexaDevFastList<")
@@ -4752,7 +5347,7 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
         .0;
     assert!(ios.contains("static let defaultValue: [Int: CGRect] = [:]"));
     assert!(ios_fast_list.contains("frame.maxY > 0 && frame.minY < viewportExtent"));
-    assert!(ios_fast_list.contains("leadingOffset($0.value) < leadingOffset($1.value)"));
+    assert!(ios_fast_list.contains("if leadingVisibleOffset.map({ offset < $0 }) ?? true"));
     assert!(ios_fast_list.contains("@State private var lastReportedVisibleIndex: Int?"));
     assert!(ios_fast_list.contains("@State private var pendingProgrammaticScrollPosition: Int?"));
     assert!(
@@ -4835,27 +5430,96 @@ fn fast_list_dev_scroll_callbacks_defer_updates_and_fire_only_at_the_final_row()
 }
 
 #[test]
-fn fast_list_scroll_commands_reach_both_devruntimes() {
+fn fast_list_refs_are_the_only_scroll_command_path_in_both_devruntimes() {
     let (root, _) = fixture();
     let android = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android FastList renderer");
     let ios = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
         .expect("read iOS FastList renderer");
+    let android_native =
+        fs::read_to_string(root.join("../../runtime/android/NexaDevNativeApis.kt"))
+            .expect("read Android DevRuntime native calls");
+    let ios_native = fs::read_to_string(root.join("../../runtime/ios/NexaDevNativeApis.swift"))
+        .expect("read iOS DevRuntime native calls");
 
-    for field in ["scroll_to_top", "scroll_to_end", "scroll_to_offset"] {
-        assert!(
-            android.contains(&format!("nexaDevOptionalString(\"{field}\")")),
-            "Android DevRuntime should read {field} from the typed FastList IR"
-        );
-        assert!(
-            ios.contains(&format!("listFields[\"{field}\"] as? String")),
-            "iOS DevRuntime should read {field} from the typed FastList IR"
-        );
+    assert!(android.contains("private fun NexaDevBindFastListRef("));
+    assert!(android.contains("reference.attach("));
+    assert!(android.contains("scrollToIndex: suspend (Int, Boolean, Double) -> Unit"));
+    assert!(android.contains("animateScrollBy(delta)"));
+    assert!(android_native.contains("options[\"viewPosition\"]"));
+    assert!(android_native.contains("options[\"animated\"]"));
+    assert_eq!(
+        android_native
+            .matches("private fun nexaDevInvokeFastListRef(")
+            .count(),
+        1,
+        "sync and async dispatch should share one typed FastList ref implementation"
+    );
+    assert_eq!(
+        android_native.matches("reference.scrollToIndex(").count(),
+        1,
+        "FastList ref scroll operations should not be duplicated between dispatch paths"
+    );
+    assert_eq!(
+        android_native
+            .matches("return nexaDevInvokeFastListRef(reference, name, options)")
+            .count(),
+        2,
+        "both sync and async dispatch should call the shared FastList ref implementation"
+    );
+    assert!(ios.contains("componentRef: componentRef"));
+    assert!(
+        ios_native
+            .contains("viewPosition: (options[\"viewPosition\"] as? NSNumber)?.doubleValue ?? 0")
+    );
+    assert!(ios_native.contains("animated: (options[\"animated\"] as? Bool) ?? true"));
+    for legacy in ["scroll_to_top", "scroll_to_end", "scroll_to_offset"] {
+        assert!(!android.contains(legacy), "Android retained {legacy}");
+        assert!(!ios.contains(legacy), "iOS retained {legacy}");
     }
-    assert!(android.contains("NexaDevApplyFastListScrollCommands("));
-    assert!(android.contains("stable offset > end > top priority"));
-    assert!(ios.contains("NexaFastListCommands("));
-    assert!(ios.contains("commands: scrollCommands"));
+    assert!(!android.contains("NexaDevApplyFastListScrollCommands("));
+    assert!(!ios.contains("NexaFastListCommands"));
+}
+
+#[test]
+fn network_upload_passes_the_shared_request_options_in_both_devruntimes() {
+    let (root, _) = fixture();
+    let android = fs::read_to_string(root.join("../../runtime/android/NexaDevNativeApis.kt"))
+        .expect("read Android DevRuntime network adapter");
+    let ios = fs::read_to_string(root.join("../../runtime/ios/NexaDevNativeApis.swift"))
+        .expect("read iOS DevRuntime network adapter");
+
+    for (platform, source, markers) in [
+        (
+            "iOS",
+            ios.as_str(),
+            [
+                "fields: rawFields,\n                headers: headers",
+                "timeout: timeout",
+                "followRedirects: followRedirects",
+                "maxResponseBytes: maxResponseBytes",
+                "certificatePins: pins",
+            ],
+        ),
+        (
+            "Android",
+            android.as_str(),
+            [
+                "fields = fields,\n            headers = headers",
+                "timeout = timeout",
+                "followRedirects = followRedirects",
+                "maxResponseBytes = maxResponseBytes",
+                "certificatePins = pins",
+            ],
+        ),
+    ] {
+        for marker in markers {
+            assert!(
+                source.contains(marker),
+                "{platform} DevRuntime upload adapter is missing {marker}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -4909,7 +5573,8 @@ fn fast_list_parity_sample_keeps_reverse_and_callback_positions_independent() {
             .unwrap_or_else(|| panic!("find FastList parity tab {tab_index}"));
         let list = find_fast_list(&tab.children)
             .unwrap_or_else(|| panic!("tab {tab_index} must contain a FastList"));
-        match list.arguments.get("scrollPosition") {
+        let position = list.arguments.get("scrollPosition");
+        match position {
             Some(Expr::Name(state, _)) => state.as_str(),
             _ => panic!("tab {tab_index} FastList must use a named scroll-position state"),
         }
@@ -4956,7 +5621,7 @@ fn android_dev_bottom_sheet_uses_shared_native_configuration_and_inline_content(
         .expect("read Android DevRuntime renderer");
 
     assert!(renderer.contains("fields.optJSONArray(\"detents\")"));
-    assert!(renderer.contains("fields.optString(\"initial_detent\")"));
+    assert!(renderer.contains("fields.optDouble(\"initial_detent\", defaultDetent.toDouble())"));
     assert!(renderer.contains("fields.optBoolean(\"allows_dismissal\", true)"));
     assert!(renderer.contains("fields.optJSONObject(\"background_color\")"));
     assert!(renderer.contains("NexaBottomSheetPrimitive("));
@@ -5027,9 +5692,13 @@ fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntim
     let (root, _) = fixture();
     let swift_runtime = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
         .expect("read iOS DevRuntime navigation renderer");
+    let swift_state = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS DevRuntime navigation state");
     let kotlin_runtime =
         fs::read_to_string(root.join("../../runtime/android/NexaDevNavigation.kt"))
             .expect("read Android DevRuntime navigation renderer");
+    let kotlin_state = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android DevRuntime state");
     let kotlin_renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime node renderer");
 
@@ -5054,6 +5723,26 @@ fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntim
     assert!(!swift_runtime.contains("NexaNavigationTitlePrimitive("));
     assert!(swift_runtime.contains("NexaNavigationLinkPrimitive(value: route, enabled: enabled)"));
     assert!(swift_runtime.contains("staticallyDisabled"));
+    let swift_install = swift_state
+        .split_once("func install(module: [String: Any]) {")
+        .expect("find iOS DevRuntime module installation")
+        .1
+        .split_once("func hotRestart(module: [String: Any]) {")
+        .expect("find end of iOS DevRuntime module installation")
+        .0;
+    assert!(swift_state.contains("private var navigationScreensSignature: String?"));
+    assert!(swift_install.contains(
+        "if navigationRoot != rootScreen || navigationScreensSignature != screensSignature {"
+    ));
+    assert!(swift_install.contains("navigationScreensSignature = screensSignature"));
+    assert!(
+        !swift_install.contains("typeSignatures[\"__screens__\"]"),
+        "module install replaces type signatures, so navigation structure needs its own retained signature"
+    );
+    assert!(kotlin_state.contains("private var navigationScreensSignature: String? = null"));
+    assert!(kotlin_state.contains(
+        "if (navigationRoot != currentRoot || navigationScreensSignature != currentScreensSignature)"
+    ));
 
     assert!(kotlin.contains("internal fun NexaNavigationScreenPrimitive("));
     assert!(kotlin.contains("LargeFlexibleTopAppBar("));

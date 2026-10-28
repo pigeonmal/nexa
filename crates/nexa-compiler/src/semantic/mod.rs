@@ -31,6 +31,7 @@ use crate::Target;
 
 mod components;
 mod context;
+mod core_api;
 mod custom_components;
 mod expressions;
 mod generics;
@@ -38,6 +39,8 @@ mod styles;
 mod tests;
 mod themes;
 mod warnings;
+
+pub(crate) use core_api::render_reference as render_core_api_reference;
 
 fn with_screen_source(error: CompileError, source_file: Option<&str>) -> CompileError {
     match source_file {
@@ -383,7 +386,8 @@ pub fn lower_with_warnings(
     app: ast::App,
     target: Target,
 ) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
-    lower_with_warnings_in_mode(app, target, false)
+    let (module, warnings, tests, _) = lower_with_warnings_in_mode(app, target, false, false)?;
+    Ok((module, warnings, tests))
 }
 
 pub(super) fn lower_with_project_targets(
@@ -391,14 +395,44 @@ pub(super) fn lower_with_project_targets(
     target: Target,
     dev_runtime: bool,
 ) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
-    lower_with_warnings_in_mode(app, target, dev_runtime)
+    let (module, warnings, tests, _) =
+        lower_with_warnings_in_mode(app, target, dev_runtime, false)?;
+    Ok((module, warnings, tests))
+}
+
+pub(super) fn lower_with_project_targets_and_optimization_report(
+    app: ast::App,
+    target: Target,
+    dev_runtime: bool,
+) -> Result<
+    (
+        Module,
+        Vec<CompileWarning>,
+        crate::testing::TestSuite,
+        crate::optimize::OptimizationReport,
+    ),
+    CompileError,
+> {
+    let (module, warnings, tests, report) =
+        lower_with_warnings_in_mode(app, target, dev_runtime, true)?;
+    Ok((module, warnings, tests, report.unwrap_or_default()))
 }
 
 fn lower_with_warnings_in_mode(
     mut app: ast::App,
     target: Target,
     allow_nullable_generic_plugin_reads: bool,
-) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
+    include_optimization_report: bool,
+) -> Result<
+    (
+        Module,
+        Vec<CompileWarning>,
+        crate::testing::TestSuite,
+        Option<crate::optimize::OptimizationReport>,
+    ),
+    CompileError,
+> {
+    let app_source_file = app.source_file.clone();
     let warnings = warnings::analyze(&app, target);
     let themes = lower_theme(app.theme.as_ref())?;
     let enum_declarations = lower_enum_declarations(&app.enums)?;
@@ -609,6 +643,12 @@ fn lower_with_warnings_in_mode(
         );
         let mut method_names = HashSet::new();
         for method in &declaration.methods {
+            if method.failure_type.is_some() {
+                return Err(CompileError::new(
+                    method.span,
+                    "typed `throws` is supported on reusable component ref methods only",
+                ));
+            }
             if !method_names.insert(method.name.as_str()) {
                 return Err(CompileError::new(
                     method.span,
@@ -662,6 +702,12 @@ fn lower_with_warnings_in_mode(
             class_method_declarations.push(lowered_method);
         }
         for method in &declaration.static_methods {
+            if method.failure_type.is_some() {
+                return Err(CompileError::new(
+                    method.span,
+                    "typed `throws` is supported on reusable component ref methods only",
+                ));
+            }
             let key = format!("{}.{}", declaration.name, method.name);
             if function_signatures.contains_key(&key) {
                 return Err(CompileError::new(
@@ -787,6 +833,11 @@ fn lower_with_warnings_in_mode(
         ));
     }
 
+    custom_components::collect_ref_method_signatures(
+        &app.components,
+        &struct_types,
+        &mut function_signatures,
+    )?;
     let mut native_component_signatures = custom_components::ComponentSignatures::new();
     for native in collect_plugin_components(&app.plugins)? {
         let qualified_name = format!("{}.{}", native.namespace, native.name);
@@ -805,6 +856,7 @@ fn lower_with_warnings_in_mode(
                     })
                     .collect(),
                 native: true,
+                supports_ref: true,
             },
         );
     }
@@ -870,6 +922,9 @@ fn lower_with_warnings_in_mode(
                     structs: &struct_types,
                     enums: &owned_enum_names,
                     allow_nullable_generic_plugin_reads,
+                    screen_ids: None,
+                    allow_navigation_actions: false,
+                    source_file: task.source_file.as_deref(),
                 },
             )?;
             Ok(BackgroundTask {
@@ -919,7 +974,8 @@ fn lower_with_warnings_in_mode(
             &struct_types,
             &owned_enum_names,
         )
-        .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads);
+        .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+        .with_source_file(declaration.source_file.as_deref());
         let initial = lower_expr(&declaration.initial, Some(&ty), &state_context)?;
         let mutable = declaration.mutable;
         if mutable && references_mutable_state(&declaration.initial, &symbols) {
@@ -1079,9 +1135,15 @@ fn lower_with_warnings_in_mode(
 
         let mut screen_symbols = symbols.clone();
         let mut screen_native_aliases = native_aliases.clone();
-        let screen_signature = screen_signatures
-            .get(&screen.name)
-            .expect("screen signature exists for every screen declaration");
+        let Some(screen_signature) = screen_signatures.get(&screen.name) else {
+            return Err(with_screen_source(
+                CompileError::new(
+                    screen.span,
+                    format!("screen `{}` has no resolved route signature", screen.name),
+                ),
+                screen_source_file,
+            ));
+        };
         for parameter in &screen_signature.parameters {
             if screen_symbols.contains_key(&parameter.name)
                 || all_state_names.contains(&parameter.name)
@@ -1147,7 +1209,8 @@ fn lower_with_warnings_in_mode(
                 &struct_types,
                 &owned_enum_names,
             )
-            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads);
+            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+            .with_source_file(screen_source_file);
             let initial = screen_try!(lower_expr(&declaration.initial, Some(&ty), &state_context,));
             let mutable = declaration.mutable;
             if mutable && references_mutable_state(&declaration.initial, &screen_symbols) {
@@ -1180,7 +1243,8 @@ fn lower_with_warnings_in_mode(
             target,
             allow_nullable_generic_plugin_reads,
         )
-        .with_navigation(false, true);
+        .with_navigation(false, true)
+        .with_source_file(screen_source_file);
         let screen_body = screen_try!(lower_nodes(screen.body, &cx));
         let (status_bar, screen_body) =
             screen_try!(extract_status_bar(screen_body, screen.span, "screen"));
@@ -1452,7 +1516,8 @@ fn lower_with_warnings_in_mode(
             target,
             allow_nullable_generic_plugin_reads,
         )
-        .with_navigation(false, false);
+        .with_navigation(false, false)
+        .with_source_file(source_file);
         let body = lower_nodes(widget.body, &widget_context)
             .map_err(|error| with_screen_source(error, source_file))?;
         validate_widget_body(&body, widget.span)
@@ -1587,7 +1652,8 @@ fn lower_with_warnings_in_mode(
         target,
         allow_nullable_generic_plugin_reads,
     )
-    .with_navigation(true, false);
+    .with_navigation(true, false)
+    .with_source_file(app_source_file.as_deref());
     let body = lower_nodes(app.body, &cx)?;
     let (status_bar, body) = extract_status_bar(body, app.span, "app")?;
     if body.iter().any(contains_content) {
@@ -1674,8 +1740,13 @@ fn lower_with_warnings_in_mode(
         });
     }
     validate_module_callback_disposal(&module, &function_signatures)?;
-    crate::optimize::optimize(&mut module);
-    Ok((module, warnings, test_suite))
+    let optimization_report = if include_optimization_report {
+        Some(crate::optimize::optimize_with_report(&mut module))
+    } else {
+        crate::optimize::optimize(&mut module);
+        None
+    };
+    Ok((module, warnings, test_suite, optimization_report))
 }
 
 fn valid_background_task_identifier(identifier: &str) -> bool {
@@ -2131,6 +2202,7 @@ fn module_uses_json_error(module: &Module) -> bool {
             Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
                 type_uses_json_error(key) || type_uses_json_error(value)
             }
+            Type::ComponentRefError(inner) => type_uses_json_error(inner),
             Type::Triple(first, second, third) => {
                 type_uses_json_error(first)
                     || type_uses_json_error(second)
@@ -2148,7 +2220,8 @@ fn module_uses_json_error(module: &Module) -> bool {
             | Type::TypeParam(_)
             | Type::Plugin { .. }
             | Type::TaskHandle
-            | Type::NetworkResponse => false,
+            | Type::NetworkResponse
+            | Type::ComponentRef { .. } => false,
         }
     }
 
@@ -2415,22 +2488,36 @@ fn lower_struct_declarations(
     let lowered = declarations
         .iter()
         .map(|declaration| {
-            let Type::Struct { fields, .. } = types
-                .get(&declaration.name)
-                .expect("resolved struct declaration")
-                .clone()
-            else {
-                unreachable!("struct resolver always produces a struct type")
+            let Some(resolved_type) = types.get(&declaration.name) else {
+                return Err(in_source_file(
+                    CompileError::new(
+                        declaration.span,
+                        format!("struct `{}` could not be resolved", declaration.name),
+                    ),
+                    declaration.source_file.as_deref(),
+                ));
             };
-            nexa_ir::StructDecl {
+            let Type::Struct { fields, .. } = resolved_type.clone() else {
+                return Err(in_source_file(
+                    CompileError::new(
+                        declaration.span,
+                        format!(
+                            "struct `{}` resolved to a non-struct type",
+                            declaration.name
+                        ),
+                    ),
+                    declaration.source_file.as_deref(),
+                ));
+            };
+            Ok(nexa_ir::StructDecl {
                 name: declaration.name.clone(),
                 fields: fields
                     .into_iter()
                     .map(|(name, ty)| nexa_ir::StructField { name, ty })
                     .collect(),
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, CompileError>>()?;
     Ok((lowered, types))
 }
 
@@ -2589,7 +2676,17 @@ fn validate_declared_types(
                 if interface.name == plugin.namespace {
                     native_class_types.insert(interface.name.clone());
                 }
+            } else if interface.kind == nexa_plugin_idl::InterfaceKind::NativeComponent {
+                plugin_types.insert(format!(
+                    "{}.{}.__component_ref",
+                    plugin.namespace, interface.name
+                ));
             }
+        }
+    }
+    for component in &app.components {
+        if !component.ref_methods.is_empty() {
+            plugin_types.insert(format!("Nexa.{}.__component_ref", component.name));
         }
     }
 
@@ -2656,6 +2753,24 @@ fn validate_declared_types(
                 )?;
             }
         }
+        for method in &declaration.ref_methods {
+            for parameter in &method.parameters {
+                validate_component_type_names(
+                    &resolve_struct_type(&parse_type(&parameter.ty)?, struct_types),
+                    enum_names,
+                    &native_class_types,
+                    &plugin_types,
+                    parameter.ty.span(),
+                )?;
+            }
+            validate_component_type_names(
+                &resolve_struct_type(&parse_return_type(&method.return_type)?, struct_types),
+                enum_names,
+                &native_class_types,
+                &plugin_types,
+                method.return_type.span(),
+            )?;
+        }
     }
     Ok(())
 }
@@ -2674,6 +2789,16 @@ fn validate_component_type_names(
         {
             Ok(())
         }
+        Type::ComponentRef { namespace, name }
+            if (namespace == "Nexa" && name == "FastList")
+                || plugin_types.contains(&format!("{namespace}.{name}.__component_ref")) =>
+        {
+            Ok(())
+        }
+        Type::ComponentRef { namespace, name } => Err(CompileError::new(
+            span,
+            format!("unknown native component ref target `{namespace}.{name}`"),
+        )),
         Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
             validate_component_type_names(inner, enum_names, native_class_types, plugin_types, span)
         }
@@ -2724,6 +2849,9 @@ fn validate_type_names(
         Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
             validate_type_names(inner, enum_names, plugin_types, span)
         }
+        Type::ComponentRefError(inner) => {
+            validate_type_names(inner, enum_names, plugin_types, span)
+        }
         Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
             validate_type_names(key, enum_names, plugin_types, span)?;
             validate_type_names(value, enum_names, plugin_types, span)
@@ -2747,7 +2875,8 @@ fn validate_type_names(
         | Type::Enum(_)
         | Type::Plugin { .. }
         | Type::TaskHandle
-        | Type::NetworkResponse => Ok(()),
+        | Type::NetworkResponse
+        | Type::ComponentRef { .. } => Ok(()),
     }
 }
 
@@ -2817,6 +2946,7 @@ fn lower_functions(
                     enums,
                     allow_nullable_generic_plugin_reads,
                     declaration.span,
+                    declaration.source_file.as_deref(),
                     0,
                 )?;
                 if !returns && signature.return_type != Type::Void {
@@ -2840,6 +2970,7 @@ fn lower_functions(
                     receiver: signature.receiver.clone(),
                     is_async: signature.is_async,
                     is_throwing: signature.is_throwing,
+                    failure_type: None,
                     parameters: signature
                         .parameters
                         .iter()
@@ -2908,7 +3039,8 @@ fn lower_functions(
                             )
                             .with_nullable_generic_plugin_reads(
                                 allow_nullable_generic_plugin_reads,
-                            ),
+                            )
+                            .with_source_file(declaration.source_file.as_deref()),
                         )?;
                         symbols.insert(name.clone(), (local_type.clone(), false));
                         locals.push(FunctionLocal {
@@ -2965,7 +3097,8 @@ fn lower_functions(
                 &value,
                 Some(&signature.return_type),
                 &ExprContext::with_types(&symbols, &scoped_signatures, signature.is_async, structs, enums)
-                    .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
+                    .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+                    .with_source_file(declaration.source_file.as_deref()),
             )?;
             Ok(Function {
                 class_initializers: signature
@@ -2978,6 +3111,7 @@ fn lower_functions(
                 receiver: signature.receiver.clone(),
                 is_async: signature.is_async,
                 is_throwing: signature.is_throwing,
+                failure_type: None,
                 parameters: signature
                     .parameters
                     .iter()
@@ -3011,13 +3145,15 @@ fn function_expression_context<'a>(
     enums: &'a HashSet<String>,
     allow_await: bool,
     allow_nullable_generic_plugin_reads: bool,
+    source_file: Option<&'a str>,
 ) -> ExprContext<'a> {
     ExprContext::with_types(symbols, functions, allow_await, structs, enums)
         .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+        .with_source_file(source_file)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn lower_function_statements(
+pub(in crate::semantic) fn lower_function_statements(
     statements: Vec<ast::Stmt>,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
@@ -3027,6 +3163,7 @@ fn lower_function_statements(
     enums: &HashSet<String>,
     allow_nullable_generic_plugin_reads: bool,
     function_span: nexa_diagnostics::Span,
+    source_file: Option<&str>,
     loop_depth: usize,
 ) -> Result<(Vec<Action>, bool), CompileError> {
     let mut symbols = symbols.clone();
@@ -3064,6 +3201,7 @@ fn lower_function_statements(
                         enums,
                         allow_await,
                         allow_nullable_generic_plugin_reads,
+                        source_file,
                     ),
                 )?;
                 symbols.insert(name.clone(), (local_type.clone(), false));
@@ -3084,9 +3222,38 @@ fn lower_function_statements(
                         enums,
                         allow_await,
                         allow_nullable_generic_plugin_reads,
+                        source_file,
                     ),
                 )?;
                 lowered.push(Action::Expression(value));
+            }
+            ast::Stmt::Assign { name, value, span } => {
+                let Some((ty, mutable)) = symbols.get(&name) else {
+                    return Err(CompileError::new(
+                        span,
+                        format!("unknown value `{name}` in function body"),
+                    ));
+                };
+                if !mutable {
+                    return Err(CompileError::new(
+                        span,
+                        format!("`{name}` is immutable and cannot be assigned in a function body"),
+                    ));
+                }
+                let value = lower_expr(
+                    &value,
+                    Some(ty),
+                    &function_expression_context(
+                        &symbols,
+                        functions,
+                        structs,
+                        enums,
+                        allow_await,
+                        allow_nullable_generic_plugin_reads,
+                        source_file,
+                    ),
+                )?;
+                lowered.push(Action::Assign { name, value });
             }
             ast::Stmt::CollectionMutation {
                 name,
@@ -3125,6 +3292,7 @@ fn lower_function_statements(
                         enums,
                         allow_await,
                         allow_nullable_generic_plugin_reads,
+                        source_file,
                     ),
                 )?;
                 lowered.push(Action::Expression(value));
@@ -3140,6 +3308,7 @@ fn lower_function_statements(
                         enums,
                         allow_await,
                         allow_nullable_generic_plugin_reads,
+                        source_file,
                     ),
                 )?;
                 lowered.push(Action::Return { value });
@@ -3161,6 +3330,7 @@ fn lower_function_statements(
                         enums,
                         allow_await,
                         allow_nullable_generic_plugin_reads,
+                        source_file,
                     ),
                 )?;
                 let (then_branch, then_returns) = lower_function_statements(
@@ -3173,6 +3343,7 @@ fn lower_function_statements(
                     enums,
                     allow_nullable_generic_plugin_reads,
                     function_span,
+                    source_file,
                     loop_depth,
                 )?;
                 let (else_branch, else_returns) = else_branch
@@ -3187,6 +3358,7 @@ fn lower_function_statements(
                             enums,
                             allow_nullable_generic_plugin_reads,
                             function_span,
+                            source_file,
                             loop_depth,
                         )
                     })
@@ -3220,6 +3392,9 @@ fn lower_function_statements(
                         structs,
                         enums,
                         allow_nullable_generic_plugin_reads,
+                        screen_ids: None,
+                        allow_navigation_actions: false,
+                        source_file,
                     },
                     span,
                 )?;
@@ -3235,6 +3410,7 @@ fn lower_function_statements(
                     enums,
                     allow_nullable_generic_plugin_reads,
                     function_span,
+                    source_file,
                     loop_depth + 1,
                 )?;
                 lowered.push(Action::For {
@@ -3268,6 +3444,9 @@ fn lower_function_statements(
                         structs,
                         enums,
                         allow_nullable_generic_plugin_reads,
+                        screen_ids: None,
+                        allow_navigation_actions: false,
+                        source_file,
                     },
                     span,
                 )?;
@@ -3284,6 +3463,7 @@ fn lower_function_statements(
                     enums,
                     allow_nullable_generic_plugin_reads,
                     function_span,
+                    source_file,
                     loop_depth + 1,
                 )?;
                 lowered.push(Action::ForMap {
@@ -3308,6 +3488,7 @@ fn lower_function_statements(
                         enums,
                         allow_await,
                         allow_nullable_generic_plugin_reads,
+                        source_file,
                     ),
                 )?;
                 let (body, _) = lower_function_statements(
@@ -3320,6 +3501,7 @@ fn lower_function_statements(
                     enums,
                     allow_nullable_generic_plugin_reads,
                     function_span,
+                    source_file,
                     loop_depth + 1,
                 )?;
                 lowered.push(Action::While { condition, body });
@@ -3359,6 +3541,7 @@ fn lower_function_statements(
                     enums,
                     allow_nullable_generic_plugin_reads,
                     function_span,
+                    source_file,
                     loop_depth,
                 )?;
                 let mut lowered_catches = Vec::with_capacity(error_catches.len());
@@ -3423,6 +3606,7 @@ fn lower_function_statements(
                         enums,
                         allow_nullable_generic_plugin_reads,
                         function_span,
+                        source_file,
                         loop_depth,
                     )?;
                     catches_return &= returns;
@@ -3446,6 +3630,7 @@ fn lower_function_statements(
                             enums,
                             allow_nullable_generic_plugin_reads,
                             function_span,
+                            source_file,
                             loop_depth,
                         )
                     })
@@ -3871,6 +4056,7 @@ mod callback_disposal_tests {
                 shape: None,
                 tint: None,
                 glass: false,
+                accessibility_label: None,
                 actions: vec![Action::Expression(player_call("dispose", "player"))],
             }],
             status_bar: None,
@@ -4008,6 +4194,7 @@ mod callback_disposal_tests {
                 namespace: "Video".to_owned(),
                 name: "VideoView".to_owned(),
                 arguments: Vec::new(),
+                component_ref: None,
                 children: None,
                 event_handlers: vec![NativeComponentEventHandler {
                     property: "onTapped".to_owned(),
@@ -4061,6 +4248,7 @@ mod callback_disposal_tests {
                     shape: None,
                     tint: None,
                     glass: false,
+                    accessibility_label: None,
                     actions: vec![Action::Expression(player_call("dispose", "player"))],
                 },
                 Node::ComponentCall {
@@ -4069,6 +4257,7 @@ mod callback_disposal_tests {
                         "player".to_owned(),
                         Expr::State("player".to_owned(), player_type()),
                     )],
+                    component_ref: None,
                     children: None,
                 },
                 Node::NativeComponentCall {
@@ -4078,6 +4267,7 @@ mod callback_disposal_tests {
                         "player".to_owned(),
                         Expr::State("player".to_owned(), player_type()),
                     )],
+                    component_ref: None,
                     children: None,
                     event_handlers: Vec::new(),
                 },
@@ -4138,6 +4328,7 @@ mod callback_disposal_tests {
                     shape: None,
                     tint: None,
                     glass: false,
+                    accessibility_label: None,
                     actions: vec![Action::Expression(player_call("play", "sharedPlayer"))],
                 }],
                 None,
@@ -4171,6 +4362,7 @@ mod callback_disposal_tests {
                 shape: None,
                 tint: None,
                 glass: false,
+                accessibility_label: None,
                 actions: vec![Action::Expression(player_call("play", "screenPlayer"))],
             }],
             Some(vec![Action::Expression(player_call(

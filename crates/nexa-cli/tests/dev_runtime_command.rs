@@ -36,6 +36,7 @@ fn dev_help_describes_debug_runtime_compile_mode() {
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(help.contains("--compile-only"), "{help}");
     assert!(help.contains("--once"), "{help}");
+    assert!(help.contains("--dry-run"), "{help}");
     assert!(help.contains("`r` hot reloads"), "{help}");
     assert!(help.contains("`Shift+R` hot restarts"), "{help}");
     assert!(help.contains("`b` rebuilds and relaunches"), "{help}");
@@ -43,10 +44,55 @@ fn dev_help_describes_debug_runtime_compile_mode() {
         help.contains("`p` toggles the performance overlay"),
         "{help}"
     );
+    assert!(
+        help.contains("`t` toggles redacted runtime trace events"),
+        "{help}"
+    );
 }
 
 #[test]
-fn build_help_describes_release_artifacts() {
+fn dry_run_prints_platform_build_steps_without_generating_native_projects() {
+    let root = temporary_project();
+    let dev_output = root.path().join("preview-dev");
+    let output = Command::new(env!("CARGO_BIN_EXE_nexa"))
+        .args(["dev", "--all", "--dry-run", "--out"])
+        .arg(&dev_output)
+        .current_dir(&root)
+        .output()
+        .expect("run dev dry run");
+
+    assert!(output.status.success(), "{output:?}");
+    let plan = String::from_utf8_lossy(&output.stdout);
+    assert!(plan.contains("Dry-run build plan"), "{plan}");
+    assert!(plan.contains("iOS app with Xcode"), "{plan}");
+    assert!(plan.contains("Android app with Gradle"), "{plan}");
+    assert!(plan.contains("Watch `.nx` files"), "{plan}");
+    assert!(
+        !dev_output.exists(),
+        "dry run generated {}",
+        dev_output.display()
+    );
+
+    let release_output = root.path().join("preview-release");
+    let output = Command::new(env!("CARGO_BIN_EXE_nexa"))
+        .args(["release", "--android", "--dry-run", "--out"])
+        .arg(&release_output)
+        .current_dir(&root)
+        .output()
+        .expect("run unsigned release dry run");
+
+    assert!(output.status.success(), "{output:?}");
+    let plan = String::from_utf8_lossy(&output.stdout);
+    assert!(plan.contains("signed Android AAB"), "{plan}");
+    assert!(
+        !release_output.exists(),
+        "dry run generated {}",
+        release_output.display()
+    );
+}
+
+#[test]
+fn build_alias_warns_and_points_to_release() {
     let output = Command::new(env!("CARGO_BIN_EXE_nexa"))
         .args(["build", "--help"])
         .output()
@@ -54,9 +100,12 @@ fn build_help_describes_release_artifacts() {
 
     assert!(output.status.success(), "{output:?}");
     let help = String::from_utf8_lossy(&output.stdout);
-    assert!(help.contains("nexa build --release"), "{help}");
-    assert!(help.contains("--ipa"), "{help}");
-    assert!(help.contains("--aab"), "{help}");
+    let warning = String::from_utf8_lossy(&output.stderr);
+    assert!(warning.contains("`nexa build` is deprecated"), "{warning}");
+    assert!(help.contains("`nexa build` is deprecated"), "{help}");
+    assert!(help.contains("`nexa release`"), "{help}");
+    assert!(!help.contains("--ipa"), "{help}");
+    assert!(!help.contains("--aab"), "{help}");
 }
 
 #[test]
@@ -75,10 +124,56 @@ fn ios_dev_virtualized_lists_keep_specialized_row_views() {
     assert!(list_runtime.contains("StickyHeaderContent: View"));
     assert!(list_runtime.contains("SectionHeaderContent: View"));
     assert!(list_runtime.contains("private struct NexaDevPageSnapList<RowContent: View>"));
+    assert!(list_runtime.contains("some RandomAccessCollection<NexaDevFastListRow>"));
+    assert!(list_runtime.contains("(0..<max(0, count)).lazy.map"));
+    assert!(
+        runtime.contains("private func nexaDevSectionOffsets(_ sectionCounts: [Int]) -> [Int]")
+    );
+    assert!(!runtime.contains("sectionCounts.prefix(sectionIndex).reduce(0, +)"));
+    assert!(!runtime.contains("let visibleRows = offsets.filter"));
+    assert!(runtime.contains("var leadingVisibleIndex: Int?"));
     assert!(
         !list_runtime.contains("AnyView"),
         "virtualized list row and header paths should retain concrete view types"
     );
+}
+
+#[test]
+fn android_dev_virtualized_grids_do_not_materialize_all_row_indices() {
+    let runtime = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+
+    assert_eq!(
+        runtime
+            .matches("items(count = count, key = { itemIndex -> stableRowKey(itemIndex) })")
+            .count(),
+        3,
+        "flat lists, masonry, and grids should use the count-based lazy API"
+    );
+    assert!(
+        !runtime.contains("remember(count) { List(count) { it } }"),
+        "grid and masonry rows should be described lazily by count, not a full index list"
+    );
+}
+
+#[test]
+fn android_dev_scroll_tracking_does_not_allocate_filtered_visible_rows() {
+    let runtime = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+    let helper_start = runtime
+        .find("private fun nexaDevLeadingVisibleDataItemIndex(")
+        .expect("find visible-item scroll helper");
+    let helper_end = runtime[helper_start..]
+        .find("private fun nexaDevListItemIsUnobscuredByStickyHeader(")
+        .map(|offset| helper_start + offset)
+        .expect("find next scroll helper");
+    let helper = &runtime[helper_start..helper_end];
+
+    assert!(!helper.contains("visibleItems.filter"));
+    assert!(helper.contains("for (item in visibleItems)"));
+    assert!(runtime.contains("private data class NexaDevScrollSnapshot("));
+    assert_eq!(runtime.matches("NexaDevScrollSnapshot(").count(), 4);
+    assert!(!runtime.contains("isScrollInProgress to Triple("));
+    assert!(!runtime.contains("listState.layoutInfo.viewportStartOffset"));
+    assert!(!runtime.contains("listState.layoutInfo.viewportEndOffset"));
 }
 
 #[test]
@@ -96,6 +191,48 @@ fn dev_rejects_conflicting_once_and_compile_only_modes() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn pagination_tasks_are_cancelled_with_their_dev_runtime_list() {
+    let ios_actions = include_str!("../../../runtime/ios/NexaDevActions.swift");
+    let ios_renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+    let ios_state = include_str!("../../../runtime/ios/NexaDevState.swift");
+    assert!(ios_actions.contains("owner: actionLocals[nexaDevTaskOwnerLocal] as? String"));
+    assert!(ios_actions.contains("func clearNativeTasks(owner: String)"));
+    assert!(ios_actions.contains("func finishNativeTask(key: String, id: String)"));
+    assert!(ios_actions.contains(
+        "foregroundTasks[key] = NexaDevForegroundTask(id: taskID, task: task, owner: owner)"
+    ));
+    assert!(ios_renderer.contains("callbackLocals[nexaDevTaskOwnerLocal] = taskOwner"));
+    assert!(ios_renderer.contains("store.clearNativeTasks(owner: taskOwner)"));
+    assert!(ios_state.contains("var foregroundTasks: [String: NexaDevForegroundTask] = [:]"));
+    assert!(!ios_state.contains("foregroundTaskOwners"));
+
+    let android_actions = include_str!("../../../runtime/android/NexaDevActions.kt");
+    let android_renderer = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+    let android_state = include_str!("../../../runtime/android/NexaDevState.kt");
+    assert!(android_actions.contains("locals[NEXA_DEV_TASK_OWNER_LOCAL] as? String"));
+    assert!(android_actions.contains("clearNativeTasksOwnedBy(owner: String)"));
+    assert!(android_actions.contains("store.finishNativeTask(key, taskId)"));
+    assert!(android_renderer.contains("taskOwnedLocals[NEXA_DEV_TASK_OWNER_LOCAL] = it"));
+    assert!(android_renderer.contains("store.clearNativeTasksOwnedBy(listTaskOwner)"));
+    assert!(
+        android_state
+            .contains("foregroundTasks = ConcurrentHashMap<String, NexaDevForegroundTask>()")
+    );
+    assert!(!android_state.contains("foregroundTaskOwners"));
+}
+
+#[test]
+fn dev_runtime_removes_completed_task_records_without_removing_replacements() {
+    let ios_actions = include_str!("../../../runtime/ios/NexaDevActions.swift");
+    assert!(ios_actions.contains("guard foregroundTasks[key]?.id == id else { return }"));
+    assert!(ios_actions.contains("await self.finishNativeTask(key: key, id: taskID)"));
+
+    let android_actions = include_str!("../../../runtime/android/NexaDevActions.kt");
+    assert!(android_actions.contains("if (task.id == id) foregroundTasks.remove(key, task)"));
+    assert!(android_actions.contains("finally {"));
 }
 
 #[test]
@@ -485,6 +622,16 @@ fn optional_generic_compound_values_generate_aot_and_dev_codecs() {
 
 #[test]
 fn development_runtime_generates_video_plugin_class_event_and_component_bridges() {
+    std::thread::Builder::new()
+        .name("development_runtime_video_plugin_bridges".to_owned())
+        .stack_size(4 * 1024 * 1024)
+        .spawn(development_runtime_generates_video_plugin_class_event_and_component_bridges_inner)
+        .expect("video-plugin bridge test thread should start")
+        .join()
+        .expect("video-plugin bridge generation should not overflow the test runner stack");
+}
+
+fn development_runtime_generates_video_plugin_class_event_and_component_bridges_inner() {
     let project = nexa_testkit::TestProject::new("nexa-dev-video-plugin-bridge");
     let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../plugins/video-player/tests/demo/app/App.nx");
@@ -940,6 +1087,8 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(kotlin.contains("NexaRemoteImagePrimitive("));
     assert!(!kotlin.contains("URL(url).openConnection()"));
     assert!(kotlin.contains("NexaFile.readText(stringOption(\"path\"))"));
+    assert!(kotlin.contains("NexaFile.read(stringOption(\"path\"))"));
+    assert!(kotlin.contains("NexaFile.write(contents, stringOption(\"path\"))"));
     assert!(kotlin.contains("NexaPath.temporary(context)"));
     assert!(kotlin.contains("invokeNativeSync("));
     assert!(kotlin.contains("NexaPermissions.status(context, permission).name"));
@@ -976,6 +1125,11 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(generated_android.contains("public object NexaPath"));
     assert!(generated_android.contains("public object NexaFile"));
     assert!(generated_android.contains("public suspend fun readText(path: String)"));
+    assert!(generated_android.contains("public suspend fun read(path: String): ByteArray"));
+    assert!(
+        generated_android
+            .contains("public suspend fun write(data: ByteArray, path: String): Boolean")
+    );
     let generated_android_permissions = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_permissions.kt"),
     )
@@ -994,8 +1148,19 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
         generated_ios
             .contains("public static func readText(_ path: String) async throws -> String")
     );
+    assert!(generated_ios.contains("public static func read(_ path: String) async throws -> Data"));
+    assert!(
+        generated_ios.contains(
+            "public static func write(_ data: Data, to path: String) async throws -> Bool"
+        )
+    );
     let swift_runtime = read_ios_dev_runtime(&output);
     assert!(swift_runtime.contains("try await NexaFile.readText(stringOption(\"path\"))"));
+    assert!(
+        swift_runtime
+            .contains("try await NexaFile.read(stringOption(\"path\")).base64EncodedString()")
+    );
+    assert!(swift_runtime.contains("try await NexaFile.write(data, to: stringOption(\"path\"))"));
     assert!(swift_runtime.contains("func invokeNativeSync("));
     assert!(swift_runtime.contains("NexaPermissions.status(permission)"));
     let generated_ios_permissions =
@@ -1104,6 +1269,34 @@ fn development_async_network_calls_use_release_native_adapters() {
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_native_library.swift"))
             .expect("read generated Swift networking adapter");
     assert!(generated_swift.contains("public enum NexaNetwork"));
+    assert!(generated_swift.contains("cachePolicy: String = \"Default\""));
+    assert!(generated_swift.contains(".returnCacheDataDontLoad"));
+    let generated_swift_types =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
+            .expect("read generated Swift type declarations");
+    assert!(!generated_swift_types.contains("NexaHttpHeader"));
+    assert!(generated_swift.contains("let headers: [(String, String)]"));
+    assert!(!generated_swift.contains("NexaHttpHeader"));
+    assert!(swift.contains("options[\"headers\"] as? [String: String] ?? [:]"));
+    assert!(swift.contains("options[\"cachePolicy\"] as? String ?? \"Default\""));
+    assert!(swift.contains("[\"cachePolicy\", request[\"cache_policy\"] ?? NSNull()]"));
+    assert!(
+        swift.contains("name == \"getHeader\" || name == \"getHeaders\" || name == \"getCookie\"")
+    );
+    assert!(swift.contains(
+        "private func nexaDevResponseHeaderValue(_ response: Any, name: String) -> String?"
+    ));
+    assert!(swift.contains("nexaDevResponseHeaderValue(response, name: headerName) ?? NSNull()"));
+    assert!(swift.contains(
+        "nexaDevCookieHeader(nexaDevResponseHeaderValues(response, name: \"Set-Cookie\"))"
+    ));
+    assert!(swift.contains("maxSplits: 1, omittingEmptySubsequences: false"));
+    assert!(swift.contains("pair.firstIndex(of: \"=\")"));
+    assert!(swift.contains("pair[pair.index(after: equals)...]"));
+    assert!(swift.contains(".joined(separator: \"; \")"));
+    assert!(
+        swift.contains("\"headers\": response.headers.map { [\"name\": $0.0, \"value\": $0.1] }")
+    );
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"NativeCall\" -> invokeNativeAsync"));
@@ -1121,6 +1314,38 @@ fn development_async_network_calls_use_release_native_adapters() {
         ))
         .expect("read generated Kotlin networking adapter");
     assert!(generated_kotlin.contains("public object NexaNetwork"));
+    assert!(generated_kotlin.contains("cachePolicy: String = \"Default\""));
+    assert!(generated_kotlin.contains("only-if-cached, max-stale"));
+    let generated_kotlin_types = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
+    )
+    .expect("read generated Kotlin type declarations");
+    assert!(!generated_kotlin_types.contains("NexaHttpHeader"));
+    assert!(generated_kotlin.contains("internal val headers: List<Pair<String, String>>"));
+    assert!(!generated_kotlin.contains("NexaHttpHeader"));
+    assert!(kotlin.contains("val headers = nexaDevStringMap(options[\"headers\"])"));
+    assert!(kotlin.contains("options[\"cachePolicy\"] as? String ?: \"Default\""));
+    assert!(kotlin.contains("argument(\"cachePolicy\", request.opt(\"cache_policy\"))"));
+    assert!(
+        kotlin.contains("name == \"getHeader\" || name == \"getHeaders\" || name == \"getCookie\"")
+    );
+    assert!(
+        kotlin.contains(
+            "private fun nexaDevResponseHeaderValue(response: Any?, name: String): String?"
+        )
+    );
+    assert!(kotlin.contains("nexaDevResponseHeaderValue(response, headerName) ?: JSONObject.NULL"));
+    assert!(
+        kotlin
+            .contains("nexaDevCookieHeader(nexaDevResponseHeaderValues(response, \"Set-Cookie\"))")
+    );
+    assert!(kotlin.contains("substringBefore(';').trim()"));
+    assert!(kotlin.contains("pair.indexOf('=')"));
+    assert!(kotlin.contains("pair.substring(equals + 1).trim()"));
+    assert!(kotlin.contains("joinToString(\"; \")"));
+    assert!(kotlin.contains(
+        "\"headers\" to response.headers.map { mapOf(\"name\" to it.first, \"value\" to it.second) }"
+    ));
     let android_screen = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated.kt"),
     )
@@ -1155,10 +1380,12 @@ fn development_runtime_handles_locale_currency_formatting_on_both_platforms() {
 
     let ios = read_ios_dev_runtime(&output);
     assert!(ios.contains("nexaDevFormatCurrency"));
-    assert!(ios.contains("namespace == \"Number\", name == \"formatCurrency\""));
+    assert!(ios.contains("private func invokeSharedNative("));
+    assert!(ios.contains("case \"Number\" where name == \"formatCurrency\":"));
     let android = read_android_dev_runtime(&output);
     assert!(android.contains("nexaDevFormatCurrency"));
-    assert!(android.contains("namespace == \"Number\" && name == \"formatCurrency\""));
+    assert!(android.contains("private fun NexaDevStateStore.invokeSharedNative("));
+    assert!(android.contains("\"Number\" -> if (name == \"formatCurrency\")"));
 }
 
 #[test]
@@ -1188,8 +1415,10 @@ fn core_crypto_helpers_are_ready_for_hot_reload_on_both_platforms() {
     let ios_runtime =
         fs::read_to_string(output.join("ios/CryptoHotReload/NexaDevNativeApis.swift"))
             .expect("read iOS native API dispatcher");
-    assert!(ios_runtime.contains("case \"sha256\": return nexaCryptoSha256"));
-    assert!(ios_runtime.contains("case \"randomBytes\": return nexaCryptoRandomBytes"));
+    assert!(ios_runtime.contains("case \"Crypto\":"));
+    assert!(ios_runtime.contains("case \"sha256\": return .handled(nexaCryptoSha256"));
+    assert!(ios_runtime.contains("case \"randomBytes\":"));
+    assert!(ios_runtime.contains("nexaCryptoRandomBytes(Int32(numberOption(\"count\")))"));
 
     let android_crypto = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_crypto.kt"),
@@ -1202,8 +1431,13 @@ fn core_crypto_helpers_are_ready_for_hot_reload_on_both_platforms() {
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevNativeApis.kt"),
     )
     .expect("read Android native API dispatcher");
-    assert!(android_runtime.contains("\"sha256\" -> nexaCryptoSha256"));
-    assert!(android_runtime.contains("\"randomBytes\" -> nexaCryptoRandomBytes"));
+    assert!(android_runtime.contains("\"Crypto\" ->"));
+    assert!(
+        android_runtime
+            .contains("\"sha256\" -> NexaDevSharedNativeResult.Handled(nexaCryptoSha256")
+    );
+    assert!(android_runtime.contains("\"randomBytes\" -> NexaDevSharedNativeResult.Handled("));
+    assert!(android_runtime.contains("nexaCryptoRandomBytes(numberOption(\"count\").toInt())"));
 }
 
 #[test]
@@ -1266,12 +1500,12 @@ fn native_clipboard_calls_are_ready_for_hot_reload_on_both_platforms() {
     .expect("generate Dev hosts before Clipboard is used by app source");
 
     let ios = read_ios_dev_runtime(&output);
-    assert!(ios.contains("if namespace == \"Clipboard\" {"));
+    assert!(ios.contains("case \"Clipboard\":"));
     assert!(ios.contains("case \"setText\":"));
     assert!(ios.contains("UIPasteboard.general.hasStrings"));
 
     let android = read_android_dev_runtime(&output);
-    assert!(android.contains("if (namespace == \"Clipboard\") {"));
+    assert!(android.contains("\"Clipboard\" -> {"));
     assert!(android.contains("\"setText\" ->"));
     assert!(android.contains("primaryClipDescription"));
 }
@@ -1299,17 +1533,17 @@ fn native_haptics_calls_are_ready_for_hot_reload_on_both_platforms() {
 
     let ios = read_ios_dev_runtime(&output);
     assert!(ios.contains("private func nexaDevPerformHaptics"));
-    assert!(ios.contains("if namespace == \"Haptics\""));
+    assert!(ios.contains("case \"Haptics\":"));
     assert!(ios.contains("UIImpactFeedbackGenerator(style: style).impactOccurred()"));
     assert!(ios.contains("UISelectionFeedbackGenerator().selectionChanged()"));
     assert!(ios.contains("private func nexaDevLockOrientation"));
-    assert!(ios.contains("if namespace == \"Screen\", name == \"lockOrientation\""));
+    assert!(ios.contains("case \"Screen\" where name == \"lockOrientation\":"));
 
     let android = read_android_dev_runtime(&output);
     assert!(android.contains("private fun nexaDevPerformHaptics"));
-    assert!(android.contains("if (namespace == \"Haptics\")"));
+    assert!(android.contains("\"Haptics\" -> {"));
     assert!(android.contains("NexaRuntimeCore.performHapticFeedback(constant)"));
-    assert!(android.contains("namespace == \"Screen\" && name == \"lockOrientation\""));
+    assert!(android.contains("\"Screen\" -> if (name == \"lockOrientation\")"));
     let core_runtime = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/core/NexaRuntimeCore.kt"),
     )
@@ -1341,11 +1575,11 @@ fn screen_orientation_calls_are_ready_for_hot_reload_on_both_platforms() {
 
     let ios = read_ios_dev_runtime(&output);
     assert!(ios.contains("private func nexaDevLockOrientation"));
-    assert!(ios.contains("if namespace == \"Screen\", name == \"lockOrientation\""));
+    assert!(ios.contains("case \"Screen\" where name == \"lockOrientation\":"));
     assert!(ios.contains("requestGeometryUpdate(.iOS(interfaceOrientations: mask))"));
 
     let android = read_android_dev_runtime(&output);
-    assert!(android.contains("namespace == \"Screen\" && name == \"lockOrientation\""));
+    assert!(android.contains("\"Screen\" -> if (name == \"lockOrientation\")"));
     let core_runtime = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/core/NexaRuntimeCore.kt"),
     )
@@ -1376,23 +1610,52 @@ fn native_storage_calls_are_ready_for_hot_reload_on_both_platforms() {
     .expect("generate Dev hosts before Storage is used by app source");
 
     let ios = read_ios_dev_runtime(&output);
-    assert!(ios.contains("if namespace == \"Storage\" {"));
-    assert!(ios.contains("case \"getString\":"));
-    assert!(ios.contains("NexaStorage.setString("));
+    assert!(ios.contains("case \"Storage\":"));
+    assert!(ios.contains("return .handled(nexaDevStorageMethod("));
+    assert!(ios.contains("codecs: codecs"));
+    assert!(ios.contains("enumCases: enumCases"));
+    assert_eq!(ios.matches("private func nexaDevStorageMethod").count(), 1);
+    assert!(ios.contains("case \"getFloat64\":"));
+    assert!(ios.contains("case \"setInt64\":"));
+    assert!(ios.contains("NexaDevValueCodec.parseJSON(raw, type: codec, enumCases: enumCases)"));
+    assert!(ios.contains("NexaDevValueCodec.stringifyJSON(options[\"value\"], type: codec"));
     let ios_storage =
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_storage.swift"))
             .expect("iOS Dev host should preload the storage helper");
     assert!(ios_storage.contains("enum NexaStorage"));
+    assert!(ios_storage.contains("static func getBool(_ key: String) -> Bool?"));
+    assert!(ios_storage.contains("static func getInt64(_ key: String) -> Int64?"));
+    assert!(ios_storage.contains("static func getFloat64(_ key: String) -> Double?"));
+    assert!(ios_storage.contains("removeOtherTypes(for: key, keeping: \"int64\")"));
+    assert!(
+        ios.contains("NexaSecureStorage.get(stringOption(\"key\"), options[\"scope\"] as? String)")
+    );
+    assert!(ios.contains("try await NexaSecureStorage.clear(options[\"scope\"] as? String)"));
 
     let android = read_android_dev_runtime(&output);
-    assert!(android.contains("if (namespace == \"Storage\") {"));
-    assert!(android.contains("\"getString\" ->"));
-    assert!(android.contains("NexaStorage.setString("));
+    assert!(android.contains("\"Storage\" -> NexaDevSharedNativeResult.Handled("));
+    assert!(android.contains("nexaDevStorageMethod(context, name, options, codecs, enumCases)"));
+    assert_eq!(
+        android.matches("private fun nexaDevStorageMethod(").count(),
+        1
+    );
+    assert!(android.contains("\"getFloat64\" ->"));
+    assert!(android.contains("\"setInt64\" ->"));
+    assert!(android.contains("NexaDevValueCodec.parseJson(raw, codec, enumCases)[\"Ok\"]"));
+    assert!(android.contains("NexaDevValueCodec.stringifyJson(options[\"value\"], codec"));
     let android_storage = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_storage.kt"),
     )
     .expect("Android Dev host should preload the storage helper");
     assert!(android_storage.contains("internal object NexaStorage"));
+    assert!(android_storage.contains("fun getBool(context: Context, key: String): Boolean?"));
+    assert!(android_storage.contains("fun getInt64(context: Context, key: String): Long?"));
+    assert!(android_storage.contains("fun getFloat64(context: Context, key: String): Double?"));
+    assert!(android_storage.contains("removeOtherTypes(editor, key, keeping = \"int64\")"));
+    assert!(android.contains(
+        "NexaSecureStorage.get(context, stringOption(\"key\"), options[\"scope\"] as? String)"
+    ));
+    assert!(android.contains("NexaSecureStorage.clear(context, options[\"scope\"] as? String)"));
 }
 
 #[test]
@@ -1418,13 +1681,13 @@ fn network_status_calls_are_ready_for_hot_reload_on_both_platforms() {
 
     let ios = read_ios_dev_runtime(&output);
     assert!(ios.contains("final class NexaDevNetworkPathStatus"));
-    assert!(ios.contains("if namespace == \"Network\", name == \"isOnline\""));
+    assert!(ios.contains("case \"Network\" where name == \"isOnline\":"));
     assert!(ios.contains("NWPathMonitor()"));
     assert!(ios.contains("NetworkStatusSubscribe"));
     assert!(ios.contains("setStatusHandler(id: id)"));
 
     let android = read_android_dev_runtime(&output);
-    assert!(android.contains("namespace == \"Network\" && name == \"isOnline\""));
+    assert!(android.contains("\"Network\" -> if (name == \"isOnline\")"));
     assert!(android.contains("android.net.ConnectivityManager"));
     assert!(android.contains("NET_CAPABILITY_INTERNET"));
     assert!(android.contains("NetworkStatusSubscribe"));
@@ -1613,6 +1876,14 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
         "the DevRuntime module should preserve the custom sheet content inset"
     );
     assert!(
+        dev_payload.contains("\"component_ref\""),
+        "BottomSheet Dev IR should carry its typed component reference"
+    );
+    assert!(
+        !dev_payload.contains("showSheet") && !dev_payload.contains("showNestedSheet"),
+        "BottomSheet Dev IR should not carry legacy presentation state"
+    );
+    assert!(
         dev_payload.contains("Save")
             && dev_payload.contains("Close")
             && dev_payload.contains("didSave")
@@ -1624,13 +1895,15 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
     let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"BottomSheet\":"));
     assert!(swift.contains("NexaBottomSheetPrimitive("));
+    assert!(swift.contains("fields[\"component_ref\"]"));
+    assert!(swift.contains("componentRef: componentRef"));
     assert!(swift.contains("fields[\"show_drag_indicator\"] as? Bool ?? true"));
     assert!(swift.contains("fields[\"content_padding\"] as? NSNumber"));
-    assert!(swift.contains("fields[\"detents\"] as? [String]"));
-    assert!(swift.contains("fields[\"initial_detent\"] as? String"));
-    assert!(swift.contains("fields[\"snap_points\"] as? [NSNumber]"));
-    assert!(swift.contains("fields[\"initial_snap_point\"] as? NSNumber"));
-    assert!(swift.contains("fields[\"selected_snap_point\"] as? String"));
+    assert!(swift.contains(".map { CGFloat(truncating: $0) } ?? 0"));
+    assert!(swift.contains("fields[\"detents\"] as? [NSNumber]"));
+    assert!(swift.contains("fields[\"initial_detent\"] as? NSNumber"));
+    assert!(!swift.contains("snap_points"));
+    assert!(!swift.contains("selected_snap_point"));
     assert!(swift.contains("fields[\"scrim_color\"] as? [String: Any]"));
     assert!(swift.contains("fields[\"on_dismiss\"] as? [Any] ?? []"));
     assert!(swift.contains("fields[\"allows_dismissal\"] as? Bool ?? true"));
@@ -1642,6 +1915,9 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
             .expect("read generated iOS sheet primitive");
     assert!(swift_primitives.contains("struct NexaBottomSheetPrimitive<Content: View>"));
+    assert!(swift_primitives.contains("public final class NexaBottomSheetRef"));
+    assert!(swift_primitives.contains("public func present()"));
+    assert!(swift_primitives.contains("public func dismiss()"));
     assert!(swift_primitives.contains("struct NexaBottomSheetContentPrimitive<Content: View>"));
     assert!(
         swift_primitives
@@ -1653,28 +1929,25 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
     assert!(swift_primitives.contains("allowsBackgroundInteraction: allowsBackgroundInteraction"));
     assert!(swift_primitives.contains("presentationBackgroundInteraction(.enabled)"));
     assert!(!swift_primitives.contains("fullScreenCover"));
-    assert!(
-        swift_primitives
-            .contains(".presentationDetents(configuredDetents, selection: $selectedDetent)")
-    );
+    assert!(swift_primitives.contains(".presentationDetents(detents, selection: $selectedDetent)"));
     assert!(
         swift_primitives
             .contains(".presentationDragIndicator(showDragIndicator ? .visible : .hidden)")
     );
     assert!(swift_primitives.contains(".interactiveDismissDisabled(!allowsDismissal)"));
-    assert!(swift_primitives.contains("selectedSnapPoint: Binding<Double>?"));
-    assert!(swift_primitives.contains(".onChange(of: selectedSnapPoint?.wrappedValue)"));
+    assert!(!swift_primitives.contains("selectedSnapPoint"));
 
     let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"BottomSheet\" ->"));
     assert!(kotlin.contains("NexaBottomSheetPrimitive("));
+    assert!(kotlin.contains("\"component_ref\""));
+    assert!(kotlin.contains("componentRef = componentRef"));
     assert!(kotlin.contains("fields.optBoolean(\"show_drag_indicator\", true)"));
-    assert!(kotlin.contains("fields.optDouble(\"content_padding\", 8.0).toFloat().dp"));
+    assert!(kotlin.contains("fields.optDouble(\"content_padding\", 0.0).toFloat().dp"));
     assert!(kotlin.contains("fields.optJSONArray(\"detents\")"));
-    assert!(kotlin.contains("fields.optJSONArray(\"snap_points\")"));
-    assert!(kotlin.contains("fields.optDouble(\"initial_snap_point\")"));
-    assert!(kotlin.contains("fields.optString(\"selected_snap_point\")"));
-    assert!(kotlin.contains("fields.isNull(\"selected_snap_point\")"));
+    assert!(kotlin.contains("fields.optDouble(\"initial_detent\""));
+    assert!(!kotlin.contains("snap_points"));
+    assert!(!kotlin.contains("selected_snap_point"));
     assert!(kotlin.contains("fields.optJSONObject(\"scrim_color\")"));
     assert!(kotlin.contains("fields.optJSONArray(\"on_dismiss\") ?: JSONArray()"));
     assert!(kotlin.contains("fields.optBoolean(\"allows_dismissal\", true)"));
@@ -1684,20 +1957,24 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_types.kt"),
     )
     .expect("read generated Android sheet primitive");
+    assert!(kotlin_primitives.contains("public class NexaBottomSheetRef"));
+    assert!(kotlin_primitives.contains("public fun present()"));
+    assert!(kotlin_primitives.contains("public fun dismiss()"));
     assert!(kotlin_primitives.contains("internal fun NexaBottomSheetPrimitive("));
     assert!(kotlin_primitives.contains("fun NexaBottomSheetContentPrimitive("));
     assert!(kotlin_primitives.contains("NexaColumnPrimitive("));
     assert!(
         kotlin_primitives.contains("modifier = modifier.fillMaxWidth().padding(contentPadding)")
     );
+    assert!(kotlin_primitives.contains("NexaCustomBottomSheetPrimitive("));
     assert!(kotlin_primitives.contains("ModalBottomSheet("));
-    assert!(kotlin_primitives.contains("sheetState.hide()"));
     assert!(kotlin_primitives.contains("retainedInComposition.value = false"));
     assert!(kotlin_primitives.contains("dragHandle = if (showDragIndicator)"));
     assert!(kotlin_primitives.contains("ModalBottomSheetProperties("));
+    assert!(kotlin_primitives.contains("sheetState.hide()"));
     assert!(kotlin_primitives.contains("NexaNonModalBottomSheetPrimitive("));
-    assert!(kotlin_primitives.contains("selectedSnapPoint: Float?"));
-    assert!(kotlin_primitives.contains("sheetState.animateTo(selectedTarget)"));
+    assert!(!kotlin_primitives.contains("selectedSnapPoint"));
+    assert!(kotlin_primitives.contains("sheetState.animateTo(initialDetent)"));
 }
 
 #[test]

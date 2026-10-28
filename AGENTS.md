@@ -43,7 +43,7 @@ without inverting any layering. See [§5.1](#51-temporary-directories-in-tests).
 [`pigeonmal/nexa-plugins`](https://github.com/pigeonmal/nexa-plugins), which
 holds the official plugin packages, one directory per plugin at its root
 (`plugins/<name>/`). Plugin work happens in that repository, where
-`nexa plugin init`, `check`, and `generate` own the scaffold and validation. Clone
+`nexa plugin new`, `check`, and `generate` own the scaffold and validation. Clone
 with `--recurse-submodules`, and never commit into the submodule from this
 working tree. See [`docs/plugins.md`](file:///docs/plugins.md).
 

@@ -99,7 +99,7 @@ screen Main {
                                     priority = "None"
                                     taskTitleFocused = editingID < 0
                                     showingDatePicker = false
-                                    showingTaskEditor = true
+                                    taskEditorSheetRef.present()
                                 }
                             }
                             if todoFilter(tasks, 0, "").isEmpty {
@@ -152,7 +152,7 @@ screen Main {
                                                 priority = task.priority
                                                 taskTitleFocused = editingID < 0
                                                 showingDatePicker = false
-                                                showingTaskEditor = true
+                                                taskEditorSheetRef.present()
                                             }.contextMenu {
                                                 Button("Edit", icon: "edit") {
                                                     editingID = task.id
@@ -165,7 +165,7 @@ screen Main {
                                                     priority = task.priority
                                                     taskTitleFocused = editingID < 0
                                                     showingDatePicker = false
-                                                    showingTaskEditor = true
+                                                    taskEditorSheetRef.present()
                                                 }
                                                 Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
                                                     tasks = toggleTodo(tasks, task.id)
@@ -226,7 +226,7 @@ screen Main {
                                     priority = "None"
                                     taskTitleFocused = editingID < 0
                                     showingDatePicker = false
-                                    showingTaskEditor = true
+                                    taskEditorSheetRef.present()
                                 }
                             }
                             if todoFilter(tasks, 1, "").isEmpty {
@@ -279,7 +279,7 @@ screen Main {
                                                 priority = task.priority
                                                 taskTitleFocused = editingID < 0
                                                 showingDatePicker = false
-                                                showingTaskEditor = true
+                                                taskEditorSheetRef.present()
                                             }.contextMenu {
                                                 Button("Edit", icon: "edit") {
                                                     editingID = task.id
@@ -292,7 +292,7 @@ screen Main {
                                                     priority = task.priority
                                                     taskTitleFocused = editingID < 0
                                                     showingDatePicker = false
-                                                    showingTaskEditor = true
+                                                    taskEditorSheetRef.present()
                                                 }
                                                 Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
                                                     tasks = toggleTodo(tasks, task.id)
@@ -353,7 +353,7 @@ screen Main {
                                     priority = "None"
                                     taskTitleFocused = editingID < 0
                                     showingDatePicker = false
-                                    showingTaskEditor = true
+                                    taskEditorSheetRef.present()
                                 }
                             }
                             if todoFilter(tasks, 2, "").isEmpty {
@@ -408,7 +408,7 @@ screen Main {
                                                 priority = task.priority
                                                 taskTitleFocused = editingID < 0
                                                 showingDatePicker = false
-                                                showingTaskEditor = true
+                                                taskEditorSheetRef.present()
                                             }.contextMenu {
                                                 Button("Edit", icon: "edit") {
                                                     editingID = task.id
@@ -421,7 +421,7 @@ screen Main {
                                                     priority = task.priority
                                                     taskTitleFocused = editingID < 0
                                                     showingDatePicker = false
-                                                    showingTaskEditor = true
+                                                    taskEditorSheetRef.present()
                                                 }
                                                 Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
                                                     tasks = toggleTodo(tasks, task.id)
@@ -612,7 +612,7 @@ screen Main {
                                                 priority = task.priority
                                                 taskTitleFocused = editingID < 0
                                                 showingDatePicker = false
-                                                showingTaskEditor = true
+                                                taskEditorSheetRef.present()
                                             }.contextMenu {
                                                 Button("Edit", icon: "edit") {
                                                     editingID = task.id
@@ -624,7 +624,7 @@ screen Main {
                                                     priority = task.priority
                                                     taskTitleFocused = editingID < 0
                                                     showingDatePicker = false
-                                                    showingTaskEditor = true
+                                                    taskEditorSheetRef.present()
                                                 }
                                                 Button(task.isCompleted?"Mark Incomplete": "Mark Complete", icon: "check") {
                                                     tasks = toggleTodo(tasks, task.id)
@@ -660,7 +660,7 @@ screen Main {
                     }
                 }
 
-                BottomSheet(isPresented: showingTaskEditor, detents: [Medium, Expanded]) {
+                BottomSheet(ref: taskEditorSheetRef, detents: [0.5, 1.0]) {
                     if showingDatePicker {
                         Column {
                             Text("Pick Date", fontSize: 20, fontWeight: Semibold)
@@ -717,7 +717,7 @@ screen Main {
                                                     await persistTaskAndRefreshBadge(tasks, editingID, notifications)
                                                 }
                                             }
-                                            showingTaskEditor = false
+                                            taskEditorSheetRef.dismiss()
                                         }
                                     }
                                 }
@@ -817,8 +817,8 @@ screen Main {
                                         }
                                         selectedTaskID = editingID
                                         returnToEditorAfterOverlay = true
-                                        showingTaskEditor = false
-                                        showingComments = true
+                                        taskEditorSheetRef.dismiss()
+                                        commentsSheetRef.present()
                                     }
                                     Button(taskReminderButtonLabel(tasks, editingID), icon: "notifications", style: Bordered) {
                                         if editingID < 0 {
@@ -837,8 +837,8 @@ screen Main {
                                         reminderTimestamp = initialTaskReminderTimestamp(hasDueDate, dueTimestamp)
                                         addingReminder = false
                                         returnToEditorAfterOverlay = true
-                                        showingTaskEditor = false
-                                        showingReminders = true
+                                        taskEditorSheetRef.dismiss()
+                                        remindersSheetRef.present()
                                     }
                                     Spacer()
                                 }
@@ -848,7 +848,7 @@ screen Main {
                     }
                 }
 
-                BottomSheet(isPresented: showingComments, detents: [Medium, Expanded]) {
+                BottomSheet(ref: commentsSheetRef, detents: [0.5, 1.0]) {
                     Column {
                         Row(spacing: 8, alignment: Center) {
                             Text("Comments", fontSize: 20, fontWeight: Semibold)
@@ -856,12 +856,12 @@ screen Main {
                             Button("Done", style: Borderless) {
                                 Task.launch(executor: TaskExecutor.Main) {
                                     tasks = await todoPersistence.loadTasks()
-                                    showingComments = false
+                                    commentsSheetRef.dismiss()
                                     if returnToEditorAfterOverlay {
                                         returnToEditorAfterOverlay = false
                                         taskTitleFocused = editingID < 0
                                         showingDatePicker = false
-                                        showingTaskEditor = true
+                                        taskEditorSheetRef.present()
                                     }
                                 }
                             }
@@ -870,7 +870,7 @@ screen Main {
                     }
                 }
 
-                BottomSheet(isPresented: showingReminders, detents: [Medium, Expanded]) {
+                BottomSheet(ref: remindersSheetRef, detents: [0.5, 1.0]) {
                     if addingReminder {
                         Column {
                             Text("Add Reminder", fontSize: 20, fontWeight: Semibold)
@@ -942,12 +942,12 @@ screen Main {
                                 Button("Back", icon: "back", style: Borderless) {
                                     Task.launch(executor: TaskExecutor.Main) {
                                         tasks = await todoPersistence.loadTasks()
-                                        showingReminders = false
+                                        remindersSheetRef.dismiss()
                                         if returnToEditorAfterOverlay {
                                             returnToEditorAfterOverlay = false
                                             taskTitleFocused = editingID < 0
                                             showingDatePicker = false
-                                            showingTaskEditor = true
+                                            taskEditorSheetRef.present()
                                         }
                                     }
                                 }

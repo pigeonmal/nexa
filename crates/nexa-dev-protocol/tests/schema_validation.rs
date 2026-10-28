@@ -67,10 +67,14 @@ fn dev_ir_schema_fixture_matches_rust_protocol_and_native_runtimes() {
     assert!(server_messages.contains(&"reload".to_string()));
     assert!(server_messages.contains(&"restart".to_string()));
     assert!(server_messages.contains(&"performance_overlay".to_string()));
+    assert!(server_messages.contains(&"runtime_trace".to_string()));
 
     // 3. Verify Swift Dev Runtime Schema matches
     let swift_schema_path = root.join("runtime/ios/NexaDevSchema.swift");
-    let swift_code = fs::read_to_string(&swift_schema_path).expect("read NexaDevSchema.swift");
+    let swift_template = fs::read_to_string(&swift_schema_path).expect("read NexaDevSchema.swift");
+    assert!(swift_template.contains(nexa_dev_protocol::PROTOCOL_VERSION_TOKEN));
+    assert!(swift_template.contains(nexa_dev_ir::DEV_IR_FORMAT_VERSION_TOKEN));
+    let swift_code = nexa_dev_protocol::render_runtime_schema(&swift_template);
 
     assert!(
         swift_code.contains(&format!("protocolVersion: Int = {protocol_version}")),
@@ -97,7 +101,10 @@ fn dev_ir_schema_fixture_matches_rust_protocol_and_native_runtimes() {
 
     // 4. Verify Kotlin Dev Runtime Schema matches
     let kotlin_schema_path = root.join("runtime/android/NexaDevSchema.kt");
-    let kotlin_code = fs::read_to_string(&kotlin_schema_path).expect("read NexaDevSchema.kt");
+    let kotlin_template = fs::read_to_string(&kotlin_schema_path).expect("read NexaDevSchema.kt");
+    assert!(kotlin_template.contains(nexa_dev_protocol::PROTOCOL_VERSION_TOKEN));
+    assert!(kotlin_template.contains(nexa_dev_ir::DEV_IR_FORMAT_VERSION_TOKEN));
+    let kotlin_code = nexa_dev_protocol::render_runtime_schema(&kotlin_template);
 
     assert!(
         kotlin_code.contains(&format!("PROTOCOL_VERSION: Int = {protocol_version}")),

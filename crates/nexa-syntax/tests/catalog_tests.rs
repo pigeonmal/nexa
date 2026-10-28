@@ -140,10 +140,6 @@ fn dot_modifiers_match_parser_accepted_names() {
             "onRefresh",
             "onScroll",
             "onTap",
-            "scrollToEnd",
-            "scrollToIndex",
-            "scrollToOffset",
-            "scrollToTop",
             "sectionHeader",
             "sharedElement",
             "stickyHeader",
@@ -285,31 +281,30 @@ fn fast_list_source_grammar_is_catalogued() {
             "scrollEnabled",
             "reverseLayout",
             "pageSnap",
-            "showDividers"
+            "showDividers",
+            "ref"
         ]
     );
     assert_eq!(catalog::FASTLIST_SOURCE_KEYS, ["count", "sections"]);
     assert_eq!(catalog::FASTLIST_KEY_OPTION, "key");
-    for (name, expected_arguments) in [
-        ("scrollToIndex", ["index"].as_slice()),
-        ("scrollToTop", ["trigger"].as_slice()),
-        ("scrollToEnd", ["trigger"].as_slice()),
-        ("scrollToOffset", ["offset"].as_slice()),
+    assert!(schema.modifiers.iter().all(|modifier| !matches!(
+        modifier.name,
+        "scrollToIndex" | "scrollToTop" | "scrollToEnd" | "scrollToOffset"
+    )));
+
+    for legacy in [
+        ".scrollToIndex(index: 1)",
+        ".scrollToTop(trigger: command)",
+        ".scrollToEnd(trigger: command)",
+        ".scrollToOffset(offset: 24)",
     ] {
-        let modifier = schema
-            .modifiers
-            .iter()
-            .find(|modifier| modifier.name == name)
-            .unwrap_or_else(|| panic!("FastList {name} modifier"));
-        assert_eq!(
-            modifier
-                .arguments
-                .iter()
-                .map(|arg| arg.name)
-                .collect::<Vec<_>>(),
-            expected_arguments
+        let source = format!(
+            "app P {{ state command: Int32 = 0 body {{ FastList(count: 3) {{ index in Text(index) }}{legacy} }} }}"
         );
-        assert_eq!(modifier.body, catalog::ModifierBody::None);
+        assert!(
+            nexa_syntax::parse_program(&source).is_err(),
+            "FastList legacy scroll modifier `{legacy}` must be rejected"
+        );
     }
 }
 

@@ -1245,10 +1245,15 @@ impl Parser {
         self.expect(Kind::RParen, "expected `)` after component parameters")?;
         self.expect(Kind::LBrace, "expected `{` after component declaration")?;
         let mut states = Vec::new();
+        let mut ref_methods = Vec::new();
         let mut body = None;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             if self.word_is("state") || self.word_is("let") {
                 states.push(self.state_decl()?);
+            } else if self.word_is("fn") {
+                ref_methods.push(self.function_decl(false)?);
+            } else if self.word_is("async") {
+                ref_methods.push(self.function_decl(true)?);
             } else if self.word_is("body") {
                 if body.is_some() {
                     return self.error_here("a component can only declare one body");
@@ -1271,6 +1276,7 @@ impl Parser {
             name,
             parameters,
             states,
+            ref_methods,
             body,
             span: keyword,
             source_file: None,
@@ -1349,6 +1355,7 @@ impl Parser {
         let body = body.ok_or_else(|| CompileError::new(span, "app is missing a `body` block"))?;
         Ok(App {
             name,
+            source_file: None,
             plugins: Vec::new(),
             enums,
             structs: Vec::new(),
@@ -1710,9 +1717,13 @@ impl Parser {
         }
         self.expect(Kind::RParen, "expected `)` after function parameters")?;
         let mut is_throwing = false;
+        let mut failure_type = None;
         if self.word_is("throws") {
             self.advance();
             is_throwing = true;
+            if !self.check(&Kind::Minus) && !self.check(&Kind::LBrace) {
+                failure_type = Some(self.type_syntax()?);
+            }
         }
         let return_type = if self.take(&Kind::Minus) {
             self.expect(Kind::Greater, "expected `->` before function return type")?;
@@ -1720,6 +1731,9 @@ impl Parser {
             if self.word_is("throws") {
                 self.advance();
                 is_throwing = true;
+                if !self.check(&Kind::LBrace) {
+                    failure_type = Some(self.type_syntax()?);
+                }
             }
             ty
         } else if is_throwing {
@@ -1734,6 +1748,7 @@ impl Parser {
             name,
             is_async,
             is_throwing,
+            failure_type,
             parameters,
             return_type,
             body,
@@ -2255,8 +2270,9 @@ impl Parser {
                 ChildBody::SplitPanes { sidebar, detail }
             }
             ChildModel::ListRows => {
-                let (source, key) =
-                    list_source.expect("ListSource positional model parses a list source");
+                let (source, key) = list_source.ok_or_else(|| {
+                    CompileError::new(span, format!("{} requires a list source", schema.name))
+                })?;
                 let (item, index, section, children) = self.list_row_block(&source, span)?;
                 ChildBody::Rows(ListRows {
                     source,
@@ -2839,6 +2855,7 @@ impl Parser {
                 continue;
             }
             let (name, span) = self.ident()?;
+            let statement_start = self.cursor - 1;
             let assignment_operator = if self.take(&Kind::Equal) {
                 Some(None)
             } else if self.take(&Kind::PlusEqual) {
@@ -2933,6 +2950,23 @@ impl Parser {
                             ..span
                         },
                     });
+                    self.optional_semicolon();
+                    continue;
+                }
+                if !matches!(
+                    method.as_str(),
+                    "append"
+                        | "removeAt"
+                        | "move"
+                        | "moveSubset"
+                        | "insert"
+                        | "remove"
+                        | "set"
+                        | "clear"
+                ) {
+                    self.cursor = statement_start;
+                    let expression = self.expr()?;
+                    stmts.push(Stmt::Expression { expression, span });
                     self.optional_semicolon();
                     continue;
                 }
@@ -3422,6 +3456,25 @@ impl Parser {
                     };
                     return self.qualified_call(value, name, span);
                 }
+                if self.check(&Kind::Less) {
+                    let mark = self.cursor;
+                    let type_arguments = self.type_arguments()?;
+                    if !type_arguments.is_empty() && self.check(&Kind::LParen) {
+                        self.advance();
+                        let (arguments, named_arguments) =
+                            self.call_arguments_after_open_with_names()?;
+                        if named_arguments.is_empty() {
+                            return Ok(Expr::Call(value, type_arguments, arguments, token.span));
+                        }
+                        return Ok(Expr::CallNamed {
+                            name: value,
+                            type_arguments,
+                            arguments: named_arguments,
+                            span: token.span,
+                        });
+                    }
+                    self.cursor = mark;
+                }
                 if value == "Theme" || value == "Layout" {
                     if !self.take(&Kind::Dot) {
                         return Ok(Expr::Name(value, token.span));
@@ -3612,15 +3665,24 @@ impl Parser {
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
     ) -> String {
         let mut name = String::new();
-        while chars.peek().copied().is_some_and(is_ident_continue) {
-            name.push(chars.next().expect("peeked character exists"));
+        while let Some(character) = chars.next_if(|character| is_ident_continue(*character)) {
+            name.push(character);
         }
         name
     }
 
     fn tuple_constructor(&mut self, name: String, span: Span) -> Result<Expr, CompileError> {
+        let (arity, is_pair) = match name.as_str() {
+            "Pair" => (2, true),
+            "Triple" => (3, false),
+            _ => {
+                return Err(CompileError::new(
+                    span,
+                    "tuple constructor must be `Pair` or `Triple`",
+                ));
+            }
+        };
         self.expect(Kind::LParen, "expected `(` after tuple type name")?;
-        let arity = if name == "Pair" { 2 } else { 3 };
         let mut values = Vec::with_capacity(arity);
         while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
             values.push(self.expr()?);
@@ -3629,24 +3691,19 @@ impl Parser {
             }
         }
         self.expect(Kind::RParen, "expected `)` after tuple values")?;
-        if values.len() != arity {
-            return Err(CompileError::new(
-                span,
-                format!("{name} requires exactly {arity} values"),
-            ));
-        }
-        let mut values = values.into_iter();
-        if name == "Pair" {
-            Ok(Expr::Pair(
-                Box::new(values.next().expect("pair arity checked")),
-                Box::new(values.next().expect("pair arity checked")),
-                span,
-            ))
+        if is_pair {
+            let [first, second]: [Expr; 2] = values
+                .try_into()
+                .map_err(|_| CompileError::new(span, "Pair requires exactly 2 values"))?;
+            Ok(Expr::Pair(Box::new(first), Box::new(second), span))
         } else {
+            let [first, second, third]: [Expr; 3] = values
+                .try_into()
+                .map_err(|_| CompileError::new(span, "Triple requires exactly 3 values"))?;
             Ok(Expr::Triple(
-                Box::new(values.next().expect("triple arity checked")),
-                Box::new(values.next().expect("triple arity checked")),
-                Box::new(values.next().expect("triple arity checked")),
+                Box::new(first),
+                Box::new(second),
+                Box::new(third),
                 span,
             ))
         }
@@ -4059,12 +4116,6 @@ impl Parser {
             self.optional_semicolon();
         }
         self.expect(Kind::RBrace, "expected `}` to close when cases")?;
-        let Some(else_body) = else_body else {
-            return Err(CompileError::new(
-                span,
-                "when requires an `else` case for exhaustive native lowering",
-            ));
-        };
         if cases.is_empty() {
             return Err(CompileError::new(
                 span,
@@ -4075,7 +4126,8 @@ impl Parser {
         Ok(Node::When {
             value,
             cases,
-            else_body,
+            has_else: else_body.is_some(),
+            else_body: else_body.unwrap_or_default(),
             transition,
             transition_animation,
             span,

@@ -54,6 +54,7 @@ struct SharedState {
     diagnostics: HashMap<TargetPlatform, Vec<Diagnostic>>,
     clients: HashMap<u64, Client>,
     performance_overlay_enabled: bool,
+    runtime_trace_enabled: bool,
 }
 
 /// Owns a local development server and its ephemeral authorization token.
@@ -343,6 +344,15 @@ impl DevServer {
             let _ = broadcast(&mut state, None, message);
         }
     }
+
+    /// Enable or disable opt-in, redacted runtime trace events in connected apps.
+    pub fn set_runtime_trace(&self, enabled: bool) {
+        let message = ServerMessage::RuntimeTrace { enabled };
+        if let Ok(mut state) = self.state.lock() {
+            state.runtime_trace_enabled = enabled;
+            let _ = broadcast(&mut state, None, message);
+        }
+    }
 }
 
 impl Drop for DevServer {
@@ -475,7 +485,7 @@ fn serve_client(
     eprintln!("Nexa dev client connected for {target:?}");
 
     let (updates_tx, updates_rx) = mpsc::channel::<Arc<ClientUpdate>>();
-    let (module, diagnostics, performance_overlay_enabled) = {
+    let (module, diagnostics, performance_overlay_enabled, runtime_trace_enabled) = {
         let Ok(mut shared) = state.lock() else {
             let _ = websocket.close(None);
             return;
@@ -499,6 +509,7 @@ fn serve_client(
             module,
             shared.diagnostics.get(&target).cloned().unwrap_or_default(),
             shared.performance_overlay_enabled,
+            shared.runtime_trace_enabled,
         )
     };
 
@@ -523,6 +534,16 @@ fn serve_client(
         && send(
             &mut websocket,
             &ServerMessage::PerformanceOverlay { enabled: true },
+        )
+        .is_err()
+    {
+        unregister(&state, client_id);
+        return;
+    }
+    if runtime_trace_enabled
+        && send(
+            &mut websocket,
+            &ServerMessage::RuntimeTrace { enabled: true },
         )
         .is_err()
     {

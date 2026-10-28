@@ -530,7 +530,7 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWrit
         out.line_at(
             depth + 2,
             format_args!(
-                "segments.size == {} && segments[0].equals({}, ignoreCase = true) -> {{",
+                "segments.isNotEmpty() && segments.size <= {} && segments[0].equals({}, ignoreCase = true) -> {{",
                 screen.parameters.len() + 1,
                 kotlin_string(&route_slug(&screen.name))
             ),
@@ -538,7 +538,15 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWrit
         let mut arguments = Vec::new();
         for (index, parameter) in screen.parameters.iter().enumerate() {
             let name = format!("nexaArgument{index}");
-            let raw = format!("segments[{}]", index + 1);
+            let raw = format!("nexaRouteArgument{index}");
+            out.line_at(
+                depth + 3,
+                format_args!(
+                    "val {raw} = segments.getOrNull({}) ?: uri.getQueryParameter({}) ?: return@LaunchedEffect",
+                    index + 1,
+                    kotlin_string(&parameter.name)
+                ),
+            );
             let parser = match &parameter.ty {
                 Type::String => {
                     out.line_at(
@@ -616,6 +624,7 @@ fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut SourceWri
         }
     } else if state.is_native_class_instance_binding()
         || matches!(state.ty, nexa_ir::Type::Signal(_))
+        || matches!(state.ty, nexa_ir::Type::ComponentRef { .. })
     {
         out.push_str(&format!(
             "val {name}: {} = remember {{ {} }}\n",
@@ -656,6 +665,16 @@ fn route_value(module: &Module, destination: ScreenId, arguments: &[Expr]) -> St
         } else {
             value.push_str(&rendered);
         }
+    }
+    value
+}
+
+pub(crate) fn action_route_value(destination: ScreenId, arguments: &[Expr]) -> String {
+    let mut value = kotlin_string(&navigation_route_name(destination));
+    for argument in arguments {
+        value.push_str(" + \"/\" + Uri.encode(");
+        value.push_str(&crate::generator::engine::expressions::expression(argument));
+        value.push_str(".toString())");
     }
     value
 }

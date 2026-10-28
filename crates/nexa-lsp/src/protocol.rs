@@ -64,6 +64,8 @@ pub struct Diagnostic {
     pub severity: Option<DiagnosticSeverity>,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
 

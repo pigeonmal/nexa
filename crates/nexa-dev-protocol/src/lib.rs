@@ -4,7 +4,22 @@
 use nexa_dev_ir::DevModulePatch;
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u16 = 12;
+pub const PROTOCOL_VERSION: u16 = 13;
+
+/// Template token for native DevRuntime protocol schemas.
+pub const PROTOCOL_VERSION_TOKEN: &str = "__NEXA_PROTOCOL_VERSION__";
+
+/// Injects the canonical protocol version into a native runtime template.
+fn render_protocol_version(source: &str) -> String {
+    source.replace(PROTOCOL_VERSION_TOKEN, &PROTOCOL_VERSION.to_string())
+}
+
+/// Renders a native DevRuntime schema with the canonical protocol and Dev IR
+/// versions used by the Rust server.
+pub fn render_runtime_schema(source: &str) -> String {
+    let with_format_version = nexa_dev_ir::render_dev_ir_format_version(source);
+    render_protocol_version(&with_format_version)
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,6 +74,9 @@ pub enum ServerMessage {
         reason: String,
     },
     PerformanceOverlay {
+        enabled: bool,
+    },
+    RuntimeTrace {
         enabled: bool,
     },
 }

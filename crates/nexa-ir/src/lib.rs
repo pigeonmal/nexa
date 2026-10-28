@@ -5,14 +5,6 @@ fn default_true() -> bool {
     true
 }
 
-fn default_bottom_sheet_detents() -> Vec<BottomSheetDetent> {
-    vec![BottomSheetDetent::Medium, BottomSheetDetent::Expanded]
-}
-
-const fn default_bottom_sheet_content_padding() -> f32 {
-    8.0
-}
-
 pub mod capabilities;
 pub mod facts;
 pub mod localization;
@@ -119,6 +111,9 @@ pub struct Function {
     /// Kotlin exceptions propagate without a declaration).
     #[serde(default)]
     pub is_throwing: bool,
+    /// Concrete plugin error carried by a reusable component ref method.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_type: Option<Type>,
     pub parameters: Vec<FunctionParameter>,
     pub locals: Vec<FunctionLocal>,
     pub return_type: Type,
@@ -159,6 +154,9 @@ pub struct Component {
     pub parameters: Vec<ComponentParameter>,
     pub states: Vec<State>,
     pub body: Vec<Node>,
+    /// Typed methods exposed through `ComponentRef<Component>`.
+    #[serde(default)]
+    pub ref_methods: Vec<Function>,
     #[serde(default)]
     pub on_appear: Option<Vec<Action>>,
     #[serde(default)]
@@ -397,6 +395,13 @@ pub enum Type {
     Pair(Box<Type>, Box<Type>),
     Triple(Box<Type>, Box<Type>, Box<Type>),
     Signal(Box<Type>),
+    /// A statically typed handle to one built-in or native plugin component.
+    ComponentRef {
+        namespace: String,
+        name: String,
+    },
+    /// An unattached component handle or a preserved plugin failure.
+    ComponentRefError(Box<Type>),
     Enum(String),
     /// A plugin method type parameter, present only in signatures. Every call
     /// site resolves it to a concrete value type before the IR is built, so
@@ -434,6 +439,13 @@ pub enum Expr {
         key: String,
         value: Box<Expr>,
         comment: Option<String>,
+    },
+    /// Source information retained for DevRuntime error reporting. Native
+    /// backends erase this wrapper and render the inner expression directly.
+    Located {
+        source_file: String,
+        source_span: Span,
+        expression: Box<Expr>,
     },
     Interpolation(Vec<InterpolatedPart>),
     Bool(bool),
@@ -475,6 +487,16 @@ pub enum Expr {
         payload_name: String,
         value: Box<Expr>,
         return_type: Type,
+    },
+    /// Creates a typed native component handle. Generated code specializes
+    /// this to a concrete platform class; no string dispatch is involved.
+    ComponentRefCreate {
+        namespace: String,
+        name: String,
+        /// Stable source identity used by DevRuntime to retain this handle
+        /// across ordinary module replacement.
+        #[serde(default)]
+        identity: String,
     },
     Add(Box<Expr>, Box<Expr>, NumericType),
     Concat(Box<Expr>, Box<Expr>),
@@ -574,8 +596,17 @@ pub enum Expr {
     FileReadText {
         path: Box<Expr>,
     },
+    /// Validated `File.readBytes` call.
+    FileReadBytes {
+        path: Box<Expr>,
+    },
     /// Validated `File.writeText` call.
     FileWriteText {
+        path: Box<Expr>,
+        contents: Box<Expr>,
+    },
+    /// Validated `File.writeBytes` call.
+    FileWriteBytes {
         path: Box<Expr>,
         contents: Box<Expr>,
     },
@@ -763,6 +794,7 @@ pub enum Node {
     },
     Layout {
         kind: LayoutKind,
+        /// Gap between adjacent children. Semantic lowering uses zero when omitted.
         spacing: f32,
         style: ViewStyle,
         children: Vec<Node>,
@@ -818,6 +850,8 @@ pub enum Node {
         shape: Option<ButtonShape>,
         tint: Option<ColorExpression>,
         glass: bool,
+        #[serde(default)]
+        accessibility_label: Option<Box<Expr>>,
         actions: Vec<Action>,
     },
     TextInput {
@@ -992,26 +1026,16 @@ pub enum Node {
         children: Vec<Node>,
     },
     BottomSheet {
-        state: String,
-        /// Uniform inner inset around the sheet's content, in logical points/dp.
-        #[serde(default = "default_bottom_sheet_content_padding")]
+        component_ref: Expr,
+        /// Uniform inner inset around sheet content; zero when omitted.
+        #[serde(default)]
         content_padding: f32,
-        /// Native sheet sizes that can be reached by dragging.
-        #[serde(default = "default_bottom_sheet_detents")]
-        detents: Vec<BottomSheetDetent>,
-        /// Optional custom resting heights as fractions of the available screen height.
+        /// Available resting heights as fractions of available screen height.
         #[serde(default)]
-        snap_points: Vec<f32>,
-        /// Custom height selected when the sheet first appears.
+        detents: Vec<f32>,
+        /// Starting height as a fraction of available screen height.
         #[serde(default)]
-        initial_snap_point: Option<f32>,
-        /// Mutable fraction binding for reading and changing the active custom snap point.
-        #[serde(default)]
-        selected_snap_point: Option<String>,
-        /// Native size selected when the sheet first appears. Defaults to the
-        /// first configured detent.
-        #[serde(default)]
-        initial_detent: Option<BottomSheetDetent>,
+        initial_detent: Option<f32>,
         /// Whether the native drag indicator is visible. Defaults to true.
         #[serde(default = "default_true", alias = "show_drag_handle")]
         show_drag_indicator: bool,
@@ -1080,7 +1104,9 @@ pub enum Node {
     When {
         value: Expr,
         cases: Vec<WhenCase>,
-        else_body: Vec<Node>,
+        /// Optional fallback. `None` means the compiler proved all values are
+        /// covered, allowing native exhaustive `switch` / `when` output.
+        else_body: Option<Vec<Node>>,
         transition: Option<ViewTransition>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         transition_animation: Option<AnimationSpec>,
@@ -1089,12 +1115,18 @@ pub enum Node {
     ComponentCall {
         name: String,
         arguments: Vec<(String, Expr)>,
+        /// Optional typed handle for invoking this component's declared methods.
+        #[serde(default)]
+        component_ref: Option<Expr>,
         children: Option<Vec<Node>>,
     },
     NativeComponentCall {
         namespace: String,
         name: String,
         arguments: Vec<(String, Expr)>,
+        /// Optional typed handle used to call the instance's declared methods.
+        #[serde(default)]
+        component_ref: Option<Expr>,
         children: Option<Vec<Node>>,
         event_handlers: Vec<NativeComponentEventHandler>,
     },
@@ -1167,8 +1199,8 @@ pub struct ListCommon {
     #[serde(default)]
     pub page_snap: bool,
     pub item_extent: Option<f32>,
-    /// Distance between adjacent items, in logical points/dp. Grid axes apply
-    /// the same gap horizontally and vertically.
+    /// Distance between adjacent items, in logical points/dp; defaults to zero.
+    /// Grid axes apply the same gap horizontally and vertically.
     #[serde(default)]
     pub spacing: f32,
     /// Whether the user can scroll this list. `None` preserves the default
@@ -1178,15 +1210,11 @@ pub struct ListCommon {
     /// Row index binding name (always `Int32`).
     pub index: String,
     pub key: Option<Expr>,
+    /// Two-way binding for the leading visible data row.
     pub scroll_position: Option<String>,
-    /// Trigger bindings for edge and offset scroll commands. A changed trigger
-    /// issues one command; it is not updated while the user scrolls.
+    /// Optional typed imperative handle attached to this list instance.
     #[serde(default)]
-    pub scroll_to_top: Option<String>,
-    #[serde(default)]
-    pub scroll_to_end: Option<String>,
-    #[serde(default)]
-    pub scroll_to_offset: Option<String>,
+    pub component_ref: Option<Expr>,
     pub children: Vec<Node>,
     pub on_end_reached: Option<Vec<Action>>,
     pub on_scroll: Option<Vec<Action>>,
@@ -1220,7 +1248,7 @@ pub struct SectionedListCommon {
     #[serde(default = "default_true")]
     pub show_dividers: bool,
     pub item_extent: Option<f32>,
-    /// Vertical distance between adjacent rows, in logical points/dp.
+    /// Vertical distance between adjacent rows, in logical points/dp; defaults to zero.
     #[serde(default)]
     pub spacing: f32,
     /// Whether the user can scroll this list. `None` preserves the default
@@ -1229,6 +1257,9 @@ pub struct SectionedListCommon {
     pub scroll_enabled: Option<Expr>,
     /// Row index binding name (always `Int32`).
     pub index: String,
+    /// Optional typed imperative handle attached to this list instance.
+    #[serde(default)]
+    pub component_ref: Option<Expr>,
     pub key: Option<Expr>,
     pub children: Vec<Node>,
     pub section_header: Option<Vec<Node>>,
@@ -1295,6 +1326,16 @@ impl ListPlan {
         }
     }
 
+    /// Two-way binding for the leading visible row on a flat list.
+    pub fn scroll_position(&self) -> Option<&str> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.scroll_position.as_deref()
+            }
+            ListPlan::Sections { .. } => None,
+        }
+    }
+
     /// Row children for analysis passes.
     pub fn children(&self) -> &[Node] {
         match self {
@@ -1308,28 +1349,6 @@ impl ListPlan {
         match self {
             ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.key.as_ref(),
             ListPlan::Sections { common, .. } => common.key.as_ref(),
-        }
-    }
-
-    /// Scroll position binding, if any. Sectioned lists cannot have one.
-    pub fn scroll_position(&self) -> Option<&str> {
-        match self {
-            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
-                common.scroll_position.as_deref()
-            }
-            ListPlan::Sections { .. } => None,
-        }
-    }
-
-    /// Whether a flat list has any one-shot programmatic scroll command.
-    pub fn has_scroll_commands(&self) -> bool {
-        match self {
-            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
-                common.scroll_to_top.is_some()
-                    || common.scroll_to_end.is_some()
-                    || common.scroll_to_offset.is_some()
-            }
-            ListPlan::Sections { .. } => false,
         }
     }
 
@@ -1469,8 +1488,6 @@ pub enum MemberKind {
     PluginField(String),
     /// `NetworkResponse.statusCode`.
     NetworkStatusCode,
-    /// `NetworkResponse.headers`.
-    NetworkHeaders,
     /// `NetworkResponse.body`.
     NetworkBody,
     /// `Array<T>`, `Set<T>`, or `Map<K, V>.count`.
@@ -1481,6 +1498,12 @@ pub enum MemberKind {
     StringTrimmed,
     /// `Signal<T>.value` reactive value property.
     SignalValue,
+    /// `Result<T, E>.isSuccess` outcome check.
+    ResultIsSuccess,
+    /// `Result<T, E>.value` optional success value.
+    ResultValue,
+    /// `Result<T, E>.error` optional failure value.
+    ResultError,
 }
 
 /// Validated `Network.fetch` / `Network.download` arguments. Every field is
@@ -1492,7 +1515,7 @@ pub struct NetworkRequest {
     pub method: Box<Expr>,
     pub headers: Box<Expr>,
     pub timeout: Box<Expr>,
-    pub use_cache: Box<Expr>,
+    pub cache_policy: Box<Expr>,
     pub follow_redirects: Box<Expr>,
     pub max_response_bytes: Box<Expr>,
     pub certificate_pins: Box<Expr>,
@@ -1667,6 +1690,7 @@ pub enum ImageSource {
 pub struct ViewStyle {
     pub alignment: Option<Alignment>,
     pub horizontal_arrangement: Option<HorizontalArrangement>,
+    /// Optional content inset; `None` means zero (no padding modifier).
     pub padding: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -1760,14 +1784,6 @@ pub enum ButtonShape {
     Capsule,
     Circle,
     Rounded(f32),
-}
-
-/// Shared native resting sizes supported by SwiftUI and Material 3 modal sheets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BottomSheetDetent {
-    Medium,
-    Expanded,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1941,6 +1957,7 @@ pub struct TextStyle {
     #[serde(default)]
     pub font_design: Option<TextFontDesign>,
     pub font_weight: Option<FontWeight>,
+    /// Optional text inset; `None` means zero (no padding modifier).
     pub padding: Option<f32>,
     pub opacity: Option<f32>,
     pub effects: ViewEffects,
@@ -1997,6 +2014,13 @@ pub enum TextAlignment {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Action {
     Expression(Expr),
+    /// Pushes a statically resolved screen route from any foreground action.
+    NavigationPush {
+        destination: ScreenId,
+        arguments: Vec<Expr>,
+    },
+    /// Returns to the previous route when the current screen has one.
+    NavigationBack,
     /// Immutable binding scoped to the current action block.
     Let {
         name: String,
@@ -2121,6 +2145,9 @@ impl Expr {
     pub fn is_throwing_call(&self) -> bool {
         matches!(
             self,
+            Expr::Located { expression, .. } if expression.is_throwing_call()
+        ) || matches!(
+            self,
             Expr::NativeCall {
                 is_throwing: true,
                 ..
@@ -2130,12 +2157,15 @@ impl Expr {
             } | Expr::NetworkFetch(_)
                 | Expr::NetworkDownload { .. }
                 | Expr::FileReadText { .. }
+                | Expr::FileReadBytes { .. }
                 | Expr::FileWriteText { .. }
+                | Expr::FileWriteBytes { .. }
                 | Expr::FileDelete { .. }
                 | Expr::TimeCall {
                     method: TimeMethod::Sleep,
                     ..
                 }
+                | Expr::TryAwait(_)
         )
     }
 }

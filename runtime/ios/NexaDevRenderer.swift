@@ -411,6 +411,17 @@ private struct NexaDevFastListRow: Identifiable {
     let itemIndex: Int
 }
 
+private func nexaDevSectionOffsets(_ sectionCounts: [Int]) -> [Int] {
+    var offsets: [Int] = []
+    offsets.reserveCapacity(sectionCounts.count)
+    var total = 0
+    for sectionCount in sectionCounts {
+        offsets.append(total)
+        total += sectionCount
+    }
+    return offsets
+}
+
 @MainActor
 private struct NexaDevFastListSwipeActionContent: View {
     let nodes: [Any]
@@ -491,9 +502,10 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     let rowHeight: Double?
     let spacing: Double
     let scrollPosition: Int?
-    let scrollCommands: NexaFastListCommands
     let controlledPositionRevision: Int
     let sectionCounts: [Int]?
+    let sectionOffsets: [Int]?
+    let componentRef: NexaFastListRef?
     let rowKey: ((Int, Int, Int) -> AnyHashable)?
     let stickyHeader: StickyHeaderContent?
     let sectionHeader: ((Int) -> SectionHeaderContent)?
@@ -522,8 +534,8 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
         count: Int,
         sectionIndex: Int = 0,
         flatOffset: Int = 0
-    ) -> [NexaDevFastListRow] {
-        (0..<max(0, count)).map { itemIndex in
+    ) -> some RandomAccessCollection<NexaDevFastListRow> {
+        (0..<max(0, count)).lazy.map { itemIndex in
             let index = flatOffset + itemIndex
             return NexaDevFastListRow(
                 id: rowKey?(index, sectionIndex, itemIndex) ?? AnyHashable(index),
@@ -547,6 +559,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
     @ViewBuilder
     private func nativeRow(_ item: NexaDevFastListRow) -> some View {
         let content = NexaNativeListRowPrimitive(
+            position: item.index,
             showDividers: showDividers,
             prioritizeSwipeActions: swipeActions != nil,
             reorderIndex: onMove == nil ? nil : item.index,
@@ -577,11 +590,13 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
             NexaNativeListPrimitive(
                 spacing: CGFloat(spacing),
                 scrollEnabled: scrollEnabled,
-                reorderEnabled: onMove != nil
+                reorderEnabled: onMove != nil,
+                rowCount: count,
+                componentRef: componentRef
             ) {
-                if let sectionCounts {
+                if let sectionCounts, let sectionOffsets {
                     ForEach(sectionCounts.indices, id: \.self) { sectionIndex in
-                        let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
+                        let start = sectionOffsets[sectionIndex]
                         if let sectionHeader {
                             Section {
                                 ForEach(identifiedRows(
@@ -615,7 +630,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 }
             }
         } else if case .vertical = axis, sectionCounts == nil, onMove == nil,
-                  (!pageSnap || scrollCommands != NexaFastListCommands()) {
+                  (!pageSnap || componentRef != nil) {
             NexaFastListPrimitive(
                 rowCount: count,
                 rowHeight: rowHeight.map { CGFloat($0) },
@@ -626,7 +641,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 reverseLayout: reverseLayout,
                 pageSnap: pageSnap,
                 scrollPosition: scrollPosition.map(Int32.init),
-                commands: scrollCommands,
+                componentRef: componentRef,
                 restoreRevision: pageRestoreRevision,
                 onScrollPositionChanged: { position in
                     latestPosition = position
@@ -647,7 +662,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 scrollPosition: scrollPosition.map(Int32.init),
-                commands: scrollCommands,
+                componentRef: componentRef,
                 onScrollPositionChanged: { position in
                     latestPosition = position
                     onScrollPositionChanged(position)
@@ -667,7 +682,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 scrollPosition: scrollPosition.map(Int32.init),
-                commands: scrollCommands,
+                componentRef: componentRef,
                 onScrollPositionChanged: { position in
                     latestPosition = position
                     onScrollPositionChanged(position)
@@ -688,7 +703,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
                 scrollPosition: scrollPosition.map(Int32.init),
-                commands: scrollCommands,
+                componentRef: componentRef,
                 onScrollPositionChanged: { position in
                     latestPosition = position
                     onScrollPositionChanged(position)
@@ -707,9 +722,9 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 spacing: CGFloat(spacing),
                 scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in { index in key(index, 0, index) } },
-                scrollPosition: scrollPosition.map(Int32.init),
                 masonry: true,
-                commands: scrollCommands,
+                scrollPosition: scrollPosition.map(Int32.init),
+                componentRef: componentRef,
                 onScrollPositionChanged: { position in
                     latestPosition = position
                     onScrollPositionChanged(position)
@@ -720,7 +735,7 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 onScroll: onScroll.map { callback in { callback(latestPosition) } },
                 rowContent: { index in row(index, 0, index) }
             )
-        } else if case .vertical = axis, let sectionCounts {
+        } else if case .vertical = axis, let sectionCounts, let sectionOffsets {
             NexaFastSectionedListPrimitive(
                 sectionCount: sectionCounts.count,
                 sectionCounts: sectionCounts,
@@ -730,22 +745,23 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
                 scrollEnabled: scrollEnabled,
                 rowKey: rowKey.map { key in
                     { sectionIndex, itemIndex in
-                        let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
+                        let start = sectionOffsets[sectionIndex]
                         return key(start + itemIndex, sectionIndex, itemIndex)
                     }
                 },
+                componentRef: componentRef,
                 isRefreshing: isRefreshing,
                 onRefresh: onRefresh,
                 headerContent: sectionHeader,
                 rowContent: { sectionIndex, itemIndex in
-                    let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
+                    let start = sectionOffsets[sectionIndex]
                     row(start + itemIndex, sectionIndex, itemIndex)
                 }
             )
         } else if let onMove {
             List {
                 ForEach(identifiedRows(count: count)) { item in
-                    NexaNativeListRowPrimitive(showDividers: showDividers) {
+                    NexaNativeListRowPrimitive(position: item.index, showDividers: showDividers) {
                         row(item.index, item.sectionIndex, item.itemIndex)
                     }
                 }
@@ -862,26 +878,33 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
             let leadingOffset: (CGRect) -> CGFloat = { frame in
                 axis.tracksHorizontalOffset ? frame.minX : frame.minY
             }
-            let visibleRows = offsets.filter { _, frame in
-                axis.tracksHorizontalOffset
+            var leadingVisibleIndex: Int?
+            var leadingVisibleOffset: CGFloat?
+            var reachedEndCandidate = false
+            var followingBottomCandidate = false
+            let finalVisibleIndex = reverseLayout ? 0 : count - 1
+            for (index, frame) in offsets {
+                let isVisible = axis.tracksHorizontalOffset
                     ? frame.maxX > 0 && frame.minX < viewportExtent
                     : frame.maxY > 0 && frame.minY < viewportExtent
+                guard isVisible else { continue }
+
+                let offset = leadingOffset(frame)
+                if leadingVisibleOffset.map({ offset < $0 }) ?? true {
+                    leadingVisibleIndex = index
+                    leadingVisibleOffset = offset
+                }
+                if count > 0 && index == finalVisibleIndex { reachedEndCandidate = true }
+                if count > 0 && index == count - 1 { followingBottomCandidate = true }
             }
-            guard let visibleIndex = visibleRows
-                .min(by: { leadingOffset($0.value) < leadingOffset($1.value) })?.key
-            else {
+            guard let visibleIndex = leadingVisibleIndex else {
                 DispatchQueue.main.async {
                     if reverseLayout { followsBottom = false }
                 }
                 return
             }
-            let finalVisibleIndex = reverseLayout ? 0 : count - 1
-            let isAtEnd = count > 0 && visibleRows.keys.contains(finalVisibleIndex)
-            let isFollowingBottom = offsets[count - 1].map { frame in
-                axis.tracksHorizontalOffset
-                    ? frame.maxX > 0 && frame.minX < viewportExtent
-                    : frame.maxY > 0 && frame.minY < viewportExtent
-            } ?? false
+            let isAtEnd = reachedEndCandidate
+            let isFollowingBottom = followingBottomCandidate
 
             // Preference changes run during SwiftUI's update transaction. Defer
             // both state writes and Nexa actions so scroll callbacks cannot
@@ -964,9 +987,9 @@ struct NexaDevFastList<RowContent: View, StickyHeaderContent: View, SectionHeade
         switch axis {
         case .vertical:
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: stickyHeader != nil || sectionCounts != nil ? [.sectionHeaders] : []) {
-                if let sectionCounts {
+                if let sectionCounts, let sectionOffsets {
                     ForEach(sectionCounts.indices, id: \.self) { sectionIndex in
-                        let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
+                        let start = sectionOffsets[sectionIndex]
                         Section {
                                 ForEach(0..<sectionCounts[sectionIndex], id: \.self) { itemIndex in
                                 listItemWithDivider(
@@ -1798,7 +1821,7 @@ struct NexaDevNodeList: View {
             }
             return styled
         case "Spacer":
-            return AnyView(Spacer())
+            return AnyView(Spacer(minLength: 0))
         case "Divider":
             let color = devColor(fields["color"], isDark: colorScheme == .dark)
             let thickness = fields["thickness"] as? Double ?? 1
@@ -1828,8 +1851,13 @@ struct NexaDevNodeList: View {
                 scope: scope,
                 parameters: locals
             )
-            let componentScope = "component/\(name)"
-            return AnyView(NexaDevNodeList(
+            let componentRef = fields[NexaDevKeys.componentRef].map {
+                store.evaluate($0, locals: locals, scope: scope)
+            } as? NexaDevComponentRef
+            let componentIdentity = componentRef.map { "ref/\($0.identity)" } ?? identity
+            let componentScope = "component/\(name)/\(componentIdentity)"
+            componentRef?.attach(scope: componentScope, parameters: componentParameters)
+            let content = NexaDevNodeList(
                 nodes: component["body"] as? [Any] ?? [],
                 module: module,
                 store: store,
@@ -1837,7 +1865,12 @@ struct NexaDevNodeList: View {
                 parameters: componentParameters,
                 stateDeclarations: component["states"] as? [[String: Any]] ?? [],
                 stateScope: componentScope
-            ).environment(\.nexaDevContentSlot, slot))
+            ).environment(\.nexaDevContentSlot, slot)
+            return AnyView(content.onDisappear {
+                store.clearNativeEventSubscriptions(scope: componentScope)
+                store.clearNativeTasks(scope: componentScope)
+                componentRef?.detach()
+            })
         case "NativeComponentCall":
             let namespace = fields["namespace"] as? String ?? ""
             let name = fields["name"] as? String ?? ""
@@ -1857,6 +1890,10 @@ struct NexaDevNodeList: View {
                 )
             }
             let children = fields["children"] as? [Any] ?? []
+            let componentRef = fields[NexaDevKeys.componentRef].flatMap { value -> Any? in
+                guard !(value is NSNull) else { return nil }
+                return store.evaluate(value, locals: locals, scope: scope)
+            }
             let content = AnyView(NexaDevNodeList(
                 nodes: children,
                 module: module,
@@ -1870,6 +1907,7 @@ struct NexaDevNodeList: View {
                 name: name,
                 arguments: arguments,
                 events: events,
+                componentRef: componentRef,
                 content: content
             ) {
                 return component
@@ -1881,6 +1919,9 @@ struct NexaDevNodeList: View {
             let actions = fields["actions"] as? [Any] ?? []
             let disabled = fields["disabled"].map { store.truthy(store.evaluate($0, locals: locals, scope: scope)) } ?? false
             let loading = fields["loading"].map { store.truthy(store.evaluate($0, locals: locals, scope: scope)) } ?? false
+            let accessibilityLabel = fields["accessibility_label"].map {
+                store.stringify(store.evaluate($0, locals: locals, scope: scope))
+            } ?? label
             let style: NexaSharedButtonStyleKind = switch fields["style"] as? String {
             case "Bordered": .bordered
             case "Borderless": .borderless
@@ -1921,6 +1962,7 @@ struct NexaDevNodeList: View {
                 tint: tint,
                 loading: loading,
                 disabled: disabled,
+                accessibilityLabel: accessibilityLabel,
                 glass: fields["glass"] as? Bool == true,
                 iconOnlyCircle: iconOnlyCircle,
                 action: { store.perform(actions, scope: scope, locals: locals) },
@@ -2184,7 +2226,9 @@ struct NexaDevNodeList: View {
             let itemCount = countExpression.map {
                 max(0, (store.evaluate($0, locals: locals, scope: scope) as? NSNumber)?.intValue ?? 0)
             } ?? (sourceItems?.count ?? 0)
-            let count = sourceSections?.reduce(0) { $0 + $1.count } ?? itemCount
+            let sectionCounts = sourceSections?.map(\.count)
+            let sectionOffsets = sectionCounts.map(nexaDevSectionOffsets)
+            let count = sectionCounts?.reduce(0, +) ?? itemCount
             store.updateFastListEndReachedCount(identity: identity, scope: scope, count: count)
             let axis: NexaDevFastListAxis
             if listFields["axis"] as? String == "Horizontal" {
@@ -2223,20 +2267,6 @@ struct NexaDevNodeList: View {
             let scrollPositionCommandRevision = scrollPositionName.map {
                 store.stateCommandRevision($0, scope: scope)
             } ?? 0
-            let topCommandName = listFields["scroll_to_top"] as? String
-            let endCommandName = listFields["scroll_to_end"] as? String
-            let offsetCommandName = listFields["scroll_to_offset"] as? String
-            let scrollCommands = NexaFastListCommands(
-                top: topCommandName.flatMap { name in
-                    (store.value(name, scope: scope) as? NSNumber).map { $0.int32Value }
-                },
-                end: endCommandName.flatMap { name in
-                    (store.value(name, scope: scope) as? NSNumber).map { $0.int32Value }
-                },
-                offset: offsetCommandName.flatMap { name in
-                    (store.value(name, scope: scope) as? NSNumber).map { $0.doubleValue }
-                }
-            )
             let stickyHeaderNodes = listFields["sticky_header"] as? [Any]
             let swipeActionNodes = listFields["swipe_actions"] as? [Any]
             let stickyHeader: AnyView? = stickyHeaderNodes.map { nodes in
@@ -2259,6 +2289,10 @@ struct NexaDevNodeList: View {
             }
             let onScrollActions = listFields["on_scroll"] as? [Any]
             let onEndReachedActions = listFields["on_end_reached"] as? [Any]
+            let componentRef = listFields["component_ref"].flatMap { value -> NexaFastListRef? in
+                guard !(value is NSNull) else { return nil }
+                return store.evaluate(value, locals: locals, scope: scope) as? NexaFastListRef
+            }
             let onMove = listFields["on_move"] as? [String: Any]
             let usesPlatformList = onMove != nil || swipeActionNodes != nil
             let moveEnabled = onMove?["enabled"].map {
@@ -2290,6 +2324,7 @@ struct NexaDevNodeList: View {
                     return (value as? AnyHashable) ?? AnyHashable(store.stringify(value))
                 }
             }
+            let taskOwner = "\(scope)/fast-list/\(identity)"
             return AnyView(NexaDevFastList(
                 count: count,
                 usesPlatformList: usesPlatformList,
@@ -2301,9 +2336,10 @@ struct NexaDevNodeList: View {
                 rowHeight: itemExtent,
                 spacing: spacing,
                 scrollPosition: requestedIndex,
-                scrollCommands: scrollCommands,
                 controlledPositionRevision: scrollPositionCommandRevision,
-                sectionCounts: sourceSections?.map(\.count),
+                sectionCounts: sectionCounts,
+                sectionOffsets: sectionOffsets,
+                componentRef: componentRef,
                 rowKey: rowKey,
                 stickyHeader: stickyHeader,
                 sectionHeader: sectionHeader,
@@ -2367,14 +2403,18 @@ struct NexaDevNodeList: View {
                             scope: scope,
                             count: count
                         ) else { return }
-                        store.perform(actions, scope: scope, locals: locals.merging([indexName: index]) { _, newest in newest })
+                        var callbackLocals = locals.merging([indexName: index]) { _, newest in newest }
+                        callbackLocals[nexaDevTaskOwnerLocal] = taskOwner
+                        store.perform(actions, scope: scope, locals: callbackLocals)
                     }
                 },
                 isRefreshing: refreshState.map { store.truthy(store.value($0, scope: scope)) } ?? false,
                 onRefresh: refresh.map { _ in
                     { store.perform(refreshActions, scope: scope, locals: locals) }
                 }
-            ))
+            ).onDisappear {
+                store.clearNativeTasks(owner: taskOwner)
+            })
         case "Switch":
             let name = fields["state"] as? String ?? ""
             let label = store.stringify(store.evaluate(fields["label"] ?? "", locals: locals, scope: scope))
@@ -2959,27 +2999,21 @@ struct NexaDevNodeList: View {
                 }
             })
         case "BottomSheet":
-            let state = fields["state"] as? String ?? ""
             let children = fields["children"] as? [Any] ?? []
-            let binding = Binding<Bool>(
-                get: { store.truthy(store.value(state, scope: scope)) },
-                set: { store.setValue(state, value: $0, scope: scope) }
-            )
-            let detentNames = fields["detents"] as? [String] ?? ["medium", "expanded"]
-            let detents = Set(detentNames.map { $0 == "expanded" ? PresentationDetent.large : .medium })
-            let initialDetentName = fields["initial_detent"] as? String ?? detentNames.first ?? "medium"
-            let initialDetent: PresentationDetent = initialDetentName == "expanded" ? .large : .medium
-            let snapPoints = (fields["snap_points"] as? [NSNumber] ?? []).map { CGFloat(truncating: $0) }
-            let initialSnapPoint = (fields["initial_snap_point"] as? NSNumber).map { CGFloat(truncating: $0) }
-            let selectedSnapPoint = (fields["selected_snap_point"] as? String).map { selectedState in
-                Binding<Double>(
-                    get: { store.value(selectedState, scope: scope) as? Double ?? 0 },
-                    set: { store.setValue(selectedState, value: $0, scope: scope) }
-                )
-            }
+            let componentRef = (fields["component_ref"] as? Any)
+                .flatMap { value -> NexaBottomSheetRef? in
+                    guard !(value is NSNull) else { return nil }
+                    return store.evaluate(value, locals: locals, scope: scope) as? NexaBottomSheetRef
+                } ?? NexaBottomSheetRef()
+            let detentFractions = (fields["detents"] as? [NSNumber] ?? [0.5, 1.0])
+                .map { CGFloat(truncating: $0) }
+            let detents = Set(detentFractions.map { PresentationDetent.fraction($0) })
+            let initialFraction = (fields["initial_detent"] as? NSNumber)
+                .map { CGFloat(truncating: $0) } ?? detentFractions.first ?? 0.5
+            let initialDetent = PresentationDetent.fraction(initialFraction)
             let showDragIndicator = fields["show_drag_indicator"] as? Bool ?? true
             let contentPadding = (fields["content_padding"] as? NSNumber)
-                .map { CGFloat(truncating: $0) } ?? 8
+                .map { CGFloat(truncating: $0) } ?? 0
             let allowsDismissal = fields["allows_dismissal"] as? Bool ?? true
             let onDismissActions = fields["on_dismiss"] as? [Any] ?? []
             let backgroundColor: Color?
@@ -3003,12 +3037,9 @@ struct NexaDevNodeList: View {
                 scrimColor = nil
             }
             return AnyView(NexaBottomSheetPrimitive(
-                isPresented: binding,
+                componentRef: componentRef,
                 contentPadding: contentPadding,
                 detents: detents,
-                snapPoints: snapPoints,
-                initialSnapPoint: initialSnapPoint,
-                selectedSnapPoint: selectedSnapPoint,
                 initialDetent: initialDetent,
                 showDragIndicator: showDragIndicator,
                 allowsDismissal: allowsDismissal,
@@ -3016,7 +3047,6 @@ struct NexaDevNodeList: View {
                 shouldDismissOnBackPress: fields["should_dismiss_on_back_press"] as? Bool ?? true,
                 backgroundColor: backgroundColor,
                 scrimColor: scrimColor,
-                onDismissRequest: { store.setValue(state, value: false, scope: scope) },
                 onDismiss: { store.perform(onDismissActions, scope: scope, locals: locals) }
             ) {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)

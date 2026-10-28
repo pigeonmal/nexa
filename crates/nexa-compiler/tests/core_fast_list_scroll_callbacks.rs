@@ -126,9 +126,13 @@ fn android_dev_runtime_keeps_scroll_observer_stable_across_recomposition() {
     );
     assert!(
         runtime.contains("LaunchedEffect(listState, count)")
-            && runtime.contains("currentObserveScroll.value(snapshot.first, snapshot.second, count, snapshot.third, isScrollInProgress)")
+            && runtime.contains("NexaDevScrollSnapshot(")
+            && runtime.contains("isScrollInProgress = listState.isScrollInProgress")
+            && runtime.contains("snapshot.leadingPosition")
+            && runtime.contains("snapshot.visibleItemCount")
+            && runtime.contains("snapshot.reachedEnd")
+            && runtime.contains("snapshot.isScrollInProgress")
             && runtime.contains("currentObserveScroll.value(\n                                            nexaDevLeadingVisibleDataItemIndex(")
-            && runtime.contains("listState.isScrollInProgress to Triple(")
             && runtime.contains("val callbackCount = if (isScrollInProgress || previousScrollWasInProgress)")
             && runtime.contains("repeat(callbackCount) { callbackIndex ->")
             && runtime.contains("scrollWasInProgress[0] = isScrollInProgress"),
@@ -244,14 +248,14 @@ app ScrollCallbacks {
             .matches("isApplyingProgrammaticScrollPosition = true")
             .count(),
         3,
-        "each controlled UIKit scroll must bracket its delegate callbacks before reporting the settled target\n{swift}"
+        "bound-index scrolling on each UIKit axis must bracket delegate callbacks\n{swift}"
     );
     assert_eq!(
         swift
             .matches("isIgnoringProgrammaticScrollCallbacks = true")
             .count(),
         3,
-        "each UIKit list axis must keep delayed native callbacks from duplicating a controlled scroll notification\n{swift}"
+        "bound-index scrolling on each UIKit axis must suppress duplicate delegate notifications\n{swift}"
     );
     assert_eq!(
         swift
@@ -296,7 +300,7 @@ app ScrollCallbacks {
         swift
             .matches("reportProgrammaticScrollPosition(position)")
             .count(),
-        2,
+        4,
         "{swift}"
     );
     assert!(
@@ -307,7 +311,7 @@ app ScrollCallbacks {
     );
     assert!(
         swift.contains(
-            "if !isScrollPositionEcho {\n            coordinator.reconfigureVisibleRows(in: tableView)"
+            "if !isScrollPositionEcho {\n            coordinator.reconfigureVisibleRows(in: tableView, preservingViewport: true)"
         ),
         "vertical UIKit lists must not reconfigure hosted cells for their own scroll-position state echo\n{swift}"
     );

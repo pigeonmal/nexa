@@ -18,7 +18,7 @@ component DiscoverScreen() {
     state searchText: String = ""
     state selectedCategory: String = "For you"
     state openedCreator: String = ""
-    state creatorSheet: Bool = false
+    let creatorSheetRef = ComponentRef<BottomSheet>()
     state isFollowing: Bool = false
     let results: Array<ShortVideo> = videos.filter { video ->
         (selectedCategory == "For you" || (selectedCategory == "Food" && video.artwork == "food") || (selectedCategory == "Travel" && (video.artwork == "coast" || video.artwork == "city" || video.artwork == "waves")) || (selectedCategory == "Outdoors" && (video.artwork == "trail" || video.artwork == "court" || video.artwork == "waves")) || (selectedCategory == "Style" && video.artwork == "design") || (selectedCategory == "Design" && video.artwork == "design")) && (searchText == "" || video.caption.contains(searchText) || video.creator.contains(searchText))
@@ -73,14 +73,14 @@ component DiscoverScreen() {
                     }.onTap {
                         openedCreator = video.creator
                         isFollowing = false
-                        creatorSheet = true
+                        creatorSheetRef.present()
                     }
                 }
             }
             Column(height: 62) {}
         }
 
-        BottomSheet(isPresented: creatorSheet, detents: [Medium, Expanded]) {
+        BottomSheet(ref: creatorSheetRef, detents: [0.5, 1.0]) {
             Column(spacing: 14, padding: 18, background: "#17171B") {
                 Text("Creator", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 Row(spacing: 13, alignment: Center) {

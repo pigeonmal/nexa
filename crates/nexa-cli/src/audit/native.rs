@@ -4,6 +4,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Output},
+    time::Instant,
 };
 
 const AUDIT_APP_NAME: &str = "NexaAudit";
@@ -238,6 +239,7 @@ struct IosResult {
     executable_bytes: Option<u64>,
     bundle_bytes: Option<u64>,
     other_bytes: Option<u64>,
+    native_build_micros: Option<u64>,
 }
 
 impl IosResult {
@@ -257,6 +259,7 @@ impl IosResult {
             executable_bytes: None,
             bundle_bytes: None,
             other_bytes: None,
+            native_build_micros: None,
         }
     }
 
@@ -268,6 +271,7 @@ impl IosResult {
             executable_bytes: None,
             bundle_bytes: None,
             other_bytes: None,
+            native_build_micros: None,
         }
     }
 
@@ -283,6 +287,7 @@ impl IosResult {
             .join("ios")
             .join(format!("{AUDIT_APP_NAME}.xcodeproj"));
         let derived_data = temp_root.join("DerivedData-iOS");
+        let build_started = Instant::now();
         let output = Command::new(&toolchain.xcodebuild)
             .args(["-quiet", "-project"])
             .arg(&project)
@@ -301,6 +306,7 @@ impl IosResult {
             .arg("CODE_SIGNING_ALLOWED=NO")
             .arg("build")
             .output();
+        self.native_build_micros = Some(super::elapsed_micros(build_started));
         match output {
             Ok(output) if output.status.success() => {}
             Ok(output) => {
@@ -354,9 +360,10 @@ impl IosResult {
                 format!(", \"xcodeVersion\": {}", quote(&toolchain.version))
             });
         format!(
-            "{{\"status\": {}, \"reason\": {}, \"sdk\": \"iphoneos\", \"configuration\": \"Release\"{versions}, \"mainExecutableBytes\": {}, \"appBundleBytes\": {}, \"bundleOtherBytes\": {}}}",
+            "{{\"status\": {}, \"reason\": {}, \"sdk\": \"iphoneos\", \"configuration\": \"Release\"{versions}, \"nativeBuildMicros\": {}, \"mainExecutableBytes\": {}, \"appBundleBytes\": {}, \"bundleOtherBytes\": {}}}",
             quote(self.status),
             optional_string(self.reason.as_deref()),
+            optional_number(self.native_build_micros),
             optional_number(self.executable_bytes),
             optional_number(self.bundle_bytes),
             optional_number(self.other_bytes),
@@ -387,6 +394,7 @@ struct AndroidResult {
     resource_report_bytes: Option<u64>,
     minification_enabled: Option<bool>,
     resource_shrinking_enabled: Option<bool>,
+    native_build_micros: Option<u64>,
 }
 
 impl AndroidResult {
@@ -428,6 +436,7 @@ impl AndroidResult {
             resource_report_bytes: None,
             minification_enabled: None,
             resource_shrinking_enabled: None,
+            native_build_micros: None,
         }
     }
 
@@ -474,6 +483,7 @@ impl AndroidResult {
             }
         };
         self.gradle_version = Some(version);
+        let build_started = Instant::now();
         let output = gradle_wrapper_command(&project)
             .arg("--no-daemon")
             .arg("--console=plain")
@@ -485,6 +495,7 @@ impl AndroidResult {
             .env("ANDROID_HOME", &toolchain.sdk)
             .env("ANDROID_SDK_ROOT", &toolchain.sdk)
             .output();
+        self.native_build_micros = Some(super::elapsed_micros(build_started));
         match output {
             Ok(output) if output.status.success() => {}
             Ok(output) => {
@@ -585,9 +596,10 @@ impl AndroidResult {
             optional_string(self.gradle_version.as_deref())
         );
         format!(
-            "{{\"status\": {}, \"reason\": {}, \"configuration\": \"Release\"{version}, \"minificationEnabled\": {}, \"resourceShrinkingEnabled\": {}, \"apkBytes\": {}, \"aabBytes\": {}, \"apkEntryCount\": {}, \"dexCompressedBytes\": {}, \"dexUncompressedBytes\": {}, \"resourcesCompressedBytes\": {}, \"resourcesUncompressedBytes\": {}, \"assetsCompressedBytes\": {}, \"assetsUncompressedBytes\": {}, \"nativeLibrariesCompressedBytes\": {}, \"nativeLibrariesUncompressedBytes\": {}, \"nativeLibrariesByAbi\": {}, \"nativeLibraries\": {}, \"otherCompressedBytes\": {}, \"r8MappingBytes\": {}, \"r8UsageReportBytes\": {}, \"resourceShrinkerReportBytes\": {}}}",
+            "{{\"status\": {}, \"reason\": {}, \"configuration\": \"Release\"{version}, \"nativeBuildMicros\": {}, \"minificationEnabled\": {}, \"resourceShrinkingEnabled\": {}, \"apkBytes\": {}, \"aabBytes\": {}, \"apkEntryCount\": {}, \"dexCompressedBytes\": {}, \"dexUncompressedBytes\": {}, \"resourcesCompressedBytes\": {}, \"resourcesUncompressedBytes\": {}, \"assetsCompressedBytes\": {}, \"assetsUncompressedBytes\": {}, \"nativeLibrariesCompressedBytes\": {}, \"nativeLibrariesUncompressedBytes\": {}, \"nativeLibrariesByAbi\": {}, \"nativeLibraries\": {}, \"otherCompressedBytes\": {}, \"r8MappingBytes\": {}, \"r8UsageReportBytes\": {}, \"resourceShrinkerReportBytes\": {}}}",
             quote(self.status),
             optional_string(self.reason.as_deref()),
+            optional_number(self.native_build_micros),
             optional_bool(self.minification_enabled),
             optional_bool(self.resource_shrinking_enabled),
             optional_number(self.apk_bytes),
@@ -927,8 +939,8 @@ fn optional_bool(value: Option<bool>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApkLibrary, apk_inventory, directory_bytes, find_release_aab, find_release_apk,
-        gradle_wrapper_path, native_libraries_by_abi_json, native_libraries_json,
+        AndroidResult, ApkLibrary, IosResult, apk_inventory, directory_bytes, find_release_aab,
+        find_release_apk, gradle_wrapper_path, native_libraries_by_abi_json, native_libraries_json,
         prepare_unsigned_release_build,
     };
     use std::fs;
@@ -951,6 +963,18 @@ mod tests {
             temp.0.join("gradlew")
         };
         assert_eq!(gradle_wrapper_path(&temp.0), expected);
+    }
+
+    #[test]
+    fn skipped_native_measurements_leave_build_time_unavailable() {
+        let ios: serde_json::Value =
+            serde_json::from_str(&IosResult::not_requested().json()).expect("valid iOS audit JSON");
+        let android: serde_json::Value =
+            serde_json::from_str(&AndroidResult::not_requested().json())
+                .expect("valid Android audit JSON");
+
+        assert_eq!(ios["nativeBuildMicros"], serde_json::Value::Null);
+        assert_eq!(android["nativeBuildMicros"], serde_json::Value::Null);
     }
 
     #[test]

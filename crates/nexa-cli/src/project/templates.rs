@@ -2,8 +2,10 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-use nexa_ir::{Permission, Widget, WidgetFamily};
+use nexa_ir::{Widget, WidgetFamily};
 use nexa_plugin_idl::manifest::{EntitlementValue, SwiftPackage};
+
+use crate::config;
 
 use super::ProjectConfig;
 use super::pbxproj::BuildSettings;
@@ -42,18 +44,7 @@ pub(super) fn ios_info_plist_with_orientation(
 ) -> Result<String, String> {
     let mut usage_descriptions = std::collections::BTreeMap::<String, String>::new();
     for (permission, description) in config.permissions() {
-        let keys: &[&str] = match *permission {
-            Permission::Camera => &["NSCameraUsageDescription"],
-            Permission::Microphone => &["NSMicrophoneUsageDescription"],
-            Permission::Photos => &["NSPhotoLibraryUsageDescription"],
-            Permission::Location => &["NSLocationWhenInUseUsageDescription"],
-            // iOS notification authorization has no Info.plist usage-description key.
-            Permission::Notifications => &[],
-            Permission::Contacts => &["NSContactsUsageDescription"],
-            Permission::Calendar => &["NSCalendarsFullAccessUsageDescription"],
-            Permission::Bluetooth => &["NSBluetoothAlwaysUsageDescription"],
-            Permission::Motion => &["NSMotionUsageDescription"],
-        };
+        let keys = config::ios_usage_description_keys(*permission);
         for key in keys {
             usage_descriptions.insert((*key).to_owned(), description.clone());
         }
@@ -1803,32 +1794,7 @@ pub(super) fn android_manifest_with_widgets(
         permissions.insert("android.permission.ACCESS_NETWORK_STATE".to_owned());
     }
     for (permission, _) in config.permissions() {
-        let names: &[&str] = match *permission {
-            Permission::Camera => &["android.permission.CAMERA"],
-            Permission::Microphone => &["android.permission.RECORD_AUDIO"],
-            Permission::Photos => &[
-                "android.permission.READ_MEDIA_IMAGES",
-                "android.permission.READ_EXTERNAL_STORAGE",
-            ],
-            Permission::Location => &[
-                "android.permission.ACCESS_COARSE_LOCATION",
-                "android.permission.ACCESS_FINE_LOCATION",
-            ],
-            Permission::Notifications => &["android.permission.POST_NOTIFICATIONS"],
-            Permission::Contacts => &[
-                "android.permission.READ_CONTACTS",
-                "android.permission.WRITE_CONTACTS",
-            ],
-            Permission::Calendar => &[
-                "android.permission.READ_CALENDAR",
-                "android.permission.WRITE_CALENDAR",
-            ],
-            Permission::Bluetooth => &[
-                "android.permission.BLUETOOTH_SCAN",
-                "android.permission.BLUETOOTH_CONNECT",
-            ],
-            Permission::Motion => &["android.permission.ACTIVITY_RECOGNITION"],
-        };
+        let names = config::android_permission_names(*permission);
         for name in names {
             permissions.insert((*name).to_owned());
         }
@@ -2155,18 +2121,19 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     )
 }
 
-pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
-    package: &str,
+pub(super) fn validate_android_feature_minimums(
     features: nexa_backend_kotlin::KotlinProjectFeatures,
-    plugins: &[PluginPackage],
-    local_aars: &[String],
-    config: &ProjectConfig,
     dev_runtime: bool,
-    has_widgets: bool,
-) -> Result<String, String> {
+    config: &ProjectConfig,
+) -> Result<(), String> {
     if (dev_runtime || features.uses_expressive_menus) && config.android_min_sdk < 24 {
+        let consumer = if features.uses_expressive_menus {
+            "a Picker or context-menu component"
+        } else {
+            "the Android DevRuntime"
+        };
         return Err(format!(
-            "Android Material 3 Expressive menus require minSdk 24, but `nexa.config.nx` sets android.minSdk to {}. Increase `android.minSdk` to at least 24.",
+            "Material 3 Expressive menus require minSdk 24 for {consumer}, but `nexa.config.nx` sets android.minSdk to {}. Increase `android.minSdk` to at least 24.",
             config.android_min_sdk
         ));
     }
@@ -2176,6 +2143,19 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
             config.android_min_sdk
         ));
     }
+    Ok(())
+}
+
+pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
+    package: &str,
+    features: nexa_backend_kotlin::KotlinProjectFeatures,
+    plugins: &[PluginPackage],
+    local_aars: &[String],
+    config: &ProjectConfig,
+    dev_runtime: bool,
+    has_widgets: bool,
+) -> Result<String, String> {
+    validate_android_feature_minimums(features, dev_runtime, config)?;
     let maven_dependencies = merge_maven_dependencies(plugins)?;
     let application_metadata = merged_android_application_metadata(plugins)?;
     let manifest_placeholders = android_manifest_placeholder_names(&application_metadata)
@@ -2295,6 +2275,7 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
         .as_deref()
         .map(crate::config::android_abis_for_arches)
         .transpose()?;
+    let android_compile_sdk = crate::config::ANDROID_COMPILE_SDK;
     let ndk_config = abi_filters
         .map(|abis| {
             let abi_literals = abis
@@ -2306,7 +2287,7 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
         })
         .unwrap_or_default();
     Ok(format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{}\"; minSdk = {minimum_sdk}; targetSdk = {}; versionCode = {}; versionName = \"{}\"{ndk_config}{manifest_placeholders} }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    signingConfigs {{\n        create(\"nexaRelease\") {{\n            val keystorePath = System.getenv(\"NEXA_ANDROID_KEYSTORE\")\n            if (!keystorePath.isNullOrBlank()) {{\n                storeFile = file(keystorePath)\n                storePassword = System.getenv(\"NEXA_ANDROID_STORE_PASSWORD\")\n                keyAlias = System.getenv(\"NEXA_ANDROID_KEY_ALIAS\")\n                keyPassword = System.getenv(\"NEXA_ANDROID_KEY_PASSWORD\")\n            }}\n        }}\n    }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            signingConfig = signingConfigs.getByName(\"nexaRelease\")\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n",
+        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = {android_compile_sdk}\n    defaultConfig {{ applicationId = \"{}\"; minSdk = {minimum_sdk}; targetSdk = {}; versionCode = {}; versionName = \"{}\"{ndk_config}{manifest_placeholders} }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    signingConfigs {{\n        create(\"nexaRelease\") {{\n            val keystorePath = System.getenv(\"NEXA_ANDROID_KEYSTORE\")\n            if (!keystorePath.isNullOrBlank()) {{\n                storeFile = file(keystorePath)\n                storePassword = System.getenv(\"NEXA_ANDROID_STORE_PASSWORD\")\n                keyAlias = System.getenv(\"NEXA_ANDROID_KEY_ALIAS\")\n                keyPassword = System.getenv(\"NEXA_ANDROID_KEY_PASSWORD\")\n            }}\n        }}\n    }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            signingConfig = signingConfigs.getByName(\"nexaRelease\")\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n",
         config.android_application_id,
         config.android_target_sdk,
         config.build_number,

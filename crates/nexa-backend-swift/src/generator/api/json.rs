@@ -218,6 +218,13 @@ fn is_float32(numeric: nexa_ir::NumericType) -> bool {
 
 const RUNTIME: &str = r#"// Statically typed JSON codec primitives.
 
+enum NexaJsonError: Error {
+    case invalidValue
+    case missingField
+    case typeMismatch
+    case invalidJson
+}
+
 protocol NexaJsonValueCodec {
     associatedtype Value
     static func decode(from decoder: Decoder) throws -> Value
@@ -545,6 +552,9 @@ mod tests {
         let mut output = SourceWriter::new();
         render(&[], &[], &mut output);
         let generated = output.finish();
+        assert!(generated.contains("enum NexaJsonError: Error {"));
+        assert!(generated.contains("case missingField"));
+        assert!(generated.contains("case typeMismatch"));
         assert!(generated.contains("Result<Codec.Value, NexaJsonError>"));
         assert!(generated.contains("positiveInfinity: \"Infinity\""));
         assert!(generated.contains("static func encodeJSON(_ value: Double"));

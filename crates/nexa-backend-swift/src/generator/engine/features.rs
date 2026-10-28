@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use nexa_ir::{Module, Permission, facts::ModuleFacts};
 
@@ -17,6 +17,7 @@ pub(crate) struct Features {
     pub(crate) uses_scroll_events: bool,
     pub(crate) uses_link: bool,
     pub(crate) uses_navigation_back: bool,
+    components_using_navigation: BTreeSet<String>,
     pub(crate) uses_remote_image: bool,
     pub(crate) uses_shared_elements: bool,
     pub(crate) uses_native_library: bool,
@@ -71,7 +72,18 @@ impl Features {
 
         let ui = &facts.ui;
         features.uses_link = ui.app.link || ui.components.values().any(|scope| scope.link);
-        features.uses_navigation_back = ui.app.navigation_back;
+        features.uses_navigation_back = ui.app.navigation_back
+            || ui.app.navigation_actions
+            || ui
+                .components
+                .values()
+                .any(|scope| scope.navigation_back || scope.navigation_actions);
+        features.components_using_navigation = ui
+            .components
+            .iter()
+            .filter(|(_, scope)| scope.navigation || scope.navigation_actions)
+            .map(|(name, _)| name.clone())
+            .collect();
         features.uses_haptic = ui.app.haptic || ui.components.values().any(|scope| scope.haptic);
         features.uses_drag = ui.pressable.drag;
         features.uses_pinch = ui.pressable.pinch;
@@ -116,5 +128,9 @@ impl Features {
 
     pub(crate) fn component_uses_size_class(&self, name: &str) -> bool {
         self.components_using_size_class.contains(name)
+    }
+
+    pub(crate) fn component_uses_navigation(&self, name: &str) -> bool {
+        self.components_using_navigation.contains(name)
     }
 }

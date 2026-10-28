@@ -12,7 +12,7 @@ component ActivityScreen() {
     let activity: Array<String> = ["mira.cooks liked your video", "noah.outside started following you", "jules.city mentioned you in a comment", "Your video reached 10K views"]
     state viewMode: String = "Messages"
     state selectedMessage: String = ""
-    state messageOpen: Bool = false
+    let messageSheetRef = ComponentRef<BottomSheet>()
 
     body {
         Column(spacing: 15, padding: 16, background: "#08080A") {
@@ -55,7 +55,7 @@ component ActivityScreen() {
                         }
                     }.onTap {
                         selectedMessage = message.creator
-                        messageOpen = true
+                        messageSheetRef.present()
                     }
                 }
             } else {
@@ -74,7 +74,7 @@ component ActivityScreen() {
             Column(height: 64) {}
         }
 
-        BottomSheet(isPresented: messageOpen, detents: [Medium, Expanded]) {
+        BottomSheet(ref: messageSheetRef, detents: [0.5, 1.0]) {
             Column(spacing: 16, padding: 16, background: "#17171B") {
                 Row(spacing: 10, alignment: Center) {
                     CreatorAvatar(assetName: if selectedMessage == "Mira Chen" { "mira" } else { if selectedMessage == "Noah Kim" { "noah" } else { "jules" } }, scale: "small")

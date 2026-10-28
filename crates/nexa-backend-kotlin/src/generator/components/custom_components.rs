@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::walk::walk_ir;
-use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{Component, LayoutKind, Module, Node, Type, ViewStyle};
 
 use crate::generator::engine::types::kotlin_type;
 use crate::generator::{
@@ -10,8 +10,122 @@ use crate::generator::{
 
 pub(crate) fn render(module: &Module, features: &Features, out: &mut SourceWriter) {
     for component in &module.components {
+        render_component_ref_type(component, out);
         render_component(component, module, features, out);
     }
+}
+
+fn render_component_ref_type(component: &Component, out: &mut SourceWriter) {
+    if component.ref_methods.is_empty() {
+        return;
+    }
+    let name = component_ref_type_name(&component.name);
+    out.push_str(&format!("\npublic class {name} {{\n"));
+    for method in &component.ref_methods {
+        let method_name = component_ref_method_name(method);
+        let arguments = method
+            .parameters
+            .iter()
+            .map(|parameter| kotlin_type(&parameter.ty))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let suspend = if method.is_async { "suspend " } else { "" };
+        out.push_str(&format!(
+            "    private var {method_name}Action: ({suspend}({arguments}) -> {})? = null\n",
+            kotlin_type(&method.return_type)
+        ));
+    }
+    for method in &component.ref_methods {
+        let method_name = component_ref_method_name(method);
+        let attach_name = format!("attach{}", capitalize(&method_name));
+        let arguments = method
+            .parameters
+            .iter()
+            .map(|parameter| kotlin_type(&parameter.ty))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let params = method
+            .parameters
+            .iter()
+            .map(|parameter| {
+                format!(
+                    "{}: {}",
+                    nexa_codegen::names::state_name(&parameter.name),
+                    kotlin_type(&parameter.ty)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let call_arguments = method
+            .parameters
+            .iter()
+            .map(|parameter| nexa_codegen::names::state_name(&parameter.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let action_result = kotlin_type(&method.return_type);
+        let (result, failure, returns_result) = match &method.return_type {
+            Type::Result(success, failure) if !method.is_throwing => {
+                (kotlin_type(success), kotlin_type(failure), true)
+            }
+            return_type => (
+                kotlin_type(return_type),
+                method
+                    .failure_type
+                    .as_ref()
+                    .map(kotlin_type)
+                    .unwrap_or_else(|| "Unit".to_owned()),
+                false,
+            ),
+        };
+        let suspend = if method.is_async { "suspend " } else { "" };
+        out.push_str(&format!(
+            "\n    internal fun {attach_name}(action: {suspend}({arguments}) -> {action_result}) {{ {method_name}Action = action }}\n"
+        ));
+        out.push_str(&format!(
+            "    public {suspend}fun {method_name}({params}): NexaResult<{result}, NexaComponentRefError<{failure}>> {{\n"
+        ));
+        out.push_str(&format!(
+            "        val action = {method_name}Action ?: return dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)\n"
+        ));
+        let call = format!("action({call_arguments})");
+        if method.is_throwing {
+            out.push_str(&format!(
+                "        return try {{ dev.nexa.core.NexaResult.Success({call}) }} catch (failure: {failure}) {{ dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.Failure(failure)) }}\n    }}\n"
+            ));
+        } else if returns_result {
+            out.push_str(&format!(
+                "        return when (val outcome = {call}) {{\n            is dev.nexa.core.NexaResult.Success<*> -> dev.nexa.core.NexaResult.Success(outcome.value as {result})\n            is dev.nexa.core.NexaResult.Failure<*> -> dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.Failure(outcome.error as {failure}))\n        }}\n    }}\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "        return dev.nexa.core.NexaResult.Success({call})\n    }}\n"
+            ));
+        }
+    }
+    out.push_str("\n    internal fun detach() {\n");
+    for method in &component.ref_methods {
+        out.push_str(&format!(
+            "        {}Action = null\n",
+            component_ref_method_name(method)
+        ));
+    }
+    out.push_str("    }\n}\n");
+}
+
+fn capitalize(value: &str) -> String {
+    let mut chars = value.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
+}
+
+fn component_ref_type_name(component_name: &str) -> String {
+    format!("{}Ref", nexa_codegen::names::struct_name(component_name))
+}
+
+fn component_ref_method_name(method: &nexa_ir::Function) -> String {
+    nexa_codegen::names::function_name(method.name.rsplit('.').next().unwrap_or(&method.name))
 }
 
 fn render_component(
@@ -64,8 +178,21 @@ fn render_component(
         }
         out.push_str("navController: NavHostController");
     }
-    if component_has_content_slot(component) {
+    if !component.ref_methods.is_empty() {
         if needs_system_theme || needs_navigation || !component.parameters.is_empty() {
+            out.push_str(", ");
+        }
+        out.push_str(&format!(
+            "nexaComponentRef: {}? = null",
+            component_ref_type_name(&component.name)
+        ));
+    }
+    if component_has_content_slot(component) {
+        if needs_system_theme
+            || needs_navigation
+            || !component.parameters.is_empty()
+            || !component.ref_methods.is_empty()
+        {
             out.push_str(", ");
         }
         out.push_str("nexaContent: @Composable () -> Unit");
@@ -82,6 +209,7 @@ fn render_component(
         out.push_str("    val nexaHapticView = LocalView.current\n");
     }
     render_component_states(&component.states, 1, out);
+    render_component_ref_methods(component, out);
     let animated_targets = state::animated_state_targets(&component.body);
     state::render_animated_state_aliases(&component.states, &animated_targets, 1, out);
     crate::generator::components::lifecycle::render_task_cancellation_on_dispose(
@@ -139,6 +267,70 @@ fn component_has_content_slot(component: &Component) -> bool {
     found
 }
 
+fn render_component_ref_methods(component: &Component, out: &mut SourceWriter) {
+    if component.ref_methods.is_empty() {
+        return;
+    }
+    for method in &component.ref_methods {
+        let method_name = component_ref_method_name(method);
+        let helper = format!("nexaRefMethod{}", capitalize(&method_name));
+        let suspend = if method.is_async { "suspend " } else { "" };
+        let parameters = method
+            .parameters
+            .iter()
+            .map(|parameter| {
+                format!(
+                    "{}: {}",
+                    nexa_codegen::names::state_name(&parameter.name),
+                    kotlin_type(&parameter.ty)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "    {suspend}fun {helper}({parameters}): {} {{\n",
+            kotlin_type(&method.return_type)
+        ));
+        crate::generator::components::controls::render_actions(
+            method.body_actions.as_deref().unwrap_or_default(),
+            2,
+            out,
+        );
+        if method.return_type == nexa_ir::Type::Void
+            && !method
+                .body_actions
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .any(|action| matches!(action, nexa_ir::Action::Return { .. }))
+        {
+            out.push_str("        Unit\n");
+        }
+        out.push_str("    }\n");
+    }
+    out.push_str("    androidx.compose.runtime.SideEffect {\n");
+    for method in &component.ref_methods {
+        let method_name = component_ref_method_name(method);
+        let attach_name = format!("attach{}", capitalize(&method_name));
+        let helper = format!("nexaRefMethod{}", capitalize(&method_name));
+        let parameters = method
+            .parameters
+            .iter()
+            .map(|parameter| nexa_codegen::names::state_name(&parameter.name))
+            .collect::<Vec<_>>();
+        out.push_str(&format!("        nexaComponentRef?.{attach_name} {{"));
+        if !parameters.is_empty() {
+            out.push(' ');
+            out.push_str(&parameters.join(", "));
+            out.push_str(" ->");
+        }
+        out.push_str(&format!(" {helper}({}) }}\n", parameters.join(", ")));
+    }
+    out.push_str("    }\n");
+    out.push_str("    androidx.compose.runtime.DisposableEffect(nexaComponentRef) {\n");
+    out.push_str("        onDispose { nexaComponentRef?.detach() }\n    }\n\n");
+}
+
 fn component_uses_bottom_sheet(component: &Component) -> bool {
     let mut found = false;
     walk_ir(
@@ -182,6 +374,7 @@ fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut So
             }
         } else if state.is_native_class_instance_binding()
             || matches!(state.ty, nexa_ir::Type::Signal(_))
+            || matches!(state.ty, nexa_ir::Type::ComponentRef { .. })
         {
             out.push_str(&format!(
                 "val {name}: {} = remember {{ {} }}\n",

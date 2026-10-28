@@ -23,6 +23,13 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v465` | Regenerates native output after FastList ref argument ordering and DevRuntime built-in dispatch changes. |
+| `build-v464` | Rejects failed Android DevRuntime patches before advancing the revision and requests a full module. |
+| `build-v463` | Preserves compatible reusable-component state across hot reload and reinitializes values whose struct or enum schema changed. |
+| `build-v462` | Keeps the innermost `.nx` call site when nested throwing plugin calls propagate through DevRuntime expressions. |
+| `build-v461` | Adds opt-in redacted DevRuntime tracing for state updates, task starts and cancellation, and native calls; advances the development protocol. |
+| `build-v460` | Reports dynamically selected permission values because their complete native declarations cannot be verified statically. |
+| `build-v459` | Validates app permission declarations against reachable app permission APIs and native plugin requirements before reusing generated projects. |
 | `build-v458` | Removes the FastList `native` option; platform list surfaces are selected automatically for move and swipe actions, and advances Dev IR format 55. |
 | `build-v457` | Adds BottomSheet presentation and snap actions through typed state bindings, synchronizes the selected custom snap point in both native renderers, and advances Dev IR format 54. |
 | `build-v456` | Applies the shared drag-indicator content inset to iOS BottomSheet content so its top-start Column matches Android's native handle slot. |

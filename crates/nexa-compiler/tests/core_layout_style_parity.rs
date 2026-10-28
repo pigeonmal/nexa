@@ -20,6 +20,7 @@ fn explicit_layout_spacing_and_padding_are_preserved_once_on_both_targets() {
         }
     }
 }
+
 "#,
     )
     .expect("test source should be written");
@@ -53,6 +54,50 @@ fn explicit_layout_spacing_and_padding_are_preserved_once_on_both_targets() {
     for padding in ["13", "5", "3"] {
         let modifier = format!(".padding({padding}.dp)");
         assert_eq!(kotlin.matches(&modifier).count(), 1, "{modifier}: {kotlin}");
+    }
+}
+
+#[test]
+fn fixed_layout_dimensions_must_satisfy_bounds_on_both_targets() {
+    let project = TestProject::new("nexa-layout-dimension-bounds");
+    let entry = project.join("App.nx");
+    for (arguments, expected) in [
+        (
+            "width: 100, minWidth: 120",
+            "`width` cannot be less than `minWidth`",
+        ),
+        (
+            "width: 300, maxWidth: 240",
+            "`width` cannot be greater than `maxWidth`",
+        ),
+        (
+            "height: 40, minHeight: 60",
+            "`height` cannot be less than `minHeight`",
+        ),
+        (
+            "height: 100, maxHeight: 80",
+            "`height` cannot be greater than `maxHeight`",
+        ),
+    ] {
+        fs::write(
+            &entry,
+            format!(
+                "app LayoutBounds {{ body {{ Column({arguments}) {{ Text(\"content\") }} }} }}"
+            ),
+        )
+        .expect("test source should be written");
+
+        for target in [Target::Swift, Target::Kotlin] {
+            let error = match compile_file_with_warnings_for_target(&entry, target) {
+                Ok(_) => panic!("contradictory fixed and flexible dimensions must be rejected"),
+                Err(error) => error,
+            };
+            assert_eq!(error.message, expected);
+            assert!(
+                error.span.start > 0,
+                "diagnostic should point to the fixed size"
+            );
+        }
     }
 }
 

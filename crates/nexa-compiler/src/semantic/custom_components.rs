@@ -1,16 +1,18 @@
 use std::collections::{HashMap, HashSet};
 
 use nexa_diagnostics::CompileError;
-use nexa_ir::{Component, ComponentParameter, Node, Screen, State, Type};
+use nexa_ir::{
+    Component, ComponentParameter, Function, FunctionParameter, Node, Screen, State, Type,
+};
 use nexa_syntax::ast;
 
 use super::{
     components::lower_nodes,
     context::{ExprContext, ScreenSignatures, SemanticContext},
     expressions::{
-        FunctionSignatures, StructTypes, lower_expr, parse_type, record_native_alias,
-        references_mutable_state, resolve_declaration_type, resolve_struct_type,
-        validate_task_handle_state,
+        FunctionSignature, FunctionSignatures, StructTypes, functions_with_error_handling,
+        lower_expr, parse_return_type, parse_type, record_native_alias, references_mutable_state,
+        resolve_declaration_type, resolve_struct_type, validate_task_handle_state,
     },
     themes::ThemeSymbols,
 };
@@ -23,6 +25,7 @@ pub(super) struct ComponentSignature {
     pub(super) events: Vec<ComponentEventSignature>,
     pub(super) has_content_slot: bool,
     pub(super) native: bool,
+    pub(super) supports_ref: bool,
 }
 
 #[derive(Clone)]
@@ -32,6 +35,139 @@ pub(super) struct ComponentEventSignature {
 }
 
 pub(super) type ComponentSignatures = HashMap<String, ComponentSignature>;
+
+struct RefMethodLoweringContext<'a> {
+    component_name: &'a str,
+    component_symbols: &'a HashMap<String, (Type, bool)>,
+    functions: &'a FunctionSignatures,
+    structs: &'a StructTypes,
+    enums: &'a HashSet<String>,
+    allow_nullable_generic_plugin_reads: bool,
+    source_file: Option<&'a str>,
+}
+
+/// Adds typed `ComponentRef<T>` constructors and method signatures before any
+/// app or component expressions are lowered.
+pub(super) fn collect_ref_method_signatures(
+    declarations: &[ast::ComponentDecl],
+    structs: &StructTypes,
+    functions: &mut FunctionSignatures,
+) -> Result<(), CompileError> {
+    for component in declarations {
+        if component.ref_methods.is_empty() {
+            continue;
+        }
+        let receiver = Type::ComponentRef {
+            namespace: "Nexa".to_owned(),
+            name: component.name.clone(),
+        };
+        let constructor_key = format!("Nexa.{}.__component_ref", component.name);
+        if functions.contains_key(&constructor_key) {
+            return Err(CompileError::new(
+                component.span,
+                format!(
+                    "component ref target `{}` is already declared",
+                    component.name
+                ),
+            ));
+        }
+        functions.insert(
+            constructor_key,
+            FunctionSignature {
+                parameters: Vec::new(),
+                type_parameters: Vec::new(),
+                return_type: receiver.clone(),
+                is_async: false,
+                is_throwing: false,
+                receiver: None,
+                is_constructor: true,
+                is_mutable_property: false,
+                error_handling_allowed: false,
+                error_type: None,
+            },
+        );
+        for method in &component.ref_methods {
+            if method.failure_type.is_some() && !method.is_throwing {
+                return Err(CompileError::new(
+                    method.span,
+                    "a component ref failure type requires `throws`",
+                ));
+            }
+            let return_type = resolve_component_type(
+                &parse_return_type(&method.return_type)?,
+                structs,
+                functions,
+            );
+            if method.is_throwing && matches!(return_type, Type::Result(_, _)) {
+                return Err(CompileError::new(
+                    method.span,
+                    "a component ref method cannot use both `throws` and a `Result` return type; use one failure style",
+                ));
+            }
+            let error_type = if method.is_throwing {
+                let declared = method.failure_type.as_ref().ok_or_else(|| {
+                    CompileError::new(
+                        method.span,
+                        "throwing component ref methods must name their plugin error type, for example `throws Video.PlayerFailure`",
+                    )
+                })?;
+                let ast::TypeSyntax::Named(declared_name, _) = declared else {
+                    return Err(CompileError::new(
+                        declared.span(),
+                        "component ref failure type must name a plugin error type",
+                    ));
+                };
+                let matching_error = functions
+                    .values()
+                    .filter_map(|signature| signature.error_type.as_ref())
+                    .find(|error| format!("{}.{}", error.namespace, error.name) == *declared_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        CompileError::new(
+                            declared.span(),
+                            format!("`{declared_name}` is not a declared plugin error type"),
+                        )
+                    })?;
+                Some(matching_error)
+            } else {
+                None
+            };
+            let key = format!("Nexa.{}.{}", component.name, method.name);
+            if functions.contains_key(&key) {
+                return Err(CompileError::new(
+                    method.span,
+                    format!("component ref method `{}` is already declared", method.name),
+                ));
+            }
+            let parameters = method
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    Ok((
+                        parameter.name.clone(),
+                        resolve_component_type(&parse_type(&parameter.ty)?, structs, functions),
+                    ))
+                })
+                .collect::<Result<Vec<_>, CompileError>>()?;
+            functions.insert(
+                key,
+                FunctionSignature {
+                    parameters,
+                    type_parameters: Vec::new(),
+                    return_type,
+                    is_async: method.is_async,
+                    is_throwing: method.is_throwing,
+                    receiver: Some(receiver.clone()),
+                    is_constructor: false,
+                    is_mutable_property: false,
+                    error_handling_allowed: false,
+                    error_type,
+                },
+            );
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct ComponentLoweringContext<'a> {
@@ -161,6 +297,7 @@ fn collect_signatures(
                 events: Vec::new(),
                 has_content_slot: declaration.body.iter().any(contains_content_slot),
                 native: false,
+                supports_ref: !declaration.ref_methods.is_empty(),
             })
         })()
         .map_err(|error| in_file(error, declaration.source_file.as_deref()))?;
@@ -223,6 +360,7 @@ fn lower_component(
         ..
     } = context;
     let source_file = declaration.source_file.clone();
+    let ref_method_declarations = declaration.ref_methods.clone();
     let signature = &signatures[&declaration.name];
     let mut symbols = HashMap::with_capacity(signature.parameters.len() + declaration.states.len());
     symbols.extend(
@@ -270,7 +408,8 @@ fn lower_component(
             state.span,
         )?;
         let state_context = ExprContext::with_types(&symbols, functions, false, structs, enums)
-            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads);
+            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+            .with_source_file(source_file.as_deref());
         let initial = lower_expr(&state.initial, Some(&ty), &state_context)?;
         let mutable = state.mutable;
         if mutable && references_mutable_state(&state.initial, &symbols) {
@@ -301,7 +440,8 @@ fn lower_component(
         target,
         allow_nullable_generic_plugin_reads,
     )
-    .with_navigation(false, false);
+    .with_navigation(false, !screen_ids.is_empty())
+    .with_source_file(source_file.as_deref());
     let body = lower_nodes(declaration.body, &cx)?;
     let (on_appear, on_appear_async, body) =
         super::extract_on_appear(body, declaration.span, "component")?;
@@ -336,16 +476,200 @@ fn lower_component(
             ty: ty.clone(),
         })
         .collect();
+    let ref_methods = lower_ref_methods(
+        ref_method_declarations,
+        RefMethodLoweringContext {
+            component_name: &declaration.name,
+            component_symbols: &symbols,
+            functions,
+            structs,
+            enums,
+            allow_nullable_generic_plugin_reads,
+            source_file: source_file.as_deref(),
+        },
+    )?;
     Ok(Component {
         name: declaration.name,
         source_file,
         parameters,
         states,
         body,
+        ref_methods,
         on_appear,
         on_appear_async,
         on_disappear,
     })
+}
+
+fn lower_ref_methods(
+    declarations: Vec<ast::FunctionDecl>,
+    context: RefMethodLoweringContext<'_>,
+) -> Result<Vec<Function>, CompileError> {
+    let RefMethodLoweringContext {
+        component_name,
+        component_symbols,
+        functions,
+        structs,
+        enums,
+        allow_nullable_generic_plugin_reads,
+        source_file,
+    } = context;
+    declarations
+        .into_iter()
+        .map(|declaration| {
+            let name = format!("Nexa.{component_name}.{}", declaration.name);
+            let signature = functions.get(&name).ok_or_else(|| {
+                CompileError::new(
+                    declaration.span,
+                    format!("component ref signature for `{name}` was not collected"),
+                )
+            })?;
+            let mut symbols = component_symbols.clone();
+            for (parameter, ty) in &signature.parameters {
+                if symbols.contains_key(parameter) {
+                    return Err(CompileError::new(
+                        declaration.span,
+                        format!("component ref method parameter `{parameter}` conflicts with a component binding"),
+                    ));
+                }
+                symbols.insert(parameter.clone(), (ty.clone(), false));
+            }
+            let scoped_functions = if signature.is_throwing {
+                functions_with_error_handling(functions, true)
+            } else {
+                functions.clone()
+            };
+            let (body_actions, returns) = super::lower_function_statements(
+                declaration.body,
+                &symbols,
+                &scoped_functions,
+                &signature.return_type,
+                signature.is_async,
+                structs,
+                enums,
+                allow_nullable_generic_plugin_reads,
+                declaration.span,
+                source_file,
+                0,
+            )?;
+            if let Some(failure) = method_failure_type(signature) {
+                validate_component_ref_failure_type(
+                    &body_actions,
+                    functions,
+                    &failure,
+                    declaration.span,
+                )?;
+            }
+            if !returns && signature.return_type != Type::Void {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!(
+                        "component ref method `{}` must return a value of type `{}` on every path",
+                        declaration.name,
+                        super::expressions::type_name(&signature.return_type),
+                    ),
+                ));
+            }
+            Ok(Function {
+                name,
+                receiver: signature.receiver.clone(),
+                class_initializers: Vec::new(),
+                is_async: signature.is_async,
+                is_throwing: signature.is_throwing,
+                failure_type: signature.error_type.as_ref().map(|error| Type::Plugin {
+                    namespace: error.namespace.clone(),
+                    name: error.name.clone(),
+                }),
+                parameters: signature
+                    .parameters
+                    .iter()
+                    .map(|(name, ty)| FunctionParameter {
+                        name: name.clone(),
+                        ty: ty.clone(),
+                    })
+                    .collect(),
+                locals: Vec::new(),
+                return_type: signature.return_type.clone(),
+                body: nexa_ir::Expr::Bool(false),
+                body_actions: Some(body_actions),
+            })
+        })
+        .collect()
+}
+
+fn method_failure_type(signature: &FunctionSignature) -> Option<Type> {
+    signature.error_type.as_ref().map(|error| Type::Plugin {
+        namespace: error.namespace.clone(),
+        name: error.name.clone(),
+    })
+}
+
+fn validate_component_ref_failure_type(
+    actions: &[nexa_ir::Action],
+    functions: &FunctionSignatures,
+    expected_failure: &Type,
+    span: nexa_diagnostics::Span,
+) -> Result<(), CompileError> {
+    let mut mismatch = None;
+    nexa_ir::walk::walk_actions(actions, &mut |expression| {
+        let (receiver, namespace, name, is_throwing, source_span) = match expression {
+            nexa_ir::Expr::NativeCall {
+                receiver,
+                namespace,
+                name,
+                is_throwing,
+                source_span,
+                ..
+            } => (
+                receiver.as_deref(),
+                namespace.as_str(),
+                name.as_str(),
+                *is_throwing,
+                *source_span,
+            ),
+            nexa_ir::Expr::Call {
+                name, is_throwing, ..
+            } if *is_throwing => {
+                mismatch = Some((name.clone(), span));
+                return;
+            }
+            _ => return,
+        };
+        if !is_throwing {
+            return;
+        }
+        let signature_name = if let Some(receiver) = receiver {
+            match super::expressions::lowered_type(receiver) {
+                Some(Type::Plugin {
+                    namespace: _,
+                    name: class_name,
+                }) => format!("{class_name}.{name}"),
+                _ => format!("{namespace}.{name}"),
+            }
+        } else {
+            format!("{namespace}.{name}")
+        };
+        let actual_failure = functions
+            .get(&signature_name)
+            .and_then(|signature| signature.error_type.as_ref())
+            .map(|error| Type::Plugin {
+                namespace: error.namespace.clone(),
+                name: error.name.clone(),
+            });
+        if actual_failure.as_ref() != Some(expected_failure) {
+            mismatch = Some((signature_name, source_span.unwrap_or(span)));
+        }
+    });
+    if let Some((name, span)) = mismatch {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "component ref method can only propagate its declared failure type `{}`; call `{name}` declares a different or untyped failure",
+                super::expressions::type_name(expected_failure)
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_acyclic(
@@ -600,7 +924,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                     collect_ir_component_calls(child, calls);
                 }
             }
-            for child in else_body {
+            for child in else_body.iter().flatten() {
                 collect_ir_component_calls(child, calls);
             }
         }
@@ -739,6 +1063,7 @@ mod tests {
                 span,
             }],
             states: Vec::new(),
+            ref_methods: Vec::new(),
             body: vec![ast::Node::ComponentInvocation(ast::ComponentInvocation {
                 name: "Button".to_owned(),
                 span,

@@ -10,6 +10,8 @@ const EXAMPLES: &[&str] = &[
     "counter",
     "crypto",
     "clipboard",
+    "typed_storage",
+    "network_caching",
     "haptics",
     "network_status",
     "file_api",
@@ -23,6 +25,31 @@ const EXAMPLES: &[&str] = &[
     "todo_app",
     "virtual_list",
 ];
+
+#[test]
+fn typed_storage_generates_direct_json_codecs_for_both_targets() {
+    let project = TestProject::new("nexa-typed-storage-native-output");
+
+    let ios = generate_example(&project, "typed_storage", "ios");
+    let swift = swift_sources(&ios.join("ios"))
+        .into_iter()
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .collect::<String>();
+    assert!(swift.contains("NexaStorage.getJson("));
+    assert!(swift.contains("NexaStorage.setJson("));
+    assert!(swift.contains("nexaJsonParse("));
+    assert!(swift.contains("nexaJsonStringify("));
+
+    let android = generate_example(&project, "typed_storage", "android");
+    let kotlin = kotlin_sources(&android.join("android/app/src/main/java"))
+        .into_iter()
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .collect::<String>();
+    assert!(kotlin.contains("NexaStorage.getJson("));
+    assert!(kotlin.contains("NexaStorage.setJson("));
+    assert!(kotlin.contains("nexaJsonParse_"));
+    assert!(kotlin.contains("nexaJsonStringify_"));
+}
 
 fn generate_example(project: &TestProject, example: &str, target: &str) -> PathBuf {
     let entry = example_path(&format!("{example}.nx"));
@@ -80,6 +107,22 @@ fn generated_android_activity_binds_runtime_before_compose_starts() {
 }
 
 #[test]
+fn generated_android_project_uses_the_compile_sdk_checked_by_doctor() {
+    let project = TestProject::new("nexa-android-compile-sdk");
+    let entry = project.join("App.nx");
+    fs::write(&entry, "app CompileSdk { body { Text(\"Hello\") } }")
+        .expect("write Android compile SDK fixture");
+    let output = project.join("android");
+
+    nexa_cli::generate_project(&entry, "android", &output, "CompileSdk")
+        .expect("generate Android compile SDK fixture");
+
+    let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("read generated Android Gradle config");
+    assert!(gradle.contains("compileSdk = 37"));
+}
+
+#[test]
 fn android_keyboard_aware_scroll_preserves_drag_focus_guard_in_aot_output() {
     let project = TestProject::new("nexa-android-keyboard-aware-drag");
     let entry = project.join("App.nx");
@@ -123,12 +166,16 @@ fn fast_list_auto_grid_generates_adaptive_native_grids_for_both_targets() {
     fs::write(
         &entry,
         r#"app AdaptiveGallery {
+    let galleryRef = ComponentRef<FastList>()
     body {
         FastList(count: 3, pageSnap: true) { index in
             Text("Page \(index)")
         }
-        FastList(count: 12, axis: AutoGrid(112), rowHeight: 140, spacing: 4) { index in
+        FastList(count: 12, axis: AutoGrid(112), rowHeight: 140, spacing: 4, ref: galleryRef) { index in
             Text("Clip \(index)")
+        }
+        Button("Show clip") {
+            galleryRef.scrollToIndex(index: 8, animated: false, viewPosition: 0.5)
         }
     }
 }"#,
@@ -143,6 +190,8 @@ fn fast_list_auto_grid_generates_adaptive_native_grids_for_both_targets() {
         .map(|path| fs::read_to_string(path).expect("read generated Swift source"))
         .collect::<Vec<_>>()
         .join("\n");
+    assert!(swift.contains("scrollToIndex(8, animated: false, viewPosition: Double(0.5))"));
+    assert!(swift.contains("nexaScrollFastList(to: frame"));
     assert!(
         swift.contains("minCellWidth: 112"),
         "Swift output must keep the requested minimum cell width"
@@ -203,6 +252,8 @@ fn fast_list_auto_grid_generates_adaptive_native_grids_for_both_targets() {
         .map(|path| fs::read_to_string(path).expect("read generated Kotlin source"))
         .collect::<Vec<_>>()
         .join("\n");
+    assert!(kotlin.contains("scrollToIndex(8, false, 0.5)"));
+    assert!(kotlin.contains("animateScrollBy(delta)"));
     assert!(
         kotlin.contains("GridCells.Adaptive(minSize = 112.dp)"),
         "Compose output must use adaptive cells with the same minimum width"
@@ -391,7 +442,12 @@ fn multipart_upload_generates_native_streaming_calls() {
                 statusCode = (await Network.upload(
                     url: "https://example.com/upload",
                     file: "/tmp/receipt.pdf",
-                    fields: ["kind": "receipt"]
+                    fields: ["kind": "receipt"],
+                    headers: ["Authorization": "Bearer test-token", "Content-Type": "text/plain"],
+                    timeoutSeconds: 45,
+                    followRedirects: false,
+                    maxResponseBytes: 1048576,
+                    certificatePins: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
                 )).statusCode
             } catch {
                 statusCode = -1
@@ -412,6 +468,20 @@ fn multipart_upload_generates_native_streaming_calls() {
         .join("\n");
     assert!(swift.contains("try await NexaNetwork.upload("));
     assert!(swift.contains("fromFile: uploadURL"));
+    for option in [
+        "Bearer test-token",
+        "Content-Type",
+        "multipart/form-data; boundary=",
+        "timeout: Double(45)",
+        "followRedirects: false",
+        "maxResponseBytes: 1048576",
+        "certificatePins: [\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]",
+    ] {
+        assert!(
+            swift.contains(option),
+            "generated Swift upload is missing {option}:\n{swift}"
+        );
+    }
 
     let android = temp.join("upload-android");
     nexa_cli::generate_project(&entry, "android", &android, "NexaUpload")
@@ -423,6 +493,18 @@ fn multipart_upload_generates_native_streaming_calls() {
         .join("\n");
     assert!(kotlin.contains("NexaNetwork.upload(NexaRuntime.context()"));
     assert!(kotlin.contains("NexaMultipartUploadProvider"));
+    for option in [
+        "Bearer test-token",
+        "Content-Type",
+        "multipart/form-data; boundary=",
+        "45.0, false, 1048576L",
+        "setOf(\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\")",
+    ] {
+        assert!(
+            kotlin.contains(option),
+            "generated Kotlin upload is missing {option}"
+        );
+    }
 
     if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
         let built = Command::new("xcrun")
@@ -648,6 +730,16 @@ fn copy_generated_kotlin_from(root: &Path, source: &Path, destination: &Path) {
 
 #[test]
 fn generated_ios_example_hosts_build_with_xcode_when_available() {
+    std::thread::Builder::new()
+        .name("generated-ios-example-hosts".to_owned())
+        .stack_size(4 * 1024 * 1024)
+        .spawn(generated_ios_example_hosts_build_with_xcode_when_available_inner)
+        .expect("iOS example build test thread should start")
+        .join()
+        .expect("iOS example generation should not overflow the test runner stack");
+}
+
+fn generated_ios_example_hosts_build_with_xcode_when_available_inner() {
     let Some(sdk) = Toolchain::ios_simulator_sdk_path() else {
         eprintln!("skipping iOS example builds: iOS Simulator SDK is unavailable");
         return;
@@ -1013,6 +1105,89 @@ fn generated_android_example_hosts_build_with_gradle_when_available() {
 }
 
 #[test]
+fn permission_access_states_generate_buildable_ios_and_android_hosts() {
+    let project = TestProject::new("nexa-permission-access-states");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app PermissionAccessStates {
+    state photoStatus: PermissionStatus = PermissionStatus.notDetermined
+    state notificationStatus: PermissionStatus = PermissionStatus.notDetermined
+    body {
+        OnAppear async {
+            photoStatus = await Permissions.request(permission: Permission.Photos)
+            notificationStatus = await Permissions.status(permission: Permission.Notifications)
+        }
+        Text("Photos: \(photoStatus)")
+        Text("Notifications: \(notificationStatus)")
+    }
+}"#,
+    )
+    .expect("write permission state example");
+    fs::write(
+        project.join("nexa.config.nx"),
+        "config { permissions { photos: \"Choose the photos used for your profile.\", notifications: \"Show order updates as notifications.\" } }\n",
+    )
+    .expect("write photo permission purpose");
+
+    let ios = project.join("ios");
+    nexa_cli::generate_project(&entry, "ios", &ios, "NexaPermissionStates")
+        .expect("generate iOS permission host");
+    let swift_sources = swift_sources(&ios.join("ios/NexaPermissionStates"));
+    let swift = swift_sources
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Swift"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("case limited"));
+    assert!(swift.contains("case provisional"));
+    assert!(swift.contains("case .limited: return .limited"));
+    assert!(swift.contains("case .provisional: return .provisional"));
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios16.0-simulator",
+            ])
+            .args(swift_sources)
+            .output()
+            .expect("Swift compiler should start for the permission host");
+        assert!(
+            built.status.success(),
+            "iOS permission host failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+
+    let android = project.join("android");
+    nexa_cli::generate_project(&entry, "android", &android, "NexaPermissionStates")
+        .expect("generate Android permission host");
+    let manifest = fs::read_to_string(android.join("android/app/src/main/AndroidManifest.xml"))
+        .expect("read generated Android manifest");
+    assert!(manifest.contains("android.permission.READ_MEDIA_VISUAL_USER_SELECTED"));
+    let kotlin_permissions_path = kotlin_sources(&android)
+        .into_iter()
+        .find(|path| {
+            Path::new(path)
+                .file_name()
+                .is_some_and(|name| name == "NexaGenerated_permissions.kt")
+        })
+        .expect("find generated Kotlin permission API");
+    let kotlin_permissions =
+        fs::read_to_string(kotlin_permissions_path).expect("read generated Kotlin permission API");
+    assert!(kotlin_permissions.contains("NexaPermissionStatus.limited"));
+    assert!(kotlin_permissions.contains("NexaPermissionStatus.permanentlyDenied"));
+    build_android_debug_if_available(&android, "Android permission host");
+}
+
+#[test]
 fn generated_android_file_api_example_compiles_when_native_builds_are_enabled() {
     if !Toolchain::should_run_native_builds() {
         eprintln!(
@@ -1043,6 +1218,73 @@ fn generated_android_file_api_example_compiles_when_native_builds_are_enabled() 
         String::from_utf8_lossy(&built.stdout),
         String::from_utf8_lossy(&built.stderr)
     );
+}
+
+#[test]
+fn generated_network_cache_policy_aot_and_dev_hosts_compile_when_native_toolchains_are_available() {
+    let temp = TestProject::new("nexa-network-cache-policy-android");
+    let android_aot = generate_example(&temp, "network_caching", "android");
+    build_android_debug_if_available(&android_aot, "Android network cache-policy AOT example");
+
+    let dev_source = temp.join("network-cache-policy-dev-source");
+    fs::create_dir_all(&dev_source).expect("create network cache-policy DevRuntime source");
+    fs::copy(
+        example_path("network_caching.nx"),
+        dev_source.join("App.nx"),
+    )
+    .expect("copy network cache-policy DevRuntime app");
+    fs::copy(
+        example_path("component-parity/nexa.config.nx"),
+        dev_source.join("nexa.config.nx"),
+    )
+    .expect("copy native DevRuntime project config");
+
+    let ios_dev = temp.join("network-cache-policy-dev-ios");
+    nexa_cli::generate_dev_project(
+        &dev_source.join("App.nx"),
+        "ios",
+        &ios_dev,
+        "NexaNetworkCachePolicyDev",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate iOS network cache-policy DevRuntime host");
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios16.0-simulator",
+            ])
+            .args(swift_sources(
+                &ios_dev.join("ios/NexaNetworkCachePolicyDev"),
+            ))
+            .output()
+            .expect("Swift compiler should start for the network cache-policy DevRuntime host");
+        assert!(
+            built.status.success(),
+            "iOS network cache-policy DevRuntime host failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+
+    let android_dev = temp.join("network-cache-policy-dev-android");
+    nexa_cli::generate_dev_project(
+        &dev_source.join("App.nx"),
+        "android",
+        &android_dev,
+        "NexaNetworkCachePolicyDev",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Android network cache-policy DevRuntime host");
+    build_android_debug_if_available(&android_dev, "Android network cache-policy DevRuntime host");
 }
 
 fn example_app_dir(example: &str) -> String {

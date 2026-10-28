@@ -105,6 +105,9 @@ fn resolves_multiple_packages_from_one_pinned_git_revision_and_writes_stable_loc
     assert!(original_lock.contains(&revision));
     assert!(original_lock.contains("dev.example.fast-math"));
     assert!(original_lock.contains("plugins/date-time"));
+    dependencies::check_offline(project.path(), &dependencies)
+        .expect("doctor validates cached plugins without changing the lockfile");
+    assert_eq!(project.read("nexa.lock"), original_lock);
 
     let second =
         dependencies::resolve(project.path(), &dependencies).expect("repeat locked resolution");
@@ -131,12 +134,47 @@ fn resolves_local_plugin_dependencies_and_rejects_a_mismatched_manifest_id() {
     assert!(resolved.plugin_roots["dev.example.math"].ends_with("plugins/math"));
     assert!(resolved.lock_file.contains("path:plugins/math"));
 
+    let local_dependency = [dependency("Math", "dev.example.math", "plugins/math")];
+    dependencies::write_lock(project.path(), &resolved.lock_file).expect("write local lockfile");
+    dependencies::check_offline(project.path(), &local_dependency)
+        .expect("offline doctor accepts a valid local dependency");
+    let original_lock = project.read("nexa.lock");
+    fs::write(
+        project.path().join("plugins/math/plugin.config.nx"),
+        "plugin { schema: 2 id: \"dev.example.math\" version: \"2.0.0\" sources { native: \"native.nxid\" } }\n",
+    )
+    .expect("change local plugin contents");
+    let error = dependencies::check_offline(project.path(), &local_dependency)
+        .expect_err("offline doctor should detect a stale plugin lockfile");
+    assert!(error.contains("`nexa.lock` is out of date"), "{error}");
+    assert_eq!(project.read("nexa.lock"), original_lock);
+
     let error = dependencies::resolve(
         project.path(),
         &[dependency("Math", "dev.example.other", "plugins/math")],
     )
     .expect_err("mismatched manifest id must fail");
     assert!(error.contains("package manifest is `dev.example.math`"));
+}
+
+#[test]
+fn offline_plugin_check_does_not_clone_missing_git_dependencies() {
+    let project = TestProject::new("nexa-dependencies-offline");
+    let dependency = PluginDependencyConfig {
+        alias: "Remote".to_owned(),
+        package_id: "dev.example.remote".to_owned(),
+        path: None,
+        git: Some("https://example.invalid/remote.git".to_owned()),
+        revision: Some("a".repeat(40)),
+        package_path: None,
+        span: Default::default(),
+    };
+
+    let error = dependencies::check_offline(project.path(), &[dependency])
+        .expect_err("uncached Git plugin must produce an offline diagnostic");
+
+    assert!(error.contains("is not cached"), "{error}");
+    assert!(!project.exists(".nexa/plugins"));
 }
 
 #[test]

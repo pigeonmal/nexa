@@ -29,6 +29,32 @@ fn check_accepts_supported_configured_sdk_minimums() {
 }
 
 #[test]
+fn check_identifies_android_components_that_require_a_newer_minimum_sdk() {
+    let project = setup_project();
+    project.write_app(
+        r#"app Demo {
+            state selected: String = "Medium"
+            body { Picker(items: ["Small", "Medium"], selected: selected) }
+        }
+        "#,
+    );
+    let output = check_config(
+        &project,
+        "config { android { minSdk: 23, targetSdk: 36 } }\n",
+    );
+    assert_output_failure(
+        &output,
+        "Material 3 Expressive menus require minSdk 24 for a Picker or context-menu component",
+    );
+
+    let output = check_config(
+        &project,
+        "config { android { minSdk: 24, targetSdk: 36 } }\n",
+    );
+    assert_output_success(&output);
+}
+
+#[test]
 fn check_validates_android_cronet_provider_and_cache_size() {
     let project = setup_project();
     for config in [

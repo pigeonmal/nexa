@@ -119,6 +119,7 @@ fn render_confirmation_actions(
     for (index, child) in children.iter().enumerate() {
         if let Node::Button {
             label,
+            accessibility_label,
             icon,
             loading,
             disabled,
@@ -132,6 +133,7 @@ fn render_confirmation_actions(
         {
             controls::render_button(
                 label,
+                accessibility_label.as_deref(),
                 icon.as_ref(),
                 loading.as_ref(),
                 disabled.as_ref(),
@@ -210,6 +212,7 @@ mod tests {
             shape: None,
             tint: None,
             glass: false,
+            accessibility_label: None,
             actions: Vec::new(),
         };
         let children = [button("High"), button("Cancel")];
@@ -278,6 +281,7 @@ mod tests {
             shape: None,
             tint: None,
             glass: false,
+            accessibility_label: None,
             actions: Vec::new(),
         };
         let children = [button("Cancel"), button("Delete")];

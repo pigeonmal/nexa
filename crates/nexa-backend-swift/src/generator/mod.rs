@@ -10,6 +10,48 @@ mod widget;
 // root cannot name a path through it.
 pub use engine::swift_scalar_types;
 
+const NEXA_TASK_SCOPE_HELPER: &str = r#"@MainActor
+final class NexaTaskScope {
+    private var tasks: [UUID: Task<Void, Never>] = [:]
+
+    func track(_ task: Task<Void, Never>) -> Task<Void, Never> {
+        let id = UUID()
+        tasks[id] = task
+        Task { @MainActor [weak self] in
+            await task.value
+            self?.tasks.removeValue(forKey: id)
+        }
+        return task
+    }
+
+    func cancelAll() {
+        let runningTasks = Array(tasks.values)
+        tasks.removeAll()
+        for task in runningTasks {
+            task.cancel()
+        }
+    }
+}
+
+"#;
+
+const NEXA_LIST_TASK_SCOPE_VIEW_HELPER: &str = r#"@MainActor
+private struct NexaTaskScopeView<Content: View>: View {
+    @State private var nexaTaskScope = NexaTaskScope()
+    private let content: (NexaTaskScope) -> Content
+
+    init(@ViewBuilder content: @escaping (NexaTaskScope) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content(nexaTaskScope)
+            .onDisappear { nexaTaskScope.cancelAll() }
+    }
+}
+
+"#;
+
 const DRAG_GESTURE_HELPERS: &str = r#"@MainActor
 private final class NexaDragVelocityTracker {
     private var lastTranslation = CGSize.zero
@@ -725,6 +767,7 @@ struct NexaButtonPrimitive<Label: View>: View {
     let tint: Color?
     let loading: Bool
     let disabled: Bool
+    let accessibilityLabel: String?
     let glass: Bool
     let iconOnlyCircle: Bool
     let action: () -> Void
@@ -737,6 +780,7 @@ struct NexaButtonPrimitive<Label: View>: View {
         tint: Color?,
         loading: Bool,
         disabled: Bool,
+        accessibilityLabel: String?,
         glass: Bool,
         iconOnlyCircle: Bool,
         action: @escaping () -> Void,
@@ -750,6 +794,7 @@ struct NexaButtonPrimitive<Label: View>: View {
         self.disabled = disabled
         self.glass = glass
         self.iconOnlyCircle = iconOnlyCircle
+        self.accessibilityLabel = accessibilityLabel
         self.action = action
         self.label = label()
     }
@@ -793,6 +838,15 @@ struct NexaButtonPrimitive<Label: View>: View {
     }
 
     @ViewBuilder
+    private func accessible<V: View>(_ view: V) -> some View {
+        if let accessibilityLabel {
+            view.accessibilityLabel(Text(accessibilityLabel))
+        } else {
+            view
+        }
+    }
+
+    @ViewBuilder
     private func platformSize<V: View>(_ view: V) -> some View {
         switch size {
         case .small: decorated(view.controlSize(.small))
@@ -808,12 +862,12 @@ struct NexaButtonPrimitive<Label: View>: View {
         case .bordered:
             let tint = tint ?? .blue
             let outline = NexaSharedButtonOutline(kind: shape)
-            Button(action: action) { labelContent }
+            accessible(Button(action: action) { labelContent }
                 .disabled(disabled || loading)
                 .buttonStyle(NexaSharedBorderedButtonStyle(tint: tint, shape: outline, size: size))
-                .modifier(NexaSharedGlassModifier(enabled: glass, tint: self.tint, shape: shape))
+                .modifier(NexaSharedGlassModifier(enabled: glass, tint: self.tint, shape: shape)))
         case .borderedProminent:
-            Button(action: action) { labelContent }
+            accessible(Button(action: action) { labelContent }
                 .disabled(disabled || loading)
                 .buttonStyle(NexaSharedProminentButtonStyle(
                     tint: tint ?? Color(uiColor: .systemBlue),
@@ -821,20 +875,20 @@ struct NexaButtonPrimitive<Label: View>: View {
                     size: size,
                     iconOnlyCircle: iconOnlyCircle
                 ))
-                .modifier(NexaSharedGlassModifier(enabled: glass, tint: tint, shape: shape))
+                .modifier(NexaSharedGlassModifier(enabled: glass, tint: tint, shape: shape)))
         case .borderless:
             platformSize(
-                Button(action: action) { plainLabelContent }
+                accessible(Button(action: action) { plainLabelContent }
                     .disabled(disabled || loading)
                     .buttonStyle(.borderless)
-                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
+                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)))
             )
         case .plain:
             platformSize(
-                Button(action: action) { plainLabelContent }
+                accessible(Button(action: action) { plainLabelContent }
                     .disabled(disabled || loading)
                     .buttonStyle(.plain)
-                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__))
+                    .frame(minWidth: CGFloat(__NEXA_BUTTON_MIN_WIDTH__), minHeight: size == .large ? CGFloat(__NEXA_BUTTON_LARGE_MIN_HEIGHT__) : CGFloat(__NEXA_BUTTON_MIN_TAP_TARGET__)))
             )
         }
     }
@@ -1459,31 +1513,49 @@ struct NexaStackLayer<Content: View>: View {
 }
 
 // nexa-codegen: NexaNativeListPrimitive
-@Observable
+@MainActor
+private final class NexaFastListReorderRowState: ObservableObject {
+    @Published fileprivate(set) var isDragging = false
+    @Published fileprivate(set) var dragOffset: CGFloat = 0
+}
+
 @MainActor
 private final class NexaFastListReorderSession {
     private(set) var activeIndex: Int?
-    private(set) var dragOffset: CGFloat = 0
-    @ObservationIgnored private var rowFrames: [Int: CGRect] = [:]
-    @ObservationIgnored private var startY: CGFloat = 0
-    @ObservationIgnored private var accumulatedLayoutShift: CGFloat = 0
-    @ObservationIgnored private var lastInsertionIndex: Int?
+    private var rowFrames: [Int: CGRect] = [:]
+    private var rowStates: [Int: NexaFastListReorderRowState] = [:]
+    private var startY: CGFloat = 0
+    private var accumulatedLayoutShift: CGFloat = 0
+    private var lastInsertionIndex: Int?
+
+    func rowState(at index: Int) -> NexaFastListReorderRowState {
+        if let state = rowStates[index] {
+            return state
+        }
+        let state = NexaFastListReorderRowState()
+        rowStates[index] = state
+        return state
+    }
 
     func updateFrames(_ frames: [Int: CGRect]) {
         rowFrames = frames
+        rowStates = rowStates.filter { frames[$0.key] != nil || $0.key == activeIndex }
     }
 
     func begin(at index: Int, startY: CGFloat) {
         activeIndex = index
         self.startY = startY
         accumulatedLayoutShift = 0
-        dragOffset = 0
         lastInsertionIndex = nil
+        let state = rowState(at: index)
+        state.isDragging = true
+        state.dragOffset = 0
     }
 
     func update(to location: CGPoint, perform onMove: (Int, Int) -> Void) {
         guard let source = activeIndex,
               let sourceFrame = rowFrames[source],
+              let sourceState = rowStates[source],
               let target = rowFrames.min(by: {
                   abs($0.value.midY - location.y) < abs($1.value.midY - location.y)
               })
@@ -1491,14 +1563,14 @@ private final class NexaFastListReorderSession {
 
         let insertionIndex = target.key + (location.y >= target.value.midY ? 1 : 0)
         guard lastInsertionIndex != insertionIndex else {
-            dragOffset = location.y - startY - accumulatedLayoutShift
+            sourceState.dragOffset = location.y - startY - accumulatedLayoutShift
             return
         }
         lastInsertionIndex = insertionIndex
 
         let destination = insertionIndex > source ? insertionIndex - 1 : insertionIndex
         guard destination != source else {
-            dragOffset = location.y - startY - accumulatedLayoutShift
+            sourceState.dragOffset = location.y - startY - accumulatedLayoutShift
             return
         }
 
@@ -1507,13 +1579,20 @@ private final class NexaFastListReorderSession {
         withAnimation(.default) {
             onMove(source, insertionIndex)
         }
+        sourceState.isDragging = false
+        sourceState.dragOffset = 0
         activeIndex = destination
-        dragOffset = location.y - startY - accumulatedLayoutShift
+        let destinationState = rowState(at: destination)
+        destinationState.isDragging = true
+        destinationState.dragOffset = location.y - startY - accumulatedLayoutShift
     }
 
     func finish() {
+        if let activeIndex, let state = rowStates[activeIndex] {
+            state.isDragging = false
+            state.dragOffset = 0
+        }
         activeIndex = nil
-        dragOffset = 0
         accumulatedLayoutShift = 0
         lastInsertionIndex = nil
     }
@@ -1532,7 +1611,8 @@ private struct NexaFastListReorderableRow<Content: View>: View {
     let index: Int
     let onReorder: (Int, Int) -> Void
     private let content: Content
-    @Bindable private var session: NexaFastListReorderSession
+    private let session: NexaFastListReorderSession
+    @ObservedObject private var state: NexaFastListReorderRowState
 
     init(
         index: Int,
@@ -1542,14 +1622,15 @@ private struct NexaFastListReorderableRow<Content: View>: View {
     ) {
         self.index = index
         self.onReorder = onReorder
-        self._session = Bindable(wrappedValue: session)
+        self.session = session
+        self._state = ObservedObject(wrappedValue: session.rowState(at: index))
         self.content = content()
     }
 
     var body: some View {
-        let isDragging = session.activeIndex == index
+        let isDragging = state.isDragging
         ZStack {
-            content.offset(y: isDragging ? session.dragOffset : 0)
+            content.offset(y: isDragging ? state.dragOffset : 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
@@ -1588,9 +1669,73 @@ private extension EnvironmentValues {
     }
 }
 
+private struct NexaNativeListComponentRefKey: EnvironmentKey {
+    static let defaultValue: NexaFastListRef? = nil
+}
+
+private extension EnvironmentValues {
+    var nexaNativeListComponentRef: NexaFastListRef? {
+        get { self[NexaNativeListComponentRefKey.self] }
+        set { self[NexaNativeListComponentRefKey.self] = newValue }
+    }
+}
+
+@MainActor
+private struct NexaNativeListRefScrollViewProbe: UIViewRepresentable {
+    let reference: NexaFastListRef
+
+    func makeUIView(context: Context) -> NexaNativeListRefProbeView {
+        let view = NexaNativeListRefProbeView()
+        view.reference = reference
+        return view
+    }
+
+    func updateUIView(_ view: NexaNativeListRefProbeView, context: Context) {
+        view.reference = reference
+        view.connectToContainingList()
+    }
+}
+
+@MainActor
+private final class NexaNativeListRefProbeView: UIView {
+    weak var reference: NexaFastListRef?
+    private var connectionCheckPending = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        connectToContainingList()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        connectToContainingList()
+    }
+
+    func connectToContainingList() {
+        guard !connectionCheckPending else { return }
+        connectionCheckPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.connectionCheckPending = false
+            guard self.window != nil else { return }
+            var ancestor = self.superview
+            while let view = ancestor {
+                if let scrollView = view as? UIScrollView {
+                    self.reference?.updateNativeScrollView(scrollView)
+                    return
+                }
+                ancestor = view.superview
+            }
+        }
+    }
+}
+
+@MainActor
 struct NexaNativeListPrimitive<Content: View>: View {
     private let spacing: CGFloat
     private let scrollEnabled: Bool
+    private let rowCount: Int
+    private let componentRef: NexaFastListRef?
     private let content: Content
     @State private var reorderSession: NexaFastListReorderSession?
 
@@ -1598,10 +1743,14 @@ struct NexaNativeListPrimitive<Content: View>: View {
         spacing: CGFloat = 0,
         scrollEnabled: Bool = true,
         reorderEnabled: Bool = false,
+        rowCount: Int = 0,
+        componentRef: NexaFastListRef? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.spacing = spacing
         self.scrollEnabled = scrollEnabled
+        self.rowCount = rowCount
+        self.componentRef = componentRef
         _reorderSession = State(
             initialValue: reorderEnabled ? NexaFastListReorderSession() : nil
         )
@@ -1609,15 +1758,60 @@ struct NexaNativeListPrimitive<Content: View>: View {
     }
 
     var body: some View {
-        List {
-            content.environment(\.nexaFastListReorderSession, reorderSession)
-        }
+        ScrollViewReader { proxy in
+            List {
+                content
+                    .environment(\.nexaFastListReorderSession, reorderSession)
+                    .environment(\.nexaNativeListComponentRef, componentRef)
+            }
+            .onAppear {
+                guard let componentRef else { return }
+                componentRef.attach(
+                    view: componentRef,
+                    scrollToIndex: { index, animated, viewPosition in
+                        guard rowCount > 0 else { return }
+                        let anchor = UnitPoint(x: 0.5, y: CGFloat(viewPosition))
+                        let scroll = {
+                            proxy.scrollTo(Int(min(max(index, 0), Int32(rowCount - 1))), anchor: anchor)
+                        }
+                        if animated { withAnimation { scroll() } } else { scroll() }
+                    },
+                    scrollToTop: { animated in
+                        guard rowCount > 0 else { return }
+                        if animated { withAnimation { proxy.scrollTo(0, anchor: .top) } }
+                        else { proxy.scrollTo(0, anchor: .top) }
+                    },
+                    scrollToEnd: { animated in
+                        guard rowCount > 0 else { return }
+                        if animated { withAnimation { proxy.scrollTo(rowCount - 1, anchor: .bottom) } }
+                        else { proxy.scrollTo(rowCount - 1, anchor: .bottom) }
+                    },
+                    scrollToOffset: { [weak componentRef] offset, animated in
+                        guard offset.isFinite,
+                              let scrollView = componentRef?.nativeScrollViewObject() as? UIScrollView
+                        else { return }
+                        let minimum = -scrollView.adjustedContentInset.top
+                        let maximum = max(
+                            minimum,
+                            scrollView.contentSize.height - scrollView.bounds.height
+                                + scrollView.adjustedContentInset.bottom
+                        )
+                        let target = min(max(minimum + CGFloat(max(0, offset)), minimum), maximum)
+                        scrollView.setContentOffset(
+                            CGPoint(x: scrollView.contentOffset.x, y: target),
+                            animated: animated
+                        )
+                    }
+                )
+            }
+            .onDisappear { componentRef?.detach() }
             .onPreferenceChange(NexaFastListRowFramesKey.self) { frames in
                 reorderSession?.updateFrames(frames)
             }
             .listRowSpacing(spacing)
             .scrollDisabled(!scrollEnabled)
             .modifier(NexaNativeListStyleModifier())
+        }
     }
 }
 
@@ -1717,12 +1911,9 @@ private final class NexaFastListSwipePagerGestureView: UIView, UIGestureRecogniz
     }
 
     private func isHorizontalPageContainer(_ scrollView: UIScrollView) -> Bool {
-        guard let collectionView = scrollView as? UICollectionView else {
-            return scrollView.isPagingEnabled
-        }
         return scrollView.isPagingEnabled
-            || (collectionView.contentSize.width > collectionView.bounds.width + 1
-                && collectionView.contentSize.height <= collectionView.bounds.height + 1)
+            || (scrollView.contentSize.width > scrollView.bounds.width + 1
+                && scrollView.contentSize.height <= scrollView.bounds.height + 1)
     }
 
     func gestureRecognizer(
@@ -1764,6 +1955,7 @@ private final class NexaFastListSwipePagerGestureView: UIView, UIGestureRecogniz
 }
 
 struct NexaNativeListRowPrimitive<Content: View>: View {
+    let position: Int
     let showDividers: Bool
     let prioritizeSwipeActions: Bool
     let reorderIndex: Int?
@@ -1771,8 +1963,10 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
     let onReorder: ((Int, Int) -> Void)?
     private let content: Content
     @Environment(\.nexaFastListReorderSession) private var reorderSession
+    @Environment(\.nexaNativeListComponentRef) private var componentRef
 
     init(
+        position: Int,
         showDividers: Bool = true,
         prioritizeSwipeActions: Bool = false,
         reorderIndex: Int? = nil,
@@ -1780,6 +1974,7 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
         onReorder: ((Int, Int) -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
+        self.position = position
         self.showDividers = showDividers
         self.prioritizeSwipeActions = prioritizeSwipeActions
         self.reorderIndex = reorderIndex
@@ -1801,6 +1996,18 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
                 content
             }
         }
+        let observedRow = Group {
+            if let componentRef {
+                row.background {
+                    NexaNativeListRefScrollViewProbe(reference: componentRef)
+                        .frame(width: 1, height: 1)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                row
+            }
+        }.id(position)
         Group {
             if reorderEnabled, let reorderIndex, let onReorder, let reorderSession {
                 NexaFastListReorderableRow(
@@ -1808,10 +2015,10 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
                     session: reorderSession,
                     onReorder: onReorder
                 ) {
-                    row
-                    }
+                    observedRow
+                }
             } else {
-                row
+                observedRow
             }
         }
             .listRowInsets(EdgeInsets(
@@ -2094,30 +2301,25 @@ private struct NexaRefreshBounceModifier: ViewModifier {
 
 // nexa-codegen: NexaBottomSheetPrimitive
 struct NexaBottomSheetPrimitive<Content: View>: View {
-    @Binding var isPresented: Bool
+    @State private var isPresented = false
+    @State private var refGeneration: UInt64?
+    let componentRef: NexaBottomSheetRef
     let contentPadding: CGFloat
     let detents: Set<PresentationDetent>
-    let snapPoints: [CGFloat]
-    let initialSnapPoint: CGFloat?
-    let selectedSnapPoint: Binding<Double>?
     let initialDetent: PresentationDetent
     let showDragIndicator: Bool
     let allowsDismissal: Bool
     let allowsBackgroundInteraction: Bool
     let shouldDismissOnBackPress: Bool
     let backgroundColor: Color?
-    let onDismissRequest: () -> Void
     let onDismiss: () -> Void
     @State private var selectedDetent: PresentationDetent
     private let content: Content
 
     init(
-        isPresented: Binding<Bool>,
+        componentRef: NexaBottomSheetRef,
         contentPadding: CGFloat,
         detents: Set<PresentationDetent>,
-        snapPoints: [CGFloat],
-        initialSnapPoint: CGFloat?,
-        selectedSnapPoint: Binding<Double>?,
         initialDetent: PresentationDetent,
         showDragIndicator: Bool,
         allowsDismissal: Bool,
@@ -2125,65 +2327,34 @@ struct NexaBottomSheetPrimitive<Content: View>: View {
         shouldDismissOnBackPress: Bool,
         backgroundColor: Color?,
         scrimColor: Color?,
-        onDismissRequest: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
         @ViewBuilder content: () -> Content
     ) {
-        self._isPresented = isPresented
+        self.componentRef = componentRef
         self.contentPadding = contentPadding
         self.detents = detents
-        self.snapPoints = snapPoints
-        self.initialSnapPoint = initialSnapPoint
-        self.selectedSnapPoint = selectedSnapPoint
         self.initialDetent = initialDetent
         self.showDragIndicator = showDragIndicator
         self.allowsDismissal = allowsDismissal
         self.allowsBackgroundInteraction = allowsBackgroundInteraction
         self.shouldDismissOnBackPress = shouldDismissOnBackPress
         self.backgroundColor = backgroundColor
-        self.onDismissRequest = onDismissRequest
         self.onDismiss = onDismiss
-        let selectedInitialPoint = selectedSnapPoint.flatMap { binding in
-            snapPoints.min {
-                abs(Double($0) - binding.wrappedValue)
-                    < abs(Double($1) - binding.wrappedValue)
-            }
-        }
-        _selectedDetent = State(
-            initialValue: selectedInitialPoint.map { .fraction($0) }
-                ?? initialSnapPoint.map { .fraction($0) }
-                ?? initialDetent
-        )
+        _selectedDetent = State(initialValue: initialDetent)
         self.content = content()
     }
 
-    private var configuredDetents: Set<PresentationDetent> {
-        snapPoints.isEmpty ? detents : Set(snapPoints.map { .fraction($0) })
-    }
-
-    private var configuredInitialDetent: PresentationDetent {
-        if let selectedSnapPoint,
-           let point = closestSnapPoint(to: selectedSnapPoint.wrappedValue) {
-            return .fraction(point)
-        }
-        return initialSnapPoint.map { .fraction($0) } ?? initialDetent
-    }
-
-    private func closestSnapPoint(to requested: Double) -> CGFloat? {
-        snapPoints.min { abs(Double($0) - requested) < abs(Double($1) - requested) }
-    }
-
     @ViewBuilder var body: some View {
+        let presentation = $isPresented
         Color.clear
             .frame(width: 0, height: 0)
             .sheet(isPresented: $isPresented, onDismiss: {
-                onDismissRequest()
                 onDismiss()
             }) {
                 NexaBottomSheetContentPrimitive(contentPadding: contentPadding) {
                     content
                 }
-                    .presentationDetents(configuredDetents, selection: $selectedDetent)
+                    .presentationDetents(detents, selection: $selectedDetent)
                     .presentationDragIndicator(showDragIndicator ? .visible : .hidden)
                     .interactiveDismissDisabled(!allowsDismissal)
                     .modifier(NexaBottomSheetBackground(
@@ -2195,24 +2366,18 @@ struct NexaBottomSheetPrimitive<Content: View>: View {
             }
             .onChange(of: isPresented) { presented in
                 if presented {
-                    selectedDetent = configuredInitialDetent
+                    selectedDetent = initialDetent
                 }
             }
-            .onChange(of: selectedSnapPoint?.wrappedValue) { value in
-                guard let value, let point = closestSnapPoint(to: value) else { return }
-                selectedDetent = .fraction(point)
-                let snappedValue = Double(point)
-                if snappedValue != value {
-                    selectedSnapPoint?.wrappedValue = snappedValue
-                }
+            .onAppear {
+                refGeneration = componentRef.attach(
+                    present: { presentation.wrappedValue = true },
+                    dismiss: { presentation.wrappedValue = false }
+                )
             }
-            .onChange(of: selectedDetent) { detent in
-                guard let selectedSnapPoint,
-                      let point = snapPoints.first(where: { detent == .fraction($0) })
-                else { return }
-                let value = Double(point)
-                if selectedSnapPoint.wrappedValue != value {
-                    selectedSnapPoint.wrappedValue = value
+            .onDisappear {
+                if let refGeneration {
+                    componentRef.detach(generation: refGeneration)
                 }
             }
     }
@@ -2857,8 +3022,8 @@ pub(super) use components::{
     system_icons,
 };
 pub(super) use engine::state::{
-    render_immutable_state, render_native_object_state, render_native_object_state_uninitialized,
-    render_state_initializers_in_init,
+    render_component_ref_state, render_immutable_state, render_native_object_state,
+    render_native_object_state_uninitialized, render_state_initializers_in_init,
 };
 use engine::types::{self, swift_type};
 pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils, value};
@@ -2980,6 +3145,7 @@ fn generate_with_analysis_mode(
             out.push_str(NEXA_REGEX_HELPERS);
         }
         types::render_enums(module, out);
+        types::render_component_ref_types(out);
         structs::render(module, out);
         types::render_navigation_routes(module, out);
         if dev_runtime {
@@ -3013,10 +3179,24 @@ fn generate_with_analysis_mode(
                 "private struct NexaIdentifiedListRow: Identifiable {\n    let id: AnyHashable\n    let position: Int\n}\n\n",
             );
         }
+        let untracked_task_scopes = &features.facts.untracked_task_launch_scopes;
+        let has_task_scope = untracked_task_scopes.app
+            || !untracked_task_scopes.screens.is_empty()
+            || !untracked_task_scopes.components.is_empty()
+            || features.facts.ui.lists.end_reached_task_launch;
+        if has_task_scope {
+            out.push_str(NEXA_TASK_SCOPE_HELPER);
+        }
+        if features.facts.ui.lists.end_reached_task_launch {
+            out.push_str(NEXA_LIST_TASK_SCOPE_VIEW_HELPER);
+        }
         out.push_str(&format!(
             "public struct {}: View {{\n",
             nexa_codegen::names::screen_name(&module.app_name)
         ));
+        if untracked_task_scopes.app {
+            out.push_str("    @State private var nexaTaskScope = NexaTaskScope()\n");
+        }
         if !module.screens.is_empty() {
             out.push_str("    private static let __nexaRootScreenIdentity = UUID()\n");
             out.push_str("    @State private var __nexaNavigationPath = NavigationPath()\n");
@@ -3029,6 +3209,9 @@ fn generate_with_analysis_mode(
             .iter()
             .any(|state| matches!(state.ty, nexa_ir::Type::Signal(_)));
         for state in &module.states {
+            if render_component_ref_state(state, 1, out) {
+                continue;
+            }
             if state.is_native_class_constructor_binding() {
                 if has_signals {
                     render_native_object_state_uninitialized(state, 1, out);
@@ -3107,7 +3290,6 @@ fn generate_with_analysis_mode(
         } else {
             out.push_str("    public init() {}\n\n    public var body: some View {\n");
         }
-        let task_handles = lifecycle::task_handles(&module.states);
         // A top-level conditional is already emitted as a concrete `Group` by
         // the node renderer, so body modifiers (including task cleanup) can be
         // applied to it directly without adding a redundant second wrapper.
@@ -3150,7 +3332,13 @@ fn generate_with_analysis_mode(
         }
         direction::render(module.direction, 2, out);
         lifecycle::render_on_appear(module.on_appear.as_deref(), module.on_appear_async, 2, out);
-        lifecycle::render_on_disappear(module.on_disappear.as_deref(), &task_handles, 2, out);
+        lifecycle::render_on_disappear(
+            module.on_disappear.as_deref(),
+            &lifecycle::task_handles(&module.states),
+            untracked_task_scopes.app,
+            2,
+            out,
+        );
         lifecycle::render_scene_phase(module, 2, out);
         status_bar::render(module.status_bar, 2, out);
         if features.uses_shared_elements {
@@ -3417,8 +3605,30 @@ mod tests {
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, FastListMove, Function, ImageScale, ImageSource,
         LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId,
-        State, SystemIcon, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        SectionedListCommon, State, SystemIcon, TaskExecutor, TextStyle, Type, ViewStyle,
+        ViewTransition, WhenCase,
     };
+
+    fn braced_block(source: &str, start: usize) -> &str {
+        let open = source[start..]
+            .find('{')
+            .map(|offset| start + offset)
+            .expect("generated block has an opening brace");
+        let mut depth = 0usize;
+        for (offset, character) in source[open..].char_indices() {
+            match character {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[start..open + offset + character.len_utf8()];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("generated block is closed");
+    }
 
     #[test]
     fn segmented_control_reaches_the_unified_native_bridge() {
@@ -3436,19 +3646,78 @@ mod tests {
     }
 
     #[test]
+    fn reusable_component_slots_keep_concrete_generic_view_content() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "ReusableComponentApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: vec![Component {
+                name: "ReusableCard".to_owned(),
+                source_file: None,
+                parameters: Vec::new(),
+                states: Vec::new(),
+                body: vec![Node::Content],
+                ref_methods: Vec::new(),
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            body: vec![Node::ComponentCall {
+                name: "ReusableCard".to_owned(),
+                arguments: Vec::new(),
+                component_ref: None,
+                children: Some(vec![Node::Text {
+                    value: Expr::String("Card body".to_owned()),
+                    style: TextStyle::default(),
+                }]),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+
+        assert!(swift.contains("struct NexaReusableCardComponent<SlotContent: View>: View"));
+        assert!(swift.contains("private let nexaContent: () -> SlotContent"));
+        assert!(swift.contains("@ViewBuilder nexaContent: @escaping () -> SlotContent"));
+        assert!(swift.contains("NexaReusableCardComponent() {"));
+        assert!(
+            !swift.contains("AnyView"),
+            "reusable component slots must keep their concrete view type"
+        );
+    }
+
+    #[test]
     fn shared_button_primitive_embeds_design_system_geometry() {
         let primitives = shared_component_primitives(false);
 
         assert!(primitives.contains("struct NexaButtonPrimitive<Label: View>"));
+        assert!(primitives.contains("let accessibilityLabel: String?"));
+        assert!(primitives.contains("view.accessibilityLabel(Text(accessibilityLabel))"));
         assert!(primitives.contains("private struct NexaSharedProminentButtonStyle: ButtonStyle"));
         assert!(primitives.contains("NexaSharedProminentButtonStyle("));
+        assert!(primitives.contains("case .regular, nil: (CGFloat(0), CGFloat(0))"));
         assert!(primitives.contains("private var plainLabelContent: some View"));
         assert!(
             primitives
                 .contains(".foregroundStyle((disabled || loading) ? tint.opacity(0.38) : tint)")
         );
         assert!(primitives.contains("width: CGFloat(20),\n                height: CGFloat(20)"));
-        assert!(primitives.contains("CGFloat(8)"));
+        assert!(!primitives.contains("CGFloat(8)"));
         assert!(primitives.contains("struct NexaFormPrimitive<Content: View>"));
         assert!(primitives.contains(
             "@Environment(\\.multilineTextAlignment) private var inheritedTextAlignment"
@@ -3733,7 +4002,6 @@ mod tests {
         assert!(bottom_sheet.contains(
             "Color.clear\n            .frame(width: 0, height: 0)\n            .sheet(isPresented:"
         ));
-        assert!(bottom_sheet.contains("onDismissRequest()"));
         assert!(bottom_sheet.contains("onDismiss()"));
         assert!(
             bottom_sheet.contains(
@@ -3743,18 +4011,15 @@ mod tests {
         assert!(bottom_sheet.contains("content.presentationBackgroundInteraction(.enabled)"));
         assert!(bottom_sheet.contains("if #available(iOS 16.4, *), allowsBackgroundInteraction"));
         assert!(!bottom_sheet.contains("scrimColor == .clear"));
-        assert!(bottom_sheet.contains("Set(snapPoints.map { .fraction($0) })"));
-        assert!(
-            bottom_sheet
-                .contains(".presentationDetents(configuredDetents, selection: $selectedDetent)")
-        );
+        assert!(bottom_sheet.contains("let detents: Set<PresentationDetent>"));
+        assert!(bottom_sheet.contains(".presentationDetents(detents, selection: $selectedDetent)"));
         assert!(
             bottom_sheet
                 .contains(".presentationDragIndicator(showDragIndicator ? .visible : .hidden)")
         );
         assert!(bottom_sheet.contains(".interactiveDismissDisabled(!allowsDismissal)"));
         assert!(bottom_sheet.contains("content.presentationBackground(color)"));
-        assert!(bottom_sheet.contains("selectedDetent = configuredInitialDetent"));
+        assert!(bottom_sheet.contains("selectedDetent = initialDetent"));
         assert!(!bottom_sheet.contains("fullScreenCover"));
         assert!(!bottom_sheet.contains("keyboardWillShowNotification"));
         assert!(!bottom_sheet.contains("detentBeforeKeyboard"));
@@ -3808,6 +4073,7 @@ mod tests {
                     class_initializers: Vec::new(),
                     is_async: false,
                     is_throwing: false,
+                    failure_type: None,
                     parameters: Vec::new(),
                     locals: Vec::new(),
                     return_type: Type::Bool,
@@ -3914,10 +4180,8 @@ mod tests {
             "the conditional body needs a concrete view type before shared modifiers are applied"
         );
         assert!(
-            swift.contains(
-                "\n        }.transition(.identity)\n            .onDisappear {\n                nexa_refreshTask?.cancel()"
-            ),
-            "task cleanup must apply to the full conditional view"
+            swift.contains(".onDisappear {\n                nexa_refreshTask?.cancel()"),
+            "task scope cleanup must apply to the full conditional view"
         );
     }
 
@@ -3965,6 +4229,7 @@ mod tests {
                     shape: None,
                     tint: None,
                     glass: false,
+                    accessibility_label: None,
                     actions: Vec::new(),
                 }],
                 drag_parameters: Vec::new(),
@@ -4123,10 +4388,8 @@ mod tests {
                         item_extent: None,
                         index: "index".to_owned(),
                         key: None,
-                        scroll_position: Some("currentPage".to_owned()),
-                        scroll_to_top: None,
-                        scroll_to_end: None,
-                        scroll_to_offset: None,
+                        scroll_position: None,
+                        component_ref: None,
                         children: vec![Node::Text {
                             value: Expr::String("Feed page".to_owned()),
                             style: TextStyle::default(),
@@ -4210,6 +4473,33 @@ mod tests {
         assert!(reverse_swift.contains(
             "tableView.contentInsetAdjustmentBehavior = pageSnap || reverseLayout ? .never : .automatic"
         ));
+
+        let mut paginated_module = module.clone();
+        let Node::FastList { plan } = &mut paginated_module.body[0] else {
+            panic!("expected the count-backed FastList plan");
+        };
+        let ListPlan::Count { common, .. } = plan.as_mut() else {
+            panic!("expected the count-backed FastList plan");
+        };
+        common.on_end_reached = Some(vec![Action::TaskLaunch {
+            handle: Some("loadTask".to_owned()),
+            executor: TaskExecutor::Main,
+            actions: vec![Action::Expression(Expr::Bool(true))],
+        }]);
+        paginated_module.states.push(State {
+            name: "loadTask".to_owned(),
+            ty: Type::Optional(Box::new(Type::TaskHandle)),
+            initial: Expr::Null(Type::Optional(Box::new(Type::TaskHandle))),
+            mutable: true,
+        });
+        let paginated_swift = generate(&paginated_module);
+        assert!(paginated_swift.contains("NexaTaskScopeView { nexaTaskScope in"));
+        assert!(
+            paginated_swift.contains("nexa_loadTask = nexaTaskScope.track(Task { @MainActor in")
+        );
+        assert!(paginated_swift.contains(
+            "content(nexaTaskScope)\n            .onDisappear { nexaTaskScope.cancelAll() }"
+        ));
     }
 
     #[test]
@@ -4249,9 +4539,7 @@ mod tests {
                         index: "index".to_owned(),
                         key: None,
                         scroll_position: None,
-                        scroll_to_top: None,
-                        scroll_to_end: None,
-                        scroll_to_offset: None,
+                        component_ref: None,
                         children: vec![Node::Text {
                             value: Expr::String("Task".to_owned()),
                             style: TextStyle::default(),
@@ -4274,6 +4562,7 @@ mod tests {
                             shape: None,
                             tint: None,
                             glass: false,
+                            accessibility_label: None,
                             actions: Vec::new(),
                         }]),
                         sticky_header: None,
@@ -4310,28 +4599,32 @@ mod tests {
         assert!(swift.contains(
             "private func isHorizontalPageContainer(_ scrollView: UIScrollView) -> Bool"
         ));
-        assert!(
-            swift.contains("collectionView.contentSize.width > collectionView.bounds.width + 1")
-        );
+        assert!(swift.contains("scrollView.contentSize.width > scrollView.bounds.width + 1"));
         assert!(swift.contains(
-            "NexaNativeListRowPrimitive(showDividers: true, prioritizeSwipeActions: true, reorderIndex: listPosition, reorderEnabled: nexa_moveEnabled, onReorder: { source, destination in"
+            "NexaNativeListRowPrimitive(position: listPosition, showDividers: true, prioritizeSwipeActions: true, reorderIndex: listPosition, reorderEnabled: nexa_moveEnabled, onReorder: { source, destination in"
         ));
         assert!(swift.contains("LongPressGesture(minimumDuration: 0.35)"));
         assert!(swift.contains(
             ".sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))"
         ));
         assert!(swift.contains("NexaFastListRowFramesKey.self"));
+        assert!(swift.contains("proxy.scrollTo(rowCount - 1, anchor: .bottom)"));
+        assert!(swift.contains("updateNativeScrollView(scrollView)"));
         assert!(swift.contains("rowFrames.min(by:"));
         assert!(swift.contains("session.update(to: drag.location, perform: onReorder)"));
+        assert!(swift.contains("@Published fileprivate(set) var dragOffset: CGFloat = 0"));
+        assert!(swift.contains("@ObservedObject private var state: NexaFastListReorderRowState"));
+        assert!(swift.contains("rowStates = rowStates.filter"));
+        assert!(!swift.contains("@Observable"));
         assert!(swift.contains(".frame(maxWidth: .infinity, alignment: .leading)"));
         assert!(swift.contains(".zIndex(isDragging ? 1 : 0)"));
         assert!(!swift.contains(".onDrag {"));
         assert!(!swift.contains(".onDrop("));
         assert!(!swift.contains("NexaFastListReorderDropDelegate"));
         assert!(!swift.contains("UniformTypeIdentifiers"));
-        assert!(
-            swift.contains("NexaNativeListPrimitive(scrollEnabled: true, reorderEnabled: true)")
-        );
+        assert!(swift.contains(
+            "NexaNativeListPrimitive(scrollEnabled: true, reorderEnabled: true, rowCount:"
+        ));
         assert!(swift.contains("let nexa_from: Int32 = Int32(source)"));
         assert!(!swift.contains("isReorderable"));
         assert!(!swift.contains(".onMove {"));
@@ -4348,11 +4641,64 @@ mod tests {
         };
         common.scroll_enabled = Some(Expr::Bool(false));
         let disabled_swift = generate(&disabled_module);
-        assert!(
-            disabled_swift
-                .contains("NexaNativeListPrimitive(scrollEnabled: false, reorderEnabled: true)")
-        );
+        assert!(disabled_swift.contains(
+            "NexaNativeListPrimitive(scrollEnabled: false, reorderEnabled: true, rowCount:"
+        ));
         assert!(disabled_swift.contains(".scrollDisabled(!scrollEnabled)"));
+
+        let mut referenced_module = module.clone();
+        let Node::FastList { plan } = &mut referenced_module.body[0] else {
+            panic!("expected the items-backed FastList plan");
+        };
+        let ListPlan::Items { common, .. } = plan.as_mut() else {
+            panic!("expected the items-backed FastList plan");
+        };
+        common.component_ref = Some(Expr::ComponentRefCreate {
+            namespace: "Nexa".to_owned(),
+            name: "FastList".to_owned(),
+            identity: "test-fast-list-ref".to_owned(),
+        });
+        let referenced_swift = generate(&referenced_module);
+        assert!(
+            referenced_swift.contains("componentRef: NexaFastListRef()"),
+            "generated list ref argument was missing:\n{referenced_swift}"
+        );
+        assert!(referenced_swift.contains("position: listPosition"));
+
+        let mut sectioned_module = module;
+        let Node::FastList { plan } = &mut sectioned_module.body[0] else {
+            panic!("expected the items-backed FastList plan");
+        };
+        let ListPlan::Items { common, .. } = plan.as_ref() else {
+            panic!("expected the items-backed FastList plan");
+        };
+        let sectioned_common = SectionedListCommon {
+            show_dividers: common.show_dividers,
+            item_extent: common.item_extent,
+            spacing: common.spacing,
+            scroll_enabled: common.scroll_enabled.clone(),
+            index: common.index.clone(),
+            component_ref: common.component_ref.clone(),
+            key: common.key.clone(),
+            children: common.children.clone(),
+            section_header: None,
+            swipe_actions: common.swipe_actions.clone(),
+            refresh: common.refresh.clone(),
+        };
+        **plan = ListPlan::Sections {
+            collection: Expr::State(
+                "taskSections".to_owned(),
+                Type::Array(Box::new(Type::Array(Box::new(Type::String)))),
+            ),
+            element_type: Type::String,
+            section: "section".to_owned(),
+            item: "task".to_owned(),
+            common: sectioned_common,
+        };
+        let sectioned_swift = generate(&sectioned_module);
+        assert!(sectioned_swift.contains("starts.reserveCapacity(nexa_list_sections_"));
+        assert!(sectioned_swift.contains("position: nexa_list_section_starts_"));
+        assert!(!sectioned_swift.contains(".prefix(sectionPosition).reduce(0) { $0 + $1.count }"));
     }
 
     #[test]
@@ -4437,6 +4783,9 @@ mod tests {
             .find("NavigationStack(path: $__nexaNavigationPath)")
             .expect("navigation stack is generated");
         assert!(appearance_position < navigation_position);
+        assert!(
+            swift.contains("nonisolated(unsafe) static let defaultValue: Binding<NavigationPath>")
+        );
         assert!(app_body.contains("NexaNavigationScreenPrimitive(title: \"Details\""));
         assert!(swift.contains("@Namespace private var nexaSharedNamespace"));
         assert!(
@@ -4672,10 +5021,10 @@ mod tests {
                             style: TextStyle::default(),
                         }],
                     }],
-                    else_body: vec![Node::Text {
+                    else_body: Some(vec![Node::Text {
                         value: Expr::String("no".to_owned()),
                         style: TextStyle::default(),
-                    }],
+                    }]),
                     transition: Some(ViewTransition::SlideFromBottom),
                     transition_animation: Some(nexa_ir::AnimationSpec::Spring {
                         response: 0.35,
@@ -4694,14 +5043,23 @@ mod tests {
                 },
                 Node::When {
                     value: Expr::State("visible".to_owned(), Type::Bool),
-                    cases: vec![WhenCase {
-                        value: Expr::Bool(true),
-                        body: vec![Node::Text {
-                            value: Expr::String("also no default fade".to_owned()),
-                            style: TextStyle::default(),
-                        }],
-                    }],
-                    else_body: Vec::new(),
+                    cases: vec![
+                        WhenCase {
+                            value: Expr::Bool(true),
+                            body: vec![Node::Text {
+                                value: Expr::String("exhaustive true".to_owned()),
+                                style: TextStyle::default(),
+                            }],
+                        },
+                        WhenCase {
+                            value: Expr::Bool(false),
+                            body: vec![Node::Text {
+                                value: Expr::String("exhaustive false".to_owned()),
+                                style: TextStyle::default(),
+                            }],
+                        },
+                    ],
+                    else_body: None,
                     transition: None,
                     transition_animation: None,
                 },
@@ -4721,6 +5079,14 @@ mod tests {
         assert!(swift.contains(".transition(.opacity).animation(.timingCurve(0.0, 0.0, 0.2, 1.0, duration: 0.24).delay(0.04), value:"));
         assert!(swift.contains(".transition(.move(edge: .bottom)).animation(.interpolatingSpring(mass: 1, stiffness: 816.32654, damping: 45.714287, initialVelocity: 0), value:"));
         assert_eq!(swift.matches(".transition(.identity)").count(), 2);
+        let false_case = swift
+            .rfind("case false:")
+            .expect("the exhaustive boolean when emits its false case");
+        let exhaustive_start = swift[..false_case]
+            .rfind("switch ")
+            .expect("the exhaustive boolean when is emitted as a Swift switch");
+        let exhaustive_switch = braced_block(&swift, exhaustive_start);
+        assert!(!exhaustive_switch.contains("default:"));
     }
 
     #[test]
@@ -5213,6 +5579,7 @@ mod tests {
                         shape: None,
                         tint: None,
                         glass: false,
+                        accessibility_label: None,
                         actions: vec![Action::Expression(Expr::NativeCall {
                             receiver: Some(Box::new(Expr::State(
                                 "appPlayer".to_owned(),
@@ -5306,6 +5673,7 @@ mod tests {
                 parameters: Vec::new(),
                 states: vec![native_instance_state("player")],
                 body: Vec::new(),
+                ref_methods: Vec::new(),
                 on_appear: None,
                 on_appear_async: false,
                 on_disappear: None,
@@ -5313,6 +5681,7 @@ mod tests {
             body: vec![Node::ComponentCall {
                 name: "PlayerPanel".to_owned(),
                 arguments: Vec::new(),
+                component_ref: None,
                 children: None,
             }],
             status_bar: None,
@@ -5330,6 +5699,122 @@ mod tests {
         assert!(swift.contains(&format!(
             "@StateObject private var __nexaNativeObjectStorage_{state_name} = NexaNativeObjectStorage {{ VideoPlayer() }}"
         )));
+    }
+
+    #[test]
+    fn handleless_tasks_are_tracked_and_cancelled_with_their_app_view() {
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "ScopedTaskApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Button {
+                label: Expr::String("Start".to_owned()),
+                icon: None,
+                loading: None,
+                disabled: None,
+                style: None,
+                size: None,
+                shape: None,
+                tint: None,
+                glass: false,
+                accessibility_label: None,
+                actions: vec![Action::TaskLaunch {
+                    handle: None,
+                    executor: nexa_ir::TaskExecutor::Main,
+                    actions: vec![Action::Expression(Expr::Bool(true))],
+                }],
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+
+        assert!(swift.contains("final class NexaTaskScope"));
+        assert!(swift.contains("@State private var nexaTaskScope = NexaTaskScope()"));
+        assert!(swift.contains("nexaTaskScope.track(Task { @MainActor in"));
+        assert!(swift.contains("nexaTaskScope.cancelAll()"));
+    }
+
+    #[test]
+    fn handleless_component_tasks_are_cancelled_with_the_component_instance() {
+        let task_button = Node::Button {
+            label: Expr::String("Refresh panel".to_owned()),
+            icon: None,
+            loading: None,
+            disabled: None,
+            style: None,
+            size: None,
+            shape: None,
+            tint: None,
+            glass: false,
+            accessibility_label: None,
+            actions: vec![Action::TaskLaunch {
+                handle: None,
+                executor: nexa_ir::TaskExecutor::Main,
+                actions: vec![Action::Expression(Expr::Bool(true))],
+            }],
+        };
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "ComponentTaskApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: vec![Component {
+                name: "TaskPanel".to_owned(),
+                source_file: None,
+                parameters: Vec::new(),
+                states: Vec::new(),
+                body: vec![task_button],
+                ref_methods: Vec::new(),
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            body: vec![Node::ComponentCall {
+                name: "TaskPanel".to_owned(),
+                arguments: Vec::new(),
+                component_ref: None,
+                children: None,
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains("struct NexaTaskPanelComponent: View {"));
+        assert!(swift.contains("@State private var nexaTaskScope = NexaTaskScope()"));
+        assert!(swift.contains("nexaTaskScope.track(Task { @MainActor in"));
+        assert!(swift.contains("nexaTaskScope.cancelAll()"));
+        assert_eq!(swift.matches("@State private var nexaTaskScope").count(), 1);
     }
 
     #[test]
@@ -5353,6 +5838,7 @@ mod tests {
                     class_initializers: Vec::new(),
                     is_async: false,
                     is_throwing: false,
+                    failure_type: None,
                     parameters: Vec::new(),
                     locals: Vec::new(),
                     body_actions: None,
@@ -5375,6 +5861,7 @@ mod tests {
                     class_initializers: Vec::new(),
                     is_async: false,
                     is_throwing: false,
+                    failure_type: None,
                     parameters: Vec::new(),
                     locals: Vec::new(),
                     body_actions: None,

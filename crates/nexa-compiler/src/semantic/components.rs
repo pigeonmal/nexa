@@ -3,15 +3,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::walk::any_node;
 use nexa_ir::{
-    AccessibilityRole, Action, AutofillType, BottomBarTab, BottomSheetDetent, ButtonShape,
-    ButtonSize, ButtonStyle, Capitalization, CollectionMutation, ColorExpression, ColorValue,
-    DirectionConfig, DirectionStyle, Expr, FastListMove, FastListRefresh, FontWeight,
-    GradientDirection, HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType,
-    LayoutKind, ListAxis, ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType,
-    PickerDateSelection, PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId,
-    SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
-    TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle, TextInputFont, TextStyle,
-    ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
+    AccessibilityRole, Action, AutofillType, BottomBarTab, ButtonShape, ButtonSize, ButtonStyle,
+    Capitalization, CollectionMutation, ColorExpression, ColorValue, DirectionConfig,
+    DirectionStyle, Expr, FastListMove, FastListRefresh, FontWeight, GradientDirection,
+    HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis,
+    ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType, PickerDateSelection,
+    PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId, SectionedListCommon, StatusBarConfig,
+    StatusBarStyle, SystemIcon, TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle,
+    TextInputFont, TextStyle, ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -142,90 +141,43 @@ fn enum_argument(value: &ast::Expr, context: &str) -> Result<String, CompileErro
     }
 }
 
-fn bottom_sheet_detent(value: &ast::Expr) -> Result<BottomSheetDetent, CompileError> {
-    match enum_argument(value, "BottomSheet detent")?.as_str() {
-        "Medium" => Ok(BottomSheetDetent::Medium),
-        "Expanded" => Ok(BottomSheetDetent::Expanded),
-        _ => Err(CompileError::new(
-            value.span(),
-            "BottomSheet detents must be `Medium` or `Expanded`",
-        )),
-    }
-}
-
-fn bottom_sheet_detents(value: Option<ast::Expr>) -> Result<Vec<BottomSheetDetent>, CompileError> {
+fn bottom_sheet_detents(value: Option<ast::Expr>) -> Result<Vec<f32>, CompileError> {
     let Some(value) = value else {
-        return Ok(vec![BottomSheetDetent::Medium, BottomSheetDetent::Expanded]);
+        return Ok(vec![0.5, 1.0]);
     };
     let values = match &value {
         ast::Expr::Array(values, _) => values,
         _ => {
             return Err(CompileError::new(
                 value.span(),
-                "BottomSheet detents must be an array such as `[Medium, Expanded]`",
+                "BottomSheet detents must be an array of fractions such as `[0.5, 1.0]`",
             ));
         }
     };
     if values.is_empty() {
         return Err(CompileError::new(
             value.span(),
-            "BottomSheet requires at least one detent",
+            "BottomSheet requires at least one detent fraction",
         ));
     }
     let mut detents = Vec::with_capacity(values.len());
     for value in values {
-        let detent = bottom_sheet_detent(value)?;
-        if detents.contains(&detent) {
+        let detent = number_value(value, "BottomSheet detent")?;
+        if !(detent.is_finite() && 0.0 < detent && detent <= 1.0) {
             return Err(CompileError::new(
                 value.span(),
-                "BottomSheet detents cannot contain duplicates",
+                "BottomSheet detents must be greater than 0 and at most 1.0",
+            ));
+        }
+        if detents.last().is_some_and(|previous| *previous >= detent) {
+            return Err(CompileError::new(
+                value.span(),
+                "BottomSheet detents must be unique and ordered from smallest to largest",
             ));
         }
         detents.push(detent);
     }
     Ok(detents)
-}
-
-fn bottom_sheet_snap_points(value: Option<ast::Expr>) -> Result<Option<Vec<f32>>, CompileError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    let values = match &value {
-        ast::Expr::Array(values, _) => values,
-        _ => {
-            return Err(CompileError::new(
-                value.span(),
-                "BottomSheet snapPoints must be an array such as `[0.25, 0.5, 1.0]`",
-            ));
-        }
-    };
-    if values.is_empty() {
-        return Err(CompileError::new(
-            value.span(),
-            "BottomSheet requires at least one snap point",
-        ));
-    }
-    let mut snap_points = Vec::with_capacity(values.len());
-    for value in values {
-        let point = number_value(value, "BottomSheet snap point")?;
-        if point <= 0.0 || point > 1.0 {
-            return Err(CompileError::new(
-                value.span(),
-                "BottomSheet snap points must be greater than 0 and at most 1.0",
-            ));
-        }
-        if snap_points
-            .last()
-            .is_some_and(|previous| *previous >= point)
-        {
-            return Err(CompileError::new(
-                value.span(),
-                "BottomSheet snap points must be unique and ordered from smallest to largest",
-            ));
-        }
-        snap_points.push(point);
-    }
-    Ok(Some(snap_points))
 }
 
 fn take_translator_comment(
@@ -385,7 +337,7 @@ fn lower_progress_bar(
         cx.themes,
     )?;
     let android_wave = args
-        .remove("android_wave")
+        .remove("androidWave")
         .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
         .transpose()?;
     let style = if tint.is_some()
@@ -440,15 +392,32 @@ pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<No
         } => take_accessibility_options(arguments, *span, cx)?,
         _ => None,
     };
-    let lowered = lower_node_inner(node, cx)?;
+    let mut lowered = lower_node_inner(node, cx)?;
     match accessibility {
-        Some((label, hint, value, role)) => Ok(Node::Accessibility {
-            label,
-            hint,
-            value,
-            role,
-            children: vec![lowered],
-        }),
+        Some((label, hint, value, role)) => {
+            if let Node::Button {
+                accessibility_label,
+                ..
+            } = &mut lowered
+            {
+                *accessibility_label = Some(Box::new(label.clone()));
+            }
+            if matches!(lowered, Node::Button { .. })
+                && hint.is_none()
+                && value.is_none()
+                && role == AccessibilityRole::None
+            {
+                Ok(lowered)
+            } else {
+                Ok(Node::Accessibility {
+                    label,
+                    hint,
+                    value,
+                    role,
+                    children: vec![lowered],
+                })
+            }
+        }
         None => Ok(lowered),
     }
 }
@@ -544,9 +513,10 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
     let allow_navigation_back = cx.allow_navigation_back;
     let child_cx = cx.with_navigation(false, cx.allow_navigation_back);
     match node {
-        ast::Node::Platform { .. } => {
-            unreachable!("platform blocks are expanded by lower_nodes")
-        }
+        ast::Node::Platform { span, .. } => Err(CompileError::new(
+            span,
+            "platform blocks must be expanded before component lowering",
+        )),
         ast::Node::ComponentInvocation(inv) if inv.name == "Content" => Ok(Node::Content),
         ast::Node::ComponentInvocation(inv) if inv.name == "Toolbar" => {
             let span = inv.span;
@@ -1057,7 +1027,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     cx.themes,
                 )?;
                 let android_wave = args
-                    .remove("android_wave")
+                    .remove("androidWave")
                     .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                     .transpose()?;
                 let style = if tint.is_some()
@@ -1419,6 +1389,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let icon = options.get("icon").cloned();
             let loading = options.get("loading").cloned();
             let disabled = options.get("disabled").cloned();
+            let accessibility_label = options
+                .remove("accessibilityLabel")
+                .map(|value| lower_expr(&value, Some(&Type::String), &cx.exprs(false)))
+                .transpose()?
+                .map(|value| localize_ui_text(value, None));
             let actions = match inv.children {
                 ast::ChildBody::Actions(actions) => actions,
                 _ => return Err(child_mismatch(span)),
@@ -1569,13 +1544,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 .cloned()
                 .map(|value| lower_color_expression(value, "button tint", cx))
                 .transpose()?;
-            let glass = options
-                .get("glass")
-                .map(|v| match v {
-                    ast::Expr::Bool(b, _) => *b,
-                    _ => true,
-                })
-                .unwrap_or(false);
+            let glass = optional_bool(options.remove("glass"), false, "Button glass")?;
             let lowered = lower_actions_with_aliases(
                 actions,
                 symbols,
@@ -1594,6 +1563,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 shape,
                 tint,
                 glass,
+                accessibility_label: accessibility_label.map(Box::new),
                 actions: lowered,
             })
         }
@@ -2495,101 +2465,45 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         ast::Node::ComponentInvocation(inv) if inv.name == "BottomSheet" => {
             let span = inv.span;
             let mut args = inv.arguments;
-            let is_presented = take_required_arg(&mut args, &inv.name, "isPresented", span)?;
+            let component_ref = take_required_arg(&mut args, &inv.name, "ref", span)?;
+            let component_ref = lower_expr(
+                &component_ref,
+                Some(&Type::ComponentRef {
+                    namespace: "Nexa".to_owned(),
+                    name: "BottomSheet".to_owned(),
+                }),
+                &cx.exprs(false),
+            )?;
             let content_padding = args
                 .remove("contentPadding")
                 .map(|value| number_value(&value, "BottomSheet contentPadding"))
                 .transpose()?
-                .unwrap_or(8.0);
+                .unwrap_or(0.0);
             if !content_padding.is_finite() || content_padding < 0.0 {
                 return Err(CompileError::new(
                     span,
                     "BottomSheet contentPadding must be a finite non-negative number",
                 ));
             }
-            let detents_arg = args.remove("detents");
-            let snap_points = bottom_sheet_snap_points(args.remove("snapPoints"))?;
-            let selected_snap_point_arg = args.remove("selectedSnapPoint");
-            if snap_points.is_some() && detents_arg.is_some() {
-                return Err(CompileError::new(
-                    span,
-                    "BottomSheet `snapPoints` cannot be combined with `detents`",
-                ));
-            }
-            let detents = if snap_points.is_some() {
-                Vec::new()
-            } else {
-                bottom_sheet_detents(detents_arg)?
-            };
+            let detents = bottom_sheet_detents(args.remove("detents"))?;
             let initial_detent = args
                 .remove("initialDetent")
                 .as_ref()
-                .map(bottom_sheet_detent)
+                .map(|value| number_value(value, "BottomSheet initialDetent"))
                 .transpose()?;
-            let initial_snap_point = args
-                .remove("initialSnapPoint")
-                .as_ref()
-                .map(|value| number_value(value, "BottomSheet initialSnapPoint"))
-                .transpose()?;
-            if initial_detent.is_some() && snap_points.is_some() {
-                return Err(CompileError::new(
-                    span,
-                    "BottomSheet `initialDetent` cannot be combined with `snapPoints`; use `initialSnapPoint`",
-                ));
-            }
-            if initial_snap_point.is_some() && snap_points.is_none() {
-                return Err(CompileError::new(
-                    span,
-                    "BottomSheet `initialSnapPoint` requires `snapPoints`",
-                ));
-            }
-            if let Some(initial_snap_point) = initial_snap_point {
-                if !(0.0 < initial_snap_point && initial_snap_point <= 1.0) {
+            if let Some(initial_detent) = initial_detent {
+                if !(initial_detent.is_finite() && 0.0 < initial_detent && initial_detent <= 1.0) {
                     return Err(CompileError::new(
                         span,
-                        "BottomSheet initialSnapPoint must be greater than 0 and at most 1.0",
+                        "BottomSheet initialDetent must be greater than 0 and at most 1.0",
                     ));
                 }
-                if !snap_points
-                    .as_ref()
-                    .is_some_and(|points| points.contains(&initial_snap_point))
-                {
+                if !detents.contains(&initial_detent) {
                     return Err(CompileError::new(
                         span,
-                        "BottomSheet initialSnapPoint must be included in snapPoints",
+                        "BottomSheet initialDetent must be included in detents",
                     ));
                 }
-            }
-            let selected_snap_point = if let Some(selected_snap_point) = selected_snap_point_arg {
-                if snap_points.is_none() {
-                    return Err(CompileError::new(
-                        span,
-                        "BottomSheet `selectedSnapPoint` requires `snapPoints`",
-                    ));
-                }
-                if initial_snap_point.is_some() {
-                    return Err(CompileError::new(
-                        span,
-                        "BottomSheet `selectedSnapPoint` cannot be combined with `initialSnapPoint`; initialize the selected state instead",
-                    ));
-                }
-                Some(require_mutable_binding(
-                    &selected_snap_point,
-                    &Type::Numeric(NumericType::Float64),
-                    symbols,
-                    span,
-                    "BottomSheet selectedSnapPoint",
-                )?)
-            } else {
-                None
-            };
-            if let Some(initial_detent) = initial_detent
-                && !detents.contains(&initial_detent)
-            {
-                return Err(CompileError::new(
-                    span,
-                    "BottomSheet initialDetent must be included in detents",
-                ));
             }
             let show_drag_indicator = args.remove("showDragIndicator");
             let allows_dismissal = args.remove("allowsDismissal");
@@ -2620,16 +2534,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
             };
-            let state =
-                require_mutable_binding(&is_presented, &Type::Bool, symbols, span, "BottomSheet")?;
             let lowered_children = lower_nodes(children, &child_cx)?;
             Ok(Node::BottomSheet {
-                state,
+                component_ref,
                 content_padding,
                 detents,
-                snap_points: snap_points.unwrap_or_default(),
-                initial_snap_point,
-                selected_snap_point,
                 initial_detent,
                 show_drag_indicator: optional_bool(
                     show_drag_indicator,
@@ -2791,7 +2700,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 cx.type_registries(),
             )?;
             if lowered_children.len() == 1 {
-                let mut child = lowered_children.pop().expect("one lowered refresh child");
+                let Some(mut child) = lowered_children.pop() else {
+                    return Err(CompileError::new(
+                        span,
+                        "RefreshControl child was removed during lowering",
+                    ));
+                };
                 let refresh = FastListRefresh {
                     state: state.clone(),
                     actions: actions.clone(),
@@ -2981,131 +2895,22 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let page_snap = optional_bool(args.remove("pageSnap"), false, "FastList pageSnap")?;
             let show_dividers =
                 optional_bool(args.remove("showDividers"), true, "FastList showDividers")?;
+            let component_ref = args
+                .remove("ref")
+                .map(|reference| {
+                    lower_expr(
+                        &reference,
+                        Some(&Type::ComponentRef {
+                            namespace: "Nexa".to_owned(),
+                            name: "FastList".to_owned(),
+                        }),
+                        &cx.exprs(false),
+                    )
+                })
+                .transpose()?;
             let mut modifiers = inv.modifiers;
             let on_end_reached = take_modifier_actions(&mut modifiers, span, "onEndReached")?;
             let on_scroll = take_modifier_actions(&mut modifiers, span, "onScroll")?;
-            let scroll_to = match take_modifier_decl(&mut modifiers, "scrollToIndex") {
-                Some(mut modifier) => {
-                    let index = modifier.arguments.remove("index").ok_or_else(|| {
-                        CompileError::new(
-                            modifier.span,
-                            "FastList `.scrollToIndex` requires `index`",
-                        )
-                    })?;
-                    if let Some(unknown) = modifier.arguments.keys().next() {
-                        return Err(CompileError::new(
-                            modifier.span,
-                            format!(
-                                "unknown `.scrollToIndex` argument `{unknown}`; expected `index`"
-                            ),
-                        ));
-                    }
-                    if !matches!(modifier.body, ast::ModifierBody::None) {
-                        return Err(CompileError::new(
-                            modifier.span,
-                            "FastList `.scrollToIndex` does not take a body",
-                        ));
-                    }
-                    Some(index)
-                }
-                None => None,
-            };
-            let scroll_to_top = match take_modifier_decl(&mut modifiers, "scrollToTop") {
-                Some(mut modifier) => {
-                    let trigger = modifier.arguments.remove("trigger").ok_or_else(|| {
-                        CompileError::new(
-                            modifier.span,
-                            "FastList `.scrollToTop` requires `trigger`",
-                        )
-                    })?;
-                    if let Some(unknown) = modifier.arguments.keys().next() {
-                        return Err(CompileError::new(
-                            modifier.span,
-                            format!(
-                                "unknown `.scrollToTop` argument `{unknown}`; expected `trigger`"
-                            ),
-                        ));
-                    }
-                    if !matches!(modifier.body, ast::ModifierBody::None) {
-                        return Err(CompileError::new(
-                            modifier.span,
-                            "FastList `.scrollToTop` does not take a body",
-                        ));
-                    }
-                    Some(require_mutable_binding(
-                        &trigger,
-                        &Type::Numeric(NumericType::Int32),
-                        symbols,
-                        modifier.span,
-                        "FastList `.scrollToTop`",
-                    )?)
-                }
-                None => None,
-            };
-            let scroll_to_end = match take_modifier_decl(&mut modifiers, "scrollToEnd") {
-                Some(mut modifier) => {
-                    let trigger = modifier.arguments.remove("trigger").ok_or_else(|| {
-                        CompileError::new(
-                            modifier.span,
-                            "FastList `.scrollToEnd` requires `trigger`",
-                        )
-                    })?;
-                    if let Some(unknown) = modifier.arguments.keys().next() {
-                        return Err(CompileError::new(
-                            modifier.span,
-                            format!(
-                                "unknown `.scrollToEnd` argument `{unknown}`; expected `trigger`"
-                            ),
-                        ));
-                    }
-                    if !matches!(modifier.body, ast::ModifierBody::None) {
-                        return Err(CompileError::new(
-                            modifier.span,
-                            "FastList `.scrollToEnd` does not take a body",
-                        ));
-                    }
-                    Some(require_mutable_binding(
-                        &trigger,
-                        &Type::Numeric(NumericType::Int32),
-                        symbols,
-                        modifier.span,
-                        "FastList `.scrollToEnd`",
-                    )?)
-                }
-                None => None,
-            };
-            let scroll_to_offset = match take_modifier_decl(&mut modifiers, "scrollToOffset") {
-                Some(mut modifier) => {
-                    let offset = modifier.arguments.remove("offset").ok_or_else(|| {
-                        CompileError::new(
-                            modifier.span,
-                            "FastList `.scrollToOffset` requires `offset`",
-                        )
-                    })?;
-                    if let Some(unknown) = modifier.arguments.keys().next() {
-                        return Err(CompileError::new(
-                            modifier.span,
-                            format!(
-                                "unknown `.scrollToOffset` argument `{unknown}`; expected `offset`"
-                            ),
-                        ));
-                    }
-                    if !matches!(modifier.body, ast::ModifierBody::None) {
-                        return Err(CompileError::new(
-                            modifier.span,
-                            "FastList `.scrollToOffset` does not take a body",
-                        ));
-                    }
-                    Some(require_mutable_binding(
-                        &offset,
-                        &Type::Numeric(NumericType::Float64),
-                        symbols,
-                        modifier.span,
-                        "FastList `.scrollToOffset`",
-                    )?)
-                }
-                None => None,
-            };
             let on_move = match take_modifier_decl(&mut modifiers, "onMove") {
                 Some(mut modifier) => {
                     let enabled = match modifier.arguments.remove("enabled") {
@@ -3279,10 +3084,6 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     || reverse_layout
                     || page_snap
                     || item_extent.is_some()
-                    || scroll_position.is_some()
-                    || scroll_to_top.is_some()
-                    || scroll_to_end.is_some()
-                    || scroll_to_offset.is_some()
                     || on_end_reached.is_some()
                     || on_scroll.is_some()
                     || sticky_header.is_some())
@@ -3372,12 +3173,6 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     "FastList `pageSnap` sets each row to the viewport height; omit `rowHeight`",
                 ));
             }
-            if page_snap && scroll_to_offset.is_some() {
-                return Err(CompileError::new(
-                    span,
-                    "FastList `.scrollToOffset` cannot be combined with `pageSnap`",
-                ));
-            }
             if sections_source && sticky_header.is_some() {
                 return Err(CompileError::new(
                     span,
@@ -3397,12 +3192,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ));
             }
             if sections_source
-                && (scroll_position.is_some()
-                    || scroll_to_top.is_some()
-                    || scroll_to_end.is_some()
-                    || scroll_to_offset.is_some()
-                    || on_end_reached.is_some()
-                    || on_scroll.is_some())
+                && (scroll_position.is_some() || on_end_reached.is_some() || on_scroll.is_some())
             {
                 return Err(CompileError::new(
                     span,
@@ -3440,21 +3230,14 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let has_section_binding = section.is_some();
             let section_name = binding_name(section, "section", "FastList section")?;
             let index = binding_name(index, "index", "FastList index")?;
-            if scroll_position.is_some() && scroll_to.is_some() {
-                return Err(CompileError::new(
-                    span,
-                    "FastList accepts either `scrollPosition` or `.scrollToIndex(index:)`, not both",
-                ));
-            }
             let scroll_position = scroll_position
-                .or(scroll_to)
                 .map(|position| {
                     require_mutable_binding(
                         &position,
-                        &row_index_type,
+                        &Type::Numeric(NumericType::Int32),
                         symbols,
                         position.span(),
-                        "FastList scroll position",
+                        "FastList scrollPosition",
                     )
                 })
                 .transpose()?;
@@ -3718,10 +3501,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             scroll_enabled,
                             index,
                             key,
-                            scroll_position,
-                            scroll_to_top: scroll_to_top.clone(),
-                            scroll_to_end: scroll_to_end.clone(),
-                            scroll_to_offset: scroll_to_offset.clone(),
+                            scroll_position: scroll_position.clone(),
+                            component_ref: component_ref.clone(),
                             children: lowered_children,
                             on_end_reached,
                             on_scroll,
@@ -3749,10 +3530,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             scroll_enabled,
                             index,
                             key,
-                            scroll_position,
-                            scroll_to_top: scroll_to_top.clone(),
-                            scroll_to_end: scroll_to_end.clone(),
-                            scroll_to_offset: scroll_to_offset.clone(),
+                            scroll_position: scroll_position.clone(),
+                            component_ref: component_ref.clone(),
                             children: lowered_children,
                             on_end_reached,
                             on_scroll,
@@ -3772,8 +3551,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         // for sectioned lists above, so only the sectioned
                         // options can be populated here.
                         debug_assert!(
-                            scroll_position.is_none()
-                                && on_end_reached.is_none()
+                            on_end_reached.is_none()
                                 && on_scroll.is_none()
                                 && sticky_header.is_none()
                         );
@@ -3789,6 +3567,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                                 scroll_enabled,
                                 index,
                                 key,
+                                component_ref,
                                 children: lowered_children,
                                 section_header,
                                 swipe_actions,
@@ -3834,6 +3613,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             value,
             cases,
             else_body,
+            has_else,
             transition,
             transition_animation,
             span,
@@ -3879,7 +3659,15 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     body,
                 });
             }
-            let lowered_else = lower_nodes(else_body, &child_cx)?;
+            if !has_else && !when_is_exhaustive(&value_type, &lowered_cases, cx.symbols) {
+                return Err(CompileError::new(
+                    span,
+                    "when needs an `else` case unless it covers every Bool or enum case",
+                ));
+            }
+            let lowered_else = has_else
+                .then(|| lower_nodes(else_body, &child_cx))
+                .transpose()?;
             Ok(Node::When {
                 value: lowered_value,
                 cases: lowered_cases,
@@ -3915,6 +3703,27 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     format!("component `{name}` requires a content block"),
                 ));
             }
+            let component_ref = arguments.remove("ref");
+            if component_ref.is_some() && !signature.supports_ref {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "component `{name}` has no ref methods; declare a `fn` inside the component before passing `ref:`"
+                    ),
+                ));
+            }
+            let component_ref = component_ref
+                .map(|reference| {
+                    lower_expr(
+                        &reference,
+                        Some(&Type::ComponentRef {
+                            namespace: "Nexa".to_owned(),
+                            name: name.clone(),
+                        }),
+                        &cx.exprs(false),
+                    )
+                })
+                .transpose()?;
             for (argument_name, value) in &arguments {
                 if !signature
                     .parameters
@@ -3955,6 +3764,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             Ok(Node::ComponentCall {
                 name,
                 arguments: lowered_arguments,
+                component_ref,
                 children: lowered_children,
             })
         }
@@ -3976,6 +3786,25 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     format!("`{qualified_name}` is not a native component"),
                 ));
             }
+            if arguments.contains_key("ref") && !signature.supports_ref {
+                return Err(CompileError::new(
+                    span,
+                    format!("native component `{qualified_name}` does not expose ref methods"),
+                ));
+            }
+            let component_ref = arguments
+                .remove("ref")
+                .map(|reference| {
+                    lower_expr(
+                        &reference,
+                        Some(&Type::ComponentRef {
+                            namespace: namespace.clone(),
+                            name: name.clone(),
+                        }),
+                        &cx.exprs(false),
+                    )
+                })
+                .transpose()?;
             let lowered_children = match (signature.has_content_slot, children) {
                 (true, Some(children)) => Some(lower_nodes(children, cx)?),
                 (true, None) => {
@@ -4107,10 +3936,60 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 namespace,
                 name,
                 arguments: lowered_arguments,
+                component_ref,
                 children: lowered_children,
                 event_handlers: lowered_events,
             })
         }
+    }
+}
+
+/// A missing `else` is valid only for closed value sets whose complete case
+/// list is known to the compiler. Strings and numbers remain open-ended.
+fn when_is_exhaustive(
+    value_type: &Type,
+    cases: &[WhenCase],
+    symbols: &HashMap<String, (Type, bool)>,
+) -> bool {
+    match value_type {
+        Type::Bool => {
+            let mut true_case = false;
+            let mut false_case = false;
+            for case in cases {
+                match case.value {
+                    Expr::Bool(true) => true_case = true,
+                    Expr::Bool(false) => false_case = true,
+                    _ => {}
+                }
+            }
+            true_case && false_case
+        }
+        Type::Enum(enum_name) => {
+            let prefix = format!("{enum_name}.");
+            let expected = symbols
+                .iter()
+                .filter_map(|(name, (ty, _))| {
+                    (ty == value_type)
+                        .then(|| name.strip_prefix(&prefix))
+                        .flatten()
+                })
+                .collect::<HashSet<_>>();
+            if expected.is_empty() {
+                return false;
+            }
+            let covered = cases
+                .iter()
+                .filter_map(|case| match &case.value {
+                    Expr::EnumValue {
+                        enum_name: case_enum,
+                        case_name,
+                    } if case_enum == enum_name => Some(case_name.as_str()),
+                    _ => None,
+                })
+                .collect::<HashSet<_>>();
+            expected == covered
+        }
+        _ => false,
     }
 }
 
@@ -4441,7 +4320,7 @@ fn resolve_screen(
         .ok_or_else(|| CompileError::new(*span, format!("unknown screen `{name}` in {role}")))
 }
 
-fn lower_screen_target(
+pub(super) fn lower_screen_target(
     screen: &ast::Expr,
     arguments: Vec<ast::Expr>,
     screen_ids: &ScreenSignatures,
@@ -4451,12 +4330,21 @@ fn lower_screen_target(
     role: &str,
 ) -> Result<(ScreenId, Vec<Expr>), CompileError> {
     let id = resolve_screen(screen, screen_ids, role)?;
-    let ast::Expr::Name(name, _) = screen else {
-        unreachable!("resolve_screen validated navigation target name")
+    let name = match screen {
+        ast::Expr::Name(name, _) => name,
+        _ => {
+            return Err(CompileError::new(
+                screen.span(),
+                format!("{role} must be a declared screen name"),
+            ));
+        }
     };
-    let signature = screen_ids
-        .get(name)
-        .expect("screen signature exists after screen resolution");
+    let Some(signature) = screen_ids.get(name) else {
+        return Err(CompileError::new(
+            screen.span(),
+            format!("unknown screen `{name}` in {role}"),
+        ));
+    };
     if arguments.len() != signature.parameters.len() {
         return Err(CompileError::new(
             screen.span(),
@@ -4558,13 +4446,9 @@ fn lower_actions_with_disposal_state(
     for action in actions {
         match action {
             ast::Stmt::Expression { expression, span } => {
-                if let Some(action) = lower_bottom_sheet_action(
-                    &expression,
-                    symbols,
-                    functions,
-                    allow_await,
-                    registries,
-                )? {
+                if let Some(action) =
+                    lower_navigation_action(&expression, symbols, functions, registries)?
+                {
                     lowered.push(action);
                     continue;
                 }
@@ -5459,119 +5343,84 @@ fn lower_actions_with_disposal_state(
     Ok(lowered)
 }
 
-/// BottomSheet presentation commands are Nexa state writes. Lowering them to
-/// ordinary typed assignments keeps generated Swift, Compose, and DevRuntime
-/// behavior on the same state-update path and preserves native sheet motion.
-fn lower_bottom_sheet_action(
+fn lower_navigation_action(
     expression: &ast::Expr,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
-    allow_await: bool,
     registries: TypeRegistries<'_>,
 ) -> Result<Option<Action>, CompileError> {
     let ast::Expr::QualifiedCall {
         namespace,
         name,
-        type_arguments,
         arguments,
         named_arguments,
-        span,
+        span: call_span,
+        ..
     } = expression
     else {
         return Ok(None);
     };
-    if namespace != "BottomSheet" || !matches!(name.as_str(), "present" | "dismiss" | "snapTo") {
+    if namespace != "Navigation" || !matches!(name.as_str(), "push" | "back") {
         return Ok(None);
     }
-    if !type_arguments.is_empty() {
+    if !registries.allow_navigation_actions {
         return Err(CompileError::new(
-            *span,
-            "BottomSheet actions do not accept type arguments",
+            *call_span,
+            "Navigation.push and Navigation.back are only allowed inside a declared screen",
         ));
     }
-
-    let mut positional = arguments.iter();
-    let mut named = named_arguments.clone();
-    let mut take_argument = |parameter: &str| -> Result<ast::Expr, CompileError> {
-        let positional_value = positional.next();
-        let named_value = named.remove(parameter);
-        match (positional_value, named_value) {
-            (Some(_), Some(_)) => Err(CompileError::new(
-                *span,
-                format!("BottomSheet `{name}` received `{parameter}` more than once"),
-            )),
-            (Some(value), None) => Ok(value.clone()),
-            (None, Some(value)) => Ok(value),
-            (None, None) => Err(CompileError::new(
-                *span,
-                format!("BottomSheet `{name}` requires `{parameter}`"),
-            )),
+    if !named_arguments.is_empty() {
+        return Err(CompileError::new(
+            *call_span,
+            format!("Navigation.{name} does not accept named arguments"),
+        ));
+    }
+    match name.as_str() {
+        "back" => {
+            if !arguments.is_empty() {
+                return Err(CompileError::new(
+                    *call_span,
+                    "Navigation.back() does not accept arguments",
+                ));
+            }
+            Ok(Some(Action::NavigationBack))
         }
-    };
-
-    let action = match name.as_str() {
-        "present" | "dismiss" => {
-            if arguments.len() > 1 || named_arguments.keys().any(|key| key != "isPresented") {
+        "push" => {
+            if arguments.len() != 1 {
                 return Err(CompileError::new(
-                    *span,
-                    format!("BottomSheet `{name}` accepts one `isPresented` state"),
+                    *call_span,
+                    "Navigation.push expects one screen target, such as `OrderDetail(orderID)`",
                 ));
             }
-            let presented = take_argument("isPresented")?;
-            if positional.next().is_some() || !named.is_empty() {
+            let Some(screen_ids) = registries.screen_ids else {
                 return Err(CompileError::new(
-                    *span,
-                    format!("BottomSheet `{name}` accepts one `isPresented` state"),
+                    *call_span,
+                    "Navigation.push requires declared app screens",
                 ));
-            }
-            let state = require_mutable_binding(
-                &presented,
-                &Type::Bool,
+            };
+            let Some(target) = arguments.first() else {
+                return Err(CompileError::new(
+                    *call_span,
+                    "Navigation.push expects one screen target",
+                ));
+            };
+            let (screen, route_arguments) = ast::split_navigation_target(target.clone());
+            let (destination, arguments) = lower_screen_target(
+                &screen,
+                route_arguments,
+                screen_ids,
                 symbols,
-                *span,
-                "BottomSheet presentation",
+                functions,
+                registries,
+                "Navigation.push destination",
             )?;
-            Action::Assign {
-                name: state,
-                value: Expr::Bool(name == "present"),
-            }
+            Ok(Some(Action::NavigationPush {
+                destination,
+                arguments,
+            }))
         }
-        "snapTo" => {
-            if arguments.len() > 2
-                || named_arguments
-                    .keys()
-                    .any(|key| !matches!(key.as_str(), "selectedSnapPoint" | "snapPoint"))
-            {
-                return Err(CompileError::new(
-                    *span,
-                    "BottomSheet `snapTo` accepts a selected snap-point state and a target snap point",
-                ));
-            }
-            let selected = take_argument("selectedSnapPoint")?;
-            let snap_point = take_argument("snapPoint")?;
-            if positional.next().is_some() || !named.is_empty() {
-                return Err(CompileError::new(
-                    *span,
-                    "BottomSheet `snapTo` accepts a selected snap-point state and a target snap point",
-                ));
-            }
-            let state = require_mutable_binding(
-                &selected,
-                &Type::Numeric(NumericType::Float64),
-                symbols,
-                *span,
-                "BottomSheet selectedSnapPoint",
-            )?;
-            let value = lower_expr(
-                &snap_point,
-                Some(&Type::Numeric(NumericType::Float64)),
-                &registries.expr_context(symbols, functions, allow_await),
-            )?;
-            Action::Assign { name: state, value }
-        }
-        _ => unreachable!("the BottomSheet command was checked above"),
-    };
-    Ok(Some(action))
+        _ => Ok(None),
+    }
 }
 
 fn collect_animation_targets(
@@ -5676,7 +5525,9 @@ fn collect_animation_targets(
                 Action::TaskLaunch { .. }
                 | Action::TaskCancel { .. }
                 | Action::NativeEventSubscribe { .. }
-                | Action::NetworkStatusSubscribe { .. } => {
+                | Action::NetworkStatusSubscribe { .. }
+                | Action::NavigationPush { .. }
+                | Action::NavigationBack => {
                     return Err(CompileError::new(
                         span,
                         "`withAnimation` only supports mutable Float32 or Float64 state assignments and control flow around them; use a layout animation or view transition for collection changes",
@@ -5754,6 +5605,12 @@ pub(super) fn validate_typed_error_recovery(
     let mut typed_errors = HashMap::new();
     let mut has_untyped_throw = false;
     visit_action_expressions(actions, &mut |expression| {
+        // These nodes preserve source/await behavior but do not declare a
+        // separate error type. The visitor also reaches the wrapped call,
+        // which owns the actual typed plugin error contract.
+        if matches!(expression, Expr::Located { .. } | Expr::TryAwait(_)) {
+            return;
+        }
         if !expression.is_throwing_call() {
             return;
         }
@@ -5846,7 +5703,9 @@ fn actions_mutate_or_subscribe(actions: &[Action]) -> bool {
         | Action::NetworkStatusSubscribe { .. }
         | Action::CollectionMutation { .. }
         | Action::TaskLaunch { .. }
-        | Action::TaskCancel { .. } => true,
+        | Action::TaskCancel { .. }
+        | Action::NavigationPush { .. }
+        | Action::NavigationBack => true,
         Action::WithAnimation { actions, .. } => actions_mutate_or_subscribe(actions),
         Action::If {
             then_branch,
@@ -5895,6 +5754,12 @@ fn visit_action_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
             | Action::Return { value: expression } => {
                 nexa_ir::walk::walk_expression(expression, visit);
             }
+            Action::NavigationPush { arguments, .. } => {
+                for argument in arguments {
+                    nexa_ir::walk::walk_expression(argument, visit);
+                }
+            }
+            Action::NavigationBack => {}
             Action::NativePropertyAssign {
                 receiver, value, ..
             } => {

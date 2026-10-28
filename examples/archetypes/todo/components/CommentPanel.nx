@@ -22,7 +22,7 @@ component CommentPanel(taskID: Int32) {
     state editingCommentText: String = ""
     state showEditDialog: Bool = false
     state fullImageUri: String = ""
-    state showFullImage: Bool = false
+    let fullImageSheetRef = ComponentRef<BottomSheet>()
 
     body {
         OnAppear async {
@@ -48,7 +48,7 @@ component CommentPanel(taskID: Int32) {
                                 }
                                 .onTap {
                                     fullImageUri = comment.imageUri
-                                    showFullImage = true
+                                    fullImageSheetRef.present()
                                 }
                             } else {
                                 Pressable(accessibilityLabel: comment.content, accessibilityHint: "Double tap to edit comment", accessibilityRole: Button) {
@@ -125,10 +125,10 @@ component CommentPanel(taskID: Int32) {
                 }
                 Text(commentStatus, fontSize: 12, color: "#8E8E93")
 
-                BottomSheet(isPresented: showFullImage, detents: [Expanded], initialDetent: Expanded) {
+                BottomSheet(ref: fullImageSheetRef, detents: [1.0], initialDetent: 1.0) {
                     Column(spacing: 12, padding: 16) {
                         Image(file: fullImageUri, description: "Full size comment image", scale: Fit)
-                        Button("Done", style: Borderless) { showFullImage = false }
+                        Button("Done", style: Borderless) { fullImageSheetRef.dismiss() }
                     }
                 }
             }

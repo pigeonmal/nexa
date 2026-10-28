@@ -8,9 +8,63 @@ use nexa_ir::{
 
 use nexa_codegen::Backend;
 use nexa_compiler::{
-    Target, compile, compile_file_with_warnings_for_target, compile_with_warnings_for_target,
+    Target, WarningCode, compile, compile_file_with_warnings_for_target,
+    compile_with_warnings_for_target,
 };
 use nexa_testkit::TestProject;
+
+#[test]
+fn binary_file_apis_lower_to_typed_throwing_ir_and_native_calls() {
+    let module = compile(
+        r#"
+        app BinaryFileContract {
+            state status: String = "Waiting"
+
+            body {
+                OnAppear async {
+                    try {
+                        let path = Path.join(Path.documents(), "receipt.pdf")
+                        let payload = Bytes.fromText(text: "Receipt 4481")
+                        let wrote = await File.writeBytes(path: path, contents: payload)
+                        let restored: Bytes = await File.readBytes(path: path)
+                        let sameLength = Bytes.count(bytes: restored) == Bytes.count(bytes: payload)
+                        status = wrote && sameLength ? "Saved" : "Could not verify bytes"
+                    } catch {
+                        status = "File access failed"
+                    }
+                }
+                Text(status)
+            }
+        }
+        "#,
+    )
+    .expect("binary file APIs should type-check and preserve I/O failures");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("try await NexaFile.write("), "{swift}");
+    assert!(swift.contains("try await NexaFile.read("), "{swift}");
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("NexaFile.write("), "{kotlin}");
+    assert!(kotlin.contains("NexaFile.read("), "{kotlin}");
+
+    let invalid = compile(
+        r#"
+        app InvalidBinaryFileWrite {
+            body {
+                OnAppear async {
+                    try {
+                        await File.writeBytes(path: "receipt.pdf", contents: "not bytes")
+                    } catch {
+                    }
+                }
+                Text("Receipt")
+            }
+        }
+        "#,
+    )
+    .expect_err("File.writeBytes must accept Bytes rather than arbitrary text");
+    assert!(invalid.to_string().contains("Bytes"), "{invalid}");
+}
 
 fn source_text(expression: &Expr) -> Option<&str> {
     match expression {
@@ -45,6 +99,382 @@ fn string_trimmed_is_a_typed_member_property() {
             ..
         }) if name == "trimmed"
     ));
+}
+
+#[test]
+fn network_request_headers_and_response_helpers_are_typed() {
+    let module = compile(
+        r##"
+        app NetworkHeaderContract {
+            state accessToken: String = "session-token"
+            state profileJson: String = ""
+            state cookieHeader: String = ""
+            state contentType: String? = null
+            state refreshTask: TaskHandle? = null
+
+            body {
+                Button("Refresh profile") {
+                    Task.launch(handle: refreshTask, executor: TaskExecutor.Main) {
+                        try {
+                            let requestHeaders: Map<String, String> = [
+                                "Authorization": "Bearer \(accessToken)",
+                                "Accept": "application/json"
+                            ]
+                            let response = await Network.fetch(
+                                url: "https://api.example.com/v1/profile",
+                                headers: requestHeaders,
+                                timeoutSeconds: 12.5
+                            )
+                            profileJson = response.body
+                            cookieHeader = response.getCookie()
+                            contentType = response.getHeader(name: "content-type")
+                            let setCookies: Array<String> = response.getHeaders(name: "Set-Cookie")
+                            let contentTypes: Array<String> = response.getHeaders("Content-Type")
+                        } catch {
+                        }
+                    }
+                }
+                Text(profileJson)
+            }
+        }
+        "##,
+    )
+    .expect("request maps and response header helpers should be typed");
+
+    assert!(
+        module
+            .structs
+            .iter()
+            .all(|declaration| declaration.name != "HttpHeader"),
+        "NetworkResponse should not add a public header wrapper type"
+    );
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains(".getCookie()"));
+    assert!(swift.contains(".getHeader(\"content-type\")"));
+    assert!(swift.contains("public func getHeader(_ name: String) -> String?"));
+    assert!(swift.contains(
+        "headers.first(where: { $0.0.caseInsensitiveCompare(name) == .orderedSame })?.1"
+    ));
+    assert!(swift.contains("public func getHeaders(_ name: String) -> [String]"));
+    assert!(swift.contains("public func getCookie() -> String"));
+    assert!(swift.contains("timeout: Double(12.5)"));
+    assert!(swift.contains("cachePolicy: \"Default\""));
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains(".getCookie()"));
+    assert!(kotlin.contains(".getHeader(\"content-type\")"));
+    assert!(kotlin.contains("fun getHeader(name: String): String?"));
+    assert!(
+        kotlin.contains("headers.firstOrNull { it.first.equals(name, ignoreCase = true) }?.second")
+    );
+    assert!(kotlin.contains("fun getHeaders(name: String): List<String>"));
+    assert!(kotlin.contains("fun getCookie(): String"));
+    assert!(kotlin.contains("(12.5 * 1000.0).toLong()"));
+    assert!(kotlin.contains("\"Default\""));
+}
+
+#[test]
+fn network_cache_policy_is_explicit_and_validated() {
+    let module = compile(include_str!("../../../examples/network_caching.nx"))
+        .expect("network cache policies should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("cachePolicy: \"CacheOnly\""));
+    assert!(swift.contains("cachePolicy: \"Reload\""));
+    assert!(swift.contains("case \"CacheOnly\": return .returnCacheDataDontLoad"));
+    assert!(swift.contains("case \"Reload\": return .reloadIgnoringLocalCacheData"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("\"CacheOnly\""));
+    assert!(kotlin.contains("\"Reload\""));
+    assert!(kotlin.contains("builder.disableCache()"));
+    assert!(kotlin.contains("only-if-cached, max-stale"));
+}
+
+#[test]
+fn network_cache_policy_rejects_unknown_modes_and_the_old_boolean() {
+    let invalid_mode = compile(
+        r#"
+        app InvalidCachePolicy {
+            body {
+                OnAppear async {
+                    try {
+                        let response = await Network.fetch(
+                            url: "https://example.com",
+                            cachePolicy: "AlwaysNetwork"
+                        )
+                    } catch { }
+                }
+                Text("Ready")
+            }
+        }
+        "#,
+    )
+    .expect_err("unknown cache policies must fail at compile time");
+    assert!(
+        invalid_mode
+            .to_string()
+            .contains("Network.fetch cachePolicy must be one of: Default, Reload, CacheOnly")
+    );
+
+    let old_option = compile(
+        r#"
+        app OldCacheToggle {
+            body {
+                OnAppear async {
+                    try {
+                        let response = await Network.fetch(
+                            url: "https://example.com",
+                            useCache: false
+                        )
+                    } catch { }
+                }
+                Text("Ready")
+            }
+        }
+        "#,
+    )
+    .expect_err("the unclear useCache Boolean should be removed");
+    assert!(old_option.to_string().contains(
+        "unknown option `useCache` for `Network.fetch`; use `cachePolicy` with `Default`, `Reload`, or `CacheOnly`"
+    ));
+}
+
+#[test]
+fn typed_storage_apis_keep_optional_reads_and_native_values_typed() {
+    let module = compile(include_str!("../../../examples/typed_storage.nx"))
+        .expect("typed storage reads and writes should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    for expected in [
+        "NexaStorage.getBool(\"reader.notifications\")",
+        "NexaStorage.getInt64(\"reader.weekly-goal\")",
+        "NexaStorage.getFloat64(\"reader.text-scale\")",
+        "NexaStorage.setBool(\"reader.notifications\",",
+        "NexaStorage.setInt64(\"reader.weekly-goal\",",
+        "NexaStorage.setFloat64(\"reader.text-scale\",",
+        "static func getInt64(_ key: String) -> Int64?",
+        "static func getFloat64(_ key: String) -> Double?",
+    ] {
+        assert!(
+            swift.contains(expected),
+            "Swift output should contain `{expected}`"
+        );
+    }
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    for expected in [
+        "NexaStorage.getBool(NexaRuntime.context(), \"reader.notifications\")",
+        "NexaStorage.getInt64(NexaRuntime.context(), \"reader.weekly-goal\")",
+        "NexaStorage.getFloat64(NexaRuntime.context(), \"reader.text-scale\")",
+        "NexaStorage.setBool(NexaRuntime.context(), \"reader.notifications\",",
+        "NexaStorage.setInt64(NexaRuntime.context(), \"reader.weekly-goal\",",
+        "NexaStorage.setFloat64(NexaRuntime.context(), \"reader.text-scale\",",
+        "fun getInt64(context: Context, key: String): Long?",
+        "fun getFloat64(context: Context, key: String): Double?",
+    ] {
+        assert!(
+            kotlin.contains(expected),
+            "Kotlin output should contain `{expected}`"
+        );
+    }
+}
+
+#[test]
+fn network_timeout_requires_explicit_seconds_name() {
+    let error = compile(
+        r#"
+        app InvalidTimeoutName {
+            body {
+                OnAppear async {
+                    try {
+                        let response = await Network.fetch(
+                            url: "https://example.com",
+                            timeout: 5
+                        )
+                    } catch { }
+                }
+                Text("Profile")
+            }
+        }
+        "#,
+    )
+    .expect_err("the unit-less timeout parameter should be rejected");
+    assert!(error.to_string().contains(
+        "unknown option `timeout` for `Network.fetch`; use `timeoutSeconds` (measured in seconds)"
+    ));
+}
+
+#[test]
+fn permission_status_preserves_limited_provisional_and_permanent_states() {
+    let module = compile(
+        r#"
+        app PermissionStateScreen {
+            state photoStatus: PermissionStatus = PermissionStatus.notDetermined
+            state notificationStatus: PermissionStatus = PermissionStatus.notDetermined
+            body {
+                OnAppear async {
+                    photoStatus = await Permissions.status(permission: Permission.Photos)
+                    notificationStatus = await Permissions.status(permission: Permission.Notifications)
+                }
+                Text("Permission settings")
+            }
+        }
+        "#,
+    )
+    .expect("permission status cases should remain typed across platforms");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("case limited"));
+    assert!(swift.contains("case provisional"));
+    assert!(swift.contains("case permanentlyDenied"));
+    assert!(swift.contains("case .limited: return .limited"));
+    assert!(swift.contains("case .provisional: return .provisional"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("limited,"));
+    assert!(kotlin.contains("provisional,"));
+    assert!(kotlin.contains("permanentlyDenied,"));
+    assert!(kotlin.contains("READ_MEDIA_VISUAL_USER_SELECTED"));
+    assert!(kotlin.contains("denialCount >= 2"));
+    assert!(kotlin.contains("shouldShowRequestPermissionRationale(permission)"));
+}
+
+#[test]
+fn network_response_get_headers_requires_one_string_name() {
+    let error = compile(
+        r#"
+        app InvalidHeaderLookup {
+            body {
+                OnAppear async {
+                    try {
+                        let response = await Network.fetch(url: "https://example.com")
+                        let values: Array<String> = response.getHeaders(name: 42)
+                    } catch {
+                    }
+                }
+                Text("Headers")
+            }
+        }
+        "#,
+    )
+    .expect_err("getHeaders must require a String header name");
+    assert!(
+        error.to_string().contains("String"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn type_mismatch_diagnostics_show_expected_and_actual_types_with_a_fix_hint() {
+    let error = compile(
+        r#"
+        app ClearTypeError {
+            body {
+                Button("Read documents path") {
+                    let documentPath: Int32 = Path.documents()
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("a String result cannot initialize an Int32 local");
+
+    assert!(
+        error.message.contains("expected Int32, found String"),
+        "type diagnostic should include both types: {error}"
+    );
+    assert!(
+        error
+            .message
+            .contains("change the expression or expected type"),
+        "type diagnostic should suggest a correction: {error}"
+    );
+    assert_eq!(error.span.line, 5, "diagnostic should point at the call");
+}
+
+#[test]
+fn network_response_raw_headers_property_is_not_part_of_the_language_api() {
+    let error = compile(
+        r#"
+        app RawNetworkHeaders {
+            body {
+                OnAppear async {
+                    try {
+                        let response = await Network.fetch(url: "https://example.com")
+                        let headers: Array<String> = response.headers
+                    } catch {
+                    }
+                }
+                Text("Network")
+            }
+        }
+        "#,
+    )
+    .expect_err("response headers should be read through the documented helpers");
+    assert!(
+        error
+            .to_string()
+            .contains("NetworkResponse` has no member `headers"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn network_fetch_rejects_nested_header_maps() {
+    let error = compile(
+        r#"
+        app InvalidNetworkHeaders {
+            body {
+                OnAppear async {
+                    try {
+                        let headers: Map<String, Array<String>> = [
+                            "Accept": ["application/json"]
+                        ]
+                        await Network.fetch(
+                            url: "https://example.com",
+                            headers: headers
+                        )
+                    } catch {
+                    }
+                }
+                Text("Headers")
+            }
+        }
+        "#,
+    )
+    .expect_err("request headers must use one string value per name");
+    assert!(
+        error.to_string().contains("Map<String, String>"),
+        "unexpected type error: {error}"
+    );
+}
+
+#[test]
+fn network_api_does_not_add_a_public_header_wrapper_type() {
+    let module = compile(
+        r#"
+        app NetworkFetchOnly {
+            body {
+                OnAppear async {
+                    try {
+                        await Network.fetch(url: "https://example.com")
+                    } catch {
+                    }
+                }
+                Text("Network")
+            }
+        }
+        "#,
+    )
+    .expect("the fetch-only app should compile");
+
+    assert!(
+        module
+            .structs
+            .iter()
+            .all(|declaration| declaration.name != "HttpHeader"),
+        "response header storage is internal to the native network adapter"
+    );
 }
 
 #[test]
@@ -673,6 +1103,959 @@ fn in_memory_compile_merges_top_level_screens_into_the_app() {
 }
 
 #[test]
+fn navigation_push_and_back_lower_to_typed_screen_actions() {
+    let module = compile(
+        r#"
+        screen Home {
+            state selectedOrderID: Int32 = 42
+            Pressable() { Text("Open order") }
+                .onTap { Navigation.push(OrderDetail(selectedOrderID)) }
+        }
+
+        screen OrderDetail(orderID: Int32) {
+            Pressable() { Text("Back") }
+                .onTap { Navigation.back() }
+        }
+
+        app NavigationActions {
+            body { NavigationStack(root: Home) }
+        }
+        "#,
+    )
+    .expect("screen actions should support typed push and back calls");
+
+    let Some(Node::Pressable { actions, .. }) = module.screens[0]
+        .body
+        .iter()
+        .find(|node| matches!(node, Node::Pressable { .. }))
+    else {
+        panic!("expected the Home screen pressable");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [Action::NavigationPush {
+            destination: nexa_ir::ScreenId(1),
+            arguments,
+        }] if matches!(arguments.as_slice(), [Expr::State(name, Type::Numeric(NumericType::Int32))] if name == "selectedOrderID")
+    ));
+    let Some(Node::Pressable { actions, .. }) = module.screens[1]
+        .body
+        .iter()
+        .find(|node| matches!(node, Node::Pressable { .. }))
+    else {
+        panic!("expected the OrderDetail screen pressable");
+    };
+    assert!(matches!(actions.as_slice(), [Action::NavigationBack]));
+}
+
+#[test]
+fn navigation_push_rejects_bad_targets_and_argument_types() {
+    let wrong_argument = compile(
+        r#"
+        app WrongRouteArgument {
+            screen Home {
+                Pressable() { Text("Open") }
+                    .onTap { Navigation.push(OrderDetail("not an id")) }
+            }
+            screen OrderDetail(orderID: Int32) { Text("Order") }
+            body { NavigationStack(root: Home) }
+        }
+        "#,
+    )
+    .expect_err("route arguments must match the destination screen signature");
+    assert!(wrong_argument.to_string().contains("expected Int32"));
+
+    let unknown_route = compile(
+        r#"
+        app UnknownRoute {
+            screen Home {
+                Pressable() { Text("Open") }
+                    .onTap { Navigation.push(MissingScreen) }
+            }
+            body { NavigationStack(root: Home) }
+        }
+        "#,
+    )
+    .expect_err("navigation targets must resolve to declared screens");
+    assert!(
+        unknown_route
+            .to_string()
+            .contains("unknown screen `MissingScreen`")
+    );
+}
+
+#[test]
+fn component_refs_infer_fast_list_methods_and_attach_to_the_matching_component() {
+    let module = compile(
+        r#"
+        app FastListComponentRef {
+            let listRef = ComponentRef<FastList>()
+
+            body {
+                Column {
+                    FastList(count: 12, ref: listRef) { index in
+                        Text(index)
+                    }
+                    Button("Jump to row") {
+                        listRef.scrollToIndex(index: 3)
+                    }
+                    Button("Top") {
+                        listRef.scrollToTop()
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("FastList refs should infer their target and expose typed scroll methods");
+
+    assert!(matches!(
+        module.states.as_slice(),
+        [state] if state.name == "listRef"
+            && state.ty == Type::ComponentRef { namespace: "Nexa".to_owned(), name: "FastList".to_owned() }
+    ));
+    let mut list_has_ref = false;
+    walk_ir(
+        &module.body,
+        &mut |node| {
+            if let Node::FastList { plan } = node {
+                list_has_ref |= matches!(
+                    plan.as_ref(),
+                    ListPlan::Count { common, .. }
+                        if matches!(common.component_ref.as_ref(), Some(Expr::State(name, Type::ComponentRef { .. })) if name == "listRef")
+                );
+            }
+        },
+        &mut |_| {},
+    );
+    assert!(
+        list_has_ref,
+        "expected the FastList node to retain its typed ref"
+    );
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(
+        swift.contains("@State private var nexa_listRef: NexaFastListRef = NexaFastListRef()"),
+        "SwiftUI must retain a component ref across view recomputations"
+    );
+    assert!(swift.contains("animated: Bool = true"));
+    assert!(swift.contains("viewPosition: Double = 0.0"));
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(
+        kotlin.contains("val nexa_listRef: NexaFastListRef = remember { NexaFastListRef() }"),
+        "Compose must retain a component ref across recompositions"
+    );
+    assert!(kotlin.contains("animated: Boolean = true"));
+    assert!(kotlin.contains("viewPosition: Double = 0.0"));
+    assert!(kotlin.contains("animateScrollBy(delta)"));
+    let mut native_calls = Vec::new();
+    walk_ir(&module.body, &mut |_| {}, &mut |expr| {
+        if let Expr::NativeCall {
+            namespace,
+            name,
+            return_type,
+            ..
+        } = expr
+            && namespace == "NexaFastListRef"
+        {
+            native_calls.push((name.clone(), return_type.clone()));
+        }
+    });
+    assert!(native_calls.iter().any(|(name, ty)| {
+        name == "scrollToIndex"
+            && *ty
+                == Type::Result(
+                    Box::new(Type::Void),
+                    Box::new(Type::ComponentRefError(Box::new(Type::Void))),
+                )
+    }));
+    assert!(native_calls.iter().any(|(name, _)| name == "scrollToTop"));
+
+    let explicitly_typed = compile(
+        r#"
+        app ExplicitComponentRef {
+            let listRef: ComponentRef<FastList> = ComponentRef<FastList>()
+            body { FastList(count: 1, ref: listRef) { index in Text(index) } }
+        }
+        "#,
+    )
+    .expect("explicit ComponentRef variable annotations should compile");
+    assert!(matches!(
+        explicitly_typed.states.first(),
+        Some(state) if state.ty == Type::ComponentRef { namespace: "Nexa".to_owned(), name: "FastList".to_owned() }
+            && matches!(&state.initial, Expr::ComponentRefCreate { identity, .. } if !identity.is_empty())
+    ));
+}
+
+#[test]
+fn fast_list_ref_scroll_options_are_typed_and_defaulted() {
+    let module = compile(
+        r#"
+        app FastListRefScrollOptions {
+            let listRef = ComponentRef<FastList>()
+            body {
+                Column {
+                    FastList(count: 30, ref: listRef) { index in Text(index) }
+                    Button("Default scroll") { listRef.scrollToIndex(index: 3) }
+                    Button("Centered jump") {
+                        listRef.scrollToIndex(index: 8, animated: false, viewPosition: 0.5)
+                    }
+                    Button("Offset jump") { listRef.scrollToOffset(offset: 120.0, animated: false) }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("FastList ref scroll options should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    let swift_ref_calls = swift
+        .lines()
+        .filter(|line| line.contains("scrollToIndex"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        swift.contains(".scrollToIndex(3, animated: true, viewPosition: Double(0.0))"),
+        "{swift_ref_calls}"
+    );
+    assert!(swift.contains(".scrollToIndex(8, animated: false, viewPosition: Double(0.5))"));
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(kotlin.contains(".scrollToIndex(3, true, 0.0)"));
+    assert!(kotlin.contains(".scrollToIndex(8, false, 0.5)"));
+
+    let mut calls = Vec::new();
+    walk_ir(&module.body, &mut |_| {}, &mut |expression| {
+        if let Expr::NativeCall {
+            namespace,
+            name,
+            arguments,
+            ..
+        } = expression
+            && namespace == "NexaFastListRef"
+        {
+            calls.push((name.clone(), arguments.clone()));
+        }
+    });
+
+    let default_scroll = calls
+        .iter()
+        .find(|(name, _)| name == "scrollToIndex")
+        .expect("expected a scrollToIndex call");
+    assert!(matches!(&default_scroll.1[1].1, Expr::Bool(true)));
+    assert!(matches!(
+        &default_scroll.1[2].1,
+        Expr::Number { raw, ty: NumericType::Float64 } if raw == "0.0"
+    ));
+
+    let centered_scroll = calls
+        .iter()
+        .filter(|(name, _)| name == "scrollToIndex")
+        .nth(1)
+        .expect("expected a second scrollToIndex call");
+    assert!(matches!(&centered_scroll.1[1].1, Expr::Bool(false)));
+    assert!(matches!(
+        &centered_scroll.1[2].1,
+        Expr::Number { raw, ty: NumericType::Float64 } if raw == "0.5"
+    ));
+    let offset_scroll = calls
+        .iter()
+        .find(|(name, _)| name == "scrollToOffset")
+        .expect("expected a scrollToOffset call");
+    assert!(matches!(&offset_scroll.1[1].1, Expr::Bool(false)));
+
+    let bad_option = compile(
+        r#"
+        app BadFastListRefScrollOptions {
+            let listRef = ComponentRef<FastList>()
+            body {
+                FastList(count: 1, ref: listRef) { index in Text(index) }
+                Button("Bad option") { listRef.scrollToIndex(index: 0, animated: "yes") }
+            }
+        }
+        "#,
+    )
+    .expect_err("scroll animation options must be Boolean");
+    assert!(bad_option.to_string().contains("Bool"), "{bad_option}");
+}
+
+#[test]
+fn reusable_components_expose_typed_ref_methods_on_both_backends() {
+    let module = compile(
+        r#"
+        component QuantityStepper(startingQuantity: Int32) {
+            state quantity: Int32 = startingQuantity
+
+            fn add(amount: Int32) -> Int32 {
+                quantity = quantity + amount
+                return quantity + startingQuantity
+            }
+
+            body { Text(quantity) }
+        }
+
+        app Cart {
+            let stepperRef = ComponentRef<QuantityStepper>()
+            body {
+                Column {
+                    QuantityStepper(startingQuantity: 1, ref: stepperRef)
+                    Button("Add two") { stepperRef.add(amount: 2) }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("a reusable component can expose a typed ref method");
+
+    let component = module
+        .components
+        .iter()
+        .find(|component| component.name == "QuantityStepper")
+        .expect("the referenced reusable component should remain reachable");
+    assert_eq!(component.ref_methods.len(), 1);
+    assert_eq!(component.ref_methods[0].name, "Nexa.QuantityStepper.add");
+    assert_eq!(
+        component.ref_methods[0].parameters[0].ty,
+        Type::Numeric(NumericType::Int32)
+    );
+    assert_eq!(
+        component.ref_methods[0].return_type,
+        Type::Numeric(NumericType::Int32)
+    );
+    assert!(matches!(
+        component.ref_methods[0].body_actions.as_deref(),
+        Some([Action::Assign { name, .. }, Action::Return { .. }]) if name == "quantity"
+    ));
+    let mut method_captures_component_parameter = false;
+    nexa_ir::walk::walk_actions(
+        component.ref_methods[0]
+            .body_actions
+            .as_deref()
+            .unwrap_or_default(),
+        &mut |expression| {
+            method_captures_component_parameter |=
+                matches!(expression, Expr::State(name, _) if name == "startingQuantity");
+        },
+    );
+    assert!(
+        method_captures_component_parameter,
+        "the method should retain typed access to its component parameter"
+    );
+    let mut attached = false;
+    let mut typed_call = false;
+    walk_ir(
+        &module.body,
+        &mut |node| {
+            if let Node::ComponentCall {
+                name,
+                component_ref: Some(Expr::State(state, Type::ComponentRef { .. })),
+                ..
+            } = node
+            {
+                attached |= name == "QuantityStepper" && state == "stepperRef";
+            }
+        },
+        &mut |expression| {
+            if let Expr::NativeCall {
+                receiver: Some(receiver),
+                namespace,
+                name,
+                return_type,
+                ..
+            } = expression
+            {
+                typed_call |= namespace == "Nexa"
+                    && name == "add"
+                    && matches!(receiver.as_ref(), Expr::State(state, Type::ComponentRef { name, .. }) if state == "stepperRef" && name == "QuantityStepper")
+                    && *return_type
+                        == Type::Result(
+                            Box::new(Type::Numeric(NumericType::Int32)),
+                            Box::new(Type::ComponentRefError(Box::new(Type::Void))),
+                        );
+            }
+        },
+    );
+    assert!(attached, "the component call should retain its typed ref");
+    assert!(
+        typed_call,
+        "the method call should carry its typed Result return"
+    );
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(
+        swift.contains("public final class NexaQuantityStepperRef"),
+        "{swift}"
+    );
+    assert!(swift.contains("public func nexa_fn_add(_ nexa_amount: Int32) -> Result<Int32, NexaComponentRefError<Never>>"));
+    assert!(swift.contains("nexaComponentRef?.attachNexa_fn_add"));
+    assert!(swift.contains("nexaComponentRef: nexa_stepperRef"));
+
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(kotlin.contains("public class NexaQuantityStepperRef"));
+    assert!(kotlin.contains(
+        "public fun nexa_fn_add(nexa_amount: Int): NexaResult<Int, NexaComponentRefError<Unit>>"
+    ));
+    assert!(kotlin.contains("nexaComponentRef?.attachNexa_fn_add"));
+    assert!(kotlin.contains("nexa_stepperRef"));
+}
+
+#[test]
+fn documented_reusable_component_ref_example_compiles() {
+    compile(
+        r#"
+        component QuantityStepper() {
+            state quantity: Int32 = 1
+
+            fn add(amount: Int32) -> Void {
+                quantity = quantity + amount
+            }
+
+            body { Text("Quantity: \(quantity)") }
+        }
+
+        app Cart {
+            let stepperRef = ComponentRef<QuantityStepper>()
+            body {
+                Column {
+                    QuantityStepper(ref: stepperRef)
+                    Button("Add two") { stepperRef.add(amount: 2) }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("the documented reusable component ref example should compile");
+}
+
+#[test]
+fn reusable_component_refs_can_return_app_defined_typed_failures() {
+    let module = compile(
+        r#"
+        enum ProfileLookupError { missing, offline }
+
+        component ProfileCard() {
+            fn loadName() -> Result<String, ProfileLookupError> {
+                return Err(ProfileLookupError.missing)
+            }
+
+            async fn loadNameAsync() -> Result<String, ProfileLookupError> {
+                return Err(ProfileLookupError.offline)
+            }
+
+            body { Text("Profile") }
+        }
+
+        app ProfileScreen {
+            let profileRef = ComponentRef<ProfileCard>()
+            body {
+                ProfileCard(ref: profileRef)
+                Button("Load profile") { profileRef.loadName() }
+                OnAppear async {
+                    let asyncResult: Result<String, ComponentRefError<ProfileLookupError>> =
+                        await profileRef.loadNameAsync()
+                }
+            }
+        }
+        "#,
+    )
+    .expect("a reusable ref method should carry a Nexa enum failure");
+
+    let component = module
+        .components
+        .iter()
+        .find(|component| component.name == "ProfileCard")
+        .expect("the referenced component should remain reachable");
+    assert_eq!(
+        component.ref_methods[0].return_type,
+        Type::Result(
+            Box::new(Type::String),
+            Box::new(Type::Enum("ProfileLookupError".to_owned()))
+        )
+    );
+    let mut ref_failure = None;
+    walk_ir(&module.body, &mut |_| {}, &mut |expression| {
+        if let Expr::NativeCall {
+            namespace,
+            name,
+            return_type,
+            ..
+        } = expression
+            && namespace == "Nexa"
+            && name == "loadName"
+        {
+            ref_failure = Some(return_type.clone());
+        }
+    });
+    assert_eq!(
+        ref_failure,
+        Some(Type::Result(
+            Box::new(Type::String),
+            Box::new(Type::ComponentRefError(Box::new(Type::Enum(
+                "ProfileLookupError".to_owned()
+            ))))
+        ))
+    );
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(
+        swift.contains(
+            "public func nexa_fn_loadName() -> Result<String, NexaComponentRefError<NexaProfileLookupError>>"
+        ),
+        "{swift}"
+    );
+    assert!(swift.contains(".failure(.failure(failure))"), "{swift}");
+    assert!(
+        swift.contains("case .failure(let failure): return .failure(.failure(failure))"),
+        "{swift}"
+    );
+    assert!(
+        swift.contains("public func nexa_fn_loadNameAsync() async -> Result<String, NexaComponentRefError<NexaProfileLookupError>>"),
+        "{swift}"
+    );
+    assert!(swift.contains("switch await action()"), "{swift}");
+
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(
+        kotlin.contains(
+            "public fun nexa_fn_loadName(): NexaResult<String, NexaComponentRefError<NexaProfileLookupError>>"
+        ),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("NexaComponentRefError.Failure(outcome.error as NexaProfileLookupError)"),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("public suspend fun nexa_fn_loadNameAsync(): NexaResult<String, NexaComponentRefError<NexaProfileLookupError>>"),
+        "{kotlin}"
+    );
+    assert!(kotlin.contains("when (val outcome = action())"), "{kotlin}");
+}
+
+#[test]
+fn reusable_component_ref_does_not_mix_throws_with_result_failures() {
+    let error = compile(
+        r#"
+        enum LookupError { missing }
+        component ProfileCard() {
+            fn loadName() -> Result<String, LookupError> throws Video.PlayerFailure {
+                return Err(LookupError.missing)
+            }
+            body { Text("Profile") }
+        }
+        app ProfileScreen {
+            let profileRef = ComponentRef<ProfileCard>()
+            body { ProfileCard(ref: profileRef) }
+        }
+        "#,
+    )
+    .expect_err("a ref method must choose one failure style");
+    assert!(
+        error
+            .to_string()
+            .contains("cannot use both `throws` and a `Result` return type"),
+        "{error}"
+    );
+}
+
+#[test]
+fn reusable_component_refs_require_declared_methods_and_matching_types() {
+    let no_methods = compile(
+        r#"
+        component LabelOnly() { body { Text("Label") } }
+        app MissingMethods {
+            let labelRef = ComponentRef<LabelOnly>()
+            body { LabelOnly(ref: labelRef) }
+        }
+        "#,
+    )
+    .expect_err("a component without methods should not expose a ref");
+    assert!(
+        no_methods
+            .to_string()
+            .contains("does not declare ref methods")
+    );
+
+    let mismatch = compile(
+        r#"
+        component CounterControl() {
+            fn reset() -> Void { }
+            body { Text("Counter") }
+        }
+        app WrongRef {
+            let listRef = ComponentRef<FastList>()
+            body { CounterControl(ref: listRef) }
+        }
+        "#,
+    )
+    .expect_err("component refs must match the declared component type");
+    assert!(
+        mismatch
+            .to_string()
+            .contains("expected ComponentRef<Nexa.CounterControl>"),
+        "{mismatch}"
+    );
+}
+
+#[test]
+fn component_ref_rejects_bad_targets_methods_and_mismatched_attachments() {
+    let unknown_target = compile(
+        r#"
+        app UnknownComponentRef {
+            let ref = ComponentRef<Missing.Widget>()
+            body { Text("Missing") }
+        }
+        "#,
+    )
+    .expect_err("component ref target types must be declared");
+    assert!(
+        unknown_target
+            .to_string()
+            .contains("unknown native component ref target")
+    );
+
+    let mismatched_ref = compile(
+        r#"
+        app MismatchedComponentRef {
+            let listRef = ComponentRef<FastList>()
+            let otherListRef = ComponentRef<FastList>()
+            body {
+                FastList(count: 1, ref: listRef) { index in Text(index) }
+                Button("Top") { otherListRef.scrollToIndex(index: "bad") }
+            }
+        }
+        "#,
+    );
+    assert!(mismatched_ref.is_err());
+
+    let unknown_method = compile(
+        r#"
+        app UnknownComponentRefMethod {
+            let listRef = ComponentRef<FastList>()
+            body { Button("Top") { listRef.scrollToUnknown() } }
+        }
+        "#,
+    )
+    .expect_err("FastList refs should reject methods outside the typed API");
+    assert!(
+        unknown_method
+            .to_string()
+            .contains("unknown FastList ref method")
+    );
+}
+
+#[test]
+fn documented_fast_list_component_ref_example_compiles() {
+    compile(
+        r#"
+        struct OrderSummary {
+            id: Int32,
+            itemName: String,
+            status: String,
+        }
+
+        app OrderQueue {
+            let queueRef = ComponentRef<FastList>()
+            state orders: Array<OrderSummary> = [
+                OrderSummary(701, "Travel mug", "Packing"),
+                OrderSummary(702, "Notebook set", "Ready")
+            ]
+
+            body {
+                Column(spacing: 8) {
+                    Button("Show the last order") {
+                        queueRef.scrollToIndex(index: orders.count - 1)
+                    }
+                    Button("Return to the first order") {
+                        queueRef.scrollToTop()
+                    }
+                    FastList(orders, key: .id, ref: queueRef) { order, index in
+                        Row(spacing: 8) {
+                            Text("\\(index + 1). \\(order.itemName)")
+                            Spacer()
+                            Text(order.status)
+                        }
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("the published FastList ref example should compile");
+}
+
+#[test]
+fn plugin_component_refs_validate_and_lower_typed_sync_async_methods() {
+    let project = TestProject::new("nexa-plugin-component-ref");
+    let plugin = project.join("video");
+    fs::create_dir_all(&plugin).expect("plugin directory should be created");
+    fs::write(
+        plugin.join("plugin.config.nx"),
+        "plugin { schema: 2 id: \"dev.example.video\" version: \"1.0.0\" sources { native: \"native.nxid\" } }\n",
+    )
+    .expect("plugin manifest should be written");
+    fs::write(
+        plugin.join("native.nxid"),
+        r#"
+            error PlayerFailure { unavailable }
+            native component VideoView {
+                prop source: String
+                fn seek(position: Float64) -> String throws PlayerFailure
+                async fn currentSource() -> String throws PlayerFailure
+            }
+            "#,
+    )
+    .expect("plugin contract should be written");
+    let entry = project.join("main.nx");
+    fs::write(
+        &entry,
+        r#"
+            plugin "video" as Video
+            app ComponentRefPlugin {
+                let videoRef = ComponentRef<Video.VideoView>()
+                body {
+                    OnAppear async {
+                        await videoRef.currentSource()
+                    }
+                    Column {
+                        Video.VideoView(source: "file:///lesson.mp4", ref: videoRef)
+                        Button("Seek") { videoRef.seek(position: 12.5) }
+                    }
+                }
+            }
+            "#,
+    )
+    .expect("app source should be written");
+
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = compile_file_with_warnings_for_target(&entry, target)
+            .unwrap_or_else(|error| {
+                panic!("plugin component refs should compile for {target:?}: {error}")
+            })
+            .module;
+        assert!(matches!(
+            module.states.iter().find(|state| state.name == "videoRef"),
+            Some(state) if state.ty == Type::ComponentRef {
+                namespace: "Video".to_owned(),
+                name: "VideoView".to_owned(),
+            }
+        ));
+
+        let mut methods: Vec<(String, Type, bool, bool)> = Vec::new();
+        let mut collect_method = |expression: &Expr| {
+            if let Expr::NativeCall {
+                receiver: Some(receiver),
+                namespace,
+                name,
+                return_type,
+                is_async,
+                is_throwing,
+                ..
+            } = expression
+                && namespace == "Video"
+                && matches!(receiver.as_ref(), Expr::State(state, Type::ComponentRef { .. }) if state == "videoRef")
+            {
+                methods.push((name.clone(), return_type.clone(), *is_async, *is_throwing));
+            }
+        };
+        walk_ir(&module.body, &mut |_| {}, &mut collect_method);
+        if let Some(actions) = module.on_appear.as_deref() {
+            walk_actions(actions, &mut collect_method);
+        }
+        assert!(methods.iter().any(|(name, ty, is_async, is_throwing)| {
+            name == "seek"
+                && *ty
+                    == Type::Result(
+                        Box::new(Type::String),
+                        Box::new(Type::ComponentRefError(Box::new(Type::Plugin {
+                            namespace: "Video".to_owned(),
+                            name: "PlayerFailure".to_owned(),
+                        }))),
+                    )
+                && !is_async
+                && !is_throwing
+        }));
+        assert!(methods.iter().any(|(name, ty, is_async, is_throwing)| {
+            name == "currentSource"
+                && matches!(ty, Type::Result(success, failure)
+                if **success == Type::String
+                    && **failure == Type::ComponentRefError(Box::new(Type::Plugin {
+                        namespace: "Video".to_owned(),
+                        name: "PlayerFailure".to_owned(),
+                    })))
+                && *is_async
+                && !is_throwing
+        }));
+    }
+}
+
+#[test]
+fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
+    let project = TestProject::new("nexa-reusable-component-ref-async-throws");
+    let plugin = project.join("video");
+    fs::create_dir_all(&plugin).expect("plugin directory should be created");
+    fs::write(
+        plugin.join("plugin.config.nx"),
+        "plugin { schema: 2 id: \"dev.example.video\" version: \"1.0.0\" sources { native: \"native.nxid\" } }\n",
+    )
+    .expect("plugin manifest should be written");
+    fs::write(
+        plugin.join("native.nxid"),
+        r#"
+            error PlayerFailure { unavailable }
+            native class Player {
+                init(id: String)
+                fn seek(position: Float64) -> String throws PlayerFailure
+                async fn currentSource() -> String throws PlayerFailure
+            }
+            "#,
+    )
+    .expect("plugin contract should be written");
+    let entry = project.join("main.nx");
+    fs::write(
+        &entry,
+        r#"
+            plugin "video" as Video
+            component PlayerControls(player: Video.Player) {
+                fn seek(position: Float64) -> String throws Video.PlayerFailure {
+                    return player.seek(position)
+                }
+
+                async fn currentSource() -> String throws Video.PlayerFailure {
+                    return await player.currentSource()
+                }
+
+                body { Text("Player controls") }
+            }
+
+            app PlayerScreen {
+                let player = Video.Player("lesson-player")
+                let playerRef = ComponentRef<PlayerControls>()
+                body {
+                    PlayerControls(player: player, ref: playerRef)
+                    OnAppear async { await playerRef.currentSource() }
+                    Button("Seek") { playerRef.seek(position: 12.5) }
+                }
+            }
+            "#,
+    )
+    .expect("app source should be written");
+
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = compile_file_with_warnings_for_target(&entry, target)
+            .unwrap_or_else(|error| {
+                panic!("async and throwing component refs should compile for {target:?}: {error}")
+            })
+            .module;
+        let component = module
+            .components
+            .iter()
+            .find(|component| component.name == "PlayerControls")
+            .expect("the referenced custom component should remain reachable");
+        let sync_method = component
+            .ref_methods
+            .iter()
+            .find(|method| method.name.ends_with(".seek"))
+            .expect("sync throwing method should be exposed");
+        let async_method = component
+            .ref_methods
+            .iter()
+            .find(|method| method.name.ends_with(".currentSource"))
+            .expect("async throwing method should be exposed");
+        assert!(sync_method.is_throwing);
+        assert!(async_method.is_throwing);
+        assert!(async_method.is_async);
+        assert_eq!(
+            async_method.failure_type,
+            Some(Type::Plugin {
+                namespace: "Video".to_owned(),
+                name: "PlayerFailure".to_owned(),
+            })
+        );
+        let expected_ref_result = Type::Result(
+            Box::new(Type::String),
+            Box::new(Type::ComponentRefError(Box::new(Type::Plugin {
+                namespace: "Video".to_owned(),
+                name: "PlayerFailure".to_owned(),
+            }))),
+        );
+        let mut typed_ref_call = None;
+        let mut inspect_call = |expression: &Expr| {
+            if let Expr::NativeCall {
+                namespace,
+                name,
+                return_type,
+                ..
+            } = expression
+                && namespace == "Nexa"
+                && name == "currentSource"
+            {
+                typed_ref_call = Some(return_type.clone());
+            }
+        };
+        walk_ir(&module.body, &mut |_| {}, &mut inspect_call);
+        if let Some(actions) = &module.on_appear {
+            walk_actions(actions, &mut inspect_call);
+        }
+        assert_eq!(
+            typed_ref_call,
+            Some(expected_ref_result),
+            "ref calls should return the declared failure type"
+        );
+
+        let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+        let (kotlin, _) =
+            nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+        assert!(
+            swift.contains("NexaComponentRefError<PlayerFailure>"),
+            "{swift}"
+        );
+        assert!(
+            swift.contains("async -> Result<String, NexaComponentRefError<PlayerFailure>>"),
+            "{swift}"
+        );
+        assert!(swift.contains("async throws -> String"), "{swift}");
+        assert!(
+            kotlin.contains("NexaComponentRefError<PlayerFailure>"),
+            "{kotlin}"
+        );
+        assert!(
+            kotlin.contains("public suspend fun nexa_fn_currentSource"),
+            "{kotlin}"
+        );
+        assert!(
+            kotlin.contains("suspend ( ) -> String") || kotlin.contains("suspend () -> String"),
+            "{kotlin}"
+        );
+    }
+
+    fs::write(
+        &entry,
+        r#"
+            plugin "video" as Video
+            component PlayerControls(player: Video.Player) {
+                fn seek(position: Float64) -> String throws {
+                    return player.seek(position)
+                }
+                body { Text("Player controls") }
+            }
+            app PlayerScreen {
+                let player = Video.Player("lesson-player")
+                let controlsRef = ComponentRef<PlayerControls>()
+                body { PlayerControls(player: player, ref: controlsRef) }
+            }
+            "#,
+    )
+    .expect("untyped failure case should be written");
+    let untyped = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .err()
+        .expect("throwing reusable methods must declare a concrete failure type");
+    assert!(
+        untyped
+            .to_string()
+            .contains("must name their plugin error type")
+    );
+}
+
+#[test]
 fn navigation_title_defaults_and_explicit_title_modes_and_alignment_compile() {
     let inline = compile(
         r#"
@@ -1010,6 +2393,186 @@ fn core_apis_accept_positional_and_mixed_arguments() {
                 ] if amount == "amount" && raw == "12.5"
                     && currency == "currencyCode" && code == "EUR")
     ));
+}
+
+#[test]
+fn storage_reads_and_writes_typed_structs_and_collections() {
+    let module = compile(
+        r#"
+        struct ReaderSettings {
+            fontSize: Float64,
+            showPageNumbers: Bool,
+        }
+        app TypedStorage {
+            state settings: ReaderSettings = Storage.get<ReaderSettings>(key: "reader.settings") ?? ReaderSettings(18.0, true)
+            state recentBooks: Array<String> = Storage.get<Array<String>>(key: "reader.recent-books") ?? []
+            state savedSettings: ReaderSettings? = Storage.get(key: "reader.saved-settings")
+            body {
+                Text("Font size: \(settings.fontSize)")
+                Text("Saved settings loaded: \(savedSettings != null)")
+                Button("Save") {
+                    Storage.set(key: "reader.settings", value: settings)
+                    Storage.set(key: "reader.recent-books", value: recentBooks)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("typed storage should support structs and collections");
+
+    assert!(matches!(
+        &module.states[0].initial,
+        Expr::Coalesce(left, _) if matches!(
+            &**left,
+            Expr::NativeCall { namespace, name, codecs, return_type, .. }
+                if namespace == "Storage" && name == "get"
+                    && codecs.len() == 1 && codecs[0].ty == module.states[0].ty
+                    && codecs[0].decodes
+                    && return_type == &Type::Optional(Box::new(module.states[0].ty.clone()))
+        )
+    ));
+    assert!(matches!(
+        &module.states[1].initial,
+        Expr::Coalesce(left, _) if matches!(
+            &**left,
+            Expr::NativeCall { namespace, name, codecs, .. }
+                if namespace == "Storage" && name == "get"
+                    && codecs.len() == 1 && codecs[0].ty == module.states[1].ty
+                    && codecs[0].decodes
+        )
+    ));
+    let Type::Optional(saved_settings_type) = &module.states[2].ty else {
+        panic!("savedSettings should remain optional");
+    };
+    assert!(matches!(
+        &module.states[2].initial,
+        Expr::NativeCall { namespace, name, codecs, return_type, .. }
+            if namespace == "Storage" && name == "get"
+                && codecs.len() == 1 && codecs[0].ty == **saved_settings_type
+                && codecs[0].decodes
+                && return_type == &module.states[2].ty
+    ));
+    let Node::Button { actions, .. } = &module.body[2] else {
+        panic!("expected the Save button");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [
+            Action::Expression(Expr::NativeCall { namespace: first_namespace, name: first_name, codecs: first_codecs, .. }),
+            Action::Expression(Expr::NativeCall { namespace: second_namespace, name: second_name, codecs: second_codecs, .. }),
+        ] if first_namespace == "Storage" && first_name == "set"
+            && first_codecs.len() == 1 && !first_codecs[0].decodes
+            && second_namespace == "Storage" && second_name == "set"
+            && second_codecs.len() == 1 && !second_codecs[0].decodes
+    ));
+    let capabilities = nexa_ir::capabilities::analyze(&module);
+    assert!(capabilities.uses_storage_api);
+    assert!(capabilities.uses_json_api);
+}
+
+#[test]
+fn typed_storage_rejects_mismatched_and_unsupported_types() {
+    let mismatch = compile(
+        r#"
+        app InvalidStorageWrite {
+            body { Button("Save") { Storage.set<Int64>(key: "count", value: "many") } }
+        }
+        "#,
+    )
+    .expect_err("typed storage must validate its value type");
+    assert!(
+        mismatch
+            .to_string()
+            .contains("Storage.set` type argument is Int64")
+    );
+
+    let unsupported = compile(
+        r#"
+        class Account(val id: Int64) {}
+        app InvalidStorageClass {
+            body { Button("Save") { Storage.set<Account>(key: "account", value: Account(1)) } }
+        }
+        "#,
+    )
+    .expect_err("native classes cannot be serialized as JSON values");
+    assert!(unsupported.to_string().contains("JSON"), "{unsupported}");
+
+    let unexpected_argument = compile(
+        r#"
+        app InvalidStorageReadArguments {
+            state value: String? = Storage.get<String>(key: "reader.name", value: "unused")
+            body { Text("Reader") }
+        }
+        "#,
+    )
+    .expect_err("typed reads must reject arguments that are not part of their signature");
+    assert!(
+        unexpected_argument
+            .to_string()
+            .contains("unknown argument `value`")
+    );
+}
+
+#[test]
+fn secure_storage_scopes_isolate_reads_writes_and_clear() {
+    let module = compile(
+        r#"
+        app ScopedVault {
+            state task: TaskHandle? = null
+            state token: String = ""
+            body {
+                Button("Save token") {
+                    Task.launch(handle: task, executor: TaskExecutor.Main) {
+                        try {
+                            let saved: String? = await SecureStorage.get(key: "refresh-token", scope: "auth")
+                            await SecureStorage.set(key: "refresh-token", value: saved ?? token, scope: "auth")
+                            await SecureStorage.delete(key: "refresh-token", scope: "auth")
+                            await SecureStorage.clear(scope: "auth")
+                            await SecureStorage.delete(key: "legacy-token")
+                            await SecureStorage.clear()
+                        } catch { }
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("scoped secure storage calls should type-check");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    for expected in [
+        "NexaSecureStorage.get(\"refresh-token\", \"auth\")",
+        "NexaSecureStorage.set(\"refresh-token\", (nexa_saved ?? nexa_token), \"auth\")",
+        "NexaSecureStorage.delete(\"refresh-token\", \"auth\")",
+        "NexaSecureStorage.clear(\"auth\")",
+        "NexaSecureStorage.delete(\"legacy-token\", nil)",
+        "NexaSecureStorage.clear(nil)",
+        "scopedServicePrefix",
+        "storedService.hasPrefix(scopedServicePrefix)",
+    ] {
+        assert!(
+            swift.contains(expected),
+            "Swift output should contain `{expected}`"
+        );
+    }
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    for expected in [
+        "NexaSecureStorage.get(NexaRuntime.context(), \"refresh-token\", \"auth\")",
+        "NexaSecureStorage.set(NexaRuntime.context(), \"refresh-token\",",
+        "NexaSecureStorage.delete(NexaRuntime.context(), \"refresh-token\", \"auth\")",
+        "NexaSecureStorage.clear(NexaRuntime.context(), \"auth\")",
+        "NexaSecureStorage.delete(NexaRuntime.context(), \"legacy-token\", null)",
+        "NexaSecureStorage.clear(NexaRuntime.context(), null)",
+        "storageIdentity(key: String, scope: String?)",
+        "scopedDirectory(",
+        "deleteRecursively()",
+    ] {
+        assert!(
+            kotlin.contains(expected),
+            "Kotlin output should contain `{expected}`"
+        );
+    }
 }
 
 #[test]
@@ -1476,6 +3039,33 @@ fn app_bottom_bar_custom_chrome_is_lowered_separately_from_destinations() {
 }
 
 #[test]
+fn button_glass_defaults_off_and_rejects_non_boolean_values() {
+    let module = compile(
+        r#"
+        app DefaultButtonGlass {
+            body { Button("Continue") { } }
+        }
+        "#,
+    )
+    .expect("Button glass should default to false");
+
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::Button { glass: false, .. })
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidButtonGlass {
+            body { Button("Continue", glass: "sometimes") { } }
+        }
+        "#,
+    )
+    .expect_err("Button glass must reject non-boolean values");
+    assert!(invalid.to_string().contains("Button glass"));
+}
+
+#[test]
 fn icon_component_supports_shared_and_platform_specific_symbols() {
     let module = compile(
         r##"
@@ -1687,12 +3277,57 @@ fn toolbar_lowers_placement_and_native_action_content() {
 }
 
 #[test]
+fn button_accessibility_label_lowers_as_an_optional_localized_string() {
+    let module = compile(
+        r#"
+        app AccessibleIconAction {
+            body {
+                Button("", icon: "add", shape: Circle, accessibilityLabel: "Add") { }
+            }
+        }
+        "#,
+    )
+    .expect("Button accessibilityLabel should lower through the typed IR");
+
+    let Some(Node::Button {
+        accessibility_label: Some(accessibility_label),
+        ..
+    }) = module.body.first()
+    else {
+        panic!(
+            "expected typed Button accessibility label, got: {:#?}",
+            module.body
+        );
+    };
+    assert!(
+        matches!(
+            accessibility_label.as_ref(),
+            Expr::String(value) if value == "Add"
+        ) || matches!(
+            accessibility_label.as_ref(),
+            Expr::LocalizedText { value, .. } if matches!(value.as_ref(), Expr::String(value) if value == "Add")
+        )
+    );
+    assert!(nexa_ir::localization::extract(&module).contains_key("Add"));
+
+    let default_module = compile(r#"app DefaultButton { body { Button("Save") { } } }"#)
+        .expect("Button accessibilityLabel should remain optional");
+    assert!(matches!(
+        default_module.body.as_slice(),
+        [Node::Button {
+            accessibility_label: None,
+            ..
+        }]
+    ));
+}
+
+#[test]
 fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration() {
     let default_sheet = compile(
         r#"
         app DefaultSheetHandle {
-            state presented: Bool = false
-            body { BottomSheet(isPresented: presented) { Text("Default handle") } }
+            let sheetRef = ComponentRef<BottomSheet>()
+            body { BottomSheet(ref: sheetRef) { Text("Default handle") } }
         }
         "#,
     )
@@ -1709,20 +3344,24 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
             should_dismiss_on_back_press: true,
             ..
         }]
-            if *content_padding == 8.0
-                && detents == &[nexa_ir::BottomSheetDetent::Medium, nexa_ir::BottomSheetDetent::Expanded]
+            if *content_padding == 0.0
+                && detents == &[0.5, 1.0]
     ));
+    let default_swift = nexa_backend_swift::SwiftBackend.generate(&default_sheet);
+    assert!(default_swift.contains("contentPadding: 0"));
+    let default_kotlin = nexa_backend_kotlin::KotlinBackend.generate(&default_sheet);
+    assert!(default_kotlin.contains("contentPadding = 0f.dp"));
 
     let configured_sheet = compile(
         r##"
         app ConfiguredSheet {
-            state presented: Bool = false
+            let sheetRef = ComponentRef<BottomSheet>()
             body {
                 BottomSheet(
-                    isPresented: presented,
+                    ref: sheetRef,
                     contentPadding: 20,
-                    detents: [Expanded],
-                    initialDetent: Expanded,
+                    detents: [1.0],
+                    initialDetent: 1.0,
                     showDragIndicator: false,
                     allowsDismissal: false,
                     allowsBackgroundInteraction: true,
@@ -1739,7 +3378,7 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
         [Node::BottomSheet {
             detents,
             content_padding,
-            initial_detent: Some(nexa_ir::BottomSheetDetent::Expanded),
+            initial_detent: Some(1.0),
             show_drag_indicator: false,
             allows_dismissal: false,
             allows_background_interaction: true,
@@ -1747,20 +3386,20 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
             background_color: Some(_),
             ..
         }] if *content_padding == 20.0
-            && detents == &[nexa_ir::BottomSheetDetent::Expanded]
+            && detents == &[1.0]
     ));
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&configured_sheet);
-    assert!(swift.contains("detents: [.large]"));
+    assert!(swift.contains("detents: [.fraction(1)]"));
     assert!(swift.contains("contentPadding: 20"));
-    assert!(swift.contains("initialDetent: .large"));
+    assert!(swift.contains("initialDetent: .fraction(1)"));
     assert!(swift.contains("showDragIndicator: false"));
     assert!(swift.contains("allowsDismissal: false"));
     assert!(swift.contains("allowsBackgroundInteraction: true"));
     assert!(swift.contains("shouldDismissOnBackPress: false"));
     assert!(swift.contains("backgroundColor: Color(red:"));
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&configured_sheet);
-    assert!(kotlin.contains("SheetValue.Expanded"));
+    assert!(kotlin.contains("detents = listOf(1f)"));
     assert!(kotlin.contains("contentPadding = 20f.dp"));
     assert!(kotlin.contains("showDragIndicator = false"));
     assert!(kotlin.contains("allowsDismissal = false"));
@@ -1772,10 +3411,10 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
 #[test]
 fn bottom_sheet_rejects_empty_duplicate_and_unconfigured_initial_detents() {
     for source in [
-        r#"app Empty { state shown: Bool = false body { BottomSheet(isPresented: shown, detents: []) { Text("x") } } }"#,
-        r#"app NegativePadding { state shown: Bool = false body { BottomSheet(isPresented: shown, contentPadding: -1) { Text("x") } } }"#,
-        r#"app Duplicate { state shown: Bool = false body { BottomSheet(isPresented: shown, detents: [Medium, Medium]) { Text("x") } } }"#,
-        r#"app Missing { state shown: Bool = false body { BottomSheet(isPresented: shown, detents: [Medium], initialDetent: Expanded) { Text("x") } } }"#,
+        r#"app Empty { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: []) { Text("x") } } }"#,
+        r#"app NegativePadding { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, contentPadding: -1) { Text("x") } } }"#,
+        r#"app Duplicate { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [0.5, 0.5]) { Text("x") } } }"#,
+        r#"app Missing { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [0.5], initialDetent: 1.0) { Text("x") } } }"#,
     ] {
         assert!(
             compile(source).is_err(),
@@ -1785,17 +3424,17 @@ fn bottom_sheet_rejects_empty_duplicate_and_unconfigured_initial_detents() {
 }
 
 #[test]
-fn bottom_sheet_lowers_custom_snap_points_and_dismiss_actions_for_both_backends() {
+fn bottom_sheet_lowers_fractional_detents_and_dismiss_actions_for_both_backends() {
     let module = compile(
         r##"
         app CustomSnapSheet {
-            state presented: Bool = false
+            let sheetRef = ComponentRef<BottomSheet>()
             state dismissed: Bool = false
             body {
                 BottomSheet(
-                    isPresented: presented,
-                    snapPoints: [0.25, 0.5, 0.85],
-                    initialSnapPoint: 0.5,
+                    ref: sheetRef,
+                    detents: [0.25, 0.5, 0.85],
+                    initialDetent: 0.5,
                     showDragIndicator: false,
                     backgroundColor: "#00000000",
                     scrimColor: "#00000000"
@@ -1811,21 +3450,19 @@ fn bottom_sheet_lowers_custom_snap_points_and_dismiss_actions_for_both_backends(
         module.body.as_slice(),
         [Node::BottomSheet {
             detents,
-            snap_points,
-            initial_snap_point: Some(0.5),
+            initial_detent: Some(0.5),
             show_drag_indicator: false,
             background_color: Some(_),
             scrim_color: Some(_),
             on_dismiss,
             ..
-        }] if detents.is_empty()
-            && snap_points == &[0.25, 0.5, 0.85]
+        }] if detents == &[0.25, 0.5, 0.85]
             && matches!(on_dismiss.as_slice(), [nexa_ir::Action::Assign { name, value: nexa_ir::Expr::Bool(true) }] if name == "dismissed")
     ));
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
-    assert!(swift.contains("snapPoints: [0.25, 0.5, 0.85]"));
-    assert!(swift.contains("initialSnapPoint: 0.5"));
+    assert!(swift.contains("detents: [.fraction(0.25), .fraction(0.5), .fraction(0.85)]"));
+    assert!(swift.contains("initialDetent: .fraction(0.5)"));
     assert!(swift.contains("showDragIndicator: false"));
     assert!(swift.contains("onDismiss: {"));
     assert!(swift.contains(
@@ -1837,8 +3474,8 @@ fn bottom_sheet_lowers_custom_snap_points_and_dismiss_actions_for_both_backends(
     );
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
-    assert!(kotlin.contains("snapPoints = listOf(0.25f, 0.5f, 0.85f)"));
-    assert!(kotlin.contains("initialSnapPoint = 0.5f"));
+    assert!(kotlin.contains("detents = listOf(0.25f, 0.5f, 0.85f)"));
+    assert!(kotlin.contains("initialDetent = 0.5f"));
     assert!(kotlin.contains("showDragIndicator = false"));
     assert!(kotlin.contains("onDismiss = {"));
     assert!(kotlin.contains("dismissed = true"));
@@ -1848,80 +3485,38 @@ fn bottom_sheet_lowers_custom_snap_points_and_dismiss_actions_for_both_backends(
 }
 
 #[test]
-fn bottom_sheet_actions_drive_presentation_and_bound_snap_selection() {
+fn bottom_sheet_uses_one_detent_list_and_native_drag_selection() {
     let module = compile(
         r#"
-        app ProgrammaticSheet {
-            state presented: Bool = false
-            state selectedPoint: Float64 = 0.5
+        app FractionalSheet {
+            let sheetRef = ComponentRef<BottomSheet>()
             body {
-                Button("Open") { BottomSheet.present(presented) }
-                Button("Close") { BottomSheet.dismiss(presented) }
-                Button("Expand") { BottomSheet.snapTo(selectedPoint, 0.85) }
+                Button("Open") { sheetRef.present() }
+                Button("Close") { sheetRef.dismiss() }
                 BottomSheet(
-                    isPresented: presented,
-                    snapPoints: [0.25, 0.5, 0.85],
-                    selectedSnapPoint: selectedPoint
-                ) { Text("Programmatic sheet") }
+                    ref: sheetRef,
+                    detents: [0.25, 0.5, 0.85],
+                    initialDetent: 0.5
+                ) { Text("Drag to resize") }
             }
         }
         "#,
     )
-    .expect("BottomSheet action helpers and selected snap state should compile");
-
-    assert!(matches!(
-        module.body.last(),
-        Some(Node::BottomSheet {
-            state,
-            snap_points,
-            selected_snap_point: Some(selected),
-            initial_snap_point: None,
-            ..
-        }) if state == "presented"
-            && snap_points == &[0.25, 0.5, 0.85]
-            && selected == "selectedPoint"
-    ));
+    .expect("fractional detents should be selected by dragging the sheet");
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
-    assert!(swift.contains("nexa_presented = true"));
-    assert!(swift.contains("nexa_presented = false"));
-    assert!(swift.contains("nexa_selectedPoint = Double(0.85)"));
-    assert!(swift.contains("selectedSnapPoint: $nexa_selectedPoint"));
-    assert!(swift.contains(".onChange(of: selectedSnapPoint?.wrappedValue)"));
-    assert!(swift.contains("selectedSnapPoint.wrappedValue = value"));
+    assert!(swift.contains("detents: [.fraction(0.25), .fraction(0.5), .fraction(0.85)]"));
+    assert!(swift.contains("initialDetent: .fraction(0.5)"));
+    assert!(!swift.contains("selectedSnapPoint"));
+    assert!(swift.contains("componentRef: nexa_sheetRef"));
+    assert!(swift.contains("nexa_sheetRef.present()"));
+    assert!(swift.contains("nexa_sheetRef.dismiss()"));
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
-    assert!(kotlin.contains("nexa_presented = true"));
-    assert!(kotlin.contains("nexa_presented = false"));
-    assert!(kotlin.contains("nexa_selectedPoint = 0.85"));
-    assert!(kotlin.contains("selectedSnapPoint = nexa_selectedPoint.toFloat()"));
-    assert!(
-        kotlin.contains("onSnapPointChange = { point -> nexa_selectedPoint = point.toDouble() }")
-    );
-    assert!(kotlin.contains("LaunchedEffect(isPresented, selectedSnapPoint, sheetState)"));
-    assert!(kotlin.contains("if (currentValue == lastReportedSheetValue.floatValue)"));
-    assert!(kotlin.contains("currentOnSnapPointChange?.invoke(currentValue)"));
-
-    let binding_only = compile(
-        r#"
-        app SelectedSnapPointIsLiveState {
-            state presented: Bool = false
-            state selectedPoint: Float64 = 0.5
-            body {
-                BottomSheet(
-                    isPresented: presented,
-                    snapPoints: [0.25, 0.5, 0.85],
-                    selectedSnapPoint: selectedPoint
-                ) { Text("Bound selection") }
-            }
-        }
-        "#,
-    )
-    .expect("the selected point must stay live when it has no other references");
-    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&binding_only);
-    assert!(
-        kotlin.contains("var nexa_selectedPoint by rememberSaveable { mutableDoubleStateOf(0.5) }")
-    );
+    assert!(kotlin.contains("detents = listOf(0.25f, 0.5f, 0.85f)"));
+    assert!(kotlin.contains("initialDetent = 0.5f"));
+    assert!(kotlin.contains("NexaCustomBottomSheetPrimitive("));
+    assert!(!kotlin.contains("selectedSnapPoint"));
 }
 
 #[test]
@@ -1929,17 +3524,17 @@ fn bottom_sheet_header_save_and_close_actions_compile_for_both_platforms() {
     let module = compile(
         r#"
         app BottomSheetHeaderActions {
-            state presented: Bool = false
+            let sheetRef = ComponentRef<BottomSheet>()
             state saved: Bool = false
             body {
-                BottomSheet(isPresented: presented) {
+                BottomSheet(ref: sheetRef) {
                     Column {
                         Row {
                             Text("Edit task")
                             Spacer()
                             Button("Save", icon: "save", style: Borderless) { saved = true }
                             Button("Close", icon: "close", style: Plain) {
-                                BottomSheet.dismiss(presented)
+                                sheetRef.dismiss()
                             }
                         }
                         Text(saved ? "Changes saved" : "Unsaved changes")
@@ -1953,15 +3548,16 @@ fn bottom_sheet_header_save_and_close_actions_compile_for_both_platforms() {
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
     assert!(swift.contains("Label(\"Save\", systemImage: \"square.and.arrow.down\")"));
+    assert!(swift.contains("Spacer(minLength: 0)"));
     assert!(swift.contains("Label(\"Close\", systemImage: \"xmark\")"));
     assert!(swift.contains("nexa_saved = true"));
-    assert!(swift.contains("nexa_presented = false"));
+    assert!(swift.contains("nexa_sheetRef.dismiss()"));
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
     assert!(kotlin.contains("icon = Icons.Filled.Save,"));
     assert!(kotlin.contains("icon = Icons.Filled.Close,"));
     assert!(kotlin.contains("nexa_saved = true"));
-    assert!(kotlin.contains("nexa_presented = false"));
+    assert!(kotlin.contains("nexa_sheetRef.dismiss()"));
 }
 
 #[test]
@@ -1969,14 +3565,14 @@ fn nested_bottom_sheets_keep_the_parent_presented_on_both_platforms() {
     let module = compile(
         r#"
         app NestedBottomSheets {
-            state parentPresented: Bool = false
-            state childPresented: Bool = false
+            let parentSheetRef = ComponentRef<BottomSheet>()
+            let childSheetRef = ComponentRef<BottomSheet>()
             body {
-                BottomSheet(isPresented: parentPresented) {
+                BottomSheet(ref: parentSheetRef) {
                     Column {
-                        Button("Open child") { BottomSheet.present(childPresented) }
-                        BottomSheet(isPresented: childPresented) {
-                            Button("Close child") { BottomSheet.dismiss(childPresented) }
+                        Button("Open child") { childSheetRef.present() }
+                        BottomSheet(ref: childSheetRef) {
+                            Button("Close child") { childSheetRef.dismiss() }
                         }
                     }
                 }
@@ -1988,23 +3584,23 @@ fn nested_bottom_sheets_keep_the_parent_presented_on_both_platforms() {
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
     let swift_parent = swift
-        .find("isPresented: $nexa_parentPresented")
+        .find("componentRef: nexa_parentSheetRef")
         .expect("emit the parent native SwiftUI sheet");
     let swift_child = swift
-        .find("isPresented: $nexa_childPresented")
+        .find("componentRef: nexa_childSheetRef")
         .expect("emit the nested native SwiftUI sheet");
     assert!(swift_parent < swift_child);
     assert!(swift.contains(".sheet(isPresented: $isPresented, onDismiss: {"));
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
     let kotlin_parent = kotlin
-        .find("isPresented = nexa_parentPresented,")
-        .expect("emit the parent Material 3 sheet");
+        .find("componentRef = nexa_parentSheetRef,")
+        .expect("emit the parent Compose sheet");
     let kotlin_child = kotlin
-        .find("isPresented = nexa_childPresented,")
+        .find("componentRef = nexa_childSheetRef,")
         .expect("emit the nested Material 3 sheet");
     assert!(kotlin_parent < kotlin_child);
-    assert!(kotlin.contains("ModalBottomSheet("));
+    assert!(kotlin.contains("NexaCustomBottomSheetPrimitive("));
 }
 
 #[test]
@@ -2012,12 +3608,12 @@ fn bottom_sheet_dynamic_surface_and_dismiss_callback_count_as_state_uses() {
     let compilation = compile_with_warnings_for_target(
         r##"
         app BottomSheetStateUses {
-            state presented: Bool = false
+            let sheetRef = ComponentRef<BottomSheet>()
             state surface: String = "#00000000"
             state scrim: String = "#00000000"
             state dismissed: Bool = false
             body {
-                BottomSheet(isPresented: presented, backgroundColor: surface, scrimColor: scrim) {
+                BottomSheet(ref: sheetRef, backgroundColor: surface, scrimColor: scrim) {
                     Text("Map details")
                 }.onDismiss {
                     dismissed = true
@@ -2041,25 +3637,107 @@ fn bottom_sheet_dynamic_surface_and_dismiss_callback_count_as_state_uses() {
 }
 
 #[test]
-fn bottom_sheet_rejects_invalid_custom_snap_point_combinations() {
+fn compiler_warnings_have_stable_codes_by_warning_kind() {
+    let compilation = compile_with_warnings_for_target(
+        r#"
+        fn unusedReport() -> Int32 {
+            let scratch = 3
+            return 1
+        }
+
+        app WarningCodes {
+            state unusedState: Int32 = 0
+            body { Text("Ready") }
+        }
+        "#,
+        Target::Swift,
+    )
+    .expect("warning examples should compile");
+
+    assert!(compilation.warnings.iter().any(|warning| {
+        warning.code == WarningCode::UNUSED_FUNCTION
+            && warning.message.contains("unused function `unusedReport`")
+    }));
+    assert!(compilation.warnings.iter().any(|warning| {
+        warning.code == WarningCode::UNUSED_LOCAL
+            && warning.message.contains("unused local constant `scratch`")
+    }));
+    assert!(compilation.warnings.iter().any(|warning| {
+        warning.code == WarningCode::UNUSED_DECLARATION
+            && warning.message.contains("unused state `unusedState`")
+    }));
+}
+
+#[test]
+fn fast_lists_warn_when_collection_identity_is_only_positional() {
+    let unkeyed = compile_with_warnings_for_target(
+        r#"
+        app UnkeyedRows {
+            state messages: Array<String> = ["First", "Second"]
+            body {
+                FastList(messages) { message, index in
+                    Text("\(index): \(message)")
+                }
+            }
+        }
+        "#,
+        Target::Swift,
+    )
+    .expect("an unkeyed list remains valid but should warn");
+    let warning = unkeyed
+        .warnings
+        .iter()
+        .find(|warning| warning.code == WarningCode::FAST_LIST_MISSING_KEY)
+        .expect("collection lists without a key should warn");
+    assert!(warning.message.contains("use positional identity"));
+    assert!(warning.message.contains("key: .id"));
+    assert!(warning.message.contains("key: .self"));
+
+    let keyed = compile_with_warnings_for_target(
+        r#"
+        app KeyedRows {
+            state messages: Array<String> = ["First", "Second"]
+            body {
+                FastList(messages, key: .self) { message, index in
+                    Text("\(index): \(message)")
+                }
+            }
+        }
+        "#,
+        Target::Swift,
+    )
+    .expect("a scalar list with a key should compile");
+    assert!(
+        keyed
+            .warnings
+            .iter()
+            .all(|warning| warning.code != WarningCode::FAST_LIST_MISSING_KEY)
+    );
+}
+
+#[test]
+fn bottom_sheet_rejects_invalid_detents_and_removed_legacy_parameters() {
     for source in [
-        r#"app Empty { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: []) { Text("x") } } }"#,
-        r#"app Duplicate { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [0.5, 0.5]) { Text("x") } } }"#,
-        r#"app Unsorted { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [0.75, 0.5]) { Text("x") } } }"#,
-        r#"app OutOfRange { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [1.2]) { Text("x") } } }"#,
-        r#"app MissingInitial { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [0.25, 0.75], initialSnapPoint: 0.5) { Text("x") } } }"#,
-        r#"app Combined { state shown: Bool = false body { BottomSheet(isPresented: shown, detents: [Medium], snapPoints: [0.5]) { Text("x") } } }"#,
-        r#"app RequiresPoints { state shown: Bool = false body { BottomSheet(isPresented: shown, initialSnapPoint: 0.5) { Text("x") } } }"#,
-        r#"app MixedInitial { state shown: Bool = false body { BottomSheet(isPresented: shown, snapPoints: [0.5], initialDetent: Medium) { Text("x") } } }"#,
-        r#"app SelectedWithoutPoints { state shown: Bool = false state point: Float64 = 0.5 body { BottomSheet(isPresented: shown, selectedSnapPoint: point) { Text("x") } } }"#,
-        r#"app SelectedAndInitial { state shown: Bool = false state point: Float64 = 0.5 body { BottomSheet(isPresented: shown, snapPoints: [0.5], initialSnapPoint: 0.5, selectedSnapPoint: point) { Text("x") } } }"#,
-        r#"app SelectedNotMutable { state shown: Bool = false let point: Float64 = 0.5 body { BottomSheet(isPresented: shown, snapPoints: [0.5], selectedSnapPoint: point) { Text("x") } } }"#,
+        r#"app Empty { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: []) { Text("x") } } }"#,
+        r#"app Duplicate { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [0.5, 0.5]) { Text("x") } } }"#,
+        r#"app Unsorted { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [0.75, 0.5]) { Text("x") } } }"#,
+        r#"app Zero { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [0.0]) { Text("x") } } }"#,
+        r#"app OutOfRange { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [1.2]) { Text("x") } } }"#,
+        r#"app MissingInitial { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [0.25, 0.75], initialDetent: 0.5) { Text("x") } } }"#,
+        r#"app InitialOutOfRange { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, initialDetent: 1.2) { Text("x") } } }"#,
+        r#"app OldSnapPoints { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, snapPoints: [0.5]) { Text("x") } } }"#,
+        r#"app OldInitialSnapPoint { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, initialSnapPoint: 0.5) { Text("x") } } }"#,
+        r#"app OldSelectedSnapPoint { let sheetRef = ComponentRef<BottomSheet>() state point: Float64 = 0.5 body { BottomSheet(ref: sheetRef, selectedSnapPoint: point) { Text("x") } } }"#,
+        r#"app RemovedStateBinding { state shown: Bool = false body { BottomSheet(isPresented: shown) { Text("x") } } }"#,
+        r#"app RemovedPresentHelper { state shown: Bool = false body { Button("Open") { BottomSheet.present(shown) } } }"#,
+        r#"app RemovedDismissHelper { state shown: Bool = true body { Button("Close") { BottomSheet.dismiss(shown) } } }"#,
+        r#"app RemovedSnapHelper { state point: Float64 = 0.5 body { Button("Expand") { BottomSheet.snapTo(point, 0.85) } } }"#,
         r#"app SnapToUnknownState { body { Button("Snap") { BottomSheet.snapTo(missing, 0.5) } } }"#,
         r#"app PresentWrongType { state point: Float64 = 0.5 body { Button("Open") { BottomSheet.present(point) } } }"#,
     ] {
         assert!(
             compile(source).is_err(),
-            "invalid custom snap-point configuration must fail: {source}"
+            "invalid or removed API must fail: {source}"
         );
     }
 }
@@ -2141,7 +3819,12 @@ fn multipart_upload_lowers_to_an_async_typed_network_call() {
                         statusCode = (await Network.upload(
                             url: "https://api.example.com/receipts",
                             file: "receipt.bin",
-                            fields: ["kind": "receipt"]
+                            fields: ["kind": "receipt"],
+                            headers: ["Authorization": "Bearer test-token"],
+                            timeoutSeconds: 45,
+                            followRedirects: false,
+                            maxResponseBytes: 1048576,
+                            certificatePins: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
                         )).statusCode
                     } catch { }
                 }
@@ -2183,7 +3866,7 @@ fn multipart_upload_lowers_to_an_async_typed_network_call() {
             ..
         } if namespace == "Network"
             && name == "upload"
-            && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == ["url", "file", "fields"]
+            && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == ["url", "file", "fields", "headers", "timeout", "followRedirects", "maxResponseBytes", "certificatePins"]
     ));
     let capabilities = nexa_ir::capabilities::analyze(&module);
     assert!(capabilities.uses_network_api);
@@ -3051,6 +4734,79 @@ fn conditional_transitions_lower_to_typed_ir() {
 }
 
 #[test]
+fn when_allows_missing_else_only_for_exhaustive_closed_values() {
+    let enum_match = compile(
+        r#"app ExhaustiveEnumWhen {
+            enum DeliveryStatus { Pending, Shipped }
+            state status: DeliveryStatus = DeliveryStatus.Pending
+            body {
+                when status {
+                    DeliveryStatus.Pending: { Text("Preparing") }
+                    DeliveryStatus.Shipped: { Text("On the way") }
+                }
+            }
+        }"#,
+    )
+    .expect("all declared enum cases should make the when exhaustive");
+    assert!(matches!(
+        enum_match.body.first(),
+        Some(Node::When {
+            else_body: None,
+            cases,
+            ..
+        }) if cases.len() == 2
+    ));
+
+    let bool_match = compile(
+        r#"app ExhaustiveBoolWhen {
+            state isReady = false
+            body {
+                when isReady {
+                    true: { Text("Ready") }
+                    false: { Text("Waiting") }
+                }
+            }
+        }"#,
+    )
+    .expect("true and false should make a boolean when exhaustive");
+    assert!(matches!(
+        bool_match.body.first(),
+        Some(Node::When { else_body: None, cases, .. }) if cases.len() == 2
+    ));
+
+    let partial_enum = compile(
+        r#"app PartialEnumWhen {
+            enum DeliveryStatus { Pending, Shipped }
+            state status: DeliveryStatus = DeliveryStatus.Pending
+            body {
+                when status {
+                    DeliveryStatus.Pending: { Text("Preparing") }
+                }
+            }
+        }"#,
+    )
+    .expect_err("a partial enum match needs an explicit fallback");
+    assert!(
+        partial_enum
+            .to_string()
+            .contains("when needs an `else` case unless it covers every Bool or enum case")
+    );
+
+    let string_match = compile(
+        r#"app OpenStringWhen {
+            state status: String = "pending"
+            body { when status { "pending": { Text("Preparing") } } }
+        }"#,
+    )
+    .expect_err("strings have an open value set and need a fallback");
+    assert!(
+        string_match
+            .to_string()
+            .contains("when needs an `else` case")
+    );
+}
+
+#[test]
 fn pressable_drag_bindings_are_typed_and_validated() {
     let module = compile(
         r#"app Drag {
@@ -3590,7 +5346,7 @@ fn progress_controls_lower_float64_expressions() {
             state wave: Bool = true
             body {
                 ProgressBar(progress: progress)
-                ProgressRing(progress: progress + 0.1, tint: tint, trackColor: "#DBEAFE", size: 48, thickness: 5, android_wave: wave)
+                ProgressRing(progress: progress + 0.1, tint: tint, trackColor: "#DBEAFE", size: 48, thickness: 5, androidWave: wave)
             }
         }
         "##,
@@ -3630,6 +5386,16 @@ fn progress_controls_lower_float64_expressions() {
 }
 
 #[test]
+fn progress_controls_reject_the_old_snake_case_option_name() {
+    let error = compile("app OldProgressOption { body { ProgressRing(android_wave: true) } }")
+        .expect_err("the component catalog has one canonical camelCase option");
+    assert!(
+        error.to_string().contains("unknown option `android_wave`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn progress_ring_rejects_negative_dimensions() {
     for dimension in ["size: -1", "thickness: -1"] {
         let source = format!(
@@ -3639,8 +5405,8 @@ fn progress_ring_rejects_negative_dimensions() {
         assert!(error.to_string().contains("non-negative"), "{error}");
     }
 
-    let error = compile("app InvalidProgressRingWave { body { ProgressRing(android_wave: 1) } }")
-        .expect_err("android_wave must be a Bool");
+    let error = compile("app InvalidProgressRingWave { body { ProgressRing(androidWave: 1) } }")
+        .expect_err("androidWave must be a Bool");
     assert!(error.to_string().contains("Bool"), "{error}");
 }
 
@@ -3712,7 +5478,7 @@ fn progress_bar_style_is_typed_and_reaches_both_native_backends() {
                     accessibilityHint: hint,
                     accessibilityValue: value,
                     accessibilityRole: None,
-                    android_wave: wave
+                    androidWave: wave
                 )
             }
         }
@@ -3775,9 +5541,9 @@ fn progress_bar_style_is_typed_and_reaches_both_native_backends() {
     assert!(project_features.uses_wavy_progress_bar);
 
     let invalid_wave = compile(
-        r#"app InvalidProgressWave { body { ProgressBar(progress: 0.5, android_wave: "yes") } }"#,
+        r#"app InvalidProgressWave { body { ProgressBar(progress: 0.5, androidWave: "yes") } }"#,
     )
-    .expect_err("android_wave must be a typed Boolean expression");
+    .expect_err("androidWave must be a typed Boolean expression");
     assert!(invalid_wave.to_string().contains("Bool"), "{invalid_wave}");
 
     for dimension in ["thickness: -1", "cornerRadius: -1"] {
@@ -4608,8 +6374,10 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components_inner(
                     .iter()
                     .filter(|action| matches!(
                         action,
-                        nexa_ir::Action::Expression(Expr::TryAwait(call))
+                        nexa_ir::Action::Expression(Expr::Located { expression, .. })
+                            if matches!(expression.as_ref(), Expr::TryAwait(call)
                             if matches!(call.as_ref(), Expr::NativeCall { name, is_throwing: true, .. } if name == "prepare")
+                            )
                     ))
                     .count(),
                 2
@@ -4736,4 +6504,41 @@ app TestApp {
         module.functions[1].return_type,
         Type::Result(_, _)
     ));
+}
+
+#[test]
+fn result_members_expose_typed_success_and_failure_values() {
+    let module = compile(
+        r#"
+        enum PaymentError { insufficientFunds }
+        fn charge(amount: Float64, balance: Float64) -> Result<Float64, PaymentError> {
+            if amount > balance { return Err(PaymentError.insufficientFunds) }
+            return Ok(balance - amount)
+        }
+        app CheckoutResult {
+            let outcome: Result<Float64, PaymentError> = charge(125.0, 100.0)
+            body {
+                Column {
+                    Text(outcome.isSuccess ? "Paid" : "Needs attention")
+                    Text(outcome.value ?? 0.0)
+                    Text((outcome.error ?? PaymentError.insufficientFunds) == PaymentError.insufficientFunds ? "Insufficient funds" : "No error")
+                }
+            }
+        }
+        "#,
+    )
+    .expect("Result values should be easy to check and read in Nexa");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("outcome.isSuccess"));
+    assert!(swift.contains("outcome.value ?? Double(0.0)"), "{swift}");
+    assert!(swift.contains("outcome.error ?? NexaPaymentError.insufficientFunds"));
+    assert!(swift.contains("var isSuccess: Bool"));
+    assert!(swift.contains("var value: Success?"));
+    assert!(swift.contains("var error: Failure?"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("outcome.isSuccess"));
+    assert!(kotlin.contains("outcome.getOrNull() ?: 0.0"));
+    assert!(kotlin.contains("outcome.errorOrNull() ?: NexaPaymentError.insufficientFunds"));
 }

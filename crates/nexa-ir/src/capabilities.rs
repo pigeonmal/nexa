@@ -108,6 +108,7 @@ mod tests {
                 shape: None,
                 tint: None,
                 glass: false,
+                accessibility_label: None,
                 actions: vec![
                     Action::Expression(call("Network", "fetch")),
                     Action::Expression(call("Path", "documents")),
@@ -213,6 +214,7 @@ mod tests {
             class_initializers: Vec::new(),
             is_async: true,
             is_throwing: false,
+            failure_type: None,
             parameters: vec![crate::FunctionParameter {
                 name: "path".to_owned(),
                 ty: crate::Type::String,
@@ -260,6 +262,7 @@ mod tests {
                     is_throwing: false,
                 },
             )],
+            component_ref: None,
             children: None,
             event_handlers: Vec::new(),
         }]);
@@ -313,6 +316,7 @@ mod tests {
             parameters: Vec::new(),
             states: Vec::new(),
             body: Vec::new(),
+            ref_methods: Vec::new(),
             on_appear: None,
             on_appear_async: false,
             on_disappear: None,
@@ -326,6 +330,7 @@ mod tests {
             class_initializers: Vec::new(),
             is_async: false,
             is_throwing: false,
+            failure_type: None,
             parameters: Vec::new(),
             locals: Vec::new(),
             return_type: Type::Void,

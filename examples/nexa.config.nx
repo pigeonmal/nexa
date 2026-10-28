@@ -4,5 +4,6 @@ config {
     ios { minVersion: "16.0", bundleIdentifier: "com.nexa.nexacounter", icon: "" }
     android { minSdk: 23, targetSdk: 36, applicationId: "com.nexa.nexacounter", icon: "" }
     permissions {
+        notifications: "Send reminders and important updates."
     }
 }

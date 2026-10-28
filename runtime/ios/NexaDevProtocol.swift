@@ -47,12 +47,15 @@ final class NexaDevRuntime: ObservableObject {
     }
 
     func reportRuntimeFailure(_ error: Error, stackTrace: String) {
+        let located = error as? NexaDevLocatedRuntimeError
+        let pluginFailure = error as? NexaDevPluginFailure
+        let message = located?.underlying.localizedDescription ?? String(describing: error)
         diagnostics = [NexaDevDiagnostic(
-            file: "<runtime>",
-            line: 1,
-            column: 1,
-            message: String(describing: error),
-            stackTrace: "\(String(describing: error))\n\nCall stack:\n\(stackTrace)"
+            file: located?.sourceFile ?? pluginFailure?.sourceFile ?? "<runtime>",
+            line: located?.line ?? pluginFailure?.sourceLine ?? 1,
+            column: located?.column ?? pluginFailure?.sourceColumn ?? 1,
+            message: message,
+            stackTrace: "\(message)\n\nCall stack:\n\(stackTrace)"
         )]
     }
 
@@ -164,6 +167,8 @@ final class NexaDevRuntime: ObservableObject {
             print("Nexa dev hot restart: \(payload[NexaDevKeys.reason] ?? "requested")")
         case NexaDevKeys.msgPerformanceOverlay:
             performanceOverlayEnabled = payload[NexaDevKeys.enabled] as? Bool ?? false
+        case NexaDevKeys.msgRuntimeTrace:
+            store.runtimeTraceEnabled = payload[NexaDevKeys.enabled] as? Bool ?? false
         default:
             break
         }

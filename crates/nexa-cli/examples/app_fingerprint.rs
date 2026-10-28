@@ -60,6 +60,7 @@ component Card(title: String, done: Bool) {
 }
 
 app KitchenSink {
+    let sheetRef = ComponentRef<BottomSheet>()
     enum AppError {
         unavailable
     }
@@ -77,7 +78,6 @@ app KitchenSink {
     state groups: Array<Array<Todo>> = [[Todo(1, "alpha", false)], [Todo(2, "beta", true)]]
     state selectedTab: Int32 = 0
     state isRefreshing: Bool = false
-    state isPresented: Bool = false
     state cursor: Int32 = 0
     state result: Result<Int32, AppError> = Ok(0)
     state label: String = "idle"
@@ -164,11 +164,11 @@ app KitchenSink {
             }
         }
 
-        BottomSheet(isPresented: isPresented, detents: [Medium, Expanded]) {
+        BottomSheet(ref: sheetRef, detents: [0.5, 1.0]) {
             Column(spacing: 8) {
                 Text("Sheet")
                 Button("Close") {
-                    isPresented = false
+                    sheetRef.dismiss()
                 }
             }
         }

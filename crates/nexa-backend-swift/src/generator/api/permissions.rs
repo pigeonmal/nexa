@@ -67,7 +67,10 @@ pub(crate) fn render(
     out.push_str(
         r#" enum NexaPermissionStatus: Sendable {
     case granted
+    case limited
+    case provisional
     case denied
+    case permanentlyDenied
     case restricted
     case notDetermined
 }
@@ -158,7 +161,8 @@ fn status_case(permission: Permission) -> &'static str {
         Permission::Photos => {
             r#"        case .Photos:
             switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
-            case .authorized, .limited: return .granted
+            case .authorized: return .granted
+            case .limited: return .limited
             case .denied: return .denied
             case .restricted: return .restricted
             case .notDetermined: return .notDetermined
@@ -181,7 +185,8 @@ fn status_case(permission: Permission) -> &'static str {
             r#"        case .Notifications:
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral: return .granted
+            case .authorized, .ephemeral: return .granted
+            case .provisional: return .provisional
             case .denied: return .denied
             case .notDetermined: return .notDetermined
             @unknown default: return .denied
@@ -192,7 +197,7 @@ fn status_case(permission: Permission) -> &'static str {
             r#"        case .Contacts:
             let status = CNContactStore.authorizationStatus(for: .contacts)
             if status == .authorized { return .granted }
-            if #available(iOS 18.0, *), status == .limited { return .granted }
+            if #available(iOS 18.0, *), status == .limited { return .limited }
             if status == .denied { return .denied }
             if status == .restricted { return .restricted }
             if status == .notDetermined { return .notDetermined }
@@ -255,7 +260,8 @@ fn request_case(permission: Permission) -> &'static str {
                 }
             }
             switch authorization {
-            case .authorized, .limited: return .granted
+            case .authorized: return .granted
+            case .limited: return .limited
             case .denied: return .denied
             case .restricted: return .restricted
             case .notDetermined: return .notDetermined
@@ -270,18 +276,18 @@ fn request_case(permission: Permission) -> &'static str {
         }
         Permission::Notifications => {
             r#"        case .Notifications:
-            let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-            return granted ? .granted : .denied
+            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
+            return await status(.Notifications)
 "#
         }
         Permission::Contacts => {
             r#"        case .Contacts:
-            let granted = await withCheckedContinuation { continuation in
+            _ = await withCheckedContinuation { continuation in
                 CNContactStore().requestAccess(for: .contacts) { granted, _ in
                     continuation.resume(returning: granted)
                 }
             }
-            return granted ? .granted : .denied
+            return await status(.Contacts)
 "#
         }
         Permission::Calendar => {

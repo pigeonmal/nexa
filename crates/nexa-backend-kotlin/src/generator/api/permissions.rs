@@ -58,7 +58,10 @@ pub(crate) fn render(
     out.push_str(
         r#" enum class NexaPermissionStatus {
     granted,
+    limited,
+    provisional,
     denied,
+    permanentlyDenied,
     restricted,
     notDetermined,
 }
@@ -90,7 +93,23 @@ pub(crate) fn render(
         }
         out.push_str(
             r#"        }
-        NexaRuntime.requestPermissions(permissions)
+        val requestResult = NexaRuntime.requestPermissions(permissions)
+        val requestPreferences = context.getSharedPreferences(
+            "nexa.permission.requests",
+            android.content.Context.MODE_PRIVATE,
+        )
+        val requestHistory = requestPreferences.edit()
+        requestResult.forEach { (requestedPermission, granted) ->
+            if (granted) {
+                requestHistory.remove(requestedPermission)
+            } else {
+                requestHistory.putInt(
+                    requestedPermission,
+                    requestPreferences.getInt(requestedPermission, 0) + 1,
+                )
+            }
+        }
+        requestHistory.apply()
         return status(context, permission)
     }
 
@@ -101,6 +120,14 @@ pub(crate) fn render(
         r#"    private fun statusFor(context: android.content.Context, permission: String): NexaPermissionStatus {
         if (context.checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
             return NexaPermissionStatus.granted
+        }
+        val denialCount = context.getSharedPreferences(
+            "nexa.permission.requests",
+            android.content.Context.MODE_PRIVATE,
+        ).getInt(permission, 0)
+        val activity = dev.nexa.core.NexaRuntimeCore.currentActivity()
+        if (denialCount >= 2 && activity != null && !activity.shouldShowRequestPermissionRationale(permission)) {
+            return NexaPermissionStatus.permanentlyDenied
         }
         val operation = android.app.AppOpsManager.permissionToOp(permission) ?: return NexaPermissionStatus.notDetermined
         val appOps = context.getSystemService(android.content.Context.APP_OPS_SERVICE) as? android.app.AppOpsManager
@@ -122,7 +149,9 @@ pub(crate) fn render(
     ): NexaPermissionStatus = when {
         coarse == NexaPermissionStatus.granted || fine == NexaPermissionStatus.granted -> NexaPermissionStatus.granted
         coarse == NexaPermissionStatus.restricted || fine == NexaPermissionStatus.restricted -> NexaPermissionStatus.restricted
-        coarse == NexaPermissionStatus.denied && fine == NexaPermissionStatus.denied -> NexaPermissionStatus.denied
+        coarse == NexaPermissionStatus.permanentlyDenied && fine == NexaPermissionStatus.permanentlyDenied -> NexaPermissionStatus.permanentlyDenied
+        (coarse == NexaPermissionStatus.denied || coarse == NexaPermissionStatus.permanentlyDenied) &&
+            (fine == NexaPermissionStatus.denied || fine == NexaPermissionStatus.permanentlyDenied) -> NexaPermissionStatus.denied
         else -> NexaPermissionStatus.notDetermined
     }
 
@@ -163,7 +192,23 @@ fn status_case(permission: Permission) -> &'static str {
         }
         Permission::Photos => {
             r#"            NexaPermission.Photos -> if (android.os.Build.VERSION.SDK_INT >= 33) {
-                statusFor(context, android.Manifest.permission.READ_MEDIA_IMAGES)
+                if (android.os.Build.VERSION.SDK_INT >= 34) {
+                    val full = statusFor(context, android.Manifest.permission.READ_MEDIA_IMAGES)
+                    if (full == NexaPermissionStatus.granted) {
+                        full
+                    } else {
+                        val selected = statusFor(context, android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+                        when {
+                            selected == NexaPermissionStatus.granted -> NexaPermissionStatus.limited
+                            full == NexaPermissionStatus.permanentlyDenied && selected == NexaPermissionStatus.permanentlyDenied -> NexaPermissionStatus.permanentlyDenied
+                            full == NexaPermissionStatus.restricted || selected == NexaPermissionStatus.restricted -> NexaPermissionStatus.restricted
+                            full == NexaPermissionStatus.denied && selected == NexaPermissionStatus.denied -> NexaPermissionStatus.denied
+                            else -> NexaPermissionStatus.notDetermined
+                        }
+                    }
+                } else {
+                    statusFor(context, android.Manifest.permission.READ_MEDIA_IMAGES)
+                }
             } else {
                 statusFor(context, android.Manifest.permission.READ_EXTERNAL_STORAGE)
             }
@@ -219,7 +264,14 @@ fn request_case(permission: Permission) -> &'static str {
         }
         Permission::Photos => {
             r#"            NexaPermission.Photos -> if (android.os.Build.VERSION.SDK_INT >= 33) {
-                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES)
+                if (android.os.Build.VERSION.SDK_INT >= 34) {
+                    arrayOf(
+                        android.Manifest.permission.READ_MEDIA_IMAGES,
+                        android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                    )
+                } else {
+                    arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES)
+                }
             } else {
                 arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
             }

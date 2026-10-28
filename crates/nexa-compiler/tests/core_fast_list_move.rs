@@ -98,8 +98,9 @@ app ReorderExample {
             assert!(native.contains("Box(modifier = Modifier.fillMaxWidth()"));
         } else {
             assert!(
-                native
-                    .contains("NexaNativeListPrimitive(scrollEnabled: true, reorderEnabled: true)"),
+                native.contains(
+                    "NexaNativeListPrimitive(scrollEnabled: true, reorderEnabled: true, rowCount:"
+                ),
                 "native list must install the no-icon iOS reorder session when onMove is present: {native}"
             );
             assert!(
@@ -174,9 +175,13 @@ app ReorderExample {
         assert!(native.contains("nexaOriginalSubset"), "{native}");
         assert!(native.contains("nexaReorderedSubset"), "{native}");
         if target == Target::Kotlin {
+            let placement_animation = native
+                .lines()
+                .find(|line| line.contains(".animateItem(placementSpec = if ("))
+                .expect("stable keys keep placement animation attached during reorder");
             assert!(
-                native.contains(".animateItem()"),
-                "stable keys animate reordered rows: {native}"
+                placement_animation.contains("androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>() else null)"),
+                "stable keys animate after the drag while keeping placement still during the drag: {placement_animation}"
             );
             let drag_layer = native
                 .find(".graphicsLayer {")
@@ -284,8 +289,8 @@ app ReorderExample {
 }
 
 #[test]
-fn fast_list_scroll_to_index_modifier_uses_the_native_position_binding_on_both_platforms() {
-    let project = TestProject::new("nexa-fast-list-scroll-to-index-modifier");
+fn fast_list_scroll_position_binding_tracks_the_visible_row_on_both_platforms() {
+    let project = TestProject::new("nexa-fast-list-scroll-position-binding");
     let entry = project.join("App.nx");
     fs::write(
         &entry,
@@ -293,9 +298,9 @@ fn fast_list_scroll_to_index_modifier_uses_the_native_position_binding_on_both_p
 app ScrollToExample {
     state selectedRow: Int32 = 0
     body {
-        FastList(count: 24) { index in
+        FastList(count: 24, scrollPosition: selectedRow) { index in
             Text(index)
-        }.scrollToIndex(index: selectedRow)
+        }
     }
 }
 "#,
@@ -304,12 +309,12 @@ app ScrollToExample {
 
     for target in [Target::Swift, Target::Kotlin] {
         let module = compile_file_with_warnings_for_target(&entry, target)
-            .expect("FastList scrollToIndex should compile with a mutable Int32 position")
+            .expect("FastList scrollPosition should compile with a mutable Int32 binding")
             .module;
         let Node::FastList { plan } = &module.body[0] else {
             panic!("expected FastList node");
         };
-        assert_eq!(plan.scroll_position(), Some("selectedRow"));
+        assert_eq!(plan.scroll_position(), Some("selectedRow"), "{plan:#?}");
 
         let native = match target {
             Target::Swift => nexa_backend_swift::SwiftBackend.generate(&module),
@@ -332,23 +337,23 @@ app ScrollToExample {
 }
 
 #[test]
-fn fast_list_masonry_and_scroll_commands_generate_native_lazy_lists() {
-    let project = TestProject::new("nexa-fast-list-masonry-scroll-commands");
+fn fast_list_masonry_ref_commands_generate_native_lazy_lists() {
+    let project = TestProject::new("nexa-fast-list-masonry-ref-commands");
     let entry = project.join("App.nx");
     fs::write(
         &entry,
         r#"
 app MasonryScrollExample {
-    state topCommand: Int32 = 0
-    state endCommand: Int32 = 0
-    state contentOffset: Float64 = 0
+    let listRef = ComponentRef<FastList>()
     body {
-        FastList(count: 24, axis: Masonry(2), spacing: 12) { index in
-            Text(index)
+        Column {
+            Button("Show final card") {
+                listRef.scrollToIndex(index: 23)
+            }
+            FastList(count: 24, axis: Masonry(2), spacing: 12, ref: listRef) { index in
+                Text(index)
+            }
         }
-            .scrollToTop(trigger: topCommand)
-            .scrollToEnd(trigger: endCommand)
-            .scrollToOffset(offset: contentOffset)
     }
 }
 "#,
@@ -357,7 +362,7 @@ app MasonryScrollExample {
 
     for target in [Target::Swift, Target::Kotlin] {
         let module = compile_file_with_warnings_for_target(&entry, target)
-            .expect("masonry and scroll commands should compile")
+            .expect("masonry and typed ref commands should compile")
             .module;
         let native = match target {
             Target::Swift => nexa_backend_swift::SwiftBackend.generate(&module),
@@ -368,27 +373,18 @@ app MasonryScrollExample {
         match target {
             Target::Swift => {
                 assert!(native.contains("masonry: true"), "{native}");
-                assert!(native.contains("NexaFastListCommands("), "{native}");
-                assert!(native.contains("top: nexa_topCommand"), "{native}");
-                assert!(native.contains("end: nexa_endCommand"), "{native}");
-                assert!(
-                    native.contains("offset: Double(nexa_contentOffset)"),
-                    "{native}"
-                );
                 assert!(native.contains("NexaFastMasonryLayout"), "{native}");
+                assert!(native.contains("componentRef: nexa_listRef"), "{native}");
+                assert!(!native.contains("NexaFastListCommands"), "{native}");
             }
             Target::Kotlin => {
                 assert!(native.contains("LazyVerticalStaggeredGrid"), "{native}");
                 assert!(native.contains("StaggeredGridCells.Fixed(2)"), "{native}");
-                assert!(native.contains("scrollToItem"), "{native}");
-                assert!(native.contains("nexaLastScrollCommand"), "{native}");
-                assert!(native.contains("nexaLastScrollOffset"), "{native}");
-                assert!(native.contains("items as staggeredItems"), "{native}");
-                assert!(native.contains("staggeredItems("), "{native}");
-                assert!(
-                    native.contains("import androidx.compose.ui.platform.LocalDensity"),
-                    "{native}"
-                );
+                assert!(native.contains("items(\n"), "{native}");
+                assert!(!native.contains("staggeredItems"), "{native}");
+                assert!(native.contains("nexaFastListRef"), "{native}");
+                assert!(!native.contains("nexaLastScrollCommand"), "{native}");
+                assert!(!native.contains("nexaLastScrollOffset"), "{native}");
             }
             Target::All => unreachable!("test targets are concrete platforms"),
         }

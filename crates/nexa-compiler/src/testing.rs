@@ -965,7 +965,7 @@ impl<'a> HeadlessRuntime<'a> {
                         }
                     }
                     self.render_nodes(
-                        selected.unwrap_or(else_body),
+                        selected.unwrap_or_else(|| else_body.as_deref().unwrap_or_default()),
                         environment,
                         instance_path,
                         content,
@@ -976,6 +976,7 @@ impl<'a> HeadlessRuntime<'a> {
                 Node::ComponentCall {
                     name,
                     arguments,
+                    component_ref,
                     children,
                 } => {
                     let component = self
@@ -988,6 +989,9 @@ impl<'a> HeadlessRuntime<'a> {
                             parameter.as_str(),
                             eval_expr(value, environment, self.functions, 0)?,
                         );
+                    }
+                    if let Some(component_ref) = component_ref {
+                        let _ = eval_expr(component_ref, environment, self.functions, 0)?;
                     }
                     let arguments = component
                         .parameters
@@ -1063,11 +1067,15 @@ impl<'a> HeadlessRuntime<'a> {
                     namespace,
                     name,
                     arguments,
+                    component_ref,
                     children,
                     event_handlers,
                 } => {
                     for (_, value) in arguments {
                         let _ = eval_expr(value, environment, self.functions, 0)?;
+                    }
+                    if let Some(component_ref) = component_ref {
+                        let _ = eval_expr(component_ref, environment, self.functions, 0)?;
                     }
                     snapshot.plugin_components.push(HeadlessPluginComponent {
                         qualified_name: format!("{namespace}.{name}"),
@@ -1205,6 +1213,9 @@ fn run_action_sequence(
             }
             Action::Expression(expression) => {
                 let _ = eval_expr(expression, environment, functions, depth + 1)?;
+            }
+            Action::NavigationPush { .. } | Action::NavigationBack => {
+                return Err("headless tests cannot execute navigation actions".to_owned());
             }
             Action::WithAnimation { actions, .. } => {
                 let flow = run_action_sequence(actions, environment, functions, depth + 1)?;

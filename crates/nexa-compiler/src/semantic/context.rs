@@ -39,6 +39,11 @@ pub(super) struct ExprContext<'a> {
     /// DevRuntime can represent generic nullable reads with a tagged result
     /// that keeps valid nulls separate from reader failures.
     pub(super) allow_nullable_generic_plugin_reads: bool,
+    /// Declared app screens for typed `Navigation.push(...)` action lowering.
+    pub(super) screen_ids: Option<&'a ScreenSignatures>,
+    /// Navigation actions are available only inside screen-owned action blocks.
+    pub(super) allow_navigation_actions: bool,
+    pub(super) source_file: Option<&'a str>,
 }
 
 impl<'a> ExprContext<'a> {
@@ -70,11 +75,19 @@ impl<'a> ExprContext<'a> {
             enums,
             allow_await,
             allow_nullable_generic_plugin_reads: false,
+            screen_ids: None,
+            allow_navigation_actions: false,
+            source_file: None,
         }
     }
 
     pub(super) fn with_nullable_generic_plugin_reads(mut self, allow: bool) -> Self {
         self.allow_nullable_generic_plugin_reads = allow;
+        self
+    }
+
+    pub(super) fn with_source_file(mut self, source_file: Option<&'a str>) -> Self {
+        self.source_file = source_file;
         self
     }
 }
@@ -87,6 +100,9 @@ pub(super) struct TypeRegistries<'a> {
     pub structs: &'a StructTypes,
     pub enums: &'a HashSet<String>,
     pub allow_nullable_generic_plugin_reads: bool,
+    pub screen_ids: Option<&'a ScreenSignatures>,
+    pub allow_navigation_actions: bool,
+    pub source_file: Option<&'a str>,
 }
 
 impl Default for TypeRegistries<'_> {
@@ -95,6 +111,9 @@ impl Default for TypeRegistries<'_> {
             structs: empty_struct_types(),
             enums: empty_enum_names(),
             allow_nullable_generic_plugin_reads: false,
+            screen_ids: None,
+            allow_navigation_actions: false,
+            source_file: None,
         }
     }
 }
@@ -106,8 +125,13 @@ impl<'a> TypeRegistries<'a> {
         functions: &'a FunctionSignatures,
         allow_await: bool,
     ) -> ExprContext<'a> {
-        ExprContext::with_types(symbols, functions, allow_await, self.structs, self.enums)
-            .with_nullable_generic_plugin_reads(self.allow_nullable_generic_plugin_reads)
+        let mut context =
+            ExprContext::with_types(symbols, functions, allow_await, self.structs, self.enums)
+                .with_nullable_generic_plugin_reads(self.allow_nullable_generic_plugin_reads);
+        context.screen_ids = self.screen_ids;
+        context.allow_navigation_actions = self.allow_navigation_actions;
+        context.source_file = self.source_file;
+        context
     }
 }
 
@@ -140,6 +164,7 @@ pub(super) struct SemanticContext<'a> {
     pub(super) enums: &'a HashSet<String>,
     pub(super) target: Target,
     pub(super) allow_nullable_generic_plugin_reads: bool,
+    pub(super) source_file: Option<&'a str>,
 }
 
 impl<'a> SemanticContext<'a> {
@@ -169,6 +194,7 @@ impl<'a> SemanticContext<'a> {
             allow_navigation_back: false,
             target,
             allow_nullable_generic_plugin_reads,
+            source_file: None,
         }
     }
 
@@ -192,6 +218,7 @@ impl<'a> SemanticContext<'a> {
             allow_navigation_back: self.allow_navigation_back,
             target: self.target,
             allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
+            source_file: self.source_file,
         }
     }
 
@@ -212,6 +239,9 @@ impl<'a> SemanticContext<'a> {
             enums: self.enums,
             allow_await,
             allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
+            screen_ids: Some(self.screen_ids),
+            allow_navigation_actions: self.allow_navigation_back,
+            source_file: self.source_file,
         }
     }
 
@@ -220,6 +250,14 @@ impl<'a> SemanticContext<'a> {
             structs: self.structs,
             enums: self.enums,
             allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
+            screen_ids: Some(self.screen_ids),
+            allow_navigation_actions: self.allow_navigation_back,
+            source_file: self.source_file,
         }
+    }
+
+    pub(super) fn with_source_file(mut self, source_file: Option<&'a str>) -> Self {
+        self.source_file = source_file;
+        self
     }
 }

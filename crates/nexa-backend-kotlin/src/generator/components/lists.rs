@@ -31,9 +31,35 @@ struct SectionedPieces<'a> {
     swipe_actions: Option<&'a [Node]>,
     section_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
+    component_ref: Option<&'a Expr>,
 }
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    imports.add(
+        features.uses_fast_list,
+        "androidx.compose.runtime.SideEffect",
+    );
+    imports.add(
+        features.uses_fast_list,
+        "androidx.compose.runtime.DisposableEffect",
+    );
+    imports.add(
+        features.uses_fast_list,
+        "androidx.compose.runtime.rememberCoroutineScope",
+    );
+    imports.add(features.uses_fast_list, "kotlinx.coroutines.launch");
+    imports.add(
+        features.uses_fast_list,
+        "androidx.compose.foundation.gestures.animateScrollBy",
+    );
+    imports.add(
+        features.uses_fast_list,
+        "androidx.compose.foundation.gestures.scrollBy",
+    );
+    imports.add(
+        features.uses_fast_list,
+        "androidx.compose.ui.platform.LocalDensity",
+    );
     imports.add(
         features.facts.ui.lists.refresh_fused,
         "androidx.compose.material3.pulltorefresh.PullToRefreshBox",
@@ -179,14 +205,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState",
     );
     imports.add(
-        features.uses_grid_list,
-        "androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems",
-    );
-    imports.add(
-        features.facts.ui.lists.scroll_commands,
-        "androidx.compose.ui.platform.LocalDensity",
-    );
-    imports.add(
         features.uses_list_end_reached
             || features.uses_list_scroll_position
             || features.uses_list_scroll_events,
@@ -205,18 +223,21 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "kotlinx.coroutines.flow.distinctUntilChanged",
     );
     imports.add(
-        features.uses_list_end_reached || features.uses_linear_list_end_reached,
+        features.uses_list_end_reached
+            || features.uses_linear_list_end_reached
+            || features.uses_list_scroll_position,
         "androidx.compose.runtime.getValue",
     );
     imports.add(
-        features.uses_list_end_reached || features.uses_linear_list_end_reached,
+        features.uses_list_end_reached
+            || features.uses_linear_list_end_reached
+            || features.uses_list_scroll_position,
         "androidx.compose.runtime.setValue",
     );
     imports.add(
         features.uses_list_end_reached
             || features.uses_list_scroll_position
-            || features.uses_list_scroll_events
-            || features.facts.ui.lists.scroll_commands,
+            || features.uses_list_scroll_events,
         "androidx.compose.runtime.LaunchedEffect",
     );
     imports.add(
@@ -225,8 +246,8 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_list_end_reached
+            || features.uses_list_scroll_position
             || features.uses_reverse_layout
-            || features.facts.ui.lists.scroll_commands
             || features.facts.ui.lists.reorderable,
         "androidx.compose.runtime.remember",
     );
@@ -317,13 +338,11 @@ struct FlatPieces<'a> {
     on_scroll: Option<&'a [Action]>,
     on_move: Option<&'a FastListMove>,
     scroll_position: Option<&'a str>,
-    scroll_to_top: Option<&'a str>,
-    scroll_to_end: Option<&'a str>,
-    scroll_to_offset: Option<&'a str>,
     reverse_layout: bool,
     page_snap: bool,
     sticky_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
+    component_ref: Option<&'a Expr>,
 }
 
 #[derive(Clone, Copy)]
@@ -348,7 +367,7 @@ struct FlatRowContent<'a> {
 enum FlatCount<'a> {
     Count(&'a Expr),
     Items {
-        collection: &'a Expr,
+        collection: String,
         element_type: &'a nexa_ir::Type,
         item: &'a str,
     },
@@ -400,6 +419,7 @@ pub(crate) fn render_virtualized_list(
                     swipe_actions: common.swipe_actions.as_deref(),
                     section_header: common.section_header.as_deref(),
                     refresh: common.refresh.as_ref(),
+                    component_ref: common.component_ref.as_ref(),
                 },
                 &RenderScope { module, features },
                 depth,
@@ -424,48 +444,51 @@ pub(crate) fn render_virtualized_list(
             on_scroll: common.on_scroll.as_deref(),
             on_move: common.on_move.as_ref(),
             scroll_position: common.scroll_position.as_deref(),
-            scroll_to_top: common.scroll_to_top.as_deref(),
-            scroll_to_end: common.scroll_to_end.as_deref(),
-            scroll_to_offset: common.scroll_to_offset.as_deref(),
             reverse_layout: common.reverse_layout,
             page_snap: common.page_snap,
             sticky_header: common.sticky_header.as_deref(),
             refresh: common.refresh.as_ref(),
+            component_ref: common.component_ref.as_ref(),
         },
         ListPlan::Items {
-            collection,
+            collection: source_collection,
             element_type,
             item,
             common,
-        } => FlatPieces {
-            axis: common.axis,
-            uses_platform_list: common.on_move.is_some() || common.swipe_actions.is_some(),
-            show_dividers: common.show_dividers,
-            count: FlatCount::Items {
-                collection,
-                element_type,
-                item,
-            },
-            index: &common.index,
-            item: Some(item),
-            item_extent: common.item_extent,
-            spacing: common.spacing,
-            scroll_enabled: common.scroll_enabled.as_ref(),
-            key: common.key.as_ref(),
-            children: &common.children,
-            swipe_actions: common.swipe_actions.as_deref(),
-            on_end_reached: common.on_end_reached.as_deref(),
-            on_scroll: common.on_scroll.as_deref(),
-            on_move: common.on_move.as_ref(),
-            scroll_position: common.scroll_position.as_deref(),
-            scroll_to_top: common.scroll_to_top.as_deref(),
-            scroll_to_end: common.scroll_to_end.as_deref(),
-            scroll_to_offset: common.scroll_to_offset.as_deref(),
-            reverse_layout: common.reverse_layout,
-            page_snap: common.page_snap,
-            sticky_header: common.sticky_header.as_deref(),
-            refresh: common.refresh.as_ref(),
-        },
+        } => {
+            let collection = format!("nexaListValues{list_id}");
+            out.line_at(
+                depth,
+                format_args!("val {collection} = {}", expression(source_collection)),
+            );
+            FlatPieces {
+                axis: common.axis,
+                uses_platform_list: common.on_move.is_some() || common.swipe_actions.is_some(),
+                show_dividers: common.show_dividers,
+                count: FlatCount::Items {
+                    collection,
+                    element_type,
+                    item,
+                },
+                index: &common.index,
+                item: Some(item),
+                item_extent: common.item_extent,
+                spacing: common.spacing,
+                scroll_enabled: common.scroll_enabled.as_ref(),
+                key: common.key.as_ref(),
+                children: &common.children,
+                swipe_actions: common.swipe_actions.as_deref(),
+                on_end_reached: common.on_end_reached.as_deref(),
+                on_scroll: common.on_scroll.as_deref(),
+                on_move: common.on_move.as_ref(),
+                scroll_position: common.scroll_position.as_deref(),
+                reverse_layout: common.reverse_layout,
+                page_snap: common.page_snap,
+                sticky_header: common.sticky_header.as_deref(),
+                refresh: common.refresh.as_ref(),
+                component_ref: common.component_ref.as_ref(),
+            }
+        }
     };
     match pieces.axis {
         ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } | ListAxis::Masonry { .. } => {
@@ -479,9 +502,7 @@ pub(crate) fn render_virtualized_list(
         || pieces.on_scroll.is_some()
         || pieces.on_move.is_some()
         || pieces.scroll_position.is_some()
-        || pieces.scroll_to_top.is_some()
-        || pieces.scroll_to_end.is_some()
-        || pieces.scroll_to_offset.is_some();
+        || pieces.component_ref.is_some();
     let list_state = (has_list_observers
         || (matches!(pieces.axis, ListAxis::Vertical | ListAxis::Horizontal) && !pieces.page_snap))
         .then(|| format!("nexaListState{list_id}"));
@@ -499,11 +520,7 @@ pub(crate) fn render_virtualized_list(
             format_args!("val {state} = remember {{ mutableFloatStateOf(0f) }}"),
         );
     }
-    let list_count = (pieces.on_end_reached.is_some()
-        || pieces.scroll_to_end.is_some()
-        || pieces.reverse_layout
-        || pieces.page_snap)
-        .then(|| format!("nexaListCount{list_id}"));
+    let list_count = flat_list_requires_count(&pieces).then(|| format!("nexaListCount{list_id}"));
     if let Some(list_state) = list_state.as_deref() {
         let marker = pieces
             .on_end_reached
@@ -513,6 +530,17 @@ pub(crate) fn render_virtualized_list(
             list_state,
             list_count.as_deref(),
             marker.as_deref(),
+            depth,
+            out,
+        );
+    }
+    if let (Some(component_ref), Some(list_state)) = (pieces.component_ref, list_state.as_deref()) {
+        render_list_component_ref(
+            component_ref,
+            list_state,
+            pieces.axis,
+            pieces.page_snap,
+            &flat_count_expression(&pieces.count),
             depth,
             out,
         );
@@ -532,7 +560,7 @@ pub(crate) fn render_virtualized_list(
     // axes select the linear container with a total comparison.
     let native_list_count = match &pieces.count {
         FlatCount::Count(count) => format!("({}).coerceAtLeast(0)", expression(count)),
-        FlatCount::Items { collection, .. } => format!("{}.size", expression(collection)),
+        FlatCount::Items { collection, .. } => format!("{collection}.size"),
     };
     let spacing = format_float(pieces.spacing);
     let container = if pieces.axis == ListAxis::Horizontal {
@@ -629,7 +657,6 @@ pub(crate) fn render_virtualized_list(
             element_type,
             item,
         } => {
-            let collection = expression(collection);
             let count = list_count
                 .as_deref()
                 .map(str::to_owned)
@@ -647,7 +674,7 @@ pub(crate) fn render_virtualized_list(
                         key,
                         pieces.index,
                         Some(item),
-                        Some(&collection),
+                        Some(collection),
                         &row_position,
                     )
                 })
@@ -768,18 +795,15 @@ fn render_page_snap_list(
             .map(|key| render_key(key, pieces.index, pieces.item, None, "pagePosition")),
         FlatCount::Items {
             collection, item, ..
-        } => {
-            let collection = expression(collection);
-            pieces.key.map(|key| {
-                render_key(
-                    key,
-                    pieces.index,
-                    Some(item),
-                    Some(&collection),
-                    "pagePosition",
-                )
-            })
-        }
+        } => pieces.key.map(|key| {
+            render_key(
+                key,
+                pieces.index,
+                Some(item),
+                Some(collection),
+                "pagePosition",
+            )
+        }),
     };
 
     indent(out, list_depth);
@@ -819,7 +843,6 @@ fn render_page_snap_list(
             element_type,
             item,
         } => {
-            let collection = expression(collection);
             out.line_at(list_depth + 1, format_args!("pagePosition ->"));
             out.line_at(
                 list_depth + 2,
@@ -874,20 +897,31 @@ fn render_sectioned_list(
         swipe_actions,
         section_header,
         refresh,
+        component_ref,
     } = pieces;
-    let collection = expression(collection);
+    let collection_name = format!("nexaListSections{}", out.next_id());
+    out.line_at(
+        depth,
+        format_args!("val {collection_name} = {}", expression(collection)),
+    );
     let list_state = format!("nexaSectionedListState{}", out.next_id());
     out.line_at(
         depth,
         format_args!("val {list_state} = rememberLazyListState()"),
     );
-    let section_collection = if uses_platform_list {
-        let name = format!("nexaNativeListSections{}", out.next_id());
-        out.line_at(depth, format_args!("val {name} = {collection}"));
-        name
-    } else {
-        collection
-    };
+    if let Some(component_ref) = component_ref {
+        let row_count = format!("({collection_name}.sumOf {{ it.size }})");
+        render_list_component_ref(
+            component_ref,
+            &list_state,
+            ListAxis::Vertical,
+            false,
+            &row_count,
+            depth,
+            out,
+        );
+    }
+    let section_collection = collection_name;
     let list_depth = render_refresh_open(refresh, depth, out);
     indent(out, list_depth);
     out.push_str(&format!("LazyColumn(state = {list_state}, "));
@@ -1061,9 +1095,7 @@ fn render_grid_list(
     out: &mut SourceWriter,
 ) {
     let list_state = format!("nexaGridState{list_id}");
-    let list_count = pieces
-        .on_end_reached
-        .map(|_| format!("nexaGridCount{list_id}"));
+    let list_count = flat_list_requires_count(pieces).then(|| format!("nexaGridCount{list_id}"));
     let marker = pieces
         .on_end_reached
         .map(|_| format!("nexaEndReached{list_id}"));
@@ -1075,6 +1107,17 @@ fn render_grid_list(
         depth,
         out,
     );
+    if let Some(component_ref) = pieces.component_ref {
+        render_list_component_ref(
+            component_ref,
+            &list_state,
+            axis,
+            pieces.page_snap,
+            &flat_count_expression(&pieces.count),
+            depth,
+            out,
+        );
+    }
     let state_parameter = format!("state = {list_state}, ");
     let scroll_state = list_state.as_str();
     let spacing = format_float(pieces.spacing);
@@ -1088,11 +1131,6 @@ fn render_grid_list(
         ListAxis::Vertical | ListAxis::Horizontal => "GridCells.Fixed(1)".to_owned(),
     };
     let is_masonry = matches!(axis, ListAxis::Masonry { .. });
-    let items_function = if is_masonry {
-        "staggeredItems"
-    } else {
-        "items"
-    };
     let list_name = if is_masonry {
         "LazyVerticalStaggeredGrid"
     } else {
@@ -1129,7 +1167,7 @@ fn render_grid_list(
                 .as_deref()
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("({}).coerceAtLeast(0)", expression(count)));
-            out.push_str(&format!("{items_function}(\n"));
+            out.push_str("items(\n");
             out.line_at(list_depth + 2, format_args!("count = {count},"));
             indent(out, list_depth + 2);
             let key = pieces
@@ -1147,12 +1185,11 @@ fn render_grid_list(
             element_type,
             item,
         } => {
-            let collection = expression(collection);
             let count = list_count
                 .as_deref()
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("{collection}.size"));
-            out.push_str(&format!("{items_function}(\n"));
+            out.push_str("items(\n");
             out.line_at(list_depth + 2, format_args!("count = {count},"));
             indent(out, list_depth + 2);
             let key = pieces
@@ -1162,7 +1199,7 @@ fn render_grid_list(
                         key,
                         pieces.index,
                         Some(item),
-                        Some(&collection),
+                        Some(collection),
                         "itemPosition",
                     )
                 })
@@ -1203,6 +1240,10 @@ fn render_grid_list(
     render_refresh_close(pieces.refresh, depth, out);
 }
 
+fn flat_list_requires_count(pieces: &FlatPieces<'_>) -> bool {
+    pieces.on_end_reached.is_some() || pieces.reverse_layout || pieces.page_snap
+}
+
 fn render_refresh_open(
     refresh: Option<&FastListRefresh>,
     depth: usize,
@@ -1239,7 +1280,7 @@ fn emit_leading_visible_data_item_index(
     list_state: &str,
     sticky_header_offset: usize,
     reverse_layout: bool,
-    masonry: bool,
+    axis: ListAxis,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -1251,11 +1292,10 @@ fn emit_leading_visible_data_item_index(
         depth + 1,
         format_args!("val layoutInfo = {list_state}.layoutInfo"),
     );
-    let item_offset = if masonry { "it.offset.y" } else { "it.offset" };
-    let item_size = if masonry { "it.size.height" } else { "it.size" };
+    let (item_offset, item_size) = list_item_info_geometry(axis);
     out.line_at(
         depth + 1,
-        format_args!("val visibleItems = layoutInfo.visibleItemsInfo.filter {{ {item_offset} + {item_size} > layoutInfo.viewportStartOffset && {item_offset} < layoutInfo.viewportEndOffset }}"),
+        format_args!("val visibleItems = layoutInfo.visibleItemsInfo.filter {{ it.{item_offset} + it.{item_size} > layoutInfo.viewportStartOffset && it.{item_offset} < layoutInfo.viewportEndOffset }}"),
     );
     if sticky_header_offset > 0 {
         out.line_at(
@@ -1299,6 +1339,15 @@ fn emit_leading_visible_data_item_index(
     out.line_at(depth, format_args!("}}"));
 }
 
+fn list_item_info_geometry(axis: ListAxis) -> (&'static str, &'static str) {
+    match axis {
+        ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } | ListAxis::Masonry { .. } => {
+            ("offset.y", "size.height")
+        }
+        ListAxis::Vertical | ListAxis::Horizontal => ("offset", "size"),
+    }
+}
+
 fn render_list_observers(
     pieces: &FlatPieces<'_>,
     list_state: &str,
@@ -1310,22 +1359,14 @@ fn render_list_observers(
     let axis = pieces.axis;
     let count = &pieces.count;
     let end_actions = pieces.on_end_reached;
-    let scroll_position = pieces.scroll_position;
+    let list_task_scope = end_actions
+        .filter(|actions| nexa_ir::walk::actions_contain_task_launch(actions))
+        .map(|_| format!("nexaListTaskScope{list_state}"));
+    let scroll_position = pieces.scroll_position.map(state_name);
     let scroll_actions = pieces.on_scroll;
     let sticky_header_offset =
         usize::from(pieces.sticky_header.is_some() && matches!(axis, ListAxis::Vertical));
-    let masonry = matches!(axis, ListAxis::Masonry { .. });
-    let item_offset = if masonry {
-        "item.offset.y"
-    } else {
-        "item.offset"
-    };
-    let item_size = if masonry {
-        "item.size.height"
-    } else {
-        "item.size"
-    };
-    let scroll_position = scroll_position.map(state_name);
+    let (item_offset, item_size) = list_item_info_geometry(axis);
     let state_initializer = match axis {
         ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } => "rememberLazyGridState",
         ListAxis::Masonry { .. } => "rememberLazyStaggeredGridState",
@@ -1367,6 +1408,12 @@ fn render_list_observers(
         depth,
         format_args!("val {list_state} = {state_initializer}"),
     );
+    if let Some(task_scope) = list_task_scope.as_deref() {
+        out.line_at(
+            depth,
+            format_args!("val {task_scope} = rememberCoroutineScope()"),
+        );
+    }
     if pieces.reverse_layout {
         let list_count = list_count.unwrap_or("0");
         let previous_count = format!("nexaPreviousCount{list_state}");
@@ -1446,6 +1493,9 @@ fn render_list_observers(
                     "if ({list_count} > 0 && finalItemVisible && {marker} != {list_count}) {{"
                 ),
             );
+            if let Some(task_scope) = list_task_scope.as_deref() {
+                out.line_at(depth + 4, format_args!("val nexaTaskScope = {task_scope}"));
+            }
             out.line_at(depth + 4, format_args!("{marker} = {list_count}"));
             render_actions(actions, depth + 4, out);
             indent(out, depth + 3);
@@ -1460,7 +1510,7 @@ fn render_list_observers(
                 )
             } else {
                 format!(
-                    "run {{ val layoutInfo = {list_state}.layoutInfo; layoutInfo.visibleItemsInfo.any {{ item -> item.index >= {final_item} && {item_offset} < layoutInfo.viewportEndOffset && {item_offset} + {item_size} > layoutInfo.viewportStartOffset }} }}"
+                    "run {{ val layoutInfo = {list_state}.layoutInfo; layoutInfo.visibleItemsInfo.any {{ item -> item.index >= {final_item} && item.{item_offset} < layoutInfo.viewportEndOffset && item.{item_offset} + item.{item_size} > layoutInfo.viewportStartOffset }} }}"
                 )
             };
             out.line_at(depth + 1, format_args!("snapshotFlow {{ {final_visible_expression} }}.distinctUntilChanged().collect {{ finalItemVisible ->"
@@ -1471,6 +1521,9 @@ fn render_list_observers(
                     "if ({list_count} > 0 && finalItemVisible && {marker} != {list_count}) {{"
                 ),
             );
+            if let Some(task_scope) = list_task_scope.as_deref() {
+                out.line_at(depth + 3, format_args!("val nexaTaskScope = {task_scope}"));
+            }
             out.line_at(depth + 3, format_args!("{marker} = {list_count}"));
             render_actions(actions, depth + 3, out);
             indent(out, depth + 2);
@@ -1519,7 +1572,7 @@ fn render_list_observers(
                 list_state,
                 sticky_header_offset,
                 pieces.reverse_layout,
-                masonry,
+                axis,
                 depth + 1,
                 out,
             );
@@ -1683,93 +1736,108 @@ fn render_list_observers(
             out.push_str("}\n");
         }
     }
-    for (trigger_name, target_is_end) in
-        [(pieces.scroll_to_top, false), (pieces.scroll_to_end, true)]
-    {
-        if let Some(trigger_name) = trigger_name {
-            let trigger = state_name(trigger_name);
-            let last_trigger = format!("nexaLastScrollCommand{list_state}{trigger}");
-            out.line_at(
-                depth,
-                format_args!(
-                    "val {last_trigger} = remember({list_state}) {{ intArrayOf({trigger}) }}"
-                ),
-            );
-            out.line_at(depth, format_args!("LaunchedEffect({trigger}) {{"));
-            out.line_at(
-                depth + 1,
-                format_args!("if ({last_trigger}[0] != {trigger}) {{"),
-            );
-            if target_is_end {
-                let last_item = if pieces.reverse_layout {
-                    "0".to_owned()
-                } else {
-                    format!("({} - 1).coerceAtLeast(0)", list_count.unwrap_or("0"))
-                };
-                let command = if pieces.page_snap {
-                    format!("{list_state}.scrollToPage({last_item})")
-                } else {
-                    format!("{list_state}.scrollToItem({last_item})")
-                };
-                out.line_at(
-                    depth + 2,
-                    format_args!("if ({} > 0) {command}", list_count.unwrap_or("0")),
-                );
-            } else {
-                let first_item = if pieces.reverse_layout {
-                    format!("({} - 1).coerceAtLeast(0)", list_count.unwrap_or("0"))
-                } else {
-                    "0".to_owned()
-                };
-                let command = if pieces.page_snap {
-                    format!("{list_state}.scrollToPage({first_item})")
-                } else {
-                    format!("{list_state}.scrollToItem({first_item})")
-                };
-                out.line_at(depth + 2, format_args!("{command}"));
-            }
-            out.line_at(depth + 1, format_args!("}}"));
-            out.line_at(depth + 1, format_args!("{last_trigger}[0] = {trigger}"));
-            out.line_at(depth, format_args!("}}"));
-        }
-    }
-    if let Some(offset_name) = pieces.scroll_to_offset {
-        let offset = state_name(offset_name);
-        let last_offset = format!("nexaLastScrollOffset{list_state}");
-        out.line_at(
-            depth,
-            format_args!(
-                "val {last_offset} = remember({list_state}) {{ doubleArrayOf({offset}) }}"
-            ),
-        );
-        out.line_at(
-            depth,
-            format_args!("val nexaDensity{list_state} = LocalDensity.current"),
-        );
-        out.line_at(depth, format_args!("LaunchedEffect({offset}) {{"));
-        out.line_at(
-            depth + 1,
-            format_args!("if ({last_offset}[0] != {offset}) {{"),
-        );
-        out.line_at(
-                depth + 2,
-                format_args!("val targetOffset = with(nexaDensity{list_state}) {{ {offset}.coerceAtLeast(0.0).dp.roundToPx() }}"),
-            );
-        out.line_at(
-            depth + 2,
-            format_args!("{list_state}.scrollToItem(0, targetOffset)"),
-        );
-        out.line_at(depth + 1, format_args!("}}"));
-        out.line_at(depth + 1, format_args!("{last_offset}[0] = {offset}"));
-        out.line_at(depth, format_args!("}}"));
-    }
 }
 
 fn flat_count_expression(count: &FlatCount<'_>) -> String {
     match count {
         FlatCount::Count(count) => format!("({}).coerceAtLeast(0)", expression(count)),
-        FlatCount::Items { collection, .. } => format!("{}.size", expression(collection)),
+        FlatCount::Items { collection, .. } => format!("{collection}.size"),
     }
+}
+
+fn render_list_component_ref(
+    component_ref: &Expr,
+    state: &str,
+    axis: ListAxis,
+    page_snap: bool,
+    count: &str,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let id = out.next_id();
+    let reference = format!("nexaFastListRef{id}");
+    let scope = format!("nexaFastListRefScope{id}");
+    let density = format!("nexaFastListRefDensity{id}");
+    let count = format!("({count}).coerceAtLeast(0)");
+    let (item_offset, item_size) = list_item_info_geometry(axis);
+    let scroll_to_index = if page_snap {
+        format!(
+            "if (animated) {state}.animateScrollToPage(index.coerceIn(0, ({count} - 1).coerceAtLeast(0))) else {state}.scrollToPage(index.coerceIn(0, ({count} - 1).coerceAtLeast(0)))"
+        )
+    } else {
+        format!(
+            "run {{ val targetIndex = index.coerceIn(0, ({count} - 1).coerceAtLeast(0)); if (animated) {state}.animateScrollToItem(targetIndex) else {state}.scrollToItem(targetIndex); val targetItem = {state}.layoutInfo.visibleItemsInfo.firstOrNull {{ it.index == targetIndex }}; if (targetItem != null) {{ val viewportStart = {state}.layoutInfo.viewportStartOffset; val viewportEnd = {state}.layoutInfo.viewportEndOffset; val availableSpace = (viewportEnd - viewportStart - targetItem.{item_size}).coerceAtLeast(0); val targetOffset = viewportStart + (availableSpace * viewPosition).toInt(); val delta = (targetItem.{item_offset} - targetOffset).toFloat(); if (animated) {state}.animateScrollBy(delta) else {state}.scrollBy(delta) }} }}"
+        )
+    };
+    let scroll_to_top = if page_snap {
+        format!("if (animated) {state}.animateScrollToPage(0) else {state}.scrollToPage(0)")
+    } else {
+        format!("if (animated) {state}.animateScrollToItem(0) else {state}.scrollToItem(0)")
+    };
+    let scroll_to_end = if page_snap {
+        format!(
+            "if (animated) {state}.animateScrollToPage(({count} - 1).coerceAtLeast(0)) else {state}.scrollToPage(({count} - 1).coerceAtLeast(0))"
+        )
+    } else {
+        format!(
+            "if (animated) {state}.animateScrollToItem(({count} - 1).coerceAtLeast(0)) else {state}.scrollToItem(({count} - 1).coerceAtLeast(0))"
+        )
+    };
+    let scroll_to_offset = if page_snap {
+        let viewport_axis = match axis {
+            ListAxis::Horizontal => "width",
+            _ => "height",
+        };
+        format!(
+            "if (animated) {state}.animateScrollToPage((with({density}) {{ offset.toFloat().dp.roundToPx() }} / {state}.layoutInfo.viewportSize.{viewport_axis}.coerceAtLeast(1)).coerceAtLeast(0)) else {state}.scrollToPage((with({density}) {{ offset.toFloat().dp.roundToPx() }} / {state}.layoutInfo.viewportSize.{viewport_axis}.coerceAtLeast(1)).coerceAtLeast(0))"
+        )
+    } else {
+        format!(
+            "if (animated) {state}.animateScrollToItem(0, with({density}) {{ offset.toFloat().dp.roundToPx() }}.coerceAtLeast(0)) else {state}.scrollToItem(0, with({density}) {{ offset.toFloat().dp.roundToPx() }}.coerceAtLeast(0))"
+        )
+    };
+    out.line_at(
+        depth,
+        format_args!("val {reference} = {}", expression(component_ref)),
+    );
+    out.line_at(
+        depth,
+        format_args!("val {scope} = rememberCoroutineScope()"),
+    );
+    out.line_at(depth, format_args!("val {density} = LocalDensity.current"));
+    out.line_at(depth, format_args!("SideEffect {{"));
+    out.line_at(depth + 1, format_args!("{reference}.attach("));
+    out.line_at(
+        depth + 2,
+        format_args!("scrollToIndex = {{ index, animated, viewPosition -> {scope}.launch {{ {scroll_to_index} }} }},"),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!("scrollToTop = {{ animated -> {scope}.launch {{ {scroll_to_top} }} }},"),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "scrollToEnd = {{ animated -> if ({count} > 0) {scope}.launch {{ {scroll_to_end} }} }},"
+        ),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "scrollToOffset = {{ offset, animated -> {scope}.launch {{ {scroll_to_offset} }} }}"
+        ),
+    );
+    out.line_at(depth + 1, format_args!(")"));
+    out.line_at(depth, format_args!("}}"));
+    out.line_at(
+        depth,
+        format_args!("DisposableEffect({reference}, {state}) {{"),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("onDispose {{ {reference}.detach() }}"),
+    );
+    out.line_at(depth, format_args!("}}"));
 }
 
 #[derive(Clone, Copy)]
@@ -1889,10 +1957,25 @@ fn render_reorderable_row_enabled(
     let header_index_offset = row.list_index_offset;
     out.line_at(
         depth,
+        format_args!(
+            "val isDragging = {dragged_index_state}.intValue == {}",
+            state_name(index)
+        ),
+    );
+    out.line_at(
+        depth,
         format_args!("Box(modifier = Modifier.fillMaxWidth()"),
     );
     if row.animate_item {
-        out.line_at(depth + 1, format_args!(".animateItem()"));
+        // Animated item offsets change while the collection is being reordered. Keep
+        // the modifier attached but disable placement motion until the active drag ends.
+        out.line_at(
+            depth + 1,
+            format_args!(
+                ".animateItem(placementSpec = if ({}.intValue < 0) androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>() else null)",
+                dragged_index_state
+            ),
+        );
     }
     out.line_at(
         depth + 1,
@@ -2087,13 +2170,6 @@ fn render_reorderable_row_enabled(
     out.line_at(depth + 1, format_args!(".graphicsLayer {{"));
     out.line_at(
         depth + 2,
-        format_args!(
-            "val isDragging = {dragged_index_state}.intValue == {}",
-            state_name(index)
-        ),
-    );
-    out.line_at(
-        depth + 2,
         format_args!("translationY = if (isDragging) {drag_offset_state}.floatValue else 0f"),
     );
     out.line_at(
@@ -2159,6 +2235,7 @@ fn render_swipe_row(
             depth + 1,
             out,
         );
+        out.push('\n');
         if row.native_row_divider {
             out.line_at(
                 depth + 1,
@@ -2192,6 +2269,7 @@ fn render_swipe_row_content(
             depth,
             out,
         );
+        out.push('\n');
         return;
     };
     out.line_at(depth, format_args!("NexaFastListSwipePrimitive("));
@@ -2212,6 +2290,7 @@ fn render_swipe_row_content(
     out.line_at(depth + 1, format_args!("}}"));
     indent(out, depth);
     out.push(')');
+    out.push('\n');
 }
 
 fn render_row_content_with_actions(
@@ -2330,12 +2409,12 @@ fn replace_identifier(source: &str, identifier: &str, replacement: &str) -> Stri
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Action, Expr, FastListMove, Module, NumericType};
+    use nexa_ir::{Action, Expr, FastListMove, Module, NumericType, TaskExecutor};
 
     use super::{
-        FlatCount, FlatPieces, FlatRowContent, ListAxis, ListRowSizing, render_list_observers,
-        render_reorderable_row_enabled, row_modifier, scroll_enabled_expression,
-        sectioned_list_modifier,
+        FlatCount, FlatPieces, FlatRowContent, ListAxis, ListRowSizing, flat_list_requires_count,
+        render_list_observers, render_reorderable_row_enabled, row_modifier,
+        scroll_enabled_expression, sectioned_list_modifier,
     };
 
     #[test]
@@ -2379,7 +2458,11 @@ mod tests {
             raw: "20".to_owned(),
             ty: NumericType::Int32,
         };
-        let end_actions: [Action; 0] = [];
+        let end_actions = [Action::TaskLaunch {
+            handle: None,
+            executor: TaskExecutor::Main,
+            actions: vec![Action::Expression(Expr::Bool(true))],
+        }];
         let pieces = FlatPieces {
             axis: ListAxis::Vertical,
             uses_platform_list: false,
@@ -2391,16 +2474,17 @@ mod tests {
             spacing: 0.0,
             scroll_enabled: None,
             key: None,
+            scroll_position: None,
             children: &[],
             swipe_actions: None,
             on_end_reached: Some(&end_actions),
             on_scroll: None,
             on_move: None,
-            scroll_position: None,
             reverse_layout: false,
             page_snap: false,
             sticky_header: None,
             refresh: None,
+            component_ref: None,
         };
         let mut generated = SourceWriter::new();
         render_list_observers(
@@ -2415,9 +2499,85 @@ mod tests {
         assert!(generated.as_str().contains(
             "var nexaEndReached0 by rememberSaveable(nexaListCount0) { mutableIntStateOf(-1) }"
         ));
+        assert!(
+            generated
+                .as_str()
+                .contains("val nexaListTaskScopenexaListState0 = rememberCoroutineScope()")
+        );
+        assert!(
+            generated
+                .as_str()
+                .contains("val nexaTaskScope = nexaListTaskScopenexaListState0")
+        );
+        assert!(generated.as_str().contains("nexaTaskScope.launch("));
         assert!(generated.as_str().contains(
             "layoutInfo.visibleItemsInfo.any { item -> item.index >= nexaListCount0 + 0 - 1 && item.offset < layoutInfo.viewportEndOffset && item.offset + item.size > layoutInfo.viewportStartOffset }"
         ));
+    }
+
+    #[test]
+    fn grid_scroll_observers_use_vertical_item_geometry() {
+        let count = Expr::Number {
+            raw: "12".to_owned(),
+            ty: NumericType::Int32,
+        };
+        let end_actions: [Action; 0] = [];
+        for axis in [
+            ListAxis::Grid { columns: 2 },
+            ListAxis::AutoGrid {
+                min_cell_width: 160,
+            },
+            ListAxis::Masonry { columns: 2 },
+        ] {
+            let pieces = FlatPieces {
+                axis,
+                uses_platform_list: false,
+                show_dividers: true,
+                count: FlatCount::Count(&count),
+                index: "index",
+                item: None,
+                item_extent: None,
+                spacing: 4.0,
+                scroll_enabled: None,
+                key: None,
+                scroll_position: Some("position"),
+                children: &[],
+                swipe_actions: None,
+                on_end_reached: Some(&end_actions),
+                on_scroll: None,
+                on_move: None,
+                reverse_layout: false,
+                page_snap: false,
+                sticky_header: None,
+                refresh: None,
+                component_ref: None,
+            };
+            assert!(flat_list_requires_count(&pieces), "{axis:?}");
+            let mut generated = SourceWriter::new();
+            render_list_observers(
+                &pieces,
+                "nexaGridState0",
+                Some("nexaGridCount0"),
+                Some("nexaEndReached0"),
+                0,
+                &mut generated,
+            );
+
+            assert!(
+                generated.as_str().contains(
+                    "it.offset.y + it.size.height > layoutInfo.viewportStartOffset && it.offset.y < layoutInfo.viewportEndOffset"
+                ),
+                "{axis:?}: {}",
+                generated.as_str()
+            );
+            assert!(
+                generated.as_str().contains(
+                    "item.offset.y < layoutInfo.viewportEndOffset && item.offset.y + item.size.height > layoutInfo.viewportStartOffset"
+                ),
+                "{axis:?}: {}",
+                generated.as_str()
+            );
+        }
     }
 
     #[test]
@@ -2478,9 +2638,16 @@ mod tests {
         );
 
         let source = generated.as_str();
+        let drag_value = source
+            .find("val isDragging = draggedIndex.intValue == ")
+            .unwrap_or_else(|| panic!("drag state declaration missing:\n{source}"));
         let pointer_input = source.find(".pointerInput(").unwrap();
         let translated_layer = source.find(".graphicsLayer {").unwrap();
         let z_index = source.find(".zIndex(if (isDragging) 1f else 0f)").unwrap();
+        assert!(
+            drag_value < pointer_input,
+            "drag state must be in scope for both modifier nodes:\n{source}"
+        );
         assert!(
             pointer_input < translated_layer,
             "pointer input must remain outside the moving graphics layer so pointer deltas stay in stationary coordinates:\n{source}"
@@ -2511,5 +2678,8 @@ mod tests {
                 .as_str()
                 .contains("previousPosition = androidx.compose.ui.geometry.Offset")
         );
+        assert!(keyed_generated.as_str().contains(
+            ".animateItem(placementSpec = if (draggedIndex.intValue < 0) androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>() else null)"
+        ));
     }
 }

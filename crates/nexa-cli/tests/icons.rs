@@ -1,3 +1,7 @@
+#[path = "../src/project/file_ops.rs"]
+#[allow(dead_code)]
+mod file_ops;
+
 #[path = "../src/project/assets.rs"]
 #[allow(dead_code)]
 mod assets;

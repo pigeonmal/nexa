@@ -115,10 +115,41 @@ public enum NexaNetworkError: Error {
 
 public struct NexaNetworkResponse {
     public let statusCode: Int32
-    public let headers: [String: [String]]
+    let headers: [(String, String)]
     public let body: Data
 
     public var text: String { String(decoding: body, as: UTF8.self) }
+
+    public func getHeader(_ name: String) -> String? {
+        headers.first(where: { $0.0.caseInsensitiveCompare(name) == .orderedSame })?.1
+    }
+
+    public func getHeaders(_ name: String) -> [String] {
+        var values: [String] = []
+        for header in headers where header.0.caseInsensitiveCompare(name) == .orderedSame {
+            values.append(header.1)
+        }
+        return values
+    }
+
+    public func getCookie() -> String {
+        getHeaders("Set-Cookie")
+            .compactMap { value -> String? in
+                guard let first = value
+                    .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+                    .first else { return nil }
+                let pair = String(first).trimmingCharacters(in: .whitespaces)
+                guard let equals = pair.firstIndex(of: "="), equals != pair.startIndex else {
+                    return nil
+                }
+                let cookieName = String(pair[..<equals]).trimmingCharacters(in: .whitespaces)
+                let cookieValue = String(pair[pair.index(after: equals)...])
+                    .trimmingCharacters(in: .whitespaces)
+                guard !cookieName.isEmpty else { return nil }
+                return "\(cookieName)=\(cookieValue)"
+            }
+            .joined(separator: "; ")
+    }
 }
 
 private enum NexaCertificatePin {
@@ -239,13 +270,46 @@ private final class NexaURLSessionDelegate: NSObject, URLSessionTaskDelegate {
 }
 
 public enum NexaNetwork {
+    private static func urlRequestCachePolicy(_ value: String) -> URLRequest.CachePolicy {
+        switch value {
+        case "Reload": return .reloadIgnoringLocalCacheData
+        case "CacheOnly": return .returnCacheDataDontLoad
+        default: return .useProtocolCachePolicy
+        }
+    }
+
+    private static func makeResponse(
+        data: Data,
+        response: URLResponse,
+        maxResponseBytes: Int
+    ) throws -> NexaNetworkResponse {
+        guard let response = response as? HTTPURLResponse else {
+            throw NexaNetworkError.invalidResponse
+        }
+        if data.count > maxResponseBytes {
+            throw NexaNetworkError.responseTooLarge
+        }
+        let headers = response.allHeaderFields.flatMap { key, value -> [(String, String)] in
+            guard let name = key as? String else { return [] }
+            if let values = value as? [String] {
+                return values.map { (name, $0) }
+            }
+            return [(name, String(describing: value))]
+        }
+        return NexaNetworkResponse(
+            statusCode: Int32(response.statusCode),
+            headers: headers,
+            body: data
+        )
+    }
+
     public static func fetch(
         url: String,
         method: String = "GET",
         body: Data? = nil,
         headers: [String: String] = [:],
         timeout: TimeInterval = 30,
-        useCache: Bool = true,
+        cachePolicy: String = "Default",
         followRedirects: Bool = true,
         maxResponseBytes: Int = 64 * 1024 * 1024,
         certificatePins: Set<String> = []
@@ -255,7 +319,7 @@ public enum NexaNetwork {
         request.httpMethod = method
         request.httpBody = body
         request.timeoutInterval = timeout
-        request.cachePolicy = useCache ? .useProtocolCachePolicy : .reloadIgnoringLocalCacheData
+        request.cachePolicy = urlRequestCachePolicy(cachePolicy)
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
@@ -273,24 +337,7 @@ public enum NexaNetwork {
             if delegate != nil { session.finishTasksAndInvalidate() }
         }
         let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else {
-            throw NexaNetworkError.invalidResponse
-        }
-        if data.count > maxResponseBytes {
-            throw NexaNetworkError.responseTooLarge
-        }
-        guard (200..<300).contains(response.statusCode) else {
-            throw NexaNetworkError.httpStatus(response.statusCode)
-        }
-        let headers = Dictionary(grouping: response.allHeaderFields.compactMap { key, value -> (String, String)? in
-            guard let key = key as? String else { return nil }
-            return (key, String(describing: value))
-        }, by: { $0.0 }).mapValues { $0.map(\.1) }
-        return NexaNetworkResponse(
-            statusCode: Int32(response.statusCode),
-            headers: headers,
-            body: data
-        )
+        return try makeResponse(data: data, response: response, maxResponseBytes: maxResponseBytes)
     }
 
     public static func download(
@@ -300,7 +347,7 @@ public enum NexaNetwork {
         body: Data? = nil,
         headers: [String: String] = [:],
         timeout: TimeInterval = 30,
-        useCache: Bool = true,
+        cachePolicy: String = "Default",
         followRedirects: Bool = true,
         maxResponseBytes: Int = 64 * 1024 * 1024,
         certificatePins: Set<String> = []
@@ -310,7 +357,7 @@ public enum NexaNetwork {
         request.httpMethod = method
         request.httpBody = body
         request.timeoutInterval = timeout
-        request.cachePolicy = useCache ? .useProtocolCachePolicy : .reloadIgnoringLocalCacheData
+        request.cachePolicy = urlRequestCachePolicy(cachePolicy)
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
@@ -343,16 +390,22 @@ public enum NexaNetwork {
             withIntermediateDirectories: true
         )
         if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporaryURL)
+        } else {
+            try FileManager.default.moveItem(at: temporaryURL, to: destination)
         }
-        try FileManager.default.moveItem(at: temporaryURL, to: destination)
         return true
     }
 
     public static func upload(
         url: String,
         file: String,
-        fields: [String: String] = [:]
+        fields: [String: String] = [:],
+        headers: [String: String] = [:],
+        timeout: TimeInterval = 30,
+        followRedirects: Bool = true,
+        maxResponseBytes: Int = 64 * 1024 * 1024,
+        certificatePins: Set<String> = []
     ) async throws -> NexaNetworkResponse {
         guard let url = URL(string: url) else { throw NexaNetworkError.invalidURL }
         let sourceURL = URL(fileURLWithPath: file)
@@ -394,23 +447,28 @@ public enum NexaNetwork {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
+        request.timeoutInterval = timeout
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await NexaURLSessionSupport.sharedSession.upload(
+        let delegate: NexaURLSessionDelegate? = (followRedirects && certificatePins.isEmpty)
+            ? nil
+            : NexaURLSessionDelegate(
+                followRedirects: followRedirects,
+                certificatePins: certificatePins
+            )
+        let session = delegate == nil
+            ? NexaURLSessionSupport.sharedSession
+            : URLSession(configuration: NexaURLSessionSupport.configuration, delegate: delegate, delegateQueue: nil)
+        defer {
+            if delegate != nil { session.finishTasksAndInvalidate() }
+        }
+        let (data, response) = try await session.upload(
             for: request,
             fromFile: uploadURL
         )
-        guard let response = response as? HTTPURLResponse else {
-            throw NexaNetworkError.invalidResponse
-        }
-        guard (200..<300).contains(response.statusCode) else {
-            throw NexaNetworkError.httpStatus(response.statusCode)
-        }
-        let headers = Dictionary(grouping: response.allHeaderFields.compactMap { key, value -> (String, String)? in
-            guard let key = key as? String else { return nil }
-            return (key, String(describing: value))
-        }, by: { $0.0 }).mapValues { $0.map(\.1) }
-        return NexaNetworkResponse(statusCode: Int32(response.statusCode), headers: headers, body: data)
+        return try makeResponse(data: data, response: response, maxResponseBytes: maxResponseBytes)
     }
 
     private static func dispositionParameter(_ value: String) -> String {
@@ -462,28 +520,24 @@ public enum NexaNetwork {
     if include_path {
         out.push_str(
             r#"public enum NexaPath {
-    public static func documents(_ components: String... ) -> String {
-        append(components, to: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0])
+    public static func documents() -> String {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path
     }
 
-    public static func caches(_ components: String... ) -> String {
-        append(components, to: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0])
+    public static func caches() -> String {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].path
     }
 
-    public static func temporary(_ components: String... ) -> String {
-        append(components, to: URL(fileURLWithPath: NSTemporaryDirectory()))
+    public static func temporary() -> String {
+        NSTemporaryDirectory()
     }
 
-    public static func appSupport(_ components: String... ) -> String {
-        append(components, to: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
+    public static func appSupport() -> String {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].path
     }
 
-    public static func join(_ path: String, _ components: String...) -> String {
-        append(components, to: URL(fileURLWithPath: path))
-    }
-
-    private static func append(_ components: [String], to url: URL) -> String {
-        components.reduce(url) { $0.appendingPathComponent($1) }.path
+    public static func join(_ path: String, _ component: String) -> String {
+        URL(fileURLWithPath: path).appendingPathComponent(component).path
     }
 }
 
@@ -503,7 +557,7 @@ public enum NexaNetwork {
         }.value
     }
 
-    public static func write(_ data: Data, to path: String) async throws {
+    public static func write(_ data: Data, to path: String) async throws -> Bool {
         try await Task.detached(priority: .utility) {
             let url = URL(fileURLWithPath: path)
             try FileManager.default.createDirectory(
@@ -512,6 +566,7 @@ public enum NexaNetwork {
             )
             try data.write(to: url, options: .atomic)
         }.value
+        return true
     }
 
     public static func readText(_ path: String) async throws -> String {
@@ -520,7 +575,6 @@ public enum NexaNetwork {
 
     public static func writeText(_ text: String, to path: String) async throws -> Bool {
         try await write(Data(text.utf8), to: path)
-        return true
     }
 
     public static func delete(_ path: String) async throws -> Bool {
@@ -679,6 +733,43 @@ mod tests {
     use super::render;
 
     #[test]
+    fn path_helpers_match_the_single_component_language_api() {
+        let mut output = SourceWriter::new();
+        render(&mut output, false, false, true, false, false, false);
+
+        assert!(output.contains("public static func documents() -> String"));
+        assert!(output.contains("public static func caches() -> String"));
+        assert!(output.contains("public static func temporary() -> String"));
+        assert!(output.contains("public static func appSupport() -> String"));
+        assert!(
+            output
+                .contains("public static func join(_ path: String, _ component: String) -> String")
+        );
+        assert!(!output.contains("String..."));
+        assert!(!output.contains("private static func append("));
+    }
+
+    #[test]
+    fn outgoing_requests_accept_string_maps() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+
+        assert!(output.contains("headers: [String: String] = [:]"));
+        assert!(output.contains("let headers: [(String, String)]"));
+        assert!(!output.contains("NexaHttpHeader"));
+        assert!(output.contains("public func getHeaders(_ name: String) -> [String]"));
+        assert!(output.contains("public func getCookie() -> String"));
+        assert!(output.contains("caseInsensitiveCompare(name) == .orderedSame"));
+        assert!(output.contains("getHeaders(\"Set-Cookie\")"));
+        assert!(output.contains("firstIndex(of: \"=\")"));
+        assert!(output.contains("pair[pair.index(after: equals)...]"));
+        assert!(output.contains(".split(separator: \";\", maxSplits: 1"));
+        assert!(output.contains(".joined(separator: \"; \")"));
+        assert!(output.contains("for (name, value) in headers"));
+        assert!(output.contains("request.setValue(value, forHTTPHeaderField: name)"));
+    }
+
+    #[test]
     fn network_pins_hash_the_trusted_chain_spki_instead_of_the_leaf_certificate() {
         let mut output = SourceWriter::new();
         render(&mut output, true, false, false, false, false, false);
@@ -711,10 +802,55 @@ mod tests {
         let mut output = SourceWriter::new();
         render(&mut output, true, false, false, false, false, false);
 
+        assert!(output.contains("private static func makeResponse("));
+        assert_eq!(
+            output.as_str().matches("return try makeResponse(").count(),
+            2
+        );
+        assert_eq!(
+            output
+                .as_str()
+                .matches("response.allHeaderFields.flatMap")
+                .count(),
+            1
+        );
         assert!(output.contains("public static func upload("));
         assert!(output.contains("async throws -> NexaNetworkResponse"));
         assert!(output.contains("fromFile: uploadURL"));
         assert!(output.contains("defer { try? FileManager.default.removeItem(at: uploadURL) }"));
+        assert!(output.contains("timeout: TimeInterval = 30"));
+        assert!(output.contains("followRedirects: Bool = true"));
+        assert!(output.contains("NexaNetworkError.responseTooLarge"));
+        assert!(output.contains("certificatePins: Set<String> = []"));
+        assert!(output.contains("request.setValue(\"multipart/form-data; boundary=\\(boundary)\""));
+    }
+
+    #[test]
+    fn downloads_validate_before_replacing_an_existing_file() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+        let download = output
+            .as_str()
+            .split_once("public static func download(")
+            .expect("find generated download helper")
+            .1
+            .split_once("public static func upload(")
+            .expect("find end of generated download helper")
+            .0;
+
+        assert!(download.contains("try await session.download(for: request)"));
+        assert!(download.contains("replaceItemAt(destination, withItemAt: temporaryURL)"));
+        assert!(download.contains("moveItem(at: temporaryURL, to: destination)"));
+        assert!(!download.contains("removeItem(at: destination)"));
+        assert!(
+            download
+                .find("guard (200..<300)")
+                .expect("validate HTTP status")
+                < download
+                    .find("replaceItemAt(destination")
+                    .expect("replace after validation"),
+            "failed HTTP responses must not replace the destination"
+        );
     }
 
     #[test]
@@ -745,5 +881,45 @@ mod tests {
         assert!(
             output.contains("guard !fileManager.fileExists(atPath: path) else { throw error }")
         );
+    }
+
+    #[test]
+    fn fetch_and_upload_return_http_error_responses_for_status_inspection() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+        let source = output.as_str();
+        let response_builder = source
+            .split_once("private static func makeResponse(")
+            .expect("find shared response builder")
+            .1
+            .split_once("public static func fetch(")
+            .expect("find end of response builder")
+            .0;
+        assert!(!response_builder.contains("httpStatus"));
+        assert!(response_builder.contains("Int32(response.statusCode)"));
+
+        let fetch = source
+            .split_once("public static func fetch(")
+            .expect("find fetch helper")
+            .1
+            .split_once("public static func download(")
+            .expect("find end of fetch helper")
+            .0;
+        assert!(!fetch.contains("200..<300"));
+
+        let upload = source
+            .split_once("public static func upload(")
+            .expect("find upload helper")
+            .1;
+        assert!(!upload.contains("200..<300"));
+
+        let download = source
+            .split_once("public static func download(")
+            .expect("find download helper")
+            .1
+            .split_once("public static func upload(")
+            .expect("find end of download helper")
+            .0;
+        assert!(download.contains("guard (200..<300).contains(response.statusCode)"));
     }
 }

@@ -386,7 +386,7 @@ const CONFIG_OPTIONS: &[ConfigOptionDoc] = &[
         section: "app",
         key: "deepLinks",
         ty: "`Array<String>`",
-        summary: "App URL schemes and domains used by native project metadata. Incoming Nexa screen routing is not implemented.",
+        summary: "App URL schemes and HTTPS origins that register typed routes. A link uses the screen slug and supplies scalar arguments in the path or by parameter name in the query.",
         default: |config| array(&config.deep_links),
     },
     ConfigOptionDoc {
@@ -513,7 +513,7 @@ const CONFIG_OPTIONS: &[ConfigOptionDoc] = &[
         section: "permissions",
         key: "<permission>",
         ty: "`String`",
-        summary: "User-facing purpose message for a native permission used by the app.",
+        summary: "Declares a permission; the message supplies its iOS usage description, and Nexa adds the matching Android manifest permissions.",
         default: |_| unset(),
     },
     ConfigOptionDoc {
@@ -563,6 +563,15 @@ pub fn render_config_options() -> Result<String, String> {
     Ok(out)
 }
 
+/// Renders the generated Android SDK requirement from the Gradle template's
+/// compile SDK setting.
+pub fn render_android_sdk_requirement() -> String {
+    format!(
+        "| **Android SDK & JDK** | `JDK 17+`, `Android SDK Platform {}` | Android builds & emulators | `javac -version`, `adb --version` |",
+        crate::config::ANDROID_COMPILE_SDK
+    )
+}
+
 /// A CLI command's published flags.
 ///
 /// These restate the parser's accepted options rather than a prose summary, so
@@ -609,8 +618,9 @@ const COMMANDS: &[CommandDoc] = &[
             "`--locked`",
             "`--deny-warnings`",
             "`--audit`",
+            "`--json`",
         ],
-        summary: "Validates source, plugin dependencies, types, and platform constraints.",
+        summary: "Validates source, plugin dependencies, types, and platform constraints; `--json` emits structured diagnostics for CI and editors.",
     },
     CommandDoc {
         command: "`nexa fmt`",
@@ -627,12 +637,13 @@ const COMMANDS: &[CommandDoc] = &[
             "`--arch <arch>`",
             "`--once`",
             "`--compile-only`",
+            "`--dry-run`",
             "`--flavor <name>`",
             "`--staging`",
             "`--out <directory>`",
             "`--locked`",
         ],
-        summary: "Builds and launches a native app with DevRuntime hot reload.",
+        summary: "Builds and launches a native app with DevRuntime hot reload; `--dry-run` prints the plan.",
     },
     CommandDoc {
         command: "`nexa test`",
@@ -645,28 +656,11 @@ const COMMANDS: &[CommandDoc] = &[
             "`--arch <arch>`",
             "`--flavor <name>`",
             "`--staging`",
+            "`--dry-run`",
             "`--out <directory>`",
             "`--locked`",
         ],
-        summary: "Runs app tests; `--unit-only` skips native test hosts.",
-    },
-    CommandDoc {
-        command: "`nexa build`",
-        flags: &[
-            "`--release`",
-            "`--ipa`",
-            "`--aab`",
-            "`--ios`",
-            "`--android`",
-            "`--all`",
-            "`--platform <ios\\|android\\|all>`",
-            "`--arch <arch>`",
-            "`--flavor <name>`",
-            "`--staging`",
-            "`--out <directory>`",
-            "`--locked`",
-        ],
-        summary: "Builds a signed iOS IPA or Android AAB.",
+        summary: "Runs app tests; `--unit-only` skips native test hosts and `--dry-run` prints the build plan.",
     },
     CommandDoc {
         command: "`nexa release`",
@@ -678,24 +672,26 @@ const COMMANDS: &[CommandDoc] = &[
             "`--arch <arch>`",
             "`--flavor <name>`",
             "`--staging`",
+            "`--dry-run`",
             "`--out <directory>`",
             "`--locked`",
         ],
-        summary: "Builds an iOS archive or Android AAB using platform signing credentials.",
+        summary: "Builds an iOS archive or Android AAB using platform signing credentials; `--dry-run` prints the plan.",
     },
     CommandDoc {
         command: "`nexa doctor`",
         flags: &[],
-        summary: "Verifies toolchain installation and environment health.",
+        summary: "Checks Rust, Xcode and simulator tools, Java, ADB, Clang, the Android SDK, and configured plugin dependencies without fetching or editing files.",
     },
     CommandDoc {
         command: "`nexa audit <file>`",
         flags: &[
             "`--target <ios\\|android\\|all>`",
             "`--release-sizes`",
+            "`--optimization-report`",
             "`--out <path>`",
         ],
-        summary: "Reports reachable features, generated dependencies, and optional release-size data.",
+        summary: "Reports dependency resolution, compiler and codegen timings, generated source size, reachable features, permissions, and optional optimizer or native release measurements.",
     },
     CommandDoc {
         command: "`nexa plugin <subcommand>`",
@@ -703,8 +699,9 @@ const COMMANDS: &[CommandDoc] = &[
             "`init <plugin.id> --out <directory>`",
             "`check <package-directory\\|native.nxid>`",
             "`generate <package-directory\\|native.nxid> --target <swift\\|kotlin\\|cpp>`",
+            "`doc <package-directory\\|native.nxid> [--out <file>]`",
         ],
-        summary: "Scaffolds, validates, and generates bindings for a plugin package.",
+        summary: "Scaffolds and validates plugin packages, generates native bindings, and writes a typed API reference from `.nxid`.",
     },
 ];
 
@@ -748,6 +745,12 @@ pub fn render_scalar_types() -> Result<String, String> {
         ));
     }
     Ok(out)
+}
+
+/// Renders the built-in API signature reference from the compiler's typed
+/// native API catalog.
+pub fn render_core_api_reference() -> String {
+    nexa_compiler::render_core_api_reference()
 }
 
 /// A scalar type's representation and example literal, in published order.

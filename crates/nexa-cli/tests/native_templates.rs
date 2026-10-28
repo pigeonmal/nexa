@@ -1498,6 +1498,7 @@ mod template_generation {
                 Some("NSPhotoLibraryUsageDescription"),
                 &[
                     "android.permission.READ_MEDIA_IMAGES",
+                    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
                     "android.permission.READ_EXTERNAL_STORAGE",
                 ][..],
             ),

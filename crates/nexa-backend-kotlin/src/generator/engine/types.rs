@@ -89,5 +89,39 @@ pub(crate) fn kotlin_type(ty: &Type) -> String {
         Type::Struct { name, .. } => struct_name(name),
         Type::Class { name, .. } => struct_name(name),
         Type::Signal(inner) => format!("NexaSignal<{}>", kotlin_type(inner)),
+        Type::ComponentRef { namespace, name } => {
+            if namespace == "Nexa" {
+                format!("{}Ref", struct_name(name))
+            } else {
+                format!("{name}Ref")
+            }
+        }
+        Type::ComponentRefError(failure) => {
+            format!("NexaComponentRefError<{}>", kotlin_type(failure))
+        }
+    }
+}
+
+#[cfg(test)]
+mod component_ref_type_tests {
+    use super::kotlin_type;
+    use nexa_ir::Type;
+
+    #[test]
+    fn component_refs_use_the_builtin_or_plugin_binding_name() {
+        assert_eq!(
+            kotlin_type(&Type::ComponentRef {
+                namespace: "Nexa".to_owned(),
+                name: "FastList".to_owned(),
+            }),
+            "NexaFastListRef"
+        );
+        assert_eq!(
+            kotlin_type(&Type::ComponentRef {
+                namespace: "Media".to_owned(),
+                name: "VideoView".to_owned(),
+            }),
+            "VideoViewRef"
+        );
     }
 }

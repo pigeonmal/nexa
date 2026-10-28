@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
 
+// Internal action-local metadata lets nested task launches inherit the native
+// view that owns them without changing the app or component state scope.
+let nexaDevTaskOwnerLocal = "__nexa_task_owner"
+
 /// Flow control signal for synchronous Nexa dev action execution loops.
 enum NexaDevActionFlow: Equatable {
     case normal
@@ -34,15 +38,21 @@ extension NexaDevStateStore {
         executor: String,
         actions: [Any],
         scope: String,
-        locals: [String: Any]
+        locals: [String: Any],
+        owner: String? = nil
     ) {
         let key: String
+        let taskID = UUID().uuidString
         if let handle, !handle.isEmpty {
             key = "\(scope)/task/\(handle)"
-            foregroundTasks.removeValue(forKey: key)?.cancel()
+            if let previous = foregroundTasks.removeValue(forKey: key) {
+                runtimeTrace("task_cancel scope=\(runtimeTraceScope(scope))")
+                previous.task.cancel()
+            }
         } else {
             key = "\(scope)/task/fire-and-forget/\(UUID().uuidString)"
         }
+        runtimeTrace("task_start executor=\(executor.lowercased()) scope=\(runtimeTraceScope(scope))")
         let payload = NexaDevTaskPayload(actions: actions, scope: scope, locals: locals)
         let task: Task<Void, Never>
         if executor == "Background" {
@@ -55,6 +65,7 @@ extension NexaDevStateStore {
                         locals: payload.locals
                     )
                 } catch is CancellationError {
+                    await self.finishNativeTask(key: key, id: taskID)
                     return
                 } catch {
                     NSLog("NexaDevRuntime background task failed: %@", String(describing: error))
@@ -63,6 +74,7 @@ extension NexaDevStateStore {
                         stackTrace: Thread.callStackSymbols.joined(separator: "\n")
                     )
                 }
+                await self.finishNativeTask(key: key, id: taskID)
             }
         } else {
             task = Task { @MainActor [weak self, payload] in
@@ -74,19 +86,38 @@ extension NexaDevStateStore {
                         locals: payload.locals
                     )
                 } catch is CancellationError {
-                    return
+                    // Let the common completion path release the registry entry.
                 } catch {
                     NSLog("NexaDevRuntime foreground task failed: %@", String(describing: error))
                     self.reportRuntimeFailure(error)
                 }
+                self.finishNativeTask(key: key, id: taskID)
             }
         }
-        foregroundTasks[key] = task
+        foregroundTasks[key] = NexaDevForegroundTask(id: taskID, task: task, owner: owner)
+    }
+
+    func finishNativeTask(key: String, id: String) {
+        guard foregroundTasks[key]?.id == id else { return }
+        foregroundTasks.removeValue(forKey: key)
     }
 
     func cancelNativeTask(handle: String, scope: String) {
         guard !handle.isEmpty else { return }
-        foregroundTasks.removeValue(forKey: "\(scope)/task/\(handle)")?.cancel()
+        let key = "\(scope)/task/\(handle)"
+        guard let task = foregroundTasks.removeValue(forKey: key) else { return }
+        runtimeTrace("task_cancel scope=\(runtimeTraceScope(scope))")
+        task.task.cancel()
+    }
+
+    func clearNativeTasks(owner: String) {
+        let selected = foregroundTasks.compactMap { key, task in
+            task.owner == owner ? key : nil
+        }
+        if !selected.isEmpty { runtimeTrace("task_cancel owner_scope count=\(selected.count)") }
+        for key in selected {
+            foregroundTasks.removeValue(forKey: key)?.task.cancel()
+        }
     }
 
     func clearNativeTasks(scope: String? = nil) {
@@ -95,8 +126,11 @@ extension NexaDevStateStore {
             guard let prefix else { return true }
             return key.hasPrefix(prefix)
         }
+        if !selected.isEmpty {
+            runtimeTrace("task_cancel scope=\(scope.map { runtimeTraceScope($0) } ?? "all") count=\(selected.count)")
+        }
         for key in selected {
-            foregroundTasks.removeValue(forKey: key)?.cancel()
+            foregroundTasks.removeValue(forKey: key)?.task.cancel()
         }
     }
 
@@ -108,9 +142,24 @@ extension NexaDevStateStore {
             if let unitVariant = action as? String {
                 if unitVariant == "Break" { return .break }
                 if unitVariant == "Continue" { return .continue }
+                if unitVariant == "NavigationBack" { popNavigation() }
                 continue
             }
             guard let tagged = action as? [String: Any] else { continue }
+            if let navigation = tagged["NavigationPush"] as? [String: Any],
+               let destination = navigation["destination"] as? Int {
+                pushNavigation(
+                    destination: destination,
+                    expressions: navigation["arguments"] as? [Any] ?? [],
+                    locals: actionLocals,
+                    scope: scope
+                )
+                continue
+            }
+            if tagged["NavigationBack"] != nil {
+                popNavigation()
+                continue
+            }
             if let binding = tagged["Let"] as? [String: Any],
                let name = binding["name"] as? String,
                let expression = binding["value"] {
@@ -211,7 +260,8 @@ extension NexaDevStateStore {
                     executor: task["executor"] as? String ?? "Main",
                     actions: task["actions"] as? [Any] ?? [],
                     scope: scope,
-                    locals: actionLocals
+                    locals: actionLocals,
+                    owner: actionLocals[nexaDevTaskOwnerLocal] as? String
                 )
             } else if let task = tagged["TaskCancel"] as? [String: Any],
                       let handle = task["handle"] as? String {
@@ -659,10 +709,21 @@ extension NexaDevStateStore {
             if let flow = action as? String {
                 if flow == "Break" { return .break }
                 if flow == "Continue" { return .continue }
+                if flow == "NavigationBack" { popNavigation() }
                 continue
             }
             guard let tagged = action as? [String: Any] else { continue }
-            if let tryCatch = tagged["TryCatch"] as? [String: Any] {
+            if let navigation = tagged["NavigationPush"] as? [String: Any],
+               let destination = navigation["destination"] as? Int {
+                pushNavigation(
+                    destination: destination,
+                    expressions: navigation["arguments"] as? [Any] ?? [],
+                    locals: locals,
+                    scope: scope
+                )
+            } else if tagged["NavigationBack"] != nil {
+                popNavigation()
+            } else if let tryCatch = tagged["TryCatch"] as? [String: Any] {
                 do {
                     let flow = try await performAsync(
                         tryCatch["body"] as? [Any] ?? [],
@@ -731,7 +792,8 @@ extension NexaDevStateStore {
                     executor: task["executor"] as? String ?? "Main",
                     actions: task["actions"] as? [Any] ?? [],
                     scope: scope,
-                    locals: locals
+                    locals: locals,
+                    owner: locals[nexaDevTaskOwnerLocal] as? String
                 )
             } else if let task = tagged["TaskCancel"] as? [String: Any],
                       let handle = task["handle"] as? String {

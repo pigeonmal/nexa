@@ -2,6 +2,7 @@ package __NEXA_PACKAGE__
 
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.navigation.NavHostController
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineStart
@@ -9,6 +10,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
+
+// Internal action-local metadata lets nested task launches inherit the native
+// view that owns them without changing the app or component state scope.
+internal const val NEXA_DEV_TASK_OWNER_LOCAL = "__nexa_task_owner"
 
 internal enum class NexaDevActionFlow { Normal, Break, Continue }
 
@@ -20,6 +25,38 @@ internal sealed interface NexaDevFunctionFlow {
 }
 
 internal fun Any?.orNullValue(): Any = this ?: JSONObject.NULL
+
+private fun NexaDevStateStore.performNavigationAction(
+    action: JSONObject,
+    scope: String,
+    locals: Map<String, Any>,
+): Boolean {
+    val controller = locals["__nexa_navigation_controller"] as? NavHostController
+    val push = action.optJSONObject("NavigationPush")
+    if (push != null) {
+        val currentModule = module ?: return true
+        val screens = currentModule.optJSONArray("screens") ?: return true
+        val destination = screens.optJSONObject(push.optInt("destination", -1)) ?: return true
+        val parameters = destination.optJSONArray("parameters") ?: JSONArray()
+        val arguments = push.optJSONArray("arguments") ?: JSONArray()
+        val values = JSONObject()
+        for (argumentIndex in 0 until minOf(parameters.length(), arguments.length())) {
+            val parameter = parameters.optJSONObject(argumentIndex) ?: continue
+            val name = parameter.optString("name")
+            if (name.isNotEmpty()) {
+                values.put(name, evaluate(arguments.opt(argumentIndex), locals, scope))
+            }
+        }
+        val route = encodeScreenRoute(destination.optString("name"), values)
+        controller?.navigate(route)
+        return true
+    }
+    if (action.has("NavigationBack")) {
+        if (controller?.previousBackStackEntry != null) controller.popBackStack()
+        return true
+    }
+    return false
+}
 
 internal fun NexaDevStateStore.perform(actions: JSONArray, scope: String, locals: Map<String, Any>) {
     performActions(actions, scope, locals)
@@ -33,9 +70,14 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         if (raw is String) {
             if (raw == "Break") return NexaDevActionFlow.Break
             if (raw == "Continue") return NexaDevActionFlow.Continue
+            if (raw == "NavigationBack") {
+                (actionLocals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
+                    ?.let { if (it.previousBackStackEntry != null) it.popBackStack() }
+            }
             continue
         }
         val action = raw as? JSONObject ?: continue
+        if (performNavigationAction(action, scope, actionLocals)) continue
         val binding = action.optJSONObject("Let")
         if (binding != null) {
             val name = binding.optString("name")
@@ -366,7 +408,17 @@ private fun NexaDevStateStore.launchNativeTask(
 ) {
     val key = handle?.takeIf { it.isNotEmpty() }?.let { "$scope/task/$it" }
         ?: "$scope/task/fire-and-forget/${java.util.UUID.randomUUID()}"
-    if (handle?.isNotEmpty() == true) foregroundTasks.remove(key)?.cancel()
+    if (handle?.isNotEmpty() == true) {
+        val previous = foregroundTasks.remove(key)
+        if (previous != null) {
+            runtimeTrace("task_cancel scope=${runtimeTraceScope(scope)}")
+            previous.job.cancel()
+        }
+    }
+    runtimeTrace("task_start executor=${executor.lowercase()} scope=${runtimeTraceScope(scope)}")
+    val taskId = java.util.UUID.randomUUID().toString()
+    val owner = locals[NEXA_DEV_TASK_OWNER_LOCAL] as? String
+    val store = this
     val dispatcher = if (executor == "Background") Dispatchers.Default else Dispatchers.Main.immediate
     val exceptionHandler = CoroutineExceptionHandler { _, error ->
         if (error !is CancellationException) {
@@ -382,21 +434,44 @@ private fun NexaDevStateStore.launchNativeTask(
         } catch (error: Throwable) {
             android.util.Log.e("NexaDevRuntime", "Foreground task failed", error)
             reportRuntimeFailure(error)
+        } finally {
+            store.finishNativeTask(key, taskId)
         }
     }
-    foregroundTasks[key] = job
+    foregroundTasks[key] = NexaDevForegroundTask(taskId, job, owner)
     job.start()
+}
+
+private fun NexaDevStateStore.finishNativeTask(key: String, id: String) {
+    val task = foregroundTasks[key] ?: return
+    if (task.id == id) foregroundTasks.remove(key, task)
 }
 
 private fun NexaDevStateStore.cancelNativeTask(scope: String, handle: String) {
     if (handle.isEmpty()) return
-    foregroundTasks.remove("$scope/task/$handle")?.cancel()
+    val key = "$scope/task/$handle"
+    val task = foregroundTasks.remove(key) ?: return
+    runtimeTrace("task_cancel scope=${runtimeTraceScope(scope)}")
+    task.job.cancel()
+}
+
+internal fun NexaDevStateStore.clearNativeTasksOwnedBy(owner: String) {
+    val selected = foregroundTasks.entries.filter { it.value.owner == owner }
+    if (selected.isNotEmpty()) runtimeTrace("task_cancel owner_scope count=${selected.size}")
+    for ((key, task) in selected) {
+        if (foregroundTasks.remove(key, task)) task.job.cancel()
+    }
 }
 
 internal fun NexaDevStateStore.clearNativeTasks(scope: String? = null) {
     val prefix = scope?.let { "$it/task/" }
     val selected = foregroundTasks.keys.filter { prefix == null || it.startsWith(prefix) }
-    for (key in selected) foregroundTasks.remove(key)?.cancel()
+    if (selected.isNotEmpty()) {
+        runtimeTrace("task_cancel scope=${scope?.let { runtimeTraceScope(it) } ?: "all"} count=${selected.size}")
+    }
+    for (key in selected) {
+        foregroundTasks.remove(key)?.job?.cancel()
+    }
 }
 
 internal fun NexaDevStateStore.devNativeEventHandler(
@@ -811,9 +886,14 @@ internal suspend fun NexaDevStateStore.performAsync(
         if (raw is String) {
             if (raw == "Break") return NexaDevActionFlow.Break
             if (raw == "Continue") return NexaDevActionFlow.Continue
+            if (raw == "NavigationBack") {
+                (locals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
+                    ?.let { if (it.previousBackStackEntry != null) it.popBackStack() }
+            }
             continue
         }
         val action = raw as? JSONObject ?: continue
+        if (performNavigationAction(action, scope, locals)) continue
         val tryCatch = action.optJSONObject("TryCatch")
         if (tryCatch != null) {
             try {

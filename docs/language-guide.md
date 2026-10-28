@@ -59,6 +59,16 @@ Nexa features a strict, sound static type system with type inference for local v
 > [!NOTE]
 > Integer literals default to `Int32`, while decimal literals default to `Float64` unless an explicit type annotation is supplied.
 
+### Numeric operation behavior
+
+| Operation | Integer behavior | Floating-point behavior |
+|---|---|---|
+| `+`, `-`, `*`, unary `-` | Wrap at the declared bit width. | Use the native IEEE 754 operation. |
+| `/` | Truncate toward zero. Signed minimum divided by `-1` wraps to the minimum value. | Use the native IEEE 754 operation. |
+| `%` | Return the remainder after division truncates toward zero. Signed minimum remainder `-1` is `0`. | Return the truncating remainder, matching Kotlin's `%` behavior. |
+
+For integer division and remainder, a zero divisor causes a runtime arithmetic failure. Floating-point operations follow IEEE 754, including its behavior for zero divisors.
+
 ---
 
 ## 2. Declarations
@@ -223,6 +233,40 @@ app WeatherRefresh {
 
 `Task.cancel(handle:)` cancels a stored task handle. Avoid blocking the UI thread while awaiting network, database, or media plugin work.
 
+Tasks belong to the view that launches them. A `TaskHandle` lets code cancel a task explicitly; a launch without a handle is fire-and-forget. Nexa cancels either kind when its owning view disappears on both platforms. A task launched by `FastList.onEndReached` belongs to that list, so removing the list cancels its pagination work even if its screen stays visible. Cancellation is cooperative, so an in-flight native API or plugin must support cancellation to stop its underlying work.
+
+Nexa async functions suspend in the task that called them; they do not create a second task. Cancellation therefore continues through awaited Nexa functions and native calls unless code catches and suppresses it. The native spelling and task launch mapping are:
+
+| Nexa | iOS output | Android output |
+|---|---|---|
+| `async fn loadProfile() -> Void throws` | `@MainActor func loadProfile() async throws -> Void` | `suspend fun loadProfile()`; failures propagate as exceptions |
+| `await loadProfile()` | `try await loadProfile()` when it can throw | `loadProfile()` inside a suspend function or coroutine |
+| `Task.launch(handle: refreshTask, executor: TaskExecutor.Main)` | `Task { @MainActor in ... }` | `launch(Dispatchers.Main.immediate) { ... }` |
+| `Task.launch(handle: refreshTask, executor: TaskExecutor.Background)` | `Task.detached { ... }` | `launch(Dispatchers.Default) { ... }` |
+| `Task.cancel(handle: refreshTask)` or remove its owner | `Task.cancel()`; owner scope cancels on disappearance | `Job.cancel()`; owner coroutine scope cancels on disposal |
+
+Use `TaskExecutor` to choose where a launched task starts. An `async fn` alone does not move CPU work off the UI executor; use a background task for CPU-heavy work and keep blocking I/O inside an API or plugin that handles its native I/O dispatcher.
+
+Use `when` to show one UI branch for a value. A closed enum can list every case without `else`; a `Bool` can use both `true` and `false`. Partial matches, strings, and numbers need an explicit `else` because they may have values the listed cases do not cover.
+
+```nexa
+enum DeliveryStatus { preparing, shipped, delivered }
+
+app DeliveryStatusCard {
+    state status: DeliveryStatus = DeliveryStatus.preparing
+
+    body {
+        when status {
+            DeliveryStatus.preparing: { Text("Your order is being packed") }
+            DeliveryStatus.shipped: { Text("Your order is on the way") }
+            DeliveryStatus.delivered: { Text("Your order arrived") }
+        }
+    }
+}
+```
+
+When the cases are complete, Nexa emits an exhaustive native `switch` on iOS and `when` on Android. Add `else: { ... }` when a listed value set is incomplete.
+
 ---
 
 ## 3. Compound & Collection Types
@@ -269,6 +313,10 @@ app QuizResults {
 | `moveSubset(from, to, subset)` | `(Int32, Int32, Array<T>) -> Void` | Moves subset elements while preserving hidden filter rows. |
 
 `count` and `isEmpty` are read-only properties. `append`, `remove`, `move`, and `moveSubset` mutate array state; the other operations return values.
+
+On an empty array, `count` is `0`, `isEmpty` is `true`, and `first()`, `last()`, and `random()` return `null`.
+`filter`, `map`, `sortedBy`, `reverse`, `shuffled`, `take`, `flatMap`, and `groupedBy` return an empty array.
+`reduce(initial, combine)` returns `initial`; `slice` returns an empty array for a valid empty range. A negative `take` count is treated as zero.
 
 ### 3.2 `Set<T>`
 
@@ -432,9 +480,27 @@ app ProfileHeader {
 
 ---
 
-## 5. Explicit Error Handling: `Result<T, E>`
+## 5. Explicit Error Handling: `Result<T, E>` and `throws`
 
-Nexa rejects unchecked hidden exceptions. Functions that can fail return typed `Result<T, E>` values:
+Choose the error style by the kind of failure. Nexa keeps both paths visible in
+the function signature and requires the caller to handle failures:
+
+| Use | For | Caller |
+|---|---|---|
+| `Result<T, E>` | Expected outcomes in your app, such as insufficient funds or invalid input | Return `Ok(value)` or `Err(error)`; use `?` inside another function that returns a compatible `Result` |
+| `throws` | A native operation can fail because of the OS, network, filesystem, secure storage, or a plugin | Wrap the call in `try { ... } catch { ... }` and show or recover from the error at the action or task boundary |
+
+Do not use both styles on the same component-ref method. The compiler rejects
+that combination. A plugin `.nxid` method with `throws` names its typed native
+error so the catch can match the declared cases.
+
+> [!NOTE]
+> Core APIs such as `Network.fetch`, `File.readText`, and `SecureStorage.get`
+> use a catch-all for native failures; platform exception types are not part of
+> Nexa's public API. Plugin errors can use typed cases. Cancellation always
+> propagates, even through a catch-all block.
+
+Use `Result` when failure is a normal answer to a business operation:
 
 ```nexa
 enum PaymentError { insufficientFunds, cardExpired }
@@ -453,7 +519,12 @@ app CheckoutPolicy {
         Column {
             Text(paymentResult)
             Button("Validate $25 order") {
-                paymentResult = Json.stringify(value: processPayment(25.0, 100.0))
+                let result = processPayment(125.0, 100.0)
+                paymentResult = result.isSuccess
+                    ? "Paid: $\(result.value ?? 0.0)"
+                    : (result.error == PaymentError.insufficientFunds
+                        ? "Payment declined: insufficient funds"
+                        : "Payment declined")
             }
         }
     }
@@ -492,9 +563,40 @@ app OrderPayment {
 }
 ```
 
-`?` unwraps an `Ok` value or returns its `Err` from the current function. It is valid only when the current function also returns a compatible `Result`.
+`?` returns the `Err` immediately, or unwraps the `Ok` value. It is valid only
+inside a function that returns a compatible `Result`. At a UI boundary, use
+`isSuccess` to choose the message, then read `value` or `error` as an optional
+typed payload.
 
-Throwing native plugin methods use `try`/`catch`; their typed error variants are declared by the plugin's `.nxid` contract. See [plugin error handling](plugins.md#async-throwing-calls) for a current end-to-end example.
+For external operations such as `Network.fetch` or `File.readText`, use the
+throwing path and handle it where the user can recover:
+
+```nexa
+app ProfileRefresh {
+    state refreshTask: TaskHandle? = null
+    state profileText: String = "Profile is ready to refresh"
+
+    body {
+        Column {
+            Button("Refresh profile") {
+                Task.launch(handle: refreshTask, executor: TaskExecutor.Main) {
+                    try {
+                        let response = await Network.fetch(url: "https://api.example.com/profile")
+                        profileText = response.body
+                    } catch {
+                        profileText = "Profile could not be loaded. Try again."
+                    }
+                }
+            }
+            Text(profileText)
+        }
+    }
+}
+```
+
+Throwing native plugin methods use the same `try`/`catch` form; their typed
+error variants come from the plugin's `.nxid` contract. See
+[plugin error handling](plugins.md#async-throwing-calls) for a complete example.
 
 ## 6. Built-in Core APIs
 
@@ -502,25 +604,9 @@ Nexa maps these typed APIs to platform services. Calls that can fail are marked 
 
 ### 6.1 `Storage` (Lightweight Key-Value)
 
-```nexa
-app ThemePreferences {
-    state theme: String = Storage.getString(key: "reader.theme") ?? "system"
+`Storage` has direct getters and setters for common scalar values, plus `Storage.get<T>` and `Storage.set<T>` for any type supported by Nexa's generated JSON codecs, including structs and collections. `get<T>` returns `null` when the key is missing or the stored JSON cannot be decoded. A key stores one value type at a time; writing another type replaces its saved value. `Storage.delete` removes the key; `Storage.clear` removes every preference managed by Nexa.
 
-    body {
-        Column {
-            Text("Current theme: \(theme)")
-            Button("Use dark theme") {
-                Storage.setString(key: "reader.theme", value: "dark")
-                theme = "dark"
-            }
-            Button("Reset saved theme") {
-                Storage.delete(key: "reader.theme")
-                theme = "system"
-            }
-        }
-    }
-}
-```
+See the complete [reader preferences example](../examples/typed_storage.nx) for optional defaults, typed writes, and deletion.
 
 ### 6.2 `Crypto` (Platform Security APIs)
 
@@ -579,11 +665,17 @@ app OrderSummary {
 }
 ```
 
+Time APIs use milliseconds for Unix timestamps. `Time.now()` is wall-clock time and may change when the system clock is corrected; use `Time.monotonic()` with `Time.elapsed(since:)` to measure durations.
+
+`Time.iso8601()` always formats UTC as `yyyy-MM-ddTHH:mm:ss.SSSZ`. `Time.iso8601ToMillis()` accepts that format or the same format without the fractional part; it requires `Z`, rejects numeric offsets, and returns `null` for invalid dates.
+
+`Time.startOfDay()`, `Time.addCalendarDays()`, localized date helpers, and `Time.format()` use the device's current calendar and time zone. Calendar days are not fixed 24-hour periods, so a day across a daylight-saving change can be 23 or 25 hours. `Time.format()` uses ICU date patterns such as `yyyy-MM-dd`; `MM` is the month and `mm` is the minute.
+
 The complete set of built-in method names and argument spellings is generated from the parser catalog in the [syntax audit](syntax-audit.md#vocabulary).
 
 ### Secure storage
 
-Use `SecureStorage` for small secrets such as refresh tokens. Its asynchronous operations can fail and must be handled with `try`/`catch`.
+Use `SecureStorage` for small secrets such as refresh tokens. Its asynchronous operations can fail and must be handled with `try`/`catch`. Pass `scope` to keep feature data separate; `clear(scope:)` removes only that feature's values, while `clear()` removes all secure values managed by the app. Omitting `scope` uses the existing app-wide key space.
 
 ```nexa
 app SessionVault {
@@ -592,16 +684,27 @@ app SessionVault {
     state sessionToken: String = ""
 
     body {
-        Column(spacing: 12) {
+        Column {
             TextInput(value: sessionToken, placeholder: "Token returned by sign-in")
             Text(status)
             Button("Save session token") {
                 Task.launch(handle: secureTask, executor: TaskExecutor.Main) {
                     try {
-                        await SecureStorage.set(key: "reader.refresh-token", value: sessionToken)
+                        await SecureStorage.set(key: "refresh-token", value: sessionToken, scope: "auth")
                         status = "Session token saved securely"
                     } catch {
                         status = "Secure storage is unavailable on this device"
+                    }
+                }
+            }
+            Button("Sign out") {
+                Task.launch(handle: secureTask, executor: TaskExecutor.Main) {
+                    try {
+                        await SecureStorage.clear(scope: "auth")
+                        sessionToken = ""
+                        status = "Authentication data removed"
+                    } catch {
+                        status = "Authentication data could not be removed"
                     }
                 }
             }
@@ -612,7 +715,7 @@ app SessionVault {
 
 ### Files and permissions
 
-`File.readText`, `File.writeText`, and `File.delete` are asynchronous and can fail, so handle them in `try`/`catch`. Declare a user-facing purpose message in `nexa.config.nx` for each system permission your app requests.
+`File.readText`, `File.writeText`, `File.readBytes`, `File.writeBytes`, and `File.delete` are asynchronous and can fail, so handle them in `try`/`catch`. Byte methods preserve file contents exactly; use them for attachments, images, and other binary data. Declare a user-facing purpose message in `nexa.config.nx` for each system permission your app requests.
 
 ```nexa
 app ReadingNotes {
@@ -667,6 +770,22 @@ app CameraPermissionPrompt {
 }
 ```
 
+Declare each permission used by the app in `nexa.config.nx`. The configured message becomes the iOS usage description; Nexa adds the matching Android manifest permission. A reachable native plugin can provide the platform declaration in its plugin manifest. `nexa check` reports missing declarations, warns with `NEXA-W1011` when a configured permission is unused, and warns with `NEXA-W1012` when the permission is selected at runtime and cannot be checked statically. Use `--deny-warnings` to make either warning fail the check.
+
+`PermissionStatus` preserves the extra access states the operating system exposes:
+
+| Value | Meaning |
+|---|---|
+| `granted` | Full access is available. |
+| `limited` | Access is limited to selected photos or contacts. |
+| `provisional` | iOS can deliver notifications quietly before the user makes a full choice. |
+| `denied` | Access is denied and the system may still allow another request. |
+| `permanentlyDenied` | Android has recorded at least two denials and the foreground activity reports that another prompt is unavailable; send the user to system Settings. |
+| `restricted` | Device policy or parental controls block access. |
+| `notDetermined` | The app has not received an authorization choice. |
+
+`limited` is returned for iOS photo/contact access and Android 14 selected-photo access. `provisional` is returned for iOS notifications. Android reports `permanentlyDenied` after repeated denials when its foreground activity says another prompt is unavailable; iOS keeps its denied state as `denied` because users can change it in Settings.
+
 ### JSON encoding
 
 `Json.parse<T>` returns `Result<T, JsonError>`; `Json.stringify<T>` produces a JSON string from a statically typed value.
@@ -697,77 +816,153 @@ app SettingsBackup {
 
 These calls are built into the compiler and need no plugin declaration. Asynchronous calls require `await`; `throws` calls require `try`/`catch` or propagation.
 
-| API | Signature | Behavior |
-|---|---|---|
-| `Path.documents()` | `() -> String` | User documents directory. |
-| `Path.caches()` | `() -> String` | App cache directory. |
-| `Path.temporary()` | `() -> String` | Temporary files directory. |
-| `Path.appSupport()` | `() -> String` | App support directory. |
-| `Path.join(path, component)` | `(String, String) -> String` | Joins one path component using native path rules. |
-| `File.exists(path)` | `(String) -> Bool` | Checks whether a path exists. |
-| `File.readText(path)` | `async -> String throws` | Reads UTF-8 text from a file. |
-| `File.writeText(path, contents)` | `async -> Bool throws` | Writes UTF-8 text atomically and reports success. |
-| `File.delete(path)` | `async -> Bool throws` | Returns `false` when the path is missing, `true` when it is deleted, and throws for other I/O failures. |
-| `Network.fetch(url, method, body, headers, timeout, useCache, followRedirects, maxResponseBytes, certificatePins)` | `async -> NetworkResponse throws` | Sends an HTTP request and returns the status code, headers, and text body. `url` is required; the remaining options have defaults listed below. |
-| `Network.download(url, destinationPath, method, body, headers, timeout, useCache, followRedirects, maxResponseBytes, certificatePins)` | `async -> Bool throws` | Downloads a response to a local path. `url` and `destinationPath` are required; the remaining options have defaults listed below. |
-| `Network.upload(url, file, fields)` | `async -> NetworkResponse throws` | Uploads a local file with optional form fields. `fields` defaults to an empty map. |
-| `Permissions.status(permission)` | `async -> PermissionStatus` | Reads current system authorization. |
-| `Permissions.request(permission)` | `async -> PermissionStatus` | Requests system authorization. |
-| `Bytes.fromText(text)` | `(String) -> Bytes` | Encodes UTF-8 text as owned bytes. |
-| `Bytes.fromArray(values)` | `(Array<UInt8>) -> Bytes` | Copies unsigned byte values into an owned byte buffer. |
-| `Bytes.count(bytes)` | `(Bytes) -> Int32` | Returns the byte length. |
-| `SecureStorage.get(key)` | `async -> String? throws` | Reads a protected string value. |
-| `SecureStorage.set(key, value)` | `async -> Void throws` | Stores a protected value. |
-| `SecureStorage.delete(key)` | `async -> Void throws` | Deletes one protected value. |
-| `SecureStorage.clear()` | `async -> Void throws` | Clears protected values managed by this API. |
-| `Json.parse<T>(raw)` | `(String) -> Result<T, JsonError>` | Parses text as a declared Nexa value type. |
-| `Json.stringify<T>(value)` | `(T) -> String` | Encodes a supported typed value as JSON text. |
-| `Regex.isMatch(pattern, text)` | `(String, String) -> Bool` | Returns whether the pattern occurs anywhere in the input. |
-| `Regex.matches(pattern, text)` | `(String, String) -> Array<String>` | Returns all non-overlapping matched substrings. |
-| `Regex.replace(pattern, text, replacement)` | `(String, String, String) -> String` | Replaces all matches using the platform's native replacement syntax. |
-| `Storage.getString(key)` | `(String) -> String?` | Reads a non-secret preference. |
-| `Storage.setString(key, value)` | `(String, String) -> Void` | Writes a non-secret preference. |
-| `Storage.delete(key)` | `(String) -> Void` | Deletes one preference. |
-| `Storage.clear()` | `() -> Void` | Clears preferences managed by this API. |
-| `Clipboard.setText(text)` | `(String) -> Void` | Replaces system clipboard text. |
-| `Clipboard.getText()` | `() -> String?` | Reads clipboard text when present. |
-| `Clipboard.hasText()` | `() -> Bool` | Checks whether clipboard text is available. |
-| `Crypto.sha256(text)` / `Crypto.sha512(text)` | `(String) -> String` | Returns the digest encoded as lowercase hexadecimal. |
-| `Crypto.hmacSha256(key, message)` | `(String, String) -> String` | Returns an HMAC-SHA-256 digest as lowercase hexadecimal. |
-| `Crypto.randomBytes(count)` | `(Int32) -> String` | Generates secure random bytes and returns their lowercase hexadecimal encoding. |
-| `Time.now()` | `() -> Int64` | Current Unix timestamp in milliseconds. |
-| `Time.monotonic()` | `() -> Int64` | Monotonic clock value in nanoseconds; use only for elapsed-time measurement. |
-| `Time.elapsed(since)` | `(Int64) -> Int64` | Nanoseconds elapsed from a monotonic reading. |
-| `Time.sleep(milliseconds)` | `async (Int64) -> Void` | Suspends the current task for the requested duration. |
-| `Time.iso8601(timestamp)` | `(Int64) -> String` | Formats a millisecond timestamp as UTC ISO 8601. |
-| `Time.iso8601ToMillis(text)` | `(String) -> Int64?` | Parses the supported UTC ISO 8601 form. |
-| `Time.startOfDay(timestamp)` | `(Int64) -> Int64` | Local calendar start of day in milliseconds. |
-| `Time.addCalendarDays(timestamp, days)` | `(Int64, Int32) -> Int64` | Adds local calendar days and preserves wall-clock time across daylight-saving changes. |
-| `Time.localizedDate(timestamp)` / `localizedTime(timestamp)` / `localizedDateTime(timestamp)` | `(Int64) -> String` | Formats using the user's locale and time zone. |
-| `Time.format(timestamp, pattern)` | `(Int64, String) -> String` | Formats with a date pattern in the current locale and time zone. |
-| `Number.formatCurrency(amount, currencyCode)` | `(Float64, String) -> String` | Formats currency for the current locale. |
-| `Locale.currentLanguageCode()` | `() -> String` | Returns the current language code. |
-| `Locale.preferredLanguageCodes()` | `() -> Array<String>` | Returns the device's preferred language codes. |
-| `Locale.displayName(languageCode)` | `(String) -> String?` | Returns the localized language name when available. |
-| `Locale.localized(sourceText)` | `(String) -> String` | Localizes a source-text literal or interpolation using generated catalogs. |
-| `Keyboard.dismiss()` | `() -> Void` | Dismisses the active keyboard. |
-| `BottomSheet.present(isPresented)` | action on mutable `Bool` state | Presents the bound sheet with its native animation. |
-| `BottomSheet.dismiss(isPresented)` | action on mutable `Bool` state | Dismisses the bound sheet with its native animation. |
-| `BottomSheet.snapTo(selectedSnapPoint, snapPoint)` | action on mutable `Float64` state and a `Float64` fraction | Selects a configured custom snap point; bind the same state through `selectedSnapPoint`. |
-| `Screen.lockOrientation(mode)` | `(String) -> Void` | Sets orientation to `Portrait`, `Landscape`, or `All`. |
-| `AppIcon.set(name)` | `async (String?) -> Bool` | Sets the alternate app icon, or restores the default with `null`. |
-| `Haptics.impact(style)` | `(Light | Medium | Heavy) -> Void` | Triggers an impact haptic. |
-| `Haptics.notification(kind)` | `(Success | Error) -> Void` | Triggers a notification haptic. |
-| `Haptics.selection()` | `() -> Void` | Triggers a selection haptic. |
-| `Log.info(message)` / `Log.warning(message)` / `Log.error(message)` | `(String) -> Void` | Writes a typed diagnostic message to the native log. |
+Pass request headers as a simple `Map<String, String>`. Use `getHeader(name:)` for the first matching value (`String?`, or `null` when missing), and `getHeaders(name:)` when repeated headers matter. Both match names without regard to case.
 
-`Network.fetch` and `Network.download` accept these named options after their required arguments: `method: String = "GET"`, `body: String? = null`, `headers: Map<String, String> = [:]`, `timeout: Float64 = 30`, `useCache: Bool = true`, `followRedirects: Bool = true`, `maxResponseBytes: Int64 = 67108864`, and `certificatePins: Set<String> = []`. `Network.upload` accepts `fields: Map<String, String> = [:]`.
+`Network.fetch` and `Network.upload` return `NetworkResponse` for every HTTP status, including 4xx and 5xx; inspect `response.statusCode` and read the response body yourself. Their `try`/`catch` path is for invalid requests and transport failures such as connection errors, timeouts, cancellation, or certificate-pin failures. `Network.download` only replaces its destination for a 2xx response; other HTTP statuses throw and leave the existing file unchanged.
+
+```nexa
+app ProfileScreen {
+    state accessToken: String = "session-token"
+    state profileJson: String = ""
+    state cookieHeader: String = ""
+    state contentType: String? = null
+    state refreshTask: TaskHandle? = null
+
+    body {
+        Column {
+            Button("Refresh profile") {
+                Task.launch(handle: refreshTask, executor: TaskExecutor.Main) {
+                    try {
+                        let requestHeaders: Map<String, String> = [
+                            "Authorization": "Bearer \(accessToken)",
+                            "Accept": "application/json"
+                        ]
+                        let response = await Network.fetch(
+                            url: "https://api.example.com/v1/profile",
+                            headers: requestHeaders
+                        )
+                        profileJson = "HTTP \(response.statusCode): \(response.body)"
+                        contentType = response.getHeader(name: "Content-Type")
+                        cookieHeader = response.getCookie()
+                    } catch {
+                        profileJson = "Could not load profile"
+                    }
+                }
+            }
+            Text(profileJson)
+            Text(contentType ?? "No content type")
+        }
+    }
+}
+```
+
+`getCookie()` reads every `Set-Cookie` value and keeps the cookie pair before its first semicolon, dropping attributes such as `Path` and `HttpOnly`. It splits each pair at the first `=` so values may contain additional equals signs or quoted characters, then joins pairs with `; `. If no valid cookie pair exists, it returns `""`. Reuse it in a later request with `headers: ["Cookie": cookieHeader]`.
+
+`cachePolicy` accepts `Default` (follow HTTP cache headers), `Reload` (skip cached data), or `CacheOnly` (use cached data without contacting the server; fail if there is no cached response). See the complete [cached reading-list example](../examples/network_caching.nx).
+
+<!-- nexadoc:begin core-api-reference -->
+All callable built-in APIs below execute at runtime. Compile-time values come from declarations and project configuration rather than API calls.
+
+| API | Typed signature | Effect and behavior |
+|---|---|---|
+| `NetworkResponse.getHeader` | `(name: String) -> String?` | pure computation — Matches header names case-insensitively and returns the first value, or null when none match. |
+| `NetworkResponse.getHeaders` | `(name: String) -> Array<String>` | pure computation — Matches header names case-insensitively and returns every value in response order; returns an empty array when none match. |
+| `NetworkResponse.getCookie` | `() -> String` | pure computation — Reads every Set-Cookie header, keeps each name and value before the first semicolon, preserves equals signs and quoted characters in values, and joins valid pairs with `; `. Cookie attributes are omitted; returns an empty string when no valid pair exists. |
+| `Network.fetch` | `async (url: String, method: String = "GET", body: String? = null, headers: Map<String, String> = [:], timeoutSeconds: Float64 = 30, cachePolicy: String = "Default" {Default | Reload | CacheOnly}, followRedirects: Bool = true, maxResponseBytes: Int64 = 67108864, certificatePins: Set<String> = []) -> NetworkResponse throws` | network I/O — Returns every HTTP status for inspection; throws for invalid URLs, transport errors, timeouts, cancellation, response size limits, and certificate-pin failures. `timeoutSeconds` is measured in seconds. `cachePolicy` defaults to `Default` (honor HTTP cache headers); `Reload` skips the local cache; `CacheOnly` uses a cached response without contacting the server and fails on a cache miss. |
+| `Network.download` | `async (url: String, destinationPath: String, method: String = "GET", body: String? = null, headers: Map<String, String> = [:], timeoutSeconds: Float64 = 30, cachePolicy: String = "Default" {Default | Reload | CacheOnly}, followRedirects: Bool = true, maxResponseBytes: Int64 = 67108864, certificatePins: Set<String> = []) -> Bool throws` | network I/O — Downloads to temporary storage and replaces the destination only for a 2xx response; other HTTP statuses throw and preserve the destination. `timeoutSeconds` is measured in seconds. `cachePolicy` defaults to `Default` (honor HTTP cache headers); `Reload` skips the local cache; `CacheOnly` uses a cached response without contacting the server and fails on a cache miss. |
+| `Network.upload` | `async (url: String, file: String, fields: Map<String, String> = [:], headers: Map<String, String> = [:], timeoutSeconds: Float64 = 30, followRedirects: Bool = true, maxResponseBytes: Int64 = 67108864, certificatePins: Set<String> = []) -> NetworkResponse throws` | network I/O — Uploads a local file as multipart/form-data and returns every HTTP status for inspection; request and transport failures throw. `timeoutSeconds` is measured in seconds. Nexa generates the multipart Content-Type boundary, replacing any supplied Content-Type header. |
+| `Path.documents` | `() -> String` | reads device environment — Returns the documents directory. |
+| `Path.caches` | `() -> String` | reads device environment — Returns the caches directory. |
+| `Path.temporary` | `() -> String` | reads device environment — Returns the temporary directory. |
+| `Path.appSupport` | `() -> String` | reads device environment — Returns the app-support directory. |
+| `Path.join` | `(path: String, component: String) -> String` | pure computation — Joins one path component using native path rules. |
+| `File.exists` | `(path: String) -> Bool` | filesystem I/O — Checks whether a path exists. |
+| `File.readText` | `async (path: String) -> String throws` | filesystem I/O — Reads UTF-8 text from a file. |
+| `File.readBytes` | `async (path: String) -> Bytes throws` | filesystem I/O — Reads the exact bytes from a file. |
+| `File.writeText` | `async (path: String, contents: String) -> Bool throws` | filesystem I/O — Writes UTF-8 text atomically and reports success. |
+| `File.writeBytes` | `async (path: String, contents: Bytes) -> Bool throws` | filesystem I/O — Writes bytes atomically and reports success. |
+| `File.delete` | `async (path: String) -> Bool throws` | filesystem I/O — Deletes a file; returns false when missing and throws on other I/O failures. |
+| `Keyboard.dismiss` | `() -> Void` | UI side effect — Dismisses the active keyboard. |
+| `Screen.lockOrientation` | `(mode: String {Portrait | Landscape | All}) -> Void` | UI side effect — Sets the supported screen orientation. |
+| `Bytes.fromText` | `(text: String) -> Bytes` | pure computation — Encodes UTF-8 text as owned bytes. |
+| `Bytes.fromArray` | `(values: Array<UInt8>) -> Bytes` | pure computation — Copies unsigned byte values into an owned byte buffer. |
+| `Bytes.count` | `(bytes: Bytes) -> Int32` | pure computation — Returns the byte length. |
+| `Permissions.status` | `async (permission: Permission) -> PermissionStatus` | system permission prompt or query — Reads current system authorization. |
+| `Permissions.request` | `async (permission: Permission) -> PermissionStatus` | system permission prompt or query — Requests system authorization. |
+| `Time.now` | `() -> Int64` | reads device environment — Returns Unix time in milliseconds. |
+| `Time.monotonic` | `() -> Int64` | reads device environment — Returns a monotonic clock value in nanoseconds. |
+| `Time.elapsed` | `(since: Int64) -> Int64` | pure computation — Returns nanoseconds elapsed from a monotonic reading. |
+| `Time.sleep` | `async (milliseconds: Int64) -> Void` | suspends the current foreground task — Suspends the current task for the requested duration. |
+| `Time.iso8601` | `(timestamp: Int64) -> String` | pure computation — Formats a timestamp in UTC as yyyy-MM-ddTHH:mm:ss.SSSZ. |
+| `Time.iso8601ToMillis` | `(text: String) -> Int64?` | pure computation — Parses UTC yyyy-MM-ddTHH:mm:ssZ with a required Z and optional three-digit millisecond fraction; rejects offsets and invalid dates. |
+| `Time.startOfDay` | `(timestamp: Int64) -> Int64` | reads device environment — Returns the start of day in the device's current calendar and time zone, in milliseconds. |
+| `Time.addCalendarDays` | `(timestamp: Int64, days: Int32) -> Int64` | reads device environment — Adds calendar days in the device's current calendar and time zone; daylight-saving changes can make the elapsed duration differ from 24 hours. |
+| `Time.localizedDate` | `(timestamp: Int64) -> String` | reads device environment — Formats a date using the device's current locale, calendar, and time zone. |
+| `Time.localizedTime` | `(timestamp: Int64) -> String` | reads device environment — Formats a time using the device's current locale, calendar, and time zone. |
+| `Time.localizedDateTime` | `(timestamp: Int64) -> String` | reads device environment — Formats a date and time using the device's current locale, calendar, and time zone. |
+| `Time.format` | `(timestamp: Int64, pattern: String) -> String` | reads device environment — Formats a timestamp using the device's current locale, calendar, and time zone with an ICU date pattern. |
+| `AppIcon.set` | `async (name: String?) -> Bool` | UI side effect — Sets an alternate app icon, or restores the default with null. |
+| `Number.formatCurrency` | `(amount: Float64, currencyCode: String) -> String` | reads device environment — Formats currency for the current locale. |
+| `Locale.currentLanguageCode` | `() -> String` | reads device environment — Returns the current language code. |
+| `Locale.preferredLanguageCodes` | `() -> Array<String>` | reads device environment — Returns the device's preferred language codes. |
+| `Crypto.sha256` | `(text: String) -> String` | cryptographic operation — Returns a SHA-256 digest encoded as lowercase hexadecimal. |
+| `Crypto.sha512` | `(text: String) -> String` | cryptographic operation — Returns a SHA-512 digest encoded as lowercase hexadecimal. |
+| `Crypto.hmacSha256` | `(key: String, message: String) -> String` | cryptographic operation — Returns an HMAC-SHA-256 digest as lowercase hexadecimal. |
+| `Crypto.randomBytes` | `(count: Int32) -> String` | cryptographic operation — Generates secure random bytes and returns lowercase hexadecimal. |
+| `SecureStorage.get` | `async (key: String, scope: String? = null) -> String? throws` | protected OS storage — Reads a protected string value; an optional scope keeps feature data separate. |
+| `SecureStorage.set` | `async (key: String, value: String, scope: String? = null) -> Void throws` | protected OS storage — Stores a protected value in an optional feature scope. |
+| `SecureStorage.delete` | `async (key: String, scope: String? = null) -> Void throws` | protected OS storage — Deletes one protected value from an optional feature scope. |
+| `SecureStorage.clear` | `async (scope: String? = null) -> Void throws` | protected OS storage — Clears all protected values, or only those in the requested feature scope. |
+| `Storage.getString` | `(key: String) -> String?` | persistent app storage — Reads a non-secret preference. |
+| `Storage.setString` | `(key: String, value: String) -> Void` | persistent app storage — Writes a non-secret preference. |
+| `Storage.getBool` | `(key: String) -> Bool?` | persistent app storage — Reads a saved Boolean value, or null when the key is missing. |
+| `Storage.setBool` | `(key: String, value: Bool) -> Void` | persistent app storage — Saves a Boolean value. |
+| `Storage.getInt64` | `(key: String) -> Int64?` | persistent app storage — Reads a saved 64-bit integer, or null when the key is missing. |
+| `Storage.setInt64` | `(key: String, value: Int64) -> Void` | persistent app storage — Saves a 64-bit integer. |
+| `Storage.getFloat64` | `(key: String) -> Float64?` | persistent app storage — Reads a saved 64-bit floating-point value, or null when the key is missing. |
+| `Storage.setFloat64` | `(key: String, value: Float64) -> Void` | persistent app storage — Saves a 64-bit floating-point value. |
+| `Storage.delete` | `(key: String) -> Void` | persistent app storage — Deletes one preference. |
+| `Storage.clear` | `() -> Void` | persistent app storage — Clears preferences managed by this API. |
+| `Clipboard.setText` | `(text: String) -> Void` | UI side effect — Replaces system clipboard text. |
+| `Clipboard.getText` | `() -> String?` | UI side effect — Reads clipboard text when present. |
+| `Clipboard.hasText` | `() -> Bool` | UI side effect — Checks whether clipboard text is available. |
+| `Haptics.impact` | `(style: String {Light | Medium | Heavy}) -> Void` | device haptic feedback — Triggers an impact haptic. |
+| `Haptics.notification` | `(kind: String {Success | Error}) -> Void` | device haptic feedback — Triggers a notification haptic. |
+| `Haptics.selection` | `() -> Void` | device haptic feedback — Triggers a selection haptic. |
+| `Log.info` | `(message: String) -> Void` | native logging side effect — Writes an informational native log entry. |
+| `Log.warning` | `(message: String) -> Void` | native logging side effect — Writes a warning native log entry. |
+| `Log.error` | `(message: String) -> Void` | native logging side effect — Writes an error native log entry. |
+| `Regex.isMatch` | `(pattern: String, text: String) -> Bool` | pure computation — Returns whether a pattern occurs in the input. |
+| `Regex.matches` | `(pattern: String, text: String) -> Array<String>` | pure computation — Returns all non-overlapping matched substrings. |
+| `Regex.replace` | `(pattern: String, text: String, replacement: String) -> String` | pure computation — Replaces all matches using native replacement syntax. |
+| `Result<T, E> members` | `isSuccess: Bool`, `value: T?`, `error: E?` | Checks whether the result is successful and returns its success or failure payload when present. |
+| `Network.isOnline` | `Bool` | Reads the current native network-connectivity state. |
+| `Network.onStatusChange` | `(online: Bool) -> Void event subscription` | Registers a native connectivity listener and calls the action when the status changes. |
+| `Json.parse<T>` | `(raw: String) -> Result<T, JsonError>` | Typed JSON decoding; `T` is inferred from context or supplied explicitly. |
+| `Json.stringify<T>` | `(value: T) -> String` | Typed JSON encoding for supported Nexa values. |
+| `Storage.get<T>` | `(key: String) -> T?` | Reads a typed JSON value from app storage; missing or invalid data returns null. |
+| `Storage.set<T>` | `(key: String, value: T) -> Void` | Saves a typed JSON value using Nexa's generated codec for T. |
+| `Locale.displayName` | `(languageCode: String) -> String?` | Returns the localized language name when available. |
+| `Locale.localized` | `(sourceText: String) -> String` | Localizes source text or a source-text interpolation. |
+| `Navigation.push` | `(ScreenName(arguments...)) -> Void` | Pushes a declared screen using its statically checked route parameters. |
+| `Navigation.back` | `() -> Void` | Pops one route; does nothing at the navigation root. |
+| `ComponentRef<T>` | `ComponentRef<T>() -> ComponentRef<T>` | Creates an identity-stable handle for a built-in or native plugin component, or a reusable `.nx` component that declares ref methods. |
+| `ComponentRef<FastList>.scrollToIndex` | `(index: Int32, animated: Bool = true, viewPosition: Float64 = 0.0) -> Result<Void, ComponentRefError<Void>>` | Scrolls to an item; `viewPosition` is clamped from viewport start (`0`) through center (`0.5`) to end (`1`). |
+| `ComponentRef<FastList>.scrollToTop` | `(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls to the first row when the list is attached. |
+| `ComponentRef<FastList>.scrollToEnd` | `(animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls to the final row when the list is attached. |
+| `ComponentRef<FastList>.scrollToOffset` | `(offset: Float64, animated: Bool = true) -> Result<Void, ComponentRefError<Void>>` | Scrolls to an absolute logical offset when the list is attached. |
+| `ComponentRef<BottomSheet>.present` | `() -> Result<Void, ComponentRefError<Void>>` | Presents the attached sheet; returns `notAttached` when its view is not mounted. |
+| `ComponentRef<BottomSheet>.dismiss` | `() -> Result<Void, ComponentRefError<Void>>` | Dismisses the attached sheet; returns `notAttached` when its view is not mounted. |
+| `Reusable and plugin component ref methods` | `(parameters...) -> Result<T, ComponentRefError<Failure>>`; async methods require `await` | Reusable `.nx` methods can return `Result<T, AppError>` with an app enum or propagate a plugin error with `throws Namespace.ErrorType`; ref calls flatten either failure into `ComponentRefError<Failure>`. Plugin native methods use their IDL signatures. Detached calls return `notAttached`. |
 
 | Built-in type | Values or fields |
 |---|---|
 | `Permission` | `Camera`, `Microphone`, `Photos`, `Location`, `Notifications`, `Contacts`, `Calendar`, `Bluetooth`, `Motion` |
-| `PermissionStatus` | `granted`, `denied`, `restricted`, `notDetermined` |
-| `NetworkResponse` | `statusCode: Int32`, `headers: Map<String, String>`, `body: String` |
+| `PermissionStatus` | `granted`, `limited`, `provisional`, `denied`, `permanentlyDenied`, `restricted`, `notDetermined` |
+| `NetworkResponse` | `statusCode: Int32`, `body: String`, `getHeader(name: String): String?`, `getHeaders(name: String): Array<String>`, `getCookie(): String` |
+| `JsonError` | `invalidJson`, `typeMismatch`, `missingField`, `invalidValue` |
+| `ComponentRefError<Failure>` | `notAttached`, `failure(Failure)` |
+<!-- nexadoc:end core-api-reference -->
 
 ---
 
@@ -824,3 +1019,26 @@ Execute tests via CLI:
 nexa test               # Runs tests and builds native test hosts
 nexa test --unit-only   # Lightning-fast evaluation without native toolchains
 ```
+
+## 8. Compiler Warning Codes
+
+Warnings use stable `NEXA-W` codes in CLI output and LSP diagnostics. Use the code to identify a warning in editor settings or CI; the message can become more specific without changing the code.
+
+<!-- nexadoc:begin warning-codes -->
+| Code | Meaning |
+|---|---|
+| `NEXA-W0000` | Warning without a more specific code. |
+| `NEXA-W1001` | Function is never used and will be removed from generated code. |
+| `NEXA-W1002` | Test local is never used. |
+| `NEXA-W1003` | Function local is never used. |
+| `NEXA-W1004` | Function parameter is never used. |
+| `NEXA-W1005` | State or constant is never used and will be removed from generated code. |
+| `NEXA-W1006` | Component parameter is never used. |
+| `NEXA-W1007` | FastList row, section, or index binding is never used. |
+| `NEXA-W1008` | Loop binding is never used. |
+| `NEXA-W1009` | Condition is always true or false, so one branch is unreachable. |
+| `NEXA-W1010` | Collection rows use positional identity because FastList has no key. |
+| `NEXA-W1011` | Permission metadata is not used by app permission APIs or a reachable native plugin. |
+| `NEXA-W1012` | Permission values are selected dynamically, so native permission declarations cannot be checked statically. |
+| `NEXA-W9000` | Plugin analyzer reported a warning. |
+<!-- nexadoc:end warning-codes -->

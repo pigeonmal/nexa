@@ -1,0 +1,31 @@
+struct ReaderSettings {
+    fontSize: Float64,
+    showPageNumbers: Bool,
+}
+
+app ReaderPreferences {
+    state notificationsEnabled: Bool = Storage.getBool(key: "reader.notifications") ?? true
+    state weeklyGoal: Int64 = Storage.getInt64(key: "reader.weekly-goal") ?? 5
+    state textScale: Float64 = Storage.getFloat64(key: "reader.text-scale") ?? 1.0
+    state readerSettings: ReaderSettings = Storage.get<ReaderSettings>(key: "reader.settings") ?? ReaderSettings(18.0, true)
+    state recentBooks: Array<String> = Storage.get<Array<String>>(key: "reader.recent-books") ?? []
+
+    body {
+        Column {
+            Text("Weekly reading goal: \(weeklyGoal)")
+            Text("Reader font size: \(readerSettings.fontSize)")
+            Text("Recent books saved: \(recentBooks.count)")
+            Button("Save reader preferences") {
+                Storage.setBool(key: "reader.notifications", value: notificationsEnabled)
+                Storage.setInt64(key: "reader.weekly-goal", value: weeklyGoal)
+                Storage.setFloat64(key: "reader.text-scale", value: textScale)
+                Storage.set(key: "reader.settings", value: readerSettings)
+                Storage.set(key: "reader.recent-books", value: recentBooks)
+            }
+            Button("Reset weekly goal") {
+                Storage.delete(key: "reader.weekly-goal")
+                weeklyGoal = 5
+            }
+        }
+    }
+}

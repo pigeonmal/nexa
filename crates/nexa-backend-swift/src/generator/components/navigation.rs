@@ -9,8 +9,9 @@ use crate::generator::{
     utils::{indent, swift_string},
 };
 use crate::generator::{
-    features::Features, render_immutable_state, render_native_object_state,
-    render_native_object_state_uninitialized, render_state_initializers_in_init, status_bar,
+    features::Features, render_component_ref_state, render_immutable_state,
+    render_native_object_state, render_native_object_state_uninitialized,
+    render_state_initializers_in_init, status_bar,
 };
 
 use super::lifecycle;
@@ -56,7 +57,7 @@ pub(crate) fn render_back(
 ) {
     out.line_at(depth, format_args!("Button {{"));
     indent(out, depth + 1);
-    out.push_str("nexaDismiss()\n");
+    out.push_str("if !nexaNavigationPath.wrappedValue.isEmpty { nexaNavigationPath.wrappedValue.removeLast() }\n");
     out.line_at(depth, format_args!("}} label: {{"));
     out.line_at(
         depth + 1,
@@ -67,6 +68,10 @@ pub(crate) fn render_back(
     );
     indent(out, depth);
     out.push('}');
+}
+
+pub(crate) fn action_route_value(destination: ScreenId, arguments: &[Expr]) -> String {
+    route_value(destination, arguments)
 }
 
 pub(crate) struct NavigationTitleOptions {
@@ -171,7 +176,7 @@ pub(crate) fn render_navigation_stack(
     indent(out, depth + 1);
     out.push_str("}\n");
     indent(out, depth);
-    out.push('}');
+    out.push_str("}.environment(\\.nexaNavigationPath, $__nexaNavigationPath)");
     if app_appearance_mode.is_some() {
         out.push('\n');
         indent(out, depth - 1);
@@ -182,6 +187,8 @@ pub(crate) fn render_navigation_stack(
 fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWriter) {
     indent(out, depth);
     out.push_str("let scheme = url.scheme?.lowercased() ?? \"\"\n");
+    indent(out, depth);
+    out.push_str("let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []\n");
     indent(out, depth);
     out.push_str(
         "var segments = url.pathComponents.dropFirst().map { $0.removingPercentEncoding ?? $0 }\n",
@@ -200,16 +207,38 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWrit
         out.line_at(
             depth + 2,
             format_args!(
-                "guard segments.count == {} else {{ return }}",
+                "guard segments.count <= {} else {{ return }}",
                 screen.parameters.len() + 1
             ),
         );
         let mut arguments = vec!["UUID()".to_owned()];
         for (index, parameter) in screen.parameters.iter().enumerate() {
-            let raw = format!("segments[{}]", index + 1);
+            let raw = format!("nexaRouteArgument{index}");
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "var {raw} = queryItems.first(where: {{ $0.name == {} }})?.value",
+                    swift_string(&parameter.name)
+                ),
+            );
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "if segments.count > {} {{ {raw} = segments[{}] }}",
+                    index + 1,
+                    index + 1
+                ),
+            );
+            out.line_at(depth + 2, format_args!("guard let {raw} else {{ return }}"));
             let name = format!("nexaArgument{index}");
             match &parameter.ty {
-                Type::String => arguments.push(raw),
+                Type::String => {
+                    out.line_at(
+                        depth + 2,
+                        format_args!("guard !{raw}.isEmpty else {{ return }}"),
+                    );
+                    arguments.push(raw);
+                }
                 Type::Bool => {
                     out.line_at(
                         depth + 2,
@@ -270,6 +299,15 @@ pub(crate) fn render_screen_view(
         "private struct {}: View {{\n",
         screen_view_name(screen.id)
     ));
+    out.push_str("    @Environment(\\.nexaNavigationPath) private var nexaNavigationPath\n");
+    let cancel_task_scope = features
+        .facts
+        .untracked_task_launch_scopes
+        .screens
+        .contains(&screen.name);
+    if cancel_task_scope {
+        out.push_str("    @State private var nexaTaskScope = NexaTaskScope()\n");
+    }
     for state in &module.states {
         if !screen_state_is_passed_as_binding(state, &focus_bindings) {
             continue;
@@ -318,7 +356,9 @@ pub(crate) fn render_screen_view(
         .iter()
         .any(|state| matches!(state.ty, nexa_ir::Type::Signal(_)));
     for state in &screen.states {
-        if state.is_native_class_constructor_binding() {
+        if render_component_ref_state(state, 1, out) {
+            continue;
+        } else if state.is_native_class_constructor_binding() {
             if has_signals {
                 render_native_object_state_uninitialized(state, 1, out);
             } else {
@@ -458,6 +498,7 @@ pub(crate) fn render_screen_view(
     lifecycle::render_on_disappear(
         screen.on_disappear.as_deref(),
         &lifecycle::task_handles(&screen.states),
+        cancel_task_scope,
         2,
         out,
     );

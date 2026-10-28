@@ -22,7 +22,8 @@ final class NexaComponentCatalogUITests: XCTestCase {
         ("Content unavailable", "EmptyCases"),
         ("Progress bar values", "ProgressBarCases"),
         ("Progress ring values", "ProgressRingCases"),
-        ("FastList row sizing", "FastListCases"),
+        ("FastList parameters", "FastListCases"),
+        ("Date and time picker styles", "PickerDateCases"),
         ("Pull to refresh", "RefreshCases"),
         ("Keyboard-aware layout", "KeyboardCases"),
         ("Icon sizes and tint", "IconCases"),
@@ -62,10 +63,15 @@ final class NexaComponentCatalogUITests: XCTestCase {
     }
 
     private func scrollToTop(in app: XCUIApplication) {
-        for _ in 0..<20 {
+        let firstRoute = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Column spacing and padding"))
+            .firstMatch
+        for _ in 0..<12 {
+            if firstRoute.exists && firstRoute.isHittable { return }
             app.swipeDown()
             waitBrieflyForLayout()
         }
+        XCTAssertTrue(firstRoute.exists && firstRoute.isHittable, "Could not return the catalog to its first route")
     }
 
     private func capture(_ name: String, app: XCUIApplication) throws {
@@ -163,6 +169,11 @@ final class NexaComponentCatalogUITests: XCTestCase {
         )
         try push("NavigationBack behavior", screen: "NavigationBackCases", in: app)
 
+        let conditionalLink = app.buttons["Conditional navigation link"]
+        try tap("Toggle navigation availability", in: app)
+        XCTAssertFalse(conditionalLink.isEnabled, "when=false must disable the navigation link")
+        try tap("Toggle navigation availability", in: app)
+        XCTAssertTrue(conditionalLink.isEnabled, "when=true must enable the navigation link")
         try tap("Conditional navigation link", in: app)
         XCTAssertTrue(
             app.staticTexts["DirectionCases"].waitForExistence(timeout: 8),
@@ -234,6 +245,18 @@ final class NexaComponentCatalogUITests: XCTestCase {
         )
         try push("App bottom bar", screen: "BottomBarCases", in: app)
         XCTAssertTrue(app.staticTexts["Inbox tab content"].waitForExistence(timeout: 5))
+        for (tab, content) in [
+            ("Today", "Today tab content"),
+            ("Search", "Search tab content"),
+            ("Inbox", "Inbox tab content"),
+        ] {
+            let tabButton = app.buttons[tab]
+            XCTAssertTrue(tabButton.waitForExistence(timeout: 5), "Bottom bar tab is missing: \(tab)")
+            tabButton.tap()
+            waitBrieflyForLayout()
+            XCTAssertTrue(app.staticTexts[content].waitForExistence(timeout: 5), "Selected tab did not show (content)")
+            XCTAssertTrue(app.staticTexts[tab].exists, "Selected tab did not become the native navigation title")
+        }
         try navigateBack(in: app, from: "BottomBarCases")
     }
 
@@ -288,16 +311,33 @@ final class NexaComponentCatalogUITests: XCTestCase {
         )
         try push("Divider thickness and color", screen: "DividerCases", in: app)
 
-        for label in ["Gray · 1 dp", "Red · 2 dp", "Blue · 4 dp"] {
+        for label in ["Gray · 1 dp", "Red · 2 dp", "Blue · 4 dp", "Hairline · 0.5 dp", "Zero · 0 dp"] {
             XCTAssertTrue(app.staticTexts[label].exists, "Divider case is missing: \(label)")
         }
-        for label in ["DividerCases", "Divider", "Color and thickness", "Gray · 1 dp", "Red · 2 dp", "Blue · 4 dp"] {
+        for label in ["DividerCases", "Divider", "Color and thickness", "Gray · 1 dp", "Red · 2 dp", "Blue · 4 dp", "Hairline · 0.5 dp", "Zero · 0 dp"] {
             let element = app.descendants(matching: .any)
                 .matching(NSPredicate(format: "label == %@", label))
                 .firstMatch
             print("DIVIDER_FRAME \(label): \(element.frame)")
         }
         try capture("DividerColorAndThickness", app: app)
+    }
+
+    func testRefreshControlExposesBothRefreshingStates() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Column spacing and padding"].waitForExistence(timeout: 30),
+            "Component catalog did not appear"
+        )
+        try push("Pull to refresh", screen: "RefreshCases", in: app)
+        XCTAssertTrue(app.staticTexts["Refresh state: false"].waitForExistence(timeout: 5))
+        try tap("Set refreshing", in: app)
+        XCTAssertTrue(app.staticTexts["Refresh state: true"].waitForExistence(timeout: 5))
+        try tap("Finish refresh", in: app)
+        XCTAssertTrue(app.staticTexts["Refresh state: false"].waitForExistence(timeout: 5))
+        try capture("RefreshControlBothStates", app: app)
     }
 
     func testSwitchBoundValueTogglesOnAndOff() throws {
@@ -332,7 +372,7 @@ final class NexaComponentCatalogUITests: XCTestCase {
             app.staticTexts["Column spacing and padding"].waitForExistence(timeout: 30),
             "Component catalog did not appear"
         )
-        try push("FastList row sizing", screen: "FastListCases", in: app)
+        try push("FastList parameters", screen: "FastListCases", in: app)
 
         let reversePage = app.buttons["Page 2"]
         XCTAssertTrue(reversePage.waitForExistence(timeout: 5), "Reverse-layout page is missing")
@@ -360,6 +400,157 @@ final class NexaComponentCatalogUITests: XCTestCase {
             "Visible logical row should follow the bound scroll position"
         )
         try capture("FastListReverseScrollPosition", app: app)
+    }
+
+    func testFastListComponentRefScrollsToIndex() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Column spacing and padding"].waitForExistence(timeout: 30),
+            "Component catalog did not appear"
+        )
+        try push("FastList parity", screen: "FastListCases", in: app)
+
+        let firstPage = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Page 1"))
+            .firstMatch
+        XCTAssertTrue(firstPage.waitForExistence(timeout: 5), "FastList vertical page is missing")
+        firstPage.tap()
+
+        // The generated SwiftUI Button is visible but Simulator XCTest reports
+        // its label as `null` on this runtime, even though its Text is rendered.
+        // Select that native Button by its role; the following row assertion is
+        // the behavioral contract this test is protecting.
+        let scrollButton = app.buttons.matching(
+            NSPredicate(
+                format: "label == %@ OR label == %@",
+                "Scroll to row 5 with ComponentRef",
+                "null"
+            )
+        ).firstMatch
+        XCTAssertTrue(scrollButton.waitForExistence(timeout: 8), "FastList scroll action button is missing")
+        scrollButton.tap()
+        waitBrieflyForLayout()
+        XCTAssertTrue(
+            app.staticTexts["Parity row 5"].waitForExistence(timeout: 8),
+            "ComponentRef.scrollToIndex did not reveal the requested row"
+        )
+        try capture("FastListComponentRefScrollToIndex", app: app)
+    }
+
+    func testPagerControlsSwipeAndAccessibleIndicatorsStayInSync() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Column spacing and padding"].waitForExistence(timeout: 30),
+            "Component catalog did not appear"
+        )
+        try push("Page pager", screen: "PagerCases", in: app)
+        XCTAssertTrue(app.staticTexts["First page"].exists)
+
+        try tap("Next", in: app)
+        XCTAssertTrue(app.staticTexts["Second page"].waitForExistence(timeout: 5))
+        try tap("Previous", in: app)
+        XCTAssertTrue(app.staticTexts["First page"].waitForExistence(timeout: 5))
+
+        let secondIndicator = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Page 2"))
+            .firstMatch
+        XCTAssertTrue(secondIndicator.waitForExistence(timeout: 5), "Second page indicator is missing")
+        secondIndicator.tap()
+        XCTAssertTrue(app.staticTexts["Second page"].waitForExistence(timeout: 5))
+
+        app.swipeLeft()
+        XCTAssertTrue(app.staticTexts["Second page"].waitForExistence(timeout: 5))
+        let firstIndicator = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Page 1"))
+            .firstMatch
+        XCTAssertTrue(firstIndicator.waitForExistence(timeout: 5), "First page indicator is missing")
+        firstIndicator.tap()
+        XCTAssertTrue(app.staticTexts["First page"].waitForExistence(timeout: 5))
+        try capture("PagerControlsSwipeAndIndicators", app: app)
+    }
+
+    func testFastListSwipeActionDoesNotAdvanceParentPager() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Column spacing and padding"].waitForExistence(timeout: 30),
+            "Component catalog did not appear"
+        )
+        try push("Bottom sheet", screen: "SheetCases", in: app)
+        try tap("Open FastList parity inside sheet", in: app)
+
+        let keyedPage = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Page 9"))
+            .firstMatch
+        XCTAssertTrue(keyedPage.waitForExistence(timeout: 8), "Nested keyed FastList page indicator is missing")
+        keyedPage.tap()
+        XCTAssertTrue(app.staticTexts["FastList · keyed collection and actions"].waitForExistence(timeout: 5))
+
+        let reordering = app.switches["Allow row reordering"]
+        XCTAssertTrue(reordering.waitForExistence(timeout: 5), "Nested row-reordering switch is missing")
+        if reordering.value as? String != "0" { reordering.tap() }
+
+        let task = app.staticTexts["1. Move task one"]
+        XCTAssertTrue(task.waitForExistence(timeout: 5), "First keyed task is missing")
+        task.swipeLeft()
+        XCTAssertTrue(app.buttons["Delete"].waitForExistence(timeout: 5), "Row swipe did not expose Delete")
+        XCTAssertTrue(
+            app.staticTexts["FastList · keyed collection and actions"].exists,
+            "Row swipe advanced the parent pager"
+        )
+        app.buttons["Delete"].tap()
+        XCTAssertTrue(app.staticTexts["Delete actions: 1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts["FastList · keyed collection and actions"].exists,
+            "Delete action moved the parent pager away from its keyed-list page"
+        )
+        // This nested fixture measures the callback; unlike FastListCases, it does not mutate its source array.
+        XCTAssertTrue(task.exists, "The callback-only sample unexpectedly removed its source row")
+        try capture("NestedFastListSwipeAction", app: app)
+    }
+
+    func testFastListSwipeDeleteAndResetUpdateRowsAndCounters() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Column spacing and padding"].waitForExistence(timeout: 30),
+            "Component catalog did not appear"
+        )
+        try push("FastList parameters", screen: "FastListCases", in: app)
+
+        let actionsPage = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Page 10"))
+            .firstMatch
+        XCTAssertTrue(actionsPage.waitForExistence(timeout: 5), "FastList action page indicator is missing")
+        actionsPage.tap()
+
+        let reordering = app.switches["Allow row reordering"]
+        XCTAssertTrue(reordering.waitForExistence(timeout: 5), "Row-reordering switch is missing")
+        if reordering.value as? String != "0" { reordering.tap() }
+
+        let firstTask = app.staticTexts["1. Move task one"]
+        XCTAssertTrue(firstTask.waitForExistence(timeout: 5), "First keyed task is missing")
+        firstTask.swipeLeft()
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "Row swipe did not expose Delete")
+        delete.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Move events: 0 · delete actions: 1"].waitForExistence(timeout: 5),
+            "Delete did not increment the action counter exactly once"
+        )
+        XCTAssertFalse(firstTask.isHittable, "Deleted row remained hittable")
+
+        try tap("Reset movable tasks", in: app)
+        XCTAssertTrue(firstTask.waitForExistence(timeout: 5), "Reset did not restore the first task")
+        XCTAssertTrue(app.staticTexts["Move events: 0 · delete actions: 0"].exists)
+        try capture("FastListDeleteAndReset", app: app)
     }
 
     func testSegmentedControlSelectionUpdatesOnFirstTap() throws {

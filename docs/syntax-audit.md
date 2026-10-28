@@ -53,7 +53,7 @@ Sections:
 
 ### `Column`
 
-Vertical layout container with optional spacing
+Vertical layout container with zero gap by default and optional spacing
 
 Signature: `Column(spacing:, alignment:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, borderColor:, borderWidth:, opacity:, scale:, rotation:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
@@ -141,7 +141,7 @@ Reference: components.md#keyboardaware
 
 ### `Row`
 
-Horizontal layout container with spacing and main-axis arrangement
+Horizontal layout container with zero gap by default, optional spacing, and main-axis arrangement
 
 Signature: `Row(spacing:, alignment:, horizontalArrangement:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, borderColor:, borderWidth:, opacity:, scale:, rotation:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
@@ -279,9 +279,9 @@ Reference: components.md#pickerdate
 
 Shows customizable determinate or indeterminate linear progress
 
-Signature: `ProgressBar(progress:, tint:, trackColor:, thickness:, cornerRadius:, android_wave:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ProgressBar(progress:, tint:, trackColor:, thickness:, cornerRadius:, androidWave:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `progress`, `tint`, `trackColor`, `thickness`, `cornerRadius`, `android_wave`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `progress`, `tint`, `trackColor`, `thickness`, `cornerRadius`, `androidWave`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -293,9 +293,9 @@ Reference: components.md#progressbar
 
 Shows customizable determinate or indeterminate circular progress
 
-Signature: `ProgressRing(progress:, tint:, trackColor:, size:, thickness:, android_wave:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ProgressRing(progress:, tint:, trackColor:, size:, thickness:, androidWave:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `progress`, `tint`, `trackColor`, `size`, `thickness`, `android_wave`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `progress`, `tint`, `trackColor`, `size`, `thickness`, `androidWave`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -632,7 +632,7 @@ High-performance virtualized list with configurable dividers and responsive grid
 
 Signature: `FastList(collection | count: | sections:, axis:, ...)` with `{ bindings in ... }` rows
 
-Optional options: `axis`, `rowHeight`, `spacing`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `showDividers`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `axis`, `rowHeight`, `spacing`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `showDividers`, `ref`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Source forms: positional collection, `count`:, or `sections:` (exactly one); row-key option `key`.
 
@@ -642,10 +642,6 @@ Modifiers:
 
 - `.onEndReached` (actions, optional)
 - `.onScroll` (actions, optional)
-- `.scrollToIndex` (no block, optional)
-- `.scrollToTop` (no block, optional)
-- `.scrollToEnd` (no block, optional)
-- `.scrollToOffset` (no block, optional)
 - `.onMove` (event actions, optional)
 - `.stickyHeader` (nodes, optional)
 - `.sectionHeader` (nodes, optional)
@@ -753,13 +749,13 @@ Reference: components.md#accessibility-options
 
 ### `BottomSheet`
 
-Native modal sheet with custom snap points and dismissal behavior
+Native modal sheet controlled through a typed component reference
 
-Signature: `BottomSheet(isPresented, contentPadding:, detents:, initialDetent:, snapPoints:, initialSnapPoint:, selectedSnapPoint:, showDragIndicator:, allowsDismissal:, allowsBackgroundInteraction:, shouldDismissOnBackPress:, backgroundColor:, scrimColor:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `BottomSheet(ref, contentPadding:, detents:, initialDetent:, showDragIndicator:, allowsDismissal:, allowsBackgroundInteraction:, shouldDismissOnBackPress:, backgroundColor:, scrimColor:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
-Required options: `isPresented`
+Required options: `ref`
 
-Optional options: `contentPadding`, `detents`, `initialDetent`, `snapPoints`, `initialSnapPoint`, `selectedSnapPoint`, `showDragIndicator`, `allowsDismissal`, `allowsBackgroundInteraction`, `shouldDismissOnBackPress`, `backgroundColor`, `scrimColor`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `contentPadding`, `detents`, `initialDetent`, `showDragIndicator`, `allowsDismissal`, `allowsBackgroundInteraction`, `shouldDismissOnBackPress`, `backgroundColor`, `scrimColor`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 

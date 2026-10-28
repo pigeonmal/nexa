@@ -13,6 +13,7 @@ import org.json.JSONObject
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +28,47 @@ internal data class NexaDevDiagnostic(
     val stackTrace: String? = null,
 ) {
     val isRuntimeFailure: Boolean get() = file == "<runtime>"
+}
+
+internal class NexaDevLocatedRuntimeException(
+    val sourceFile: String,
+    val line: Int,
+    val column: Int,
+    cause: Throwable,
+) : RuntimeException(cause.message, cause)
+
+private data class NexaDevSourceLocation(val file: String, val line: Int, val column: Int)
+
+private fun sourceLocation(fields: JSONObject): NexaDevSourceLocation? {
+    val file = fields.optString("source_file").takeIf(String::isNotBlank) ?: return null
+    val span = fields.optJSONObject("source_span") ?: return null
+    val line = span.optInt("line", 0)
+    val column = span.optInt("column", 0)
+    return if (line > 0 && column > 0) NexaDevSourceLocation(file, line, column) else null
+}
+
+private fun NexaDevPluginFailure.attachSourceLocation(location: NexaDevSourceLocation) {
+    // Keep the first (innermost) call site while nested Located expressions
+    // propagate this same plugin failure through their outer expressions.
+    if (sourceFile != null) return
+    sourceFile = location.file
+    sourceLine = location.line
+    sourceColumn = location.column
+}
+
+private fun locateExpressionFailure(fields: JSONObject, error: Throwable): Throwable {
+    if (error is NexaDevLocatedRuntimeException || error is CancellationException) return error
+    val location = sourceLocation(fields) ?: return error
+    if (error is NexaDevPluginFailure) {
+        error.attachSourceLocation(location)
+        return error
+    }
+    return NexaDevLocatedRuntimeException(location.file, location.line, location.column, error)
+}
+
+private fun attachPendingPluginFailureLocation(fields: JSONObject, failure: NexaDevPluginFailure?) {
+    val location = sourceLocation(fields) ?: return
+    failure?.attachSourceLocation(location)
 }
 
 internal data class NexaDevNativeEventSubscription(
@@ -46,17 +88,49 @@ internal data class NexaDevNetworkStatusSubscription(
     val locals: Map<String, Any>,
 )
 
+/** Stable debug-runtime handle for one reusable `.nx` component instance. */
+internal class NexaDevComponentRef(
+    val componentName: String,
+    val identity: String,
+) {
+    var attachedScope: String? = null
+        private set
+    var attachedParameters: Map<String, Any> = emptyMap()
+        private set
+
+    fun attach(scope: String, parameters: Map<String, Any>) {
+        attachedScope = scope
+        // The renderer creates a fresh argument map for each component call
+        // and does not mutate it after attachment; retain it directly instead
+        // of copying the map on every recomposition.
+        attachedParameters = parameters
+    }
+
+    fun detach() {
+        attachedScope = null
+        attachedParameters = emptyMap()
+    }
+}
+
 /** Runtime value for an interpreted Nexa class; its source-visible fields are immutable. */
 internal data class NexaDevUserClassInstance(val className: String, val fields: Map<String, Any>)
 
 /** Type-erased SQL row used only by the debug interpreter. */
 internal data class NexaDevDynamicRow(val fields: Map<String, Any>)
 
+internal data class NexaDevForegroundTask(
+    val id: String,
+    val job: Job,
+    val owner: String?,
+)
+
 internal class NexaDevStateStore(internal val context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    internal val foregroundTasks = ConcurrentHashMap<String, Job>()
+    internal val foregroundTasks = ConcurrentHashMap<String, NexaDevForegroundTask>()
     internal val values = mutableStateMapOf<String, Any>()
+    /** Native component handles persist separately from hot-reload state. */
+    internal val componentRefs = mutableMapOf<String, Any>()
     internal val animationSpecs = mutableStateMapOf<String, androidx.compose.animation.core.FiniteAnimationSpec<Float>>()
     internal var typeSignatures = mutableMapOf<String, String>()
     internal var functions = mutableMapOf<String, JSONObject>()
@@ -74,6 +148,8 @@ internal class NexaDevStateStore(internal val context: Context) {
         private set
     @Volatile var openEditorHandler: ((NexaDevDiagnostic) -> Unit)? = null
     var performanceOverlayEnabled by mutableStateOf(false)
+    /** Disabled by default; the dev console can opt into value-free trace events. */
+    @Volatile var runtimeTraceEnabled = false
     var navigationEpoch by mutableIntStateOf(0)
         private set
     var moduleRevision by mutableIntStateOf(0)
@@ -90,6 +166,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     fun dispose() {
         clearNativeTasks()
         clearNativeEventSubscriptions()
+        componentRefs.clear()
         eventScope.cancel()
     }
 
@@ -247,6 +324,31 @@ internal class NexaDevStateStore(internal val context: Context) {
         }
     }
 
+    private fun stateShapeSignature(type: Any?, enumCases: Map<String, List<String>>): String {
+        val referencedEnums = sortedSetOf<String>()
+        fun collectEnumTypes(value: Any?) {
+            when (value) {
+                is JSONObject -> {
+                    if (value.has("Enum")) {
+                        value.optString("Enum").takeIf(String::isNotEmpty)?.let(referencedEnums::add)
+                    }
+                    val keys = value.keys()
+                    while (keys.hasNext()) collectEnumTypes(value.opt(keys.next()))
+                }
+                is JSONArray -> for (index in 0 until value.length()) collectEnumTypes(value.opt(index))
+            }
+        }
+        collectEnumTypes(type)
+        val cases = JSONObject()
+        for (name in referencedEnums) {
+            cases.put(name, JSONArray(enumCases[name] ?: emptyList<String>()))
+        }
+        return JSONObject()
+            .put("type", type ?: JSONObject.NULL)
+            .put("enumCases", cases)
+            .toString()
+    }
+
     fun install(next: JSONObject) {
         val isHotReplacement = hasInstalledModule
         if (isHotReplacement) {
@@ -256,27 +358,46 @@ internal class NexaDevStateStore(internal val context: Context) {
         val screens = next.optJSONArray("screens") ?: JSONArray()
         val states = next.optJSONArray("states") ?: JSONArray()
         val nextFunctions = next.optJSONArray("functions") ?: JSONArray()
-        functions = (0 until nextFunctions.length()).mapNotNull { index ->
-            val function = nextFunctions.optJSONObject(index) ?: return@mapNotNull null
-            val name = function.optString("name").takeIf(String::isNotEmpty) ?: return@mapNotNull null
-            name to function
-        }.toMap().toMutableMap()
-        classTypes = functions.values.mapNotNull { function ->
-            function.optJSONObject("receiver")?.optJSONObject("Class")?.let { it.optString("name") to it }
-        }.toMap().toMutableMap()
+        val installedFunctions = LinkedHashMap<String, JSONObject>(nextFunctions.length())
+        for (index in 0 until nextFunctions.length()) {
+            val function = nextFunctions.optJSONObject(index) ?: continue
+            val name = function.optString("name").takeIf(String::isNotEmpty) ?: continue
+            installedFunctions[name] = function
+        }
+        val nextComponents = next.optJSONArray("components") ?: JSONArray()
+        for (index in 0 until nextComponents.length()) {
+            val component = nextComponents.optJSONObject(index) ?: continue
+            val methods = component.optJSONArray(NexaDevKeys.REF_METHODS) ?: continue
+            for (methodIndex in 0 until methods.length()) {
+                val method = methods.optJSONObject(methodIndex) ?: continue
+                val name = method.optString("name").takeIf(String::isNotEmpty) ?: continue
+                installedFunctions[name] = method
+            }
+        }
+        functions = installedFunctions
+        val installedClassTypes = LinkedHashMap<String, JSONObject>()
+        for (function in installedFunctions.values) {
+            val classType = function.optJSONObject("receiver")?.optJSONObject("Class") ?: continue
+            installedClassTypes[classType.optString("name")] = classType
+        }
+        classTypes = installedClassTypes
         val nextStructs = next.optJSONArray("structs") ?: JSONArray()
-        structs = (0 until nextStructs.length()).mapNotNull { index ->
-            val declaration = nextStructs.optJSONObject(index) ?: return@mapNotNull null
-            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: return@mapNotNull null
-            name to (declaration.optJSONArray("fields") ?: JSONArray())
-        }.toMap().toMutableMap()
+        val installedStructs = LinkedHashMap<String, JSONArray>(nextStructs.length())
+        for (index in 0 until nextStructs.length()) {
+            val declaration = nextStructs.optJSONObject(index) ?: continue
+            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: continue
+            installedStructs[name] = declaration.optJSONArray("fields") ?: JSONArray()
+        }
+        structs = installedStructs
         val nextEnums = next.optJSONArray("enums") ?: JSONArray()
-        enumCases = (0 until nextEnums.length()).mapNotNull { index ->
-            val declaration = nextEnums.optJSONObject(index) ?: return@mapNotNull null
-            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        val installedEnumCases = LinkedHashMap<String, List<String>>(nextEnums.length())
+        for (index in 0 until nextEnums.length()) {
+            val declaration = nextEnums.optJSONObject(index) ?: continue
+            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: continue
             val cases = declaration.optJSONArray("cases") ?: JSONArray()
-            name to (0 until cases.length()).map { cases.optString(it) }
-        }.toMap().toMutableMap()
+            installedEnumCases[name] = (0 until cases.length()).map { cases.optString(it) }
+        }
+        enumCases = installedEnumCases
         val nextValues = mutableMapOf<String, Any>()
         val nextTypes = mutableMapOf<String, String>()
         val initialLocals = mutableMapOf<String, Any>()
@@ -288,7 +409,7 @@ internal class NexaDevStateStore(internal val context: Context) {
         for (index in 0 until globals.length()) {
             val declaration = globals.optJSONObject(index) ?: continue
             val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: continue
-            val signature = declaration.opt("ty")?.toString().orEmpty()
+            val signature = stateShapeSignature(declaration.opt("ty"), installedEnumCases)
             nextModuleSignatures[name] = signature
             val retained = moduleValues[name].takeIf { moduleValueSignatures[name] == signature }
             val value = retained ?: if (declaration.has("initial")) {
@@ -302,22 +423,10 @@ internal class NexaDevStateStore(internal val context: Context) {
         }
         moduleValues = nextModuleValues
         moduleValueSignatures = nextModuleSignatures
-        val declarations = mutableListOf<Pair<String, JSONObject>>()
-        for (index in 0 until states.length()) {
-            states.optJSONObject(index)?.let { declarations += "app" to it }
-        }
-        for (screenIndex in 0 until screens.length()) {
-            val screen = screens.optJSONObject(screenIndex) ?: continue
-            val screenName = screen.optString("name").takeIf(String::isNotEmpty) ?: continue
-            val screenStates = screen.optJSONArray("states") ?: JSONArray()
-            for (stateIndex in 0 until screenStates.length()) {
-                screenStates.optJSONObject(stateIndex)?.let { declarations += "screen/$screenName" to it }
-            }
-        }
-        for ((scope, declaration) in declarations) {
+        fun installState(scope: String, declaration: JSONObject) {
             val name = declaration.optString("name")
             val identity = "$scope/state/$name"
-            val typeSignature = declaration.opt("ty")?.toString() ?: ""
+            val typeSignature = stateShapeSignature(declaration.opt("ty"), installedEnumCases)
             nextTypes[identity] = typeSignature
             val previousType = typeSignatures[identity]
             val previousValue = values[identity]
@@ -326,18 +435,61 @@ internal class NexaDevStateStore(internal val context: Context) {
             } else if (declaration.has("initial")) {
                 evaluate(declaration.get("initial"), initialLocals, scope)
             } else {
-                continue
+                return
             }
             nextValues[identity] = resolvedValue
             initialLocals[name] = resolvedValue
+        }
+        for (index in 0 until states.length()) {
+            states.optJSONObject(index)?.let { installState("app", it) }
+        }
+        for (screenIndex in 0 until screens.length()) {
+            val screen = screens.optJSONObject(screenIndex) ?: continue
+            val screenName = screen.optString("name").takeIf(String::isNotEmpty) ?: continue
+            val screenStates = screen.optJSONArray("states") ?: JSONArray()
+            for (stateIndex in 0 until screenStates.length()) {
+                screenStates.optJSONObject(stateIndex)?.let { installState("screen/$screenName", it) }
+            }
+        }
+        if (isHotReplacement) {
+            for ((identity, value) in values.toMap()) {
+                if (!identity.startsWith("component/")) continue
+                val separator = identity.lastIndexOf("/state/")
+                if (separator < 0) continue
+                val scope = identity.substring(0, separator)
+                val stateName = identity.substring(separator + "/state/".length)
+                val componentName = scope.removePrefix("component/").substringBefore('/')
+                var declaration: JSONObject? = null
+                for (componentIndex in 0 until nextComponents.length()) {
+                    val component = nextComponents.optJSONObject(componentIndex) ?: continue
+                    if (component.optString("name") != componentName) continue
+                    val componentStates = component.optJSONArray("states") ?: JSONArray()
+                    for (stateIndex in 0 until componentStates.length()) {
+                        val candidate = componentStates.optJSONObject(stateIndex) ?: continue
+                        if (candidate.optString("name") == stateName) {
+                            declaration = candidate
+                            break
+                        }
+                    }
+                    break
+                }
+                val signature = declaration?.let {
+                    stateShapeSignature(it.opt("ty"), installedEnumCases)
+                } ?: continue
+                if (typeSignatures[identity] != signature) continue
+                nextValues[identity] = value
+                nextTypes[identity] = signature
+            }
         }
         values.clear()
         values.putAll(nextValues)
         typeSignatures = nextTypes
         if (isHotReplacement) {
-            val currentScreens = (0 until screens.length())
-                .mapNotNull(screens::optJSONObject)
-                .mapTo(mutableSetOf()) { it.optString("name") }
+            val currentScreens = mutableSetOf<String>()
+            for (screenIndex in 0 until screens.length()) {
+                val screen = screens.optJSONObject(screenIndex) ?: continue
+                currentScreens += screen.optString("name")
+            }
             activeScreenParameters.keys.removeAll { it.substringAfterLast('/') !in currentScreens }
         }
         val currentRoot = screens.optJSONObject(0)?.optString("name")
@@ -349,7 +501,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             navigationScreensSignature = currentScreensSignature
             navigationEpoch++
         }
-    module = next
+        module = next
         if (isHotReplacement) refreshNativeEventSubscriptions(next)
         moduleRevision++
         diagnostics = emptyList()
@@ -397,18 +549,19 @@ internal class NexaDevStateStore(internal val context: Context) {
         appLifecycleEpoch++
     }
 
-    fun applyPatch(patch: JSONObject) {
-        val root = module ?: return
-        val operations = patch.optJSONArray("operations") ?: JSONArray()
+    fun applyPatch(patch: JSONObject): Boolean {
+        val root = module ?: return false
+        val operations = patch.optJSONArray("operations") ?: return false
         // Copy only objects and arrays along edited paths. Serializing and
         // reparsing the full module for every text/style edit made reload time
         // proportional to the size of the whole app rather than the patch.
-        val updated = shallowCopy(root) as? JSONObject ?: return
+        val updated = shallowCopy(root) as? JSONObject ?: return false
         for (index in 0 until operations.length()) {
-            val operation = operations.optJSONObject(index) ?: continue
-            if (!applyOperation(updated, operation)) return
+            val operation = operations.optJSONObject(index) ?: return false
+            if (!applyOperation(updated, operation)) return false
         }
         install(updated)
+        return true
     }
 
     private fun shallowCopy(value: Any): Any? = when (value) {
@@ -427,24 +580,31 @@ internal class NexaDevStateStore(internal val context: Context) {
 
     private fun applyOperation(root: JSONObject, operation: JSONObject): Boolean {
         val path = operation.optString("path")
-        val segments = path.split('/').filter(String::isNotEmpty).map {
-            it.replace("~1", "/").replace("~0", "~")
-        }
-        if (segments.isEmpty()) return false
         val kind = operation.optString("op")
         val value = operation.opt("value")
-        return updateContainer(root, segments, 0, kind, value)
+        return updateContainer(root, path, 0, kind, value)
     }
 
     private fun updateContainer(
         container: Any,
-        segments: List<String>,
-        index: Int,
+        path: String,
+        pathOffset: Int,
         kind: String,
         value: Any?,
     ): Boolean {
-        val key = segments[index]
-        val isLeaf = index == segments.size - 1
+        var segmentStart = pathOffset
+        while (segmentStart < path.length && path[segmentStart] == '/') segmentStart++
+        if (segmentStart >= path.length) return false
+        val segmentEnd = path.indexOf('/', segmentStart).let { if (it < 0) path.length else it }
+        val segment = path.substring(segmentStart, segmentEnd)
+        val key = if ('~' in segment) {
+            segment.replace("~1", "/").replace("~0", "~")
+        } else {
+            segment
+        }
+        var nextOffset = segmentEnd
+        while (nextOffset < path.length && path[nextOffset] == '/') nextOffset++
+        val isLeaf = nextOffset >= path.length
         if (container is JSONObject) {
             if (isLeaf) {
                 when (kind) {
@@ -457,7 +617,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             val child = container.opt(key) ?: return false
             val childCopy = shallowCopy(child) ?: return false
             container.put(key, childCopy)
-            return updateContainer(childCopy, segments, index + 1, kind, value)
+            return updateContainer(childCopy, path, nextOffset, kind, value)
         }
         if (container is JSONArray) {
             val arrayIndex = key.toIntOrNull() ?: return false
@@ -472,7 +632,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             val child = container.opt(arrayIndex) ?: return false
             val childCopy = shallowCopy(child) ?: return false
             container.put(arrayIndex, childCopy)
-            return updateContainer(childCopy, segments, index + 1, kind, value)
+            return updateContainer(childCopy, path, nextOffset, kind, value)
         }
         return false
     }
@@ -482,11 +642,15 @@ internal class NexaDevStateStore(internal val context: Context) {
     }
 
     fun reportRuntimeFailure(error: Throwable) {
+        val located = error as? NexaDevLocatedRuntimeException
+        val pluginFailure = error as? NexaDevPluginFailure
         val diagnostic = NexaDevDiagnostic(
-            file = "<runtime>",
-            line = 1,
-            column = 1,
-            message = error.message?.takeIf(String::isNotBlank) ?: error.javaClass.simpleName,
+            file = located?.sourceFile ?: pluginFailure?.sourceFile ?: "<runtime>",
+            line = located?.line ?: pluginFailure?.sourceLine ?: 1,
+            column = located?.column ?: pluginFailure?.sourceColumn ?: 1,
+            message = located?.cause?.message?.takeIf(String::isNotBlank)
+                ?: error.message?.takeIf(String::isNotBlank)
+                ?: error.javaClass.simpleName,
             stackTrace = error.stackTraceToString(),
         )
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -509,7 +673,19 @@ internal class NexaDevStateStore(internal val context: Context) {
         } else {
             "app/state/$name"
         }
+        if (values[target] != value) runtimeTrace("state_update ${runtimeTraceScope(scope)}:$name")
         values[target] = value
+    }
+
+    internal fun runtimeTrace(event: String) {
+        if (runtimeTraceEnabled) android.util.Log.i("Nexa", "[TRACE] $event")
+    }
+
+    internal fun runtimeTraceScope(scope: String): String = when {
+        scope == "app" -> "app"
+        scope.startsWith("screen/") -> "screen"
+        scope.startsWith("component/") -> "component"
+        else -> "other"
     }
 
     fun setAnimationSpec(name: String, raw: Any?, scope: String) {
@@ -600,6 +776,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                 type?.has("Signal") == true
             if (declaration.optBoolean("mutable") || stableNativeValue) {
                 val identity = "$scope/state/$name"
+                typeSignatures[identity] = stateShapeSignature(declaration.opt("ty"), enumCases)
                 if (!values.containsKey(identity)) {
                     values[identity] = evaluate(initial, resolved, scope)
                 }
@@ -632,6 +809,25 @@ internal class NexaDevStateStore(internal val context: Context) {
         val kind = iterator.next()
         val payload = expression.opt(kind)
         return when (kind) {
+            "ComponentRefCreate" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val namespace = fields.optString("namespace", "Nexa")
+                val name = fields.optString("name")
+                val identity = fields.optString("identity")
+                val key = "$scope/component-ref/$namespace.$name/$identity"
+                componentRefs[key] ?: run {
+                    val reference: Any? = if (namespace == "Nexa" && name == "BottomSheet") {
+                        NexaBottomSheetRef()
+                    } else if (namespace == "Nexa" && name == "FastList") {
+                        NexaFastListRef()
+                    } else if (namespace == "Nexa") {
+                        NexaDevComponentRef(name, key)
+                    } else {
+                        NexaDevPluginBridge.constructComponentRef(namespace, name)
+                    }
+                    reference?.also { componentRefs[key] = it } ?: JSONObject.NULL
+                }
+            }
             "String" -> payload as? String ?: ""
             "LocalizedText" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
@@ -866,6 +1062,14 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val base = evaluate(fields.opt("base"), locals, scope)
                 val name = fields.optString("name")
                 val kind = fields.optJSONObject("kind")
+                if (fields.optBoolean("optional") && (base == null || base == JSONObject.NULL)) {
+                    return JSONObject.NULL
+                }
+                when (fields.optString("kind")) {
+                    "ResultIsSuccess" -> return (base as? Map<*, *>)?.containsKey("Ok") == true
+                    "ResultValue" -> return (base as? Map<*, *>)?.get("Ok") ?: JSONObject.NULL
+                    "ResultError" -> return (base as? Map<*, *>)?.get("Err") ?: JSONObject.NULL
+                }
                 if (kind?.has("ClassStaticField") == true) {
                     val owner = fields.optJSONObject("base_type")?.optJSONObject("Class")?.optString("name").orEmpty()
                     return moduleValues["$owner::$name"] ?: JSONObject.NULL
@@ -953,6 +1157,16 @@ internal class NexaDevStateStore(internal val context: Context) {
             "Try" -> {
                 val result = evaluate((payload as? JSONObject)?.opt("expr"), locals, scope)
                 (result as? Map<*, *>)?.get("Ok") ?: JSONObject.NULL
+            }
+            "Located" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                try {
+                    evaluate(fields.opt("expression"), locals, scope).also {
+                        attachPendingPluginFailureLocation(fields, pendingPluginFailure)
+                    }
+                } catch (error: Throwable) {
+                    throw locateExpressionFailure(fields, error)
+                }
             }
             "Call" -> invokeFunction(payload as? JSONObject ?: JSONObject(), locals, scope)
             "NativeCall" -> invokeNativeSync(payload as? JSONObject ?: JSONObject(), locals, scope)
@@ -1067,6 +1281,16 @@ internal class NexaDevStateStore(internal val context: Context) {
                 }
                 JSONObject.NULL
             }
+            "Located" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                try {
+                    evaluateAsync(fields.opt("expression"), locals, scope).also {
+                        attachPendingPluginFailureLocation(fields, pendingPluginFailure)
+                    }
+                } catch (error: Throwable) {
+                    throw locateExpressionFailure(fields, error)
+                }
+            }
             "NativeCall" -> invokeNativeAsync(payload as? JSONObject ?: JSONObject(), locals, scope)
             "NetworkFetch", "NetworkDownload" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
@@ -1077,7 +1301,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                     .put(argument("method", request.opt("method")))
                     .put(argument("headers", request.opt("headers")))
                     .put(argument("timeout", request.opt("timeout")))
-                    .put(argument("useCache", request.opt("use_cache")))
+                    .put(argument("cachePolicy", request.opt("cache_policy")))
                     .put(argument("followRedirects", request.opt("follow_redirects")))
                     .put(argument("maxResponseBytes", request.opt("max_response_bytes")))
                     .put(argument("certificatePins", request.opt("certificate_pins")))
@@ -1097,16 +1321,20 @@ internal class NexaDevStateStore(internal val context: Context) {
                     scope,
                 )
             }
-            "FileExists", "FileReadText", "FileWriteText", "FileDelete" -> {
+            "FileExists", "FileReadText", "FileReadBytes", "FileWriteText", "FileWriteBytes", "FileDelete" -> {
                 val file = payload as? JSONObject ?: JSONObject()
                 val name = when (kind) {
                     "FileExists" -> "exists"
                     "FileReadText" -> "readText"
+                    "FileReadBytes" -> "readBytes"
                     "FileWriteText" -> "writeText"
+                    "FileWriteBytes" -> "writeBytes"
                     else -> "delete"
                 }
                 val arguments = JSONArray().put(argument("path", file.opt("path")))
-                if (kind == "FileWriteText") arguments.put(argument("contents", file.opt("contents")))
+                if (kind == "FileWriteText" || kind == "FileWriteBytes") {
+                    arguments.put(argument("contents", file.opt("contents")))
+                }
                 invokeNativeAsync(nativeCall("File", name, arguments), locals, scope)
             }
             "PermissionOp" -> {
@@ -1127,6 +1355,14 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val base = evaluateAsync(fields.opt("base"), locals, scope)
                 val memberName = fields.optString("name")
                 val kind = fields.optJSONObject("kind")
+                if (fields.optBoolean("optional") && (base == null || base == JSONObject.NULL)) {
+                    return JSONObject.NULL
+                }
+                when (fields.optString("kind")) {
+                    "ResultIsSuccess" -> return (base as? Map<*, *>)?.containsKey("Ok") == true
+                    "ResultValue" -> return (base as? Map<*, *>)?.get("Ok") ?: JSONObject.NULL
+                    "ResultError" -> return (base as? Map<*, *>)?.get("Err") ?: JSONObject.NULL
+                }
                 if (kind?.has("ClassStaticField") == true) {
                     val owner = fields.optJSONObject("base_type")?.optJSONObject("Class")?.optString("name").orEmpty()
                     return moduleValues["$owner::$memberName"] ?: JSONObject.NULL
@@ -1463,7 +1699,7 @@ internal class NexaDevStateStore(internal val context: Context) {
         }
     }
 
-    private fun invokeFunction(call: JSONObject, locals: Map<String, Any>, scope: String): Any {
+    internal fun invokeFunction(call: JSONObject, locals: Map<String, Any>, scope: String): Any {
         val name = call.optString("name")
         if (call.optBoolean("is_constructor")) {
             val pluginType = call.optJSONObject("return_type")?.optJSONObject("Plugin")

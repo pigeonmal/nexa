@@ -23,11 +23,11 @@ app RenderParityCatalog {
     state detailVisible: Bool = false
     state refreshing: Bool = false
     state refreshCount: Int32 = 0
-    state sheetPresented: Bool = false
     state dialogPresented: Bool = false
     state confirmationPresented: Bool = false
 
     screen Main {
+        let sheetRef = ComponentRef<BottomSheet>()
         StatusBar(style: Default, hidden: false, background: "#000000")
         Appearance(mode: "dark") {
             Column {
@@ -81,7 +81,7 @@ app RenderParityCatalog {
                             Text("Title: $title", fontSize: 12)
                             Slider(value: sliderValue, min: 0, max: 1, step: 0.05, accessibilityLabel: "Progress slider")
                             ProgressBar(progress: progress, accessibilityLabel: "Task progress")
-                            ProgressRing(progress: progress, tint: "#2563EB", trackColor: "#DBEAFE", size: 48, thickness: 5, android_wave: true, accessibilityLabel: "Circular task progress")
+                            ProgressRing(progress: progress, tint: "#2563EB", trackColor: "#DBEAFE", size: 48, thickness: 5, androidWave: true, accessibilityLabel: "Circular task progress")
                             ProgressRing()
                             SegmentedControl(items: periods, selected: period, accessibilityLabel: "Period")
                             Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", accessibilityLabel: "Sort tasks")
@@ -101,7 +101,7 @@ app RenderParityCatalog {
                             }
                         }
                         Section(title: "Presentations") {
-                            Button("Open bottom sheet") { sheetPresented = true }
+                            Button("Open bottom sheet") { sheetRef.present() }
                             Button("Open dialog") { dialogPresented = true }
                             Button("Open confirmation") { confirmationPresented = true }
                         }
@@ -168,11 +168,11 @@ app RenderParityCatalog {
                 }
                 }
 
-                BottomSheet(isPresented: sheetPresented, detents: [Medium, Expanded]) {
+                BottomSheet(ref: sheetRef, detents: [0.5, 1.0]) {
                     Column(spacing: 12, padding: 24) {
                         Text("Parity sheet")
                         Text("Sheet content", accessibilityLabel: "Sheet content")
-                        Button("Close sheet") { sheetPresented = false }
+                        Button("Close sheet") { sheetRef.dismiss() }
                     }
                 }
                 Dialog(isPresented: dialogPresented, title: "Parity dialog", message: "Dialog content") {

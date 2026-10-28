@@ -4,10 +4,10 @@ import Foundation
 /// shared between Nexa development servers and native dev runtimes.
 public enum NexaDevSchema {
     /// Dev protocol version exchanged during WebSocket handshake.
-    public static let protocolVersion: Int = 12
+    public static let protocolVersion: Int = __NEXA_PROTOCOL_VERSION__
 
     /// Format version of the Dev IR payload.
-    public static let devIRFormatVersion: Int = 55
+    public static let devIRFormatVersion: Int = __NEXA_DEV_IR_FORMAT_VERSION__
 
     /// Platform identifier for iOS dev runtimes.
     public static let targetPlatform = "ios"
@@ -45,6 +45,7 @@ public enum NexaDevKeys {
     public static let msgReload = "reload"
     public static let msgRestart = "restart"
     public static let msgPerformanceOverlay = "performance_overlay"
+    public static let msgRuntimeTrace = "runtime_trace"
 
     // Patch operations
     public static let op = "op"
@@ -69,6 +70,7 @@ public enum NexaDevKeys {
     public static let locals = "locals"
     public static let returnType = "return_type"
     public static let bodyActions = "body_actions"
+    public static let failureType = "failure_type"
     public static let direction = "direction"
     public static let statusBar = "status_bar"
     public static let onAppear = "on_appear"
@@ -78,6 +80,11 @@ public enum NexaDevKeys {
     public static let onInactive = "on_inactive"
     public static let onBackground = "on_background"
     public static let transition = "transition"
+    public static let sourceFile = "source_file"
+    public static let refMethods = "ref_methods"
+    public static let componentRef = "component_ref"
+    public static let arguments = "arguments"
+    public static let children = "children"
 
     // Pressable fields
     public static let dragParameters = "drag_parameters"
@@ -158,6 +165,8 @@ public enum NexaDevNodeKind {
 
 /// Known action kinds in Nexa Dev IR.
 public enum NexaDevActionKind {
+    public static let navigationPush = "NavigationPush"
+    public static let navigationBack = "NavigationBack"
     public static let assign = "Assign"
     public static let expression = "Expression"
     public static let letBinding = "Let"
@@ -228,7 +237,9 @@ public enum NexaDevExprKind {
     public static let pathJoin = "PathJoin"
     public static let fileExists = "FileExists"
     public static let fileReadText = "FileReadText"
+    public static let fileReadBytes = "FileReadBytes"
     public static let fileWriteText = "FileWriteText"
+    public static let fileWriteBytes = "FileWriteBytes"
     public static let fileDelete = "FileDelete"
     public static let permissionOp = "PermissionOp"
     public static let timeCall = "TimeCall"

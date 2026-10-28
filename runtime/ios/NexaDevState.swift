@@ -8,6 +8,37 @@ struct NexaDevDynamicRow: @unchecked Sendable {
     let fields: [String: Any]
 }
 
+struct NexaDevLocatedRuntimeError: Error, LocalizedError {
+    let sourceFile: String?
+    let line: Int?
+    let column: Int?
+    let underlying: Error
+
+    init(sourceFile: String, line: Int, column: Int, underlying: Error) {
+        self.sourceFile = sourceFile
+        self.line = line
+        self.column = column
+        self.underlying = underlying
+    }
+
+    var errorDescription: String? { underlying.localizedDescription }
+}
+
+private func attachSourceLocation(
+    file: String,
+    line: Int,
+    column: Int,
+    to failure: inout NexaDevPluginFailure
+) {
+    // Located wrappers can nest when one throwing call is an argument to
+    // another. Keep the first (innermost) call site instead of replacing it
+    // while the same failure unwinds through outer expressions.
+    guard failure.sourceFile == nil else { return }
+    failure.sourceFile = file
+    failure.sourceLine = line
+    failure.sourceColumn = column
+}
+
 /// Reactive state store and expression evaluation engine for the Nexa dev runtime.
 struct NexaDevNativeEventSubscription {
     let receiver: AnyObject
@@ -26,6 +57,35 @@ struct NexaDevNetworkStatusSubscription {
     let locals: [String: Any]
 }
 
+struct NexaDevForegroundTask {
+    let id: String
+    let task: Task<Void, Never>
+    let owner: String?
+}
+
+/// Stable debug-runtime handle for one reusable `.nx` component instance.
+final class NexaDevComponentRef {
+    let componentName: String
+    let identity: String
+    private(set) var attachedScope: String?
+    private(set) var attachedParameters: [String: Any] = [:]
+
+    init(componentName: String, identity: String) {
+        self.componentName = componentName
+        self.identity = identity
+    }
+
+    func attach(scope: String, parameters: [String: Any]) {
+        attachedScope = scope
+        attachedParameters = parameters
+    }
+
+    func detach() {
+        attachedScope = nil
+        attachedParameters = [:]
+    }
+}
+
 @MainActor
 final class NexaDevScopeRevision: ObservableObject {
     @Published private(set) var revision = 0
@@ -41,8 +101,14 @@ final class NexaDevStateStore: ObservableObject {
     @Published var revision = 0
     @Published private(set) var appLifecycleEpoch = 0
     @Published var navigationPath: [NexaDevRoute] = []
+    /// Disabled by default; the dev console can opt into value-free trace events.
+    var runtimeTraceEnabled = false
+    var currentModule: [String: Any] = [:]
     @Published private(set) var focusedFieldKey: String?
     var values: [String: Any] = [:]
+    /// Native component handles survive module replacement independently of
+    /// app state values, while their key includes the owning UI scope.
+    var componentRefs: [String: Any] = [:]
     /// Process-lifetime immutable module bindings. These are deliberately kept
     /// outside UI state identities so class singletons survive view updates.
     var moduleValues: [String: Any] = [:]
@@ -53,11 +119,12 @@ final class NexaDevStateStore: ObservableObject {
     var enumCases: [String: [String]] = [:]
     var routeArguments: [String: (screen: String, values: [String: Any], signature: String)] = [:]
     var navigationRoot: String?
+    private var navigationScreensSignature: String?
     var activeFunctions = Set<String>()
     var focusBindings: [String: (scope: String, state: String?)] = [:]
     var nativeEventSubscriptions: [NexaDevNativeEventSubscription] = []
     var networkStatusSubscriptions: [NexaDevNetworkStatusSubscription] = []
-    var foregroundTasks: [String: Task<Void, Never>] = [:]
+    var foregroundTasks: [String: NexaDevForegroundTask] = [:]
     var activeScreenParameters: [String: [String: Any]] = [:]
     var pendingPluginFailure: NexaDevPluginFailure?
     var hasInstalledModule = false
@@ -271,31 +338,49 @@ final class NexaDevStateStore: ObservableObject {
     }
 
     func install(module: [String: Any]) {
+        currentModule = module
         let isHotReplacement = hasInstalledModule
         fastListEndReachedCounts.removeAll(keepingCapacity: true)
         fastListEndReachedKeys.removeAll(keepingCapacity: true)
         if isHotReplacement { clearNativeTasks() }
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
-        functions = Dictionary(
-            (module["functions"] as? [[String: Any]] ?? []).compactMap { function in
-                guard let name = function["name"] as? String else { return nil }
-                return (name, function)
-            },
-            uniquingKeysWith: { _, newest in newest }
-        )
-        structs = Dictionary(
-            (module["structs"] as? [[String: Any]] ?? []).compactMap { declaration in
-                guard let name = declaration["name"] as? String else { return nil }
-                return (name, declaration["fields"] as? [[String: Any]] ?? [])
-            },
-            uniquingKeysWith: { _, newest in newest }
-        )
+        let componentDeclarations = module["components"] as? [[String: Any]] ?? []
+        let functionDeclarations = module["functions"] as? [[String: Any]] ?? []
+        var installedFunctions: [String: [String: Any]] = [:]
+        installedFunctions.reserveCapacity(functionDeclarations.count)
+        for function in functionDeclarations {
+            guard let name = function["name"] as? String else { continue }
+            installedFunctions[name] = function
+        }
+        for component in componentDeclarations {
+            for method in component[NexaDevKeys.refMethods] as? [[String: Any]] ?? [] {
+                guard let name = method["name"] as? String else { continue }
+                installedFunctions[name] = method
+            }
+        }
+        functions = installedFunctions
+        let structDeclarations = module["structs"] as? [[String: Any]] ?? []
+        var installedStructs: [String: [[String: Any]]] = [:]
+        installedStructs.reserveCapacity(structDeclarations.count)
+        for declaration in structDeclarations {
+            guard let name = declaration["name"] as? String else { continue }
+            installedStructs[name] = declaration["fields"] as? [[String: Any]] ?? []
+        }
+        structs = installedStructs
+        let enumDeclarations = module["enums"] as? [[String: Any]] ?? []
+        var installedEnumCases: [String: [String]] = [:]
+        installedEnumCases.reserveCapacity(enumDeclarations.count)
+        for declaration in enumDeclarations {
+            guard let name = declaration["name"] as? String else { continue }
+            installedEnumCases[name] = declaration["cases"] as? [String] ?? []
+        }
+        enumCases = installedEnumCases
         var nextModuleValues: [String: Any] = [:]
         var nextModuleSignatures: [String: String] = [:]
         for global in module["globals"] as? [[String: Any]] ?? [] {
             guard let name = global["name"] as? String else { continue }
-            let signature = Self.canonicalJSON(global["ty"])
+            let signature = Self.stateShapeSignature(global["ty"], enumCases: installedEnumCases)
             nextModuleSignatures[name] = signature
             if moduleValueSignatures[name] == signature, let existing = moduleValues[name] {
                 nextModuleValues[name] = existing
@@ -308,24 +393,13 @@ final class NexaDevStateStore: ObservableObject {
         }
         moduleValues = nextModuleValues
         moduleValueSignatures = nextModuleSignatures
-        enumCases = Dictionary(
-            (module["enums"] as? [[String: Any]] ?? []).compactMap { declaration in
-                guard let name = declaration["name"] as? String else { return nil }
-                return (name, declaration["cases"] as? [String] ?? [])
-            },
-            uniquingKeysWith: { _, newest in newest }
-        )
         var nextValues: [String: Any] = [:]
         var nextTypes: [String: String] = [:]
         var initialLocals: [String: Any] = [:]
-        let declarations = appStates.map { ("app", $0) } + screens.flatMap { screen in
-            guard let name = screen["name"] as? String else { return [(String, [String: Any])]() }
-            return (screen["states"] as? [[String: Any]] ?? []).map { ("screen/\(name)", $0) }
-        }
-        for (scope, state) in declarations {
-            guard let name = state["name"] as? String else { continue }
+        func installState(_ state: [String: Any], scope: String) {
+            guard let name = state["name"] as? String else { return }
             let identity = "\(scope)/state/\(name)"
-            let signature = Self.canonicalJSON(state["ty"])
+            let signature = Self.stateShapeSignature(state["ty"], enumCases: installedEnumCases)
             nextTypes[identity] = signature
             let resolvedValue: Any
             if typeSignatures[identity] == signature, let value = values[identity] {
@@ -333,16 +407,53 @@ final class NexaDevStateStore: ObservableObject {
             } else if let initial = state["initial"] {
                 resolvedValue = evaluate(initial, locals: initialLocals, scope: scope)
             } else {
-                continue
+                return
             }
             nextValues[identity] = resolvedValue
             initialLocals[name] = resolvedValue
+        }
+        for state in appStates {
+            installState(state, scope: "app")
+        }
+        for screen in screens {
+            guard let name = screen["name"] as? String else { continue }
+            for state in screen["states"] as? [[String: Any]] ?? [] {
+                installState(state, scope: "screen/\(name)")
+            }
+        }
+        if isHotReplacement {
+            for (identity, value) in values where identity.hasPrefix("component/") {
+                let parts = identity.components(separatedBy: "/state/")
+                guard parts.count == 2,
+                      let componentName = parts[0]
+                        .dropFirst("component/".count)
+                        .split(separator: "/")
+                        .first
+                        .map(String.init),
+                      let component = componentDeclarations.first(where: {
+                          $0["name"] as? String == componentName
+                      }),
+                      let declaration = (component["states"] as? [[String: Any]])?.first(where: {
+                          $0["name"] as? String == parts[1]
+                      })
+                else { continue }
+                let signature = Self.stateShapeSignature(declaration["ty"], enumCases: installedEnumCases)
+                guard typeSignatures[identity] == signature else { continue }
+                nextValues[identity] = value
+                nextTypes[identity] = signature
+            }
         }
         values = nextValues
         stateReaders.removeAll(keepingCapacity: true)
         typeSignatures = nextTypes
         if isHotReplacement {
-            let currentScreens = Set(screens.compactMap { $0["name"] as? String })
+            var currentScreens = Set<String>()
+            currentScreens.reserveCapacity(screens.count)
+            for screen in screens {
+                if let name = screen["name"] as? String {
+                    currentScreens.insert(name)
+                }
+            }
             activeScreenParameters = activeScreenParameters.filter { scope, _ in
                 currentScreens.contains(String(scope.split(separator: "/").last ?? ""))
             }
@@ -371,9 +482,9 @@ final class NexaDevStateStore: ObservableObject {
         }
         let rootScreen = screens.first?["name"] as? String
         let screensSignature = Self.canonicalJSON(screens.map { $0["name"] ?? NSNull() })
-        if navigationRoot != rootScreen || typeSignatures["__screens__"] != screensSignature {
+        if navigationRoot != rootScreen || navigationScreensSignature != screensSignature {
             navigationRoot = rootScreen
-            typeSignatures["__screens__"] = screensSignature
+            navigationScreensSignature = screensSignature
             navigationPath = []
         }
         invalidateAllScopes()
@@ -383,7 +494,30 @@ final class NexaDevStateStore: ObservableObject {
         }
     }
 
+    func pushNavigation(destination: Int, expressions: [Any], locals: [String: Any], scope: String) {
+        let screens = currentModule["screens"] as? [[String: Any]] ?? []
+        guard screens.indices.contains(destination),
+              let screenName = screens[destination]["name"] as? String
+        else { return }
+        let parameters = screens[destination]["parameters"] as? [[String: Any]] ?? []
+        var values: [String: Any] = [:]
+        for (parameter, expression) in zip(parameters, expressions) {
+            guard let name = parameter["name"] as? String else { continue }
+            values[name] = evaluate(expression, locals: locals, scope: scope)
+        }
+        let signature = Self.canonicalSignature(parameters)
+        navigationPath.append(navigationRoute(screen: screenName, values: values, signature: signature))
+        invalidateScope("app")
+    }
+
+    func popNavigation() {
+        guard !navigationPath.isEmpty else { return }
+        navigationPath.removeLast()
+        invalidateScope("app")
+    }
+
     func hotRestart(module: [String: Any]) {
+        currentModule = module
         clearNativeTasks()
         clearNativeEventSubscriptions()
         activeScreenParameters.removeAll(keepingCapacity: true)
@@ -463,6 +597,7 @@ final class NexaDevStateStore: ObservableObject {
             let stableNativeValue = type["Class"] != nil || type["Plugin"] != nil || type["Signal"] != nil
             if declaration["mutable"] as? Bool == true || stableNativeValue {
                 let identity = "\(scope)/state/\(name)"
+                typeSignatures[identity] = Self.stateShapeSignature(declaration["ty"], enumCases: enumCases)
                 if values[identity] == nil {
                     values[identity] = evaluate(initial, locals: resolved, scope: scope)
                 }
@@ -489,6 +624,7 @@ final class NexaDevStateStore: ObservableObject {
             return
         }
         values[storageKey] = value
+        runtimeTrace("state_update \(runtimeTraceScope(scope)):\(name)")
         stateCommandRevisions[storageKey, default: 0] += 1
         if let focused = value as? Bool,
            let focusIdentity = focusBindings.first(where: { _, binding in
@@ -501,6 +637,18 @@ final class NexaDevStateStore: ObservableObject {
             }
         }
         invalidateReaders(of: storageKey, sourceScope: scope)
+    }
+
+    func runtimeTrace(_ event: String) {
+        guard runtimeTraceEnabled else { return }
+        NSLog("[Nexa][TRACE] %@", event)
+    }
+
+    func runtimeTraceScope(_ scope: String) -> String {
+        if scope == "app" { return "app" }
+        if scope.hasPrefix("screen/") { return "screen" }
+        if scope.hasPrefix("component/") { return "component" }
+        return "other"
     }
 
     func setScrollPositionFromNative(
@@ -585,6 +733,27 @@ final class NexaDevStateStore: ObservableObject {
             return NSNull()
         }
         switch kind {
+        case "ComponentRefCreate":
+            let fields = payload as? [String: Any] ?? [:]
+            let namespace = fields["namespace"] as? String ?? "Nexa"
+            let name = fields["name"] as? String ?? ""
+            let identity = fields["identity"] as? String ?? ""
+            let key = "\(scope)/component-ref/\(namespace).\(name)/\(identity)"
+            if let existing = componentRefs[key] { return existing }
+            let reference: Any
+            if namespace == "Nexa", name == "BottomSheet" {
+                reference = NexaBottomSheetRef()
+            } else if namespace == "Nexa", name == "FastList" {
+                reference = NexaFastListRef()
+            } else if namespace == "Nexa" {
+                reference = NexaDevComponentRef(componentName: name, identity: key)
+            } else if let created = NexaDevPluginBridge.constructComponentRef(namespace: namespace, name: name) {
+                reference = created
+            } else {
+                return NSNull()
+            }
+            componentRefs[key] = reference
+            return reference
         case "String": return payload as? String ?? ""
         case "LocalizedText":
             let fields = payload as? [String: Any] ?? [:]
@@ -598,6 +767,20 @@ final class NexaDevStateStore: ObservableObject {
                 locals: locals,
                 scope: scope
             )
+        case "Located":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let sourceFile = fields["source_file"] as? String,
+                  let sourceSpan = fields["source_span"] as? [String: Any],
+                  let line = (sourceSpan["line"] as? NSNumber)?.intValue,
+                  let column = (sourceSpan["column"] as? NSNumber)?.intValue,
+                  let expression = fields["expression"]
+            else { return NSNull() }
+            let value = evaluate(expression, locals: locals, scope: scope)
+            if var failure = pendingPluginFailure {
+                attachSourceLocation(file: sourceFile, line: line, column: column, to: &failure)
+                pendingPluginFailure = failure
+            }
+            return value
         case "Bool": return payload as? Bool ?? false
         case "Array":
             return (payload as? [Any] ?? []).map { evaluate($0, locals: locals, scope: scope) }
@@ -808,6 +991,16 @@ final class NexaDevStateStore: ObservableObject {
             let fields = payload as? [String: Any] ?? [:]
             guard let base = fields["base"], let name = fields["name"] as? String else { return NSNull() }
             let value = evaluate(base, locals: locals, scope: scope)
+            if fields["optional"] as? Bool == true, value is NSNull { return NSNull() }
+            if let memberKind = fields["kind"] as? String {
+                let result = value as? [String: Any] ?? [:]
+                switch memberKind {
+                case "ResultIsSuccess": return result["Ok"] != nil
+                case "ResultValue": return result["Ok"] ?? NSNull()
+                case "ResultError": return result["Err"] ?? NSNull()
+                default: break
+                }
+            }
             if let memberKind = fields["kind"] as? [String: Any],
                memberKind["ClassStaticField"] != nil,
                let classType = fields["base_type"] as? [String: Any],
@@ -1099,33 +1292,63 @@ final class NexaDevStateStore: ObservableObject {
         case "Call":
             guard let call = payload as? [String: Any] else { return NSNull() }
             return try await invokeFunctionAsync(call, locals: locals, scope: scope)
+        case "Located":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let sourceFile = fields["source_file"] as? String,
+                  let sourceSpan = fields["source_span"] as? [String: Any],
+                  let line = (sourceSpan["line"] as? NSNumber)?.intValue,
+                  let column = (sourceSpan["column"] as? NSNumber)?.intValue,
+                  let expression = fields["expression"]
+            else { return NSNull() }
+            do {
+                let value = try await evaluateAsync(expression, locals: locals, scope: scope)
+                if var failure = pendingPluginFailure {
+                    attachSourceLocation(file: sourceFile, line: line, column: column, to: &failure)
+                    pendingPluginFailure = failure
+                }
+                return value
+            } catch var failure as NexaDevPluginFailure {
+                attachSourceLocation(file: sourceFile, line: line, column: column, to: &failure)
+                throw failure
+            } catch let located as NexaDevLocatedRuntimeError {
+                throw located
+            } catch let cancellation as CancellationError {
+                throw cancellation
+            } catch {
+                throw NexaDevLocatedRuntimeError(
+                    sourceFile: sourceFile,
+                    line: line,
+                    column: column,
+                    underlying: error
+                )
+            }
         case "NativeCall":
             guard let call = payload as? [String: Any] else { return NSNull() }
             if let namespace = call["namespace"] as? String,
                let className = namespace.stripPrefix("__NexaUserClass:") {
-                let receiver: Any
-                if let expression = call["receiver"] {
-                    receiver = try await evaluateAsync(expression, locals: locals, scope: scope)
-                } else {
-                    receiver = NSNull()
-                }
-                var arguments: [Any] = []
-                for pair in call["arguments"] as? [[Any]] ?? [] {
-                    if let argument = pair.last {
-                        arguments.append(try await evaluateAsync(argument, locals: locals, scope: scope))
+                    let receiver: Any
+                    if let expression = call["receiver"] {
+                        receiver = try await evaluateAsync(expression, locals: locals, scope: scope)
+                    } else {
+                        receiver = NSNull()
                     }
-                }
-                if call["is_async"] as? Bool == true {
-                    return try await invokeUserClassMethodAsync(
-                        className,
-                        method: call["name"] as? String ?? "",
-                        receiver: receiver,
-                        arguments: arguments,
-                        locals: locals,
-                        scope: scope
-                    )
-                }
-                return invokeUserClassMethod(className, method: call["name"] as? String ?? "", receiver: receiver, arguments: arguments, locals: locals, scope: scope)
+                    var arguments: [Any] = []
+                    for pair in call["arguments"] as? [[Any]] ?? [] {
+                        if let argument = pair.last {
+                            arguments.append(try await evaluateAsync(argument, locals: locals, scope: scope))
+                        }
+                    }
+                    if call["is_async"] as? Bool == true {
+                        return try await invokeUserClassMethodAsync(
+                            className,
+                            method: call["name"] as? String ?? "",
+                            receiver: receiver,
+                            arguments: arguments,
+                            locals: locals,
+                            scope: scope
+                        )
+                    }
+                    return invokeUserClassMethod(className, method: call["name"] as? String ?? "", receiver: receiver, arguments: arguments, locals: locals, scope: scope)
             }
             return try await invokeNativeAsync(call, locals: locals, scope: scope)
         case "NetworkFetch", "NetworkDownload":
@@ -1143,7 +1366,7 @@ final class NexaDevStateStore: ObservableObject {
                 ["method", request["method"] ?? NSNull()],
                 ["headers", request["headers"] ?? NSNull()],
                 ["timeout", request["timeout"] ?? NSNull()],
-                ["useCache", request["use_cache"] ?? NSNull()],
+                ["cachePolicy", request["cache_policy"] ?? NSNull()],
                 ["followRedirects", request["follow_redirects"] ?? NSNull()],
                 ["maxResponseBytes", request["max_response_bytes"] ?? NSNull()],
                 ["certificatePins", request["certificate_pins"] ?? NSNull()],
@@ -1171,17 +1394,19 @@ final class NexaDevStateStore: ObservableObject {
                 locals: locals,
                 scope: scope
             )
-        case "FileExists", "FileReadText", "FileWriteText", "FileDelete":
+        case "FileExists", "FileReadText", "FileReadBytes", "FileWriteText", "FileWriteBytes", "FileDelete":
             guard let file = payload as? [String: Any] else { return NSNull() }
             let name: String
             switch kind {
             case "FileExists": name = "exists"
             case "FileReadText": name = "readText"
+            case "FileReadBytes": name = "readBytes"
             case "FileWriteText": name = "writeText"
+            case "FileWriteBytes": name = "writeBytes"
             default: name = "delete"
             }
             var fileArguments: [[Any]] = [["path", file["path"] ?? NSNull()]]
-            if kind == "FileWriteText" {
+            if kind == "FileWriteText" || kind == "FileWriteBytes" {
                 fileArguments.append(["contents", file["contents"] ?? NSNull()])
             }
             return try await invokeNativeAsync(
@@ -1219,6 +1444,16 @@ final class NexaDevStateStore: ObservableObject {
                   let name = member["name"] as? String
             else { return NSNull() }
             let value = try await evaluateAsync(base, locals: locals, scope: scope)
+            if member["optional"] as? Bool == true, value is NSNull { return NSNull() }
+            if let memberKind = member["kind"] as? String {
+                let result = value as? [String: Any] ?? [:]
+                switch memberKind {
+                case "ResultIsSuccess": return result["Ok"] != nil
+                case "ResultValue": return result["Ok"] ?? NSNull()
+                case "ResultError": return result["Err"] ?? NSNull()
+                default: break
+                }
+            }
             if let memberKind = member["kind"] as? [String: Any],
                memberKind["ClassStaticField"] != nil,
                let classType = member["base_type"] as? [String: Any],
@@ -1725,6 +1960,27 @@ final class NexaDevStateStore: ObservableObject {
 
     static func canonicalSignature(_ parameters: [[String: Any]]) -> String {
         canonicalJSON(parameters.map { $0["ty"] ?? NSNull() })
+    }
+
+    static func stateShapeSignature(_ type: Any?, enumCases: [String: [String]]) -> String {
+        var referencedEnums = Set<String>()
+        func collectEnumTypes(in value: Any) {
+            if let object = value as? [String: Any] {
+                if let name = object["Enum"] as? String { referencedEnums.insert(name) }
+                for child in object.values { collectEnumTypes(in: child) }
+            } else if let values = value as? [Any] {
+                for child in values { collectEnumTypes(in: child) }
+            }
+        }
+        if let type { collectEnumTypes(in: type) }
+        var referencedCases: [String: [String]] = [:]
+        for name in referencedEnums.sorted() {
+            referencedCases[name] = enumCases[name] ?? []
+        }
+        return canonicalJSON([
+            "type": type ?? NSNull(),
+            "enumCases": referencedCases,
+        ])
     }
 
     static func canonicalJSON(_ value: Any?) -> String {

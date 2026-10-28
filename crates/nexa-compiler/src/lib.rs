@@ -1,5 +1,6 @@
 mod compile;
 mod optimize;
+pub use optimize::OptimizationReport;
 mod project;
 mod semantic;
 pub mod testing;
@@ -9,13 +10,20 @@ pub use compile::{
     Compilation, Target, compile_for_target, compile_with_warnings,
     compile_with_warnings_for_target,
 };
-pub use nexa_diagnostics::{CompileError, CompileWarning, Span};
+pub use nexa_diagnostics::{CompileError, CompileWarning, Span, WarningCode};
 pub use nexa_ir::Module;
 pub use nexa_plugin_compiler_api::{ExtensionContext, NativeCall, PluginCompilerExtension};
 pub use project::{
     IncrementalProjectCompiler, ProjectCompileStats,
     compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots, compile_file,
-    compile_file_for_target, compile_file_with_warnings, compile_file_with_warnings_for_target,
+    compile_file_for_target, compile_file_with_optimization_report_for_targets_and_plugin_roots,
+    compile_file_with_warnings, compile_file_with_warnings_for_target,
     compile_file_with_warnings_for_targets,
     compile_file_with_warnings_for_targets_and_plugin_roots,
 };
+
+/// Render the compiler-owned built-in API signatures for generated reference
+/// documentation.
+pub fn render_core_api_reference() -> String {
+    semantic::render_core_api_reference()
+}

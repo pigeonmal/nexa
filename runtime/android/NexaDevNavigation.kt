@@ -254,7 +254,11 @@ internal fun NexaDevScreenLifecycle(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestScreen = rememberUpdatedState(screen)
-    val latestParameters = rememberUpdatedState(parameters)
+    val navigationController = LocalNexaDevNavController.current
+    val actionParameters = if (navigationController == null) parameters else {
+        parameters + ("__nexa_navigation_controller" to navigationController)
+    }
+    val latestParameters = rememberUpdatedState(actionParameters)
     val coroutineScope = rememberCoroutineScope()
     val scope = "screen/${screen.optString("name")}"
     DisposableEffect(lifecycleOwner, scope) {

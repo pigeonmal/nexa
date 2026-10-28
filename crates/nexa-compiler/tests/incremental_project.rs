@@ -132,15 +132,15 @@ fn imported_screen_modules_join_the_app_navigation_graph() {
     );
     project.write(
         "screens/Home.nx",
-        "screen Home { Column { Text(\"Home\") NavigationLink(destination: Details) { Text(\"Open details\") } } }\n",
+        "screen Home { Column { Text(\"Home\") NavigationLink(destination: Details(42)) { Text(\"Open details\") } Button(\"Open with action\") { Navigation.push(Details(42)) } } }\n",
     );
     project.write(
         "screens/Details.nx",
-        "screen Details { state visits: Int32 = 0 Text(visits) }\n",
+        "screen Details(orderID: Int32) { Column { Text(orderID) Button(\"Return\") { Navigation.back() } } }\n",
     );
 
     let module = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
-        .expect("compile app with imported screens");
+        .expect("compile app with imported screens and typed push arguments");
 
     assert_eq!(
         module
@@ -161,6 +161,65 @@ fn imported_screen_modules_join_the_app_navigation_graph() {
                 }
             ))
     ));
+    assert!(matches!(
+        module.screens[0].body.first(),
+        Some(nexa_ir::Node::Layout { children, .. })
+            if children.iter().any(|node| matches!(node, nexa_ir::Node::Button { actions, .. }
+                if matches!(actions.as_slice(), [nexa_ir::Action::NavigationPush { destination: nexa_ir::ScreenId(1), arguments }]
+                    if matches!(arguments.as_slice(), [nexa_ir::Expr::Number { raw, .. }] if raw == "42"))))
+    ));
+    assert!(matches!(
+        module.screens[1].body.first(),
+        Some(nexa_ir::Node::Layout { children, .. })
+            if children.iter().any(|node| matches!(node, nexa_ir::Node::Button { actions, .. }
+                if matches!(actions.as_slice(), [nexa_ir::Action::NavigationBack])))
+    ));
+}
+
+#[test]
+fn imported_network_failures_keep_their_nexa_source_location() {
+    let project = TestProject::new("nexa-imported-network-source-location");
+    let entry = project.join("App.nx");
+    project.write(
+        "App.nx",
+        "import \"screens/Details.nx\"\napp Demo { body { NavigationStack(root: Details) } }\n",
+    );
+    project.write(
+        "screens/Details.nx",
+        "screen Details { state statusCode: Int32 = 0 OnAppear async { try { statusCode = (await Network.fetch(url: \"https://example.com\")).statusCode } catch { statusCode = 599 } } Text(statusCode) }\n",
+    );
+
+    let module = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
+        .expect("compile imported screen with an async request");
+    let details = module
+        .screens
+        .iter()
+        .find(|screen| screen.name == "Details")
+        .expect("imported screen is available");
+    let actions = details
+        .on_appear
+        .as_ref()
+        .expect("screen keeps its async appear action");
+    let mut location = None;
+    nexa_ir::walk::walk_actions(actions, &mut |expression| {
+        if let nexa_ir::Expr::Located {
+            source_file,
+            source_span,
+            expression,
+        } = expression
+        {
+            let mut contains_network_fetch = false;
+            nexa_ir::walk::walk_expression(expression, &mut |nested| {
+                contains_network_fetch |= matches!(nested, nexa_ir::Expr::NetworkFetch(_));
+            });
+            if contains_network_fetch {
+                location = Some((source_file.clone(), (source_span.line, source_span.column)));
+            }
+        }
+    });
+    let (source_file, source_span) = location.expect("request is present in typed IR");
+    assert!(source_file.ends_with("screens/Details.nx"));
+    assert!(source_span.0 == 1 && source_span.1 > 1);
 }
 
 #[test]

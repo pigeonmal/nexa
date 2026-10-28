@@ -14,6 +14,8 @@ pub enum Target {
 pub struct Compilation {
     pub module: Module,
     pub warnings: Vec<CompileWarning>,
+    /// Present only when the caller explicitly requests an optimizer report.
+    pub optimization_report: Option<crate::OptimizationReport>,
     /// Typed `.nx` test blocks for host-side `nexa test` execution.
     pub tests: crate::testing::TestSuite,
     /// Manifest-resolved plugin declarations in source order. Scaffolding
@@ -63,6 +65,7 @@ fn compile_with_target(source: &str, target: Target) -> Result<Compilation, Comp
     Ok(Compilation {
         module,
         warnings,
+        optimization_report: None,
         tests,
         plugins,
     })

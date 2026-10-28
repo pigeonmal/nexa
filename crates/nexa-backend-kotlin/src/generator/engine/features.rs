@@ -371,8 +371,12 @@ impl Features {
         self.uses_size_class =
             ui.app.size_class || ui.components.values().any(|scope| scope.size_class);
         self.uses_navigation_link = ui.navigation_link;
-        self.uses_navigation_back =
-            ui.app.navigation_back || ui.components.values().any(|scope| scope.navigation_back);
+        self.uses_navigation_back = ui.app.navigation_back
+            || ui.app.navigation_actions
+            || ui
+                .components
+                .values()
+                .any(|scope| scope.navigation_back || scope.navigation_actions);
         self.uses_navigation_split_view = ui.navigation_split_view;
 
         self.components_using_link = component_names(&ui.components, |scope| scope.link);

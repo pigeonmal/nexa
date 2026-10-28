@@ -146,6 +146,17 @@ fn performance_overlay_toggle_round_trips() {
 }
 
 #[test]
+fn runtime_trace_toggle_round_trips() {
+    let message = ServerMessage::RuntimeTrace { enabled: true };
+    let frame = encode_server(&message).expect("runtime trace should serialize");
+    let decoded = decode_server(&frame).expect("runtime trace should deserialize");
+    assert_eq!(
+        encode_server(&decoded).expect("re-encode runtime trace"),
+        frame
+    );
+}
+
+#[test]
 fn unknown_or_malformed_messages_are_rejected() {
     assert!(decode_client(r#"{"type":"patch","payload":{}}"#).is_err());
     assert!(decode_server(r#"{"type":"full_module","payload":{"revision":1}}"#).is_err());

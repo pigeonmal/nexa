@@ -38,21 +38,20 @@ app RenderParity {
     state detailVisible: Bool = true
     state refreshing: Bool = false
     state refreshCount: Int32 = 0
-    state listPosition: Int32 = 0
     state pagePosition: Int32 = 0
     state canNavigate: Bool = true
     state loading: Bool = false
     state disabled: Bool = true
-    state largeSheetPresented: Bool = false
     state inputFocused: Bool = false
-    state sheetPresented: Bool = false
-    state controlledSheetPresented: Bool = false
-    state controlledSheetSnapPoint: Float64 = 0.5
     state dialogPresented: Bool = false
     state confirmationPresented: Bool = false
+    state sheetDismissed: Bool = false
     state emptyStateIconTint: String = "#0088FF"
 
     screen Main {
+        let parityListRef = ComponentRef<FastList>()
+        let sheetRef = ComponentRef<BottomSheet>()
+        let controlledSheetRef = ComponentRef<BottomSheet>()
         StatusBar(style: Default, hidden: false, background: "#000000")
         Appearance(mode: "dark") {
             Column {
@@ -123,8 +122,8 @@ app RenderParity {
                                 }
                             }
                             ProgressBar()
-                            ProgressBar(progress: progress, tint: "#7C3AED", trackColor: "#EDE9FE", thickness: 12, cornerRadius: 6, accessibilityLabel: "Task progress", accessibilityHint: "Shows task completion", accessibilityValue: "72 percent", accessibilityRole: None, android_wave: true)
-                            ProgressRing(progress: progress, tint: ringTint, trackColor: "#DBEAFE", size: 48, thickness: 5, android_wave: true, accessibilityLabel: "Circular task progress", accessibilityHint: "Shows task completion", accessibilityValue: "72 percent", accessibilityRole: None)
+                            ProgressBar(progress: progress, tint: "#7C3AED", trackColor: "#EDE9FE", thickness: 12, cornerRadius: 6, accessibilityLabel: "Task progress", accessibilityHint: "Shows task completion", accessibilityValue: "72 percent", accessibilityRole: None, androidWave: true)
+                            ProgressRing(progress: progress, tint: ringTint, trackColor: "#DBEAFE", size: 48, thickness: 5, androidWave: true, accessibilityLabel: "Circular task progress", accessibilityHint: "Shows task completion", accessibilityValue: "72 percent", accessibilityRole: None)
                             ProgressRing()
                             SegmentedControl(items: periods, selected: period, animation: Spring(response: 0.35, damping: 0.82), tint: segmentTint, background: "#E9EAF0", selectedTextColor: "#17171A", textColor: "#68686F", fontSize: 14, fontWeight: Medium, height: 36, cornerRadius: 18, borderColor: "#D2D3DA", borderWidth: 1, comment: "Task date range", accessibilityLabel: "Period")
                             Picker(items: sortOptions, selected: sort, itemIcons: ["calendar", "flag_filled", "edit"], icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Sort tasks by", accessibilityLabel: "Sort tasks")
@@ -186,7 +185,7 @@ app RenderParity {
                             }
                         }
                         Section(title: "Presentations") {
-                            Button("Open bottom sheet") { sheetPresented = true }
+                            Button("Open bottom sheet") { sheetRef.present() }
                             Button("Open dialog") { dialogPresented = true }
                             Button("Open confirmation") { confirmationPresented = true }
                         }
@@ -210,7 +209,7 @@ app RenderParity {
                             refreshCount = refreshCount + 1
                         }
                         Stack(height: 180) {
-                            FastList(count: 24, spacing: 4, showDividers: false, accessibilityLabel: "Parity task list") { index in
+                            FastList(count: 24, spacing: 4, showDividers: false, ref: parityListRef, accessibilityLabel: "Parity task list") { index in
                                 Row(spacing: 8, padding: 8) {
                                     Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
                                     Text("Virtual row \(index)")
@@ -222,7 +221,7 @@ app RenderParity {
                             }
                         }
                         Text("Reverse list parameters")
-                        FastList(count: 5, rowHeight: 48, scrollPosition: listPosition, reverseLayout: true) { index in
+                        FastList(count: 5, rowHeight: 48, reverseLayout: true) { index in
                             Text("Reverse row \(index)")
                         }
                         FastList(count: 12, rowHeight: 48, spacing: 8, accessibilityLabel: "Scroll event list") { index in
@@ -289,20 +288,19 @@ app RenderParity {
                 }
                 }
 
-                BottomSheet(isPresented: sheetPresented, contentPadding: 20, snapPoints: [0.25, 0.5, 0.85], initialSnapPoint: 0.5, showDragIndicator: false, allowsDismissal: true, allowsBackgroundInteraction: false, shouldDismissOnBackPress: true, backgroundColor: "#F1F5F9", scrimColor: "#00000000") {
+                BottomSheet(ref: sheetRef, contentPadding: 20, detents: [0.25, 0.5, 0.85], initialDetent: 0.5, showDragIndicator: false, allowsDismissal: true, allowsBackgroundInteraction: false, shouldDismissOnBackPress: true, backgroundColor: "#F1F5F9", scrimColor: "#00000000") {
                     Column(spacing: 12, padding: 24) {
                         Text("Parity sheet")
                         Text("Sheet content", accessibilityLabel: "Sheet content")
-                        Button("Close sheet") { sheetPresented = false }
+                        Button("Close sheet") { sheetRef.dismiss() }
                     }
                 }.onDismiss {
-                    sheetPresented = false
+                    sheetDismissed = true
                 }
-                BottomSheet(isPresented: controlledSheetPresented, snapPoints: [0.25, 0.5, 0.85], selectedSnapPoint: controlledSheetSnapPoint) {
+                BottomSheet(ref: controlledSheetRef, detents: [0.25, 0.5, 0.85], initialDetent: 0.5) {
                     Column(spacing: 12, padding: 24) {
-                        Text("Programmatically controlled sheet")
-                        Button("Expand") { BottomSheet.snapTo(controlledSheetSnapPoint, 0.85) }
-                        Button("Close") { BottomSheet.dismiss(controlledSheetPresented) }
+                        Text("Drag to change the sheet height")
+                        Button("Close") { controlledSheetRef.dismiss() }
                     }
                 }
                 Dialog(isPresented: dialogPresented, title: "Parity dialog", message: "Dialog content", comment: "Dialog localization coverage") {
@@ -340,6 +338,7 @@ app RenderParity {
     }
 
     screen StyleParameters {
+        let largeSheetRef = ComponentRef<BottomSheet>()
         Form {
             NavigationBack(label: "Back to catalog", comment: "Return to component catalog")
             Section(title: "Layout style parameters", comment: "Named style options across native containers") {
@@ -483,7 +482,7 @@ app RenderParity {
                     disabled = false
                 }
                 Button("Open large sheet") {
-                    largeSheetPresented = true
+                    largeSheetRef.present()
                 }
                 Text("Configured state: loading=$loading, disabled=$disabled")
             }
@@ -566,11 +565,11 @@ app RenderParity {
                 }
             }
         }
-        BottomSheet(isPresented: largeSheetPresented, detents: [Expanded], initialDetent: Expanded) {
+        BottomSheet(ref: largeSheetRef, detents: [1.0], initialDetent: 1.0) {
             Column(spacing: 12, padding: 24) {
                 Text("Large parity sheet")
                 Text("Large sheet content")
-                Button("Close large sheet") { largeSheetPresented = false }
+                Button("Close large sheet") { largeSheetRef.dismiss() }
             }
         }
     }
@@ -580,7 +579,7 @@ app RenderParity {
             NavigationBack(label: "Back to lists")
             Text("Page snap list parameters", comment: "Pagination screenshot fixture", accessibilityLabel: "Page snap list parameters")
             Text("Page position: \(pagePosition)")
-            FastList(count: 3, scrollPosition: pagePosition, pageSnap: true, accessibilityLabel: "Page snap parity list") { index in
+            FastList(count: 3, pageSnap: true, scrollPosition: pagePosition, accessibilityLabel: "Page snap parity list") { index in
                 Column(spacing: 12, padding: 24) {
                     Text("Page snap row \(index)")
                 }

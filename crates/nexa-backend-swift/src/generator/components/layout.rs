@@ -798,12 +798,13 @@ mod tests {
                 style: TextStyle::default(),
             },
             Node::BottomSheet {
-                state: "sheetPresented".to_owned(),
-                content_padding: 8.0,
+                component_ref: Expr::ComponentRefCreate {
+                    namespace: "Nexa".to_owned(),
+                    name: "BottomSheet".to_owned(),
+                    identity: "sheet-ref".to_owned(),
+                },
+                content_padding: 0.0,
                 detents: Vec::new(),
-                snap_points: Vec::new(),
-                initial_snap_point: None,
-                selected_snap_point: None,
                 initial_detent: None,
                 show_drag_indicator: true,
                 allows_dismissal: true,
@@ -950,6 +951,7 @@ mod tests {
                 shape: None,
                 tint: None,
                 glass: false,
+                accessibility_label: None,
                 actions: Vec::new(),
             },
         ];

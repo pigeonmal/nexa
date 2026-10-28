@@ -26,16 +26,64 @@ enum NexaStorage {
         return shared
     }()
 
+    private static func storageKey(_ key: String, type: String? = nil) -> String {
+        keyPrefix + (type.map { $0 + "." } ?? "") + key
+    }
+
+    private static func removeOtherTypes(for key: String, keeping type: String?) {
+        for candidate in [nil, "bool", "int64", "float64", "json"] as [String?] where candidate != type {
+            defaults.removeObject(forKey: storageKey(key, type: candidate))
+        }
+    }
+
     static func getString(_ key: String) -> String? {
-        defaults.string(forKey: keyPrefix + key)
+        defaults.string(forKey: storageKey(key))
     }
 
     static func setString(_ key: String, _ value: String) {
-        defaults.set(value, forKey: keyPrefix + key)
+        removeOtherTypes(for: key, keeping: nil)
+        defaults.set(value, forKey: storageKey(key))
+    }
+
+    static func getJson(_ key: String) -> String? {
+        defaults.string(forKey: storageKey(key, type: "json"))
+    }
+
+    static func setJson(_ key: String, _ value: String) {
+        removeOtherTypes(for: key, keeping: "json")
+        defaults.set(value, forKey: storageKey(key, type: "json"))
+    }
+
+    static func getBool(_ key: String) -> Bool? {
+        (defaults.object(forKey: storageKey(key, type: "bool")) as? NSNumber)?.boolValue
+    }
+
+    static func setBool(_ key: String, _ value: Bool) {
+        removeOtherTypes(for: key, keeping: "bool")
+        defaults.set(value, forKey: storageKey(key, type: "bool"))
+    }
+
+    static func getInt64(_ key: String) -> Int64? {
+        (defaults.object(forKey: storageKey(key, type: "int64")) as? NSNumber)?.int64Value
+    }
+
+    static func setInt64(_ key: String, _ value: Int64) {
+        removeOtherTypes(for: key, keeping: "int64")
+        defaults.set(NSNumber(value: value), forKey: storageKey(key, type: "int64"))
+    }
+
+    static func getFloat64(_ key: String) -> Double? {
+        (defaults.object(forKey: storageKey(key, type: "float64")) as? NSNumber)?.doubleValue
+    }
+
+    static func setFloat64(_ key: String, _ value: Double) {
+        removeOtherTypes(for: key, keeping: "float64")
+        defaults.set(NSNumber(value: value), forKey: storageKey(key, type: "float64"))
     }
 
     static func delete(_ key: String) {
-        defaults.removeObject(forKey: keyPrefix + key)
+        removeOtherTypes(for: key, keeping: nil)
+        defaults.removeObject(forKey: storageKey(key))
     }
 
     static func clear() {

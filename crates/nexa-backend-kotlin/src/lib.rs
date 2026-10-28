@@ -62,6 +62,11 @@ impl nexa_codegen::Backend for KotlinBackend {
 }
 
 impl KotlinBackend {
+    /// Analyze native project requirements without generating source files.
+    pub fn analyze_project_features(&self, module: &nexa_ir::Module) -> KotlinProjectFeatures {
+        generator::analyze_project_features(module)
+    }
+
     /// Generate Jetpack Glance widget target sources from typed Nexa widget
     /// declarations. Project generation owns manifest/provider registration.
     pub fn generate_widget_units(

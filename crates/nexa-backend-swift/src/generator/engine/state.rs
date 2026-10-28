@@ -16,6 +16,7 @@ pub(crate) fn render_immutable_state(states: &[State], depth: usize, out: &mut S
         !state.mutable
             && !state.is_native_class_instance_binding()
             && !matches!(state.ty, nexa_ir::Type::Signal(_))
+            && !matches!(state.ty, nexa_ir::Type::ComponentRef { .. })
     };
     let immutable = states
         .iter()
@@ -35,6 +36,28 @@ pub(crate) fn render_immutable_state(states: &[State], depth: usize, out: &mut S
     if states.iter().any(is_immutable_value) {
         out.push('\n');
     }
+}
+
+/// Component refs are immutable in Nexa source, but their native handle must
+/// be allocated once for the owning SwiftUI view identity.
+pub(crate) fn render_component_ref_state(
+    state: &State,
+    depth: usize,
+    out: &mut SourceWriter,
+) -> bool {
+    if !matches!(state.ty, nexa_ir::Type::ComponentRef { .. }) {
+        return false;
+    }
+    out.line_at(
+        depth,
+        format_args!(
+            "@State private var {}: {} = {}",
+            nexa_codegen::names::state_name(&state.name),
+            swift_type(&state.ty),
+            expression(&state.initial)
+        ),
+    );
+    true
 }
 
 /// Renders an identity-stable SwiftUI storage property for a plugin class

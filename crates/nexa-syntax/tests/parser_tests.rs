@@ -28,6 +28,21 @@ fn parses_top_level_async_function_declaration() {
 }
 
 #[test]
+fn tuple_constructor_arity_mismatches_return_parser_diagnostics() {
+    for (expression, expected) in [
+        ("Pair(\"receipt\")", "Pair requires exactly 2 values"),
+        ("Triple(\"receipt\", 7)", "Triple requires exactly 3 values"),
+    ] {
+        let source = format!(
+            "app ReceiptSummary {{ state value: String = {expression} body {{ Text(\"Ready\") }} }}"
+        );
+        let error = nexa_syntax::parse(&source)
+            .expect_err("invalid tuple constructor arity should be a source diagnostic");
+        assert!(error.message.contains(expected), "{}", error.message);
+    }
+}
+
+#[test]
 fn database_declarations_are_not_part_of_core_language_syntax() {
     let error = nexa_syntax::parse(
         r#"database TodoDatabase("todo") { migration 1 { "CREATE TABLE tasks(id INTEGER)" } }
@@ -674,6 +689,31 @@ fn parses_closed_transition_modifiers_on_if_and_when_blocks() {
             transition: Some(nexa_syntax::ast::ViewTransition::SlideFromBottom),
             ..
         }
+    ));
+}
+
+#[test]
+fn parses_when_without_else_for_semantic_exhaustiveness_check() {
+    let app = nexa_syntax::parse(
+        r#"app ExhaustiveWhen {
+            state ready = false
+            body {
+                when ready {
+                    true: { Text("ready") }
+                    false: { Text("waiting") }
+                }
+            }
+        }"#,
+    )
+    .expect("the parser should leave exhaustiveness checking to the compiler");
+
+    assert!(matches!(
+        app.body.first(),
+        Some(Node::When {
+            has_else: false,
+            cases,
+            ..
+        }) if cases.len() == 2
     ));
 }
 

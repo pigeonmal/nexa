@@ -40,6 +40,38 @@ app ArchitectureExample {
 
 ---
 
+## Performance measurements
+
+Run `nexa audit App.nx --target all` to separate dependency resolution, compiler,
+and per-target code-generation wall time. The report also includes generated
+source bytes. Add `--release-sizes` to measure native iOS and Android build time
+and packaged artifact sizes. Timings are reported in microseconds and depend on
+the machine and build cache; compare runs on the same environment. Generated
+source size and packaged binary size are separate measurements.
+
+Add `--optimization-report` when you need to see constant-fold counts, removed
+constant branches and layouts, and declarations pruned from the typed IR. It is
+opt-in so normal compilation does not collect report data.
+
+Run the representative app set three times and keep its JSON report with the
+commit and machine metadata:
+
+```sh
+export CARGO_TARGET_DIR=/tmp/nexa-verification-target
+cargo build --release -p nexa-cli
+python3 tests/benchmark-suite.py "$CARGO_TARGET_DIR/release/nexa" /tmp/nexa-benchmarks
+```
+
+The report records medians and raw samples for `counter`, `todo_app`,
+`virtual_list`, and `showcase`. For a runtime reload check, run
+`tests/hot-reload-latency.sh <nexa> <ios|android> <project-dir>` on each target.
+For UI runtime work, profile the Release `virtual_list` screen while scrolling
+with Instruments (Allocations and Time Profiler) and Android Studio's Memory
+Profiler; record device, OS, build mode, and the measured frame or allocation
+result. Compare measurements only across matching devices and toolchains.
+
+---
+
 ## 2. Compilation Pipeline
 
 ```mermaid

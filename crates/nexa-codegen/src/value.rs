@@ -197,12 +197,17 @@ impl CodecCollector {
 impl IrVisitor for CodecCollector {
     fn visit_expr(&mut self, expr: &nexa_ir::Expr) {
         if let nexa_ir::Expr::NativeCall {
-            namespace, codecs, ..
+            namespace,
+            name,
+            codecs,
+            ..
         } = expr
         {
+            let json_storage_call =
+                namespace == "Storage" && matches!(name.as_str(), "get" | "set");
             let matches_source = match self.source {
-                CodecSource::Plugin => namespace != "Json",
-                CodecSource::Json => namespace == "Json",
+                CodecSource::Plugin => namespace != "Json" && !json_storage_call,
+                CodecSource::Json => namespace == "Json" || json_storage_call,
             };
             if !matches_source {
                 nexa_ir::walk::walk_expr_children(expr, self);
@@ -338,6 +343,45 @@ pub fn kotlin_core_runtime_source() -> String {
         CORE_RUNTIME.trim_start()
     )
 }
+
+/// Typed result and component-reference error shared by generated apps and
+/// native plugin packages. Keeping these in the fixed core package lets a
+/// plugin method return the same static error type as its Nexa call site.
+pub fn kotlin_component_ref_runtime_source() -> String {
+    format!(
+        "package {KOTLIN_CORE_PACKAGE}\n\n{}",
+        COMPONENT_REF_RUNTIME.trim_start()
+    )
+}
+
+const COMPONENT_REF_RUNTIME: &str = r#"public sealed class NexaResult<out T, out E> {
+    public data class Success<out T>(val value: T) : NexaResult<T, Nothing>()
+    public data class Failure<out E>(val error: E) : NexaResult<Nothing, E>()
+
+    public val isSuccess: Boolean get() = this is Success
+    public val isFailure: Boolean get() = this is Failure
+
+    public fun getOrNull(): T? = when (this) {
+        is Success -> value
+        is Failure -> null
+    }
+
+    public fun errorOrNull(): E? = when (this) {
+        is Success -> null
+        is Failure -> error
+    }
+
+    public fun getOrThrow(): T = when (this) {
+        is Success -> value
+        is Failure -> throw RuntimeException("Unhandled NexaResult error: $error")
+    }
+}
+
+public sealed class NexaComponentRefError<out Failure> {
+    public data object NotAttached : NexaComponentRefError<Nothing>()
+public data class Failure<out E>(val failure: E) : NexaComponentRefError<E>()
+}
+"#;
 
 const CORE_RUNTIME: &str = r#"/**
  * The application context, published so generated code and plugins in other

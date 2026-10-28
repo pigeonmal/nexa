@@ -25,6 +25,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -57,11 +59,9 @@ import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -100,6 +100,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -182,6 +183,13 @@ private const val nexaDevFormRowHorizontalInset = __NEXA_FORM_ROW_HORIZONTAL_INS
 private const val nexaDevFormRowMinHeight = __NEXA_ANDROID_FORM_ROW_MIN_HEIGHT__
 private const val nexaDevFormLargeTitleTopPadding = __NEXA_FORM_LARGE_TITLE_TOP_PADDING__
 
+private data class NexaDevScrollSnapshot(
+    val isScrollInProgress: Boolean,
+    val leadingPosition: Int,
+    val visibleItemCount: Int,
+    val reachedEnd: Boolean,
+)
+
 private fun nexaDevLeadingVisibleDataItemIndex(
     visibleItems: List<LazyListItemInfo>,
     fallback: Int,
@@ -190,28 +198,35 @@ private fun nexaDevLeadingVisibleDataItemIndex(
     viewportStartOffset: Int,
     viewportEndOffset: Int,
 ): Int {
-    val inViewportItems = visibleItems.filter { item ->
-        item.offset + item.size > viewportStartOffset && item.offset < viewportEndOffset
-    }
     val stickyHeader = if (stickyHeaderOffset > 0) {
-        inViewportItems.firstOrNull { it.index == 0 }
+        visibleItems.firstOrNull {
+            it.index == 0 && it.offset + it.size > viewportStartOffset && it.offset < viewportEndOffset
+        }
     } else null
-    var leadingIndex = -1
-    for (item in inViewportItems) {
+
+    var leadingIndex: Int? = null
+    var firstDataIndex: Int? = null
+    var maximumVisibleIndex: Int? = null
+    for (item in visibleItems) {
+        if (item.offset + item.size <= viewportStartOffset || item.offset >= viewportEndOffset) continue
+        if (maximumVisibleIndex == null || item.index > maximumVisibleIndex) {
+            maximumVisibleIndex = item.index
+        }
         if (item.index < stickyHeaderOffset) continue
+        if (firstDataIndex == null) firstDataIndex = item.index
         if (stickyHeader != null &&
             item.offset < stickyHeader.offset + stickyHeader.size &&
             item.offset + item.size > stickyHeader.offset
         ) continue
-        if (leadingIndex < 0 || (reverseLayout && item.index > leadingIndex) || (!reverseLayout && item.index < leadingIndex)) {
+        if (leadingIndex == null || (reverseLayout && item.index > leadingIndex) || (!reverseLayout && item.index < leadingIndex)) {
             leadingIndex = item.index
         }
     }
-    if (leadingIndex >= 0) return leadingIndex
+    if (leadingIndex != null) return leadingIndex
     return if (reverseLayout) {
-        inViewportItems.maxOfOrNull { it.index } ?: fallback
+        maximumVisibleIndex ?: fallback
     } else {
-        inViewportItems.firstOrNull { it.index >= stickyHeaderOffset }?.index ?: fallback
+        firstDataIndex ?: fallback
     }
 }
 
@@ -362,7 +377,8 @@ internal fun NexaDevNodeList(
     scope: String = "app",
     modifier: Modifier = Modifier,
 ) {
-    val locals = store.locals(scope, parameters)
+    val locals = store.locals(scope, parameters).toMutableMap()
+    LocalNexaDevNavController.current?.let { locals["__nexa_navigation_controller"] = it }
     when (nodes.length()) {
         0 -> Unit
         1 -> NexaDevNode(nexaDevNodeObject(nodes.opt(0)), module, store, locals, scope, modifier)
@@ -607,7 +623,22 @@ internal fun NexaDevNode(
                 scope,
                 locals,
             )
-            val componentScope = "component/$name"
+            val componentRef = fields.opt(NexaDevKeys.COMPONENT_REF)
+                ?.takeUnless { it == JSONObject.NULL }
+                ?.let { store.evaluatePresented(it, locals, scope) }
+                as? NexaDevComponentRef
+            val componentInstanceId = remember(name) { java.util.UUID.randomUUID().toString() }
+            val componentScope = componentRef?.let {
+                "component/$name/ref/${it.identity}"
+            } ?: "component/$name/$componentInstanceId"
+            componentRef?.attach(componentScope, parameters)
+            DisposableEffect(componentScope) {
+                onDispose {
+                    store.clearNativeEventSubscriptions(componentScope)
+                    store.clearNativeTasks(componentScope)
+                    componentRef?.detach()
+                }
+            }
             CompositionLocalProvider(LocalNexaDevContentSlot provides slot) {
                 NexaDevNodeList(
                     resolved.optJSONArray("body") ?: JSONArray(),
@@ -649,7 +680,10 @@ internal fun NexaDevNode(
                 }
             }
             val children = fields.optJSONArray("children") ?: JSONArray()
-            val rendered = NexaDevPluginBridge.renderComponent(namespace, name, arguments, events) {
+            val componentRef = fields.opt(NexaDevKeys.COMPONENT_REF)
+                ?.takeIf { it != JSONObject.NULL }
+                ?.let { store.evaluatePresented(it, locals, scope) }
+            val rendered = NexaDevPluginBridge.renderComponent(namespace, name, arguments, events, componentRef) {
                 NexaDevNodeList(children, module, store, parameters = locals, scope = scope)
             }
             if (!rendered) android.util.Log.w("NexaDevRuntime", "Native component is unsupported: $namespace.$name")
@@ -988,6 +1022,11 @@ private fun NexaDevRenderControlNode(
         "Button" -> {
             val loading = store.evaluatePresented(fields.opt("loading"), locals, scope) as? Boolean ?: false
             val disabled = store.evaluatePresented(fields.opt("disabled"), locals, scope) as? Boolean ?: false
+            val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
+            val accessibilityLabel = fields.opt("accessibility_label")
+                ?.takeUnless { it == JSONObject.NULL }
+                ?.let { store.stringify(store.evaluatePresented(it, locals, scope)) }
+                ?: label
             val style = fields.opt("style")
                 ?.toString()
                 ?.takeIf { it.isNotBlank() && it != "null" }
@@ -1013,7 +1052,6 @@ private fun NexaDevRenderControlNode(
                 iconSelection.has("material_symbol") -> nexaDevSpecificMaterialIcon(iconSelection.optString("material_symbol"))
                 else -> null
             }
-            val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
             NexaButtonPrimitive(
                 label = label,
                 icon = icon,
@@ -1023,6 +1061,7 @@ private fun NexaDevRenderControlNode(
                 tint = tint,
                 loading = loading,
                 disabled = disabled,
+                accessibilityLabel = accessibilityLabel,
                 iconOnlyCircle = icon != null && buttonShape == CircleShape && label.isEmpty(),
                 fullWidth = fields.optBoolean("__nexa_full_width", false),
                 leadingContent = fields.optBoolean("__nexa_leading_content", false),
@@ -1540,45 +1579,16 @@ private fun NexaDevRenderNavigationNode(
             }
         }
         "BottomSheet" -> {
-            val state = fields.optString("state")
-            val isPresented = store.state(state, scope) as? Boolean ?: false
             val children = fields.optJSONArray("children") ?: JSONArray()
-            val detentNames = fields.optJSONArray("detents")?.let { values ->
-                (0 until values.length()).map(values::optString)
-            } ?: listOf("medium", "expanded")
-            val enabledValues = buildSet {
-                add(androidx.compose.material3.SheetValue.Hidden)
-                detentNames.forEach { detent ->
-                    add(
-                        when (detent) {
-                            "expanded" -> androidx.compose.material3.SheetValue.Expanded
-                            else -> androidx.compose.material3.SheetValue.PartiallyExpanded
-                        },
-                    )
-                }
-            }
-            val requestedInitialDetent = fields.optString("initial_detent")
-                .ifBlank { detentNames.firstOrNull() ?: "medium" }
-            val initialDetent = when (requestedInitialDetent) {
-                "expanded" -> androidx.compose.material3.SheetValue.Expanded
-                else -> androidx.compose.material3.SheetValue.PartiallyExpanded
-            }
-            val snapPoints = fields.optJSONArray("snap_points")?.let { values ->
+            val componentRef = fields.opt("component_ref")
+                ?.takeIf { it != JSONObject.NULL }
+                ?.let { store.evaluatePresented(it, locals, scope) as? NexaBottomSheetRef }
+                ?: NexaBottomSheetRef()
+            val detents = fields.optJSONArray("detents")?.let { values ->
                 (0 until values.length()).map { values.optDouble(it).toFloat() }
-            } ?: emptyList()
-            val initialSnapPoint = if (fields.isNull("initial_snap_point")) {
-                null
-            } else {
-                fields.optDouble("initial_snap_point").toFloat()
-            }
-            val selectedSnapPointState = if (fields.isNull("selected_snap_point")) {
-                null
-            } else {
-                fields.optString("selected_snap_point").takeIf { it.isNotBlank() }
-            }
-            val selectedSnapPoint = selectedSnapPointState?.let { selectedState ->
-                (store.state(selectedState, scope) as? Number)?.toFloat()
-            }
+            } ?: listOf(0.5f, 1f)
+            val defaultDetent = detents.firstOrNull() ?: 0.5f
+            val initialDetent = fields.optDouble("initial_detent", defaultDetent.toDouble()).toFloat()
             val backgroundValue = fields.optJSONObject("background_color")
             val backgroundColor = backgroundValue?.let { value ->
                 val dynamic = value.opt("Dynamic")
@@ -1598,23 +1608,16 @@ private fun NexaDevRenderNavigationNode(
                 }
             }
             NexaBottomSheetPrimitive(
-                isPresented = isPresented,
-                contentPadding = fields.optDouble("content_padding", 8.0).toFloat().dp,
-                enabledValues = enabledValues,
+                componentRef = componentRef,
+                contentPadding = fields.optDouble("content_padding", 0.0).toFloat().dp,
+                detents = detents,
                 initialDetent = initialDetent,
-                snapPoints = snapPoints,
-                initialSnapPoint = initialSnapPoint,
-                selectedSnapPoint = selectedSnapPoint,
-                onSnapPointChange = selectedSnapPointState?.let { selectedState ->
-                    { point -> store.setState(selectedState, point.toDouble(), scope) }
-                },
                 showDragIndicator = fields.optBoolean("show_drag_indicator", true),
                 allowsDismissal = fields.optBoolean("allows_dismissal", true),
                 allowsBackgroundInteraction = fields.optBoolean("allows_background_interaction", false),
                 shouldDismissOnBackPress = fields.optBoolean("should_dismiss_on_back_press", true),
                 backgroundColor = backgroundColor,
                 scrimColor = scrimColor,
-                onDismissRequest = { store.setState(state, false, scope) },
                 onDismiss = {
                     store.perform(fields.optJSONArray("on_dismiss") ?: JSONArray(), scope, locals)
                 },
@@ -2141,37 +2144,37 @@ private fun NexaDevRenderTextInputNode(
 }
 
 @Composable
-private fun NexaDevApplyFastListScrollCommands(
-    topTrigger: Int?,
-    endTrigger: Int?,
-    offset: Double?,
+private fun NexaDevBindFastListRef(
+    reference: NexaFastListRef?,
     count: Int,
     reverseLayout: Boolean,
-    scrollToIndex: suspend (Int) -> Unit,
-    scrollToOffset: suspend (Double) -> Unit,
+    scrollToIndex: suspend (Int, Boolean, Double) -> Unit,
+    scrollToOffset: suspend (Double, Boolean) -> Unit,
 ) {
-    val offsetBits = offset?.toBits()
-    val previousCommands = remember {
-        arrayOf<Any?>(topTrigger, endTrigger, offsetBits)
-    }
-    LaunchedEffect(topTrigger, endTrigger, offsetBits, count, reverseLayout) {
-        if (count <= 0) return@LaunchedEffect
-        val offsetChanged = offsetBits != previousCommands[2] && offset != null
-        val endChanged = endTrigger != previousCommands[1] && endTrigger != null
-        val topChanged = topTrigger != previousCommands[0] && topTrigger != null
-        when {
-            offsetChanged && offset != null && offset.isFinite() -> {
-                scrollToOffset(offset.coerceAtLeast(0.0))
-            }
-            endChanged -> scrollToIndex(if (reverseLayout) 0 else count - 1)
-            topChanged -> scrollToIndex(if (reverseLayout) count - 1 else 0)
-        }
-        // If the list is empty, retain the old values so the command is retried
-        // when items arrive. Otherwise coalesce simultaneous commands with a
-        // stable offset > end > top priority.
-        previousCommands[0] = topTrigger
-        previousCommands[1] = endTrigger
-        previousCommands[2] = offsetBits
+    if (reference == null) return
+    val coroutineScope = rememberCoroutineScope()
+    DisposableEffect(reference, count, reverseLayout) {
+        reference.attach(
+            scrollToIndex = { index, animated, viewPosition ->
+                if (count > 0) coroutineScope.launch {
+                    scrollToIndex(index.coerceIn(0, count - 1), animated, viewPosition.coerceIn(0.0, 1.0))
+                }
+            },
+            scrollToTop = { animated ->
+                if (count > 0) coroutineScope.launch {
+                    scrollToIndex(if (reverseLayout) count - 1 else 0, animated, 0.0)
+                }
+            },
+            scrollToEnd = { animated ->
+                if (count > 0) coroutineScope.launch {
+                    scrollToIndex(if (reverseLayout) 0 else count - 1, animated, 1.0)
+                }
+            },
+            scrollToOffset = { offset, animated ->
+                coroutineScope.launch { scrollToOffset(offset.coerceAtLeast(0.0), animated) }
+            },
+        )
+        onDispose { reference.detach() }
     }
 }
 
@@ -2257,11 +2260,24 @@ private fun NexaDevRenderFastListNode(
                 return if (value == JSONObject.NULL) itemIndex else value
             }
             val children = options.optJSONArray("children") ?: JSONArray()
+            val componentRef = options.opt("component_ref")
+                ?.takeIf { it != JSONObject.NULL }
+                ?.let { store.evaluatePresented(it, locals, scope) as? NexaFastListRef }
             val swipeActions = options.optJSONArray("swipe_actions")
             val stickyHeaderNodes = options.optJSONArray("sticky_header")
             val sectionHeader = options.optJSONArray("section_header")
             val onScroll = options.optJSONArray("on_scroll")
             val onEndReached = options.optJSONArray("on_end_reached")
+            val listTaskOwner = if (onEndReached != null && onEndReached != JSONObject.NULL) {
+                remember(fields, scope) { "$scope/fast-list/${java.util.UUID.randomUUID()}" }
+            } else {
+                null
+            }
+            if (listTaskOwner != null) {
+                DisposableEffect(listTaskOwner) {
+                    onDispose { store.clearNativeTasksOwnedBy(listTaskOwner) }
+                }
+            }
             val onMove = options.optJSONObject("on_move")
             val usesPlatformList = onMove != null || swipeActions != null
             val moveEnabled = onMove?.opt("enabled")?.let {
@@ -2278,21 +2294,6 @@ private fun NexaDevRenderFastListNode(
             var nativeScrollPositionEcho by remember { mutableIntStateOf(-1) }
             val scrollPositionName = options.nexaDevOptionalString("scroll_position")
                 ?.takeIf(String::isNotEmpty)
-            val scrollToTopName = options.nexaDevOptionalString("scroll_to_top")
-                ?.takeIf(String::isNotEmpty)
-            val scrollToEndName = options.nexaDevOptionalString("scroll_to_end")
-                ?.takeIf(String::isNotEmpty)
-            val scrollToOffsetName = options.nexaDevOptionalString("scroll_to_offset")
-                ?.takeIf(String::isNotEmpty)
-            val scrollToTopTrigger = scrollToTopName?.let { name ->
-                (store.state(name, scope) as? Number)?.toInt()
-            }
-            val scrollToEndTrigger = scrollToEndName?.let { name ->
-                (store.state(name, scope) as? Number)?.toInt()
-            }
-            val scrollToOffset = scrollToOffsetName?.let { name ->
-                (store.state(name, scope) as? Number)?.toDouble()
-            }
             val stickyHeaderOffset = if (axis == "Vertical" && stickyHeaderNodes != null && stickyHeaderNodes != JSONObject.NULL) 1 else 0
             val requestedIndex = scrollPositionName?.let { name ->
                 (store.state(name, scope) as? Number)?.toInt()?.coerceIn(0, maxOf(0, count - 1)) ?: 0
@@ -2534,7 +2535,9 @@ private fun NexaDevRenderFastListNode(
                 val callbackLocals = locals + (indexName to logicalFirstVisible)
                 if (onEndReached != null && onEndReached != JSONObject.NULL && total > 0 && reachedEnd && !endReached) {
                     endReached = true
-                    store.perform(onEndReached, scope, callbackLocals)
+                    val taskOwnedLocals = callbackLocals.toMutableMap()
+                    listTaskOwner?.let { taskOwnedLocals[NEXA_DEV_TASK_OWNER_LOCAL] = it }
+                    store.perform(onEndReached, scope, taskOwnedLocals)
                 }
             }
             // Keep the observer collector attached to the list state instead
@@ -2547,28 +2550,43 @@ private fun NexaDevRenderFastListNode(
                 if (axis == "Grid" || axis == "AdaptiveGrid" || axis == "Masonry") {
                     if (axis == "Masonry") {
                         val listState = rememberLazyStaggeredGridState(initialFirstVisibleItemIndex = requestedIndex)
-                        NexaDevApplyFastListScrollCommands(
-                            topTrigger = scrollToTopTrigger,
-                            endTrigger = scrollToEndTrigger,
-                            offset = scrollToOffset,
+                        NexaDevBindFastListRef(
+                            reference = componentRef,
                             count = count,
                             reverseLayout = reverseLayout,
-                            scrollToIndex = { target -> listState.scrollToItem(target) },
-                            scrollToOffset = { target ->
-                                listState.scrollToItem(0, with(density) { target.dp.roundToPx() })
+                            scrollToIndex = { target, animated, viewPosition ->
+                                if (animated) listState.animateScrollToItem(target) else listState.scrollToItem(target)
+                                val layout = listState.layoutInfo
+                                val item = layout.visibleItemsInfo.firstOrNull { it.index == target }
+                                if (item != null) {
+                                    val available = (layout.viewportEndOffset - layout.viewportStartOffset - item.size.height).coerceAtLeast(0)
+                                    val desired = layout.viewportStartOffset + (available * viewPosition).toInt()
+                                    val delta = (item.offset.y - desired).toFloat()
+                                    if (animated) listState.animateScrollBy(delta) else listState.scrollBy(delta)
+                                }
+                            },
+                            scrollToOffset = { target, animated ->
+                                val offset = with(density) { target.dp.roundToPx() }
+                                if (animated) listState.animateScrollToItem(0, offset) else listState.scrollToItem(0, offset)
                             },
                         )
-                        val itemIndices = remember(count) { List(count) { it } }
                         LaunchedEffect(listState, count) {
                             snapshotFlow {
                                 val visibleItems = listState.layoutInfo.visibleItemsInfo
-                                listState.isScrollInProgress to Triple(
-                                    listState.firstVisibleItemIndex,
-                                    visibleItems.size,
-                                    visibleItems.any { it.index >= count - 1 },
+                                NexaDevScrollSnapshot(
+                                    isScrollInProgress = listState.isScrollInProgress,
+                                    leadingPosition = listState.firstVisibleItemIndex,
+                                    visibleItemCount = visibleItems.size,
+                                    reachedEnd = visibleItems.any { it.index >= count - 1 },
                                 )
-                            }.distinctUntilChanged().collect { (isScrollInProgress, snapshot) ->
-                                currentObserveScroll.value(snapshot.first, snapshot.second, count, snapshot.third, isScrollInProgress)
+                            }.distinctUntilChanged().collect { snapshot ->
+                                currentObserveScroll.value(
+                                    snapshot.leadingPosition,
+                                    snapshot.visibleItemCount,
+                                    count,
+                                    snapshot.reachedEnd,
+                                    snapshot.isScrollInProgress,
+                                )
                             }
                         }
                         LaunchedEffect(listState, requestedIndex, count) {
@@ -2585,36 +2603,51 @@ private fun NexaDevRenderFastListNode(
                                 (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
                             modifier = modifier.fillMaxWidth(),
                         ) {
-                            staggeredItems(items = itemIndices, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
+                            items(count = count, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
                                 renderItem(itemIndex, axis, Modifier, null)
                             }
                         }
                     } else {
                     val listState = rememberLazyGridState(initialFirstVisibleItemIndex = requestedIndex)
-                    NexaDevApplyFastListScrollCommands(
-                        topTrigger = scrollToTopTrigger,
-                        endTrigger = scrollToEndTrigger,
-                        offset = scrollToOffset,
+                    NexaDevBindFastListRef(
+                        reference = componentRef,
                         count = count,
                         reverseLayout = reverseLayout,
-                        scrollToIndex = { target -> listState.scrollToItem(target) },
-                        scrollToOffset = { target ->
-                            listState.scrollToItem(0, with(density) { target.dp.roundToPx() })
+                        scrollToIndex = { target, animated, viewPosition ->
+                            if (animated) listState.animateScrollToItem(target) else listState.scrollToItem(target)
+                            val layout = listState.layoutInfo
+                            val item = layout.visibleItemsInfo.firstOrNull { it.index == target }
+                            if (item != null) {
+                                val available = (layout.viewportEndOffset - layout.viewportStartOffset - item.size.height).coerceAtLeast(0)
+                                val desired = layout.viewportStartOffset + (available * viewPosition).toInt()
+                                val delta = (item.offset.y - desired).toFloat()
+                                if (animated) listState.animateScrollBy(delta) else listState.scrollBy(delta)
+                            }
+                        },
+                        scrollToOffset = { target, animated ->
+                            val offset = with(density) { target.dp.roundToPx() }
+                            if (animated) listState.animateScrollToItem(0, offset) else listState.scrollToItem(0, offset)
                         },
                     )
-                    val itemIndices = remember(count) { List(count) { it } }
                     LaunchedEffect(listState, count) {
                         snapshotFlow {
                             val visibleItems = listState.layoutInfo.visibleItemsInfo
-                            listState.isScrollInProgress to Triple(
-                                    listState.firstVisibleItemIndex,
-                                    visibleItems.size,
-                                    visibleItems.any { it.index >= count - 1 },
-                                )
+                            NexaDevScrollSnapshot(
+                                isScrollInProgress = listState.isScrollInProgress,
+                                leadingPosition = listState.firstVisibleItemIndex,
+                                visibleItemCount = visibleItems.size,
+                                reachedEnd = visibleItems.any { it.index >= count - 1 },
+                            )
                         }
                             .distinctUntilChanged()
-                            .collect { (isScrollInProgress, snapshot) ->
-                                currentObserveScroll.value(snapshot.first, snapshot.second, count, snapshot.third, isScrollInProgress)
+                            .collect { snapshot ->
+                                currentObserveScroll.value(
+                                    snapshot.leadingPosition,
+                                    snapshot.visibleItemCount,
+                                    count,
+                                    snapshot.reachedEnd,
+                                    snapshot.isScrollInProgress,
+                                )
                             }
                     }
                     LaunchedEffect(listState, requestedIndex, count) {
@@ -2632,29 +2665,38 @@ private fun NexaDevRenderFastListNode(
                             (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
                         modifier = modifier.fillMaxWidth(),
                     ) {
-                        gridItems(items = itemIndices, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
+                        items(count = count, key = { itemIndex -> stableRowKey(itemIndex) }) { itemIndex ->
                             renderItem(itemIndex, axis, Modifier, null)
                         }
                     }
                     }
                 } else {
                     val listState = rememberLazyListState(initialFirstVisibleItemIndex = requestedLayoutPosition)
-                    NexaDevApplyFastListScrollCommands(
-                        topTrigger = scrollToTopTrigger,
-                        endTrigger = scrollToEndTrigger,
-                        offset = scrollToOffset,
+                    NexaDevBindFastListRef(
+                        reference = componentRef,
                         count = count,
                         reverseLayout = reverseLayout,
-                        scrollToIndex = { target ->
-                            val layoutIndex = if (stickyHeaderOffset > 0 && target == 0) {
-                                0
-                            } else {
-                                target + stickyHeaderOffset
+                        scrollToIndex = { target, animated, viewPosition ->
+                            val layoutIndex = if (stickyHeaderOffset > 0 && target == 0) 0 else target + stickyHeaderOffset
+                            val clampedIndex = layoutIndex.coerceIn(0, count + stickyHeaderOffset - 1)
+                            if (animated) listState.animateScrollToItem(clampedIndex) else listState.scrollToItem(clampedIndex)
+                            val layout = listState.layoutInfo
+                            val item = layout.visibleItemsInfo.firstOrNull { it.index == clampedIndex }
+                            if (item != null) {
+                                val horizontal = axis == "Horizontal"
+                                val itemSize = if (horizontal) item.size else item.size
+                                val itemOffset = if (horizontal) item.offset else item.offset
+                                val viewportStart = layout.viewportStartOffset
+                                val viewportEnd = layout.viewportEndOffset
+                                val available = (viewportEnd - viewportStart - itemSize).coerceAtLeast(0)
+                                val desired = viewportStart + (available * viewPosition).toInt()
+                                val delta = (itemOffset - desired).toFloat()
+                                if (animated) listState.animateScrollBy(delta) else listState.scrollBy(delta)
                             }
-                            listState.scrollToItem(layoutIndex.coerceIn(0, count + stickyHeaderOffset - 1))
                         },
-                        scrollToOffset = { target ->
-                            listState.scrollToItem(0, with(density) { target.dp.roundToPx() })
+                        scrollToOffset = { target, animated ->
+                            val offset = with(density) { target.dp.roundToPx() }
+                            if (animated) listState.animateScrollToItem(0, offset) else listState.scrollToItem(0, offset)
                         },
                     )
                     if (reverseLayout) {
@@ -2707,33 +2749,41 @@ private fun NexaDevRenderFastListNode(
                                 }
                         } else {
                             snapshotFlow {
-                                val visibleItems = listState.layoutInfo.visibleItemsInfo
+                                val layoutInfo = listState.layoutInfo
+                                val visibleItems = layoutInfo.visibleItemsInfo
                                 val visualLeadingPosition = nexaDevLeadingVisibleDataItemIndex(
                                     visibleItems,
                                     listState.firstVisibleItemIndex,
                                     stickyHeaderOffset,
                                     reverseLayout,
-                                    listState.layoutInfo.viewportStartOffset,
-                                    listState.layoutInfo.viewportEndOffset,
+                                    layoutInfo.viewportStartOffset,
+                                    layoutInfo.viewportEndOffset,
                                 )
-                                listState.isScrollInProgress to Triple(
-                                        visualLeadingPosition,
-                                        visibleItems.size,
-                                        count > 0 && visibleItems.any { item ->
+                                NexaDevScrollSnapshot(
+                                        isScrollInProgress = listState.isScrollInProgress,
+                                        leadingPosition = visualLeadingPosition,
+                                        visibleItemCount = visibleItems.size,
+                                        reachedEnd = count > 0 && visibleItems.any { item ->
                                             item.index >= count + stickyHeaderOffset - 1 &&
                                                 nexaDevListItemIsUnobscuredByStickyHeader(
                                                     item,
                                                     visibleItems,
                                                     stickyHeaderOffset,
-                                                    listState.layoutInfo.viewportStartOffset,
-                                                    listState.layoutInfo.viewportEndOffset,
+                                                    layoutInfo.viewportStartOffset,
+                                                    layoutInfo.viewportEndOffset,
                                                 )
                                         },
                                     )
                             }
                                 .distinctUntilChanged()
-                                .collect { (isScrollInProgress, snapshot) ->
-                                    currentObserveScroll.value(snapshot.first, snapshot.second, count, snapshot.third, isScrollInProgress)
+                                .collect { snapshot ->
+                                    currentObserveScroll.value(
+                                        snapshot.leadingPosition,
+                                        snapshot.visibleItemCount,
+                                        count,
+                                        snapshot.reachedEnd,
+                                        snapshot.isScrollInProgress,
+                                    )
                                 }
                         }
                     }
@@ -2803,8 +2853,16 @@ private fun NexaDevRenderFastListNode(
                                     }
                                     items(count = sectionItems.size, key = { itemIndex -> stableRowKey(itemIndex, sectionIndex) }) { itemIndex ->
                                         val rowLocals = listRowLocals(itemIndex, sectionIndex)
-                                        val rowParentModifier = if (animateStableRows) {
-                                            Modifier.fillMaxWidth().animateItem()
+                                        val rowParentModifier = if (
+                                            animateStableRows
+                                        ) {
+                                            Modifier.fillMaxWidth().animateItem(
+                                                placementSpec = if ((reorderActiveIndex?.intValue ?: -1) < 0) {
+                                                    androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>()
+                                                } else {
+                                                    null
+                                                },
+                                            )
                                         } else {
                                             Modifier
                                         }
@@ -2848,8 +2906,16 @@ private fun NexaDevRenderFastListNode(
                                         stableRowKey(itemPosition)
                                     },
                                 ) { itemPosition ->
-                                    val rowParentModifier = if (animateStableRows && !pageSnap) {
-                                        Modifier.fillMaxWidth().animateItem()
+                                    val rowParentModifier = if (
+                                        animateStableRows && !pageSnap
+                                    ) {
+                                        Modifier.fillMaxWidth().animateItem(
+                                            placementSpec = if ((reorderActiveIndex?.intValue ?: -1) < 0) {
+                                                androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>()
+                                            } else {
+                                                null
+                                            },
+                                        )
                                     } else {
                                         Modifier
                                     }

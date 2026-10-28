@@ -11,7 +11,9 @@
 //! against the parsers themselves, because a generated table is only as honest
 //! as the data fed into it.
 
-use nexa_cli::docs::{commands, render_command_matrix, render_config_options};
+use nexa_cli::docs::{
+    commands, render_android_sdk_requirement, render_command_matrix, render_config_options,
+};
 
 fn getting_started() -> std::path::PathBuf {
     nexa_testkit::workspace_root().join("docs/getting-started.md")
@@ -24,6 +26,16 @@ fn config_options_reference_matches_resolved_defaults() {
         "config-options",
         &render_config_options().expect("resolve scaffold defaults"),
         "docs/getting-started.md#config-options",
+    );
+}
+
+#[test]
+fn android_sdk_requirement_matches_the_generated_gradle_template() {
+    nexa_testkit::assert_region(
+        &getting_started(),
+        "android-sdk-requirement",
+        &render_android_sdk_requirement(),
+        "docs/getting-started.md#android-sdk-requirement",
     );
 }
 
@@ -90,13 +102,12 @@ fn native_build_commands_publish_shared_flags() {
                 line.starts_with("| `nexa dev")
                     || line.starts_with("| `nexa test")
                     || line.starts_with("| `nexa release")
-                    || line.starts_with("| `nexa build")
             })
             .filter(|line| line.contains(&format!("`{flag}")))
             .count();
         assert_eq!(
-            occurrences, 4,
-            "`{flag}` is accepted by dev, test, release, and build, so all four rows must publish it"
+            occurrences, 3,
+            "`{flag}` is accepted by dev, test, and release, so all three rows must publish it"
         );
     }
 }
@@ -153,7 +164,6 @@ fn dev_only_flags_are_not_published_for_other_commands() {
     assert!(row("nexa dev").contains("`--compile-only`"));
     assert!(!row("nexa test").contains("`--once`"));
     assert!(!row("nexa release").contains("`--compile-only`"));
-    assert!(!row("nexa build").contains("`--compile-only`"));
     assert!(row("nexa test").contains("`--unit-only`"));
     assert!(!row("nexa dev").contains("`--unit-only`"));
 }
@@ -168,7 +178,6 @@ fn published_commands_cover_every_routed_command() {
         "`nexa fmt`",
         "`nexa dev`",
         "`nexa test`",
-        "`nexa build`",
         "`nexa release`",
         "`nexa doctor`",
         "`nexa audit <file>`",

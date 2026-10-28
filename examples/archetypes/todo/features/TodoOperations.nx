@@ -58,11 +58,16 @@ fn cancelRemindersIfCompleted(tasks: Array<TaskItem>, reminders: Array<ReminderI
 }
 
 fn nextTaskSortOrder(source: Array<TaskItem>) -> Int32 {
-    let activeTasks = source.filter { task -> !task.isDeleted }
-    let earliestOrder: Int32 = activeTasks.reduce(activeTasks.first()?.sortOrder ?? 0) { current, task ->
-        task.sortOrder < current ? task.sortOrder : current
+    let earliestTask: TaskItem? = source.reduce(source.first()) { current, task ->
+        if task.isDeleted {
+            current
+        } else {
+            current == null || (current?.isDeleted ?? false) || task.sortOrder < (current?.sortOrder ?? task.sortOrder)
+                ? task
+                : current
+        }
     }
-    return activeTasks.isEmpty ? 0 : earliestOrder - 1
+    return earliestTask == null || (earliestTask?.isDeleted ?? true) ? 0 : (earliestTask?.sortOrder ?? 0) - 1
 }
 
 fn taskCommentLabel(task: TaskItem?) -> String {

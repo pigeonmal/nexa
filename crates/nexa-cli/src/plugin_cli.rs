@@ -1,4 +1,4 @@
-//! `nexa plugin new | check | generate` — authoring commands for plugin
+//! `nexa plugin new | check | generate | doc` — authoring commands for plugin
 //! packages.
 //!
 //! These commands operate on a package directory (or a bare `native.nxid`) and
@@ -20,9 +20,14 @@ use nexa_plugin_idl::{PluginIdl, manifest};
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
-        Some("new" | "init") => init(&args[1..]),
+        Some("new") => init(&args[1..]),
+        Some("init") => {
+            eprintln!("`nexa plugin init` is deprecated; use `nexa plugin new`.");
+            init(&args[1..])
+        }
         Some("check") => check(&args[1..]),
         Some("generate") => generate(&args[1..]),
+        Some("doc") => document(&args[1..]),
         Some(target) => Err(format!(
             "unknown plugin subcommand `{target}`\n\n{}",
             usage()
@@ -32,8 +37,44 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "Usage:\n  nexa plugin new <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure] (alias)\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"
+    "Usage:\n  nexa plugin new <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]\n  nexa plugin doc <package-directory|native.nxid> [--out <file>]\n\n`nexa plugin init` is deprecated; use `nexa plugin new`."
         .to_owned()
+}
+
+fn document(args: &[String]) -> Result<(), String> {
+    let mut input = None;
+    let mut out = None;
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--out" | "-o" => {
+                cursor += 1;
+                out = Some(PathBuf::from(
+                    args.get(cursor).ok_or("`--out` requires a file path")?,
+                ));
+            }
+            option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
+            value if input.is_none() => input = Some(PathBuf::from(value)),
+            _ => return Err("`nexa plugin doc` accepts one package path".to_owned()),
+        }
+        cursor += 1;
+    }
+    let input = input.ok_or_else(usage)?;
+    let package = resolve_package(&input)?;
+    let markdown = nexa_plugin_idl::render_markdown(&package.idl);
+    if let Some(path) = out {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        fs::write(&path, markdown.as_bytes())
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        println!("wrote {}", path.display());
+    } else {
+        print!("{markdown}");
+    }
+    Ok(())
 }
 
 fn init(args: &[String]) -> Result<(), String> {
@@ -428,6 +469,7 @@ fn resolve_directory(root: &Path) -> Result<ResolvedPackage, String> {
             types: Vec::new(),
             interfaces: Vec::new(),
             config: Vec::new(),
+            documentation: Vec::new(),
         }
     };
     // Declared platform sources must resolve: a manifest that points at a
@@ -688,19 +730,14 @@ fn typecheck_swift(package: &ResolvedPackage) -> Option<String> {
     let scratch = std::env::temp_dir().join(format!("nexa-plugin-swift-{}", std::process::id()));
     fs::create_dir_all(&scratch).ok()?;
     let contract = scratch.join("Contract.swift");
+    let plan = contracts(package)
+        .ok()?
+        .into_iter()
+        .find(|(label, _)| label == "swift")?
+        .1;
     fs::write(
         &contract,
-        render(
-            "swift",
-            &contracts(package)
-                .ok()?
-                .into_iter()
-                .find(|(label, _)| label == "swift")?
-                .1,
-            &package.manifest,
-            &package.idl,
-        )
-        .ok()?,
+        render("swift", &plan, &package.manifest, &package.idl).ok()?,
     )
     .ok()?;
     let mut command = Command::new("xcrun");
@@ -711,6 +748,19 @@ fn typecheck_swift(package: &ResolvedPackage) -> Option<String> {
         .arg("6")
         .arg("-module-cache-path")
         .arg(scratch.join("module-cache"));
+    let has_component_methods = plan.interfaces.iter().any(|interface| {
+        interface.kind == nexa_plugin_idl::InterfaceKind::NativeComponent
+            && !interface.methods.is_empty()
+    });
+    if has_component_methods {
+        let component_ref_types = scratch.join("NexaComponentRef.swift");
+        fs::write(
+            &component_ref_types,
+            "public enum NexaComponentRefError<Failure: Error>: Error { case notAttached; case failure(Failure) }\n",
+        )
+        .ok()?;
+        command.arg(component_ref_types);
+    }
     if let Some(sdk) = sdk_path() {
         // The iOS SDK alone is not enough: without a matching target triple
         // `swiftc` falls back to the host and cannot find a standard library,
@@ -790,6 +840,19 @@ fn typecheck_kotlin(package: &ResolvedPackage) -> Option<String> {
     if declares_value_types {
         let runtime = scratch.join("NexaValue.kt");
         fs::write(&runtime, nexa_codegen::value::kotlin_runtime_source()).ok()?;
+        files.push(runtime);
+    }
+    let declares_component_ref_methods = plan.interfaces.iter().any(|interface| {
+        interface.kind == nexa_plugin_idl::InterfaceKind::NativeComponent
+            && !interface.methods.is_empty()
+    });
+    if declares_component_ref_methods {
+        let runtime = scratch.join("NexaComponentRef.kt");
+        fs::write(
+            &runtime,
+            nexa_codegen::value::kotlin_component_ref_runtime_source(),
+        )
+        .ok()?;
         files.push(runtime);
     }
     let sdk_jar = match android_platform_jar() {
@@ -1035,7 +1098,7 @@ mod tests {
     }
 
     #[test]
-    fn plugin_new_is_a_deterministic_alias_for_init() {
+    fn plugin_init_remains_a_deprecated_compatibility_alias() {
         let new_dir = nexa_testkit::VacantDir::new("nexa-plugin-new");
         let init_dir = nexa_testkit::VacantDir::new("nexa-plugin-init");
         let new_args = vec![
@@ -1068,5 +1131,27 @@ mod tests {
         }
         let check_args = vec!["check".to_owned(), new_dir.path().display().to_string()];
         run(&check_args).expect("new scaffold should pass plugin validation");
+    }
+
+    #[test]
+    fn plugin_doc_writes_a_typed_api_reference_from_the_idl() {
+        let root = nexa_testkit::TempDir::new("nexa-plugin-doc");
+        let idl = root.path().join("native.nxid");
+        let output = root.path().join("docs/API.md");
+        fs::write(
+            &idl,
+            "/// Loads the account profile.\nservice Account { async fn load(id: String) -> String? }\n",
+        )
+        .expect("write plugin IDL");
+        run(&[
+            "doc".to_owned(),
+            idl.display().to_string(),
+            "--out".to_owned(),
+            output.display().to_string(),
+        ])
+        .expect("plugin doc should generate the API reference");
+        let rendered = fs::read_to_string(output).expect("read generated API reference");
+        assert!(rendered.contains("Loads the account profile."));
+        assert!(rendered.contains("`async fn load(id: String) -> String?`"));
     }
 }

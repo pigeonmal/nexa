@@ -15,12 +15,13 @@ use std::{
 
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
-use nexa_compiler::{CompileWarning, Target};
+use nexa_compiler::{CompileWarning, Target, WarningCode};
 use nexa_ir::{Module, TextFontStyle, system_icons::SHARED_ICONS};
 
 use crate::{cache, config, config::ProjectConfig};
 
 mod assets;
+mod file_ops;
 pub mod plan;
 use self::plan::ProjectPlan;
 mod localization;
@@ -48,6 +49,122 @@ fn deduplicate_warnings(warnings: Vec<CompileWarning>) -> Vec<CompileWarning> {
         .into_iter()
         .filter(|warning| seen.insert(warning.to_string()))
         .collect()
+}
+
+pub(crate) fn validate_permission_configuration(
+    module: &Module,
+    packages: &[plugin_package::PluginPackage],
+    config: &ProjectConfig,
+    config_path: &Path,
+    target: Target,
+) -> Result<Vec<CompileWarning>, String> {
+    let facts = nexa_ir::facts::ModuleFacts::analyze(module).permissions;
+    let reachable_plugins = module
+        .plugins
+        .iter()
+        .map(|plugin| plugin.namespace.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let permission_names = |permission: nexa_ir::Permission| match target {
+        Target::Swift => config::ios_usage_description_keys(permission).to_vec(),
+        Target::Kotlin => config::android_permission_names(permission).to_vec(),
+        Target::All => config::ios_usage_description_keys(permission)
+            .iter()
+            .chain(config::android_permission_names(permission))
+            .copied()
+            .collect(),
+    };
+    let plugin_declares_permission = |permission: nexa_ir::Permission| {
+        let ios_names = config::ios_usage_description_keys(permission);
+        let android_names = config::android_permission_names(permission);
+        packages.iter().any(|package| {
+            reachable_plugins.contains(package.namespace.as_str())
+                && match target {
+                    Target::Swift => package
+                        .artifacts
+                        .ios_usage_descriptions
+                        .iter()
+                        .any(|(key, _)| ios_names.contains(&key.as_str())),
+                    Target::Kotlin => package
+                        .artifacts
+                        .android_permissions
+                        .iter()
+                        .any(|name| android_names.contains(&name.as_str())),
+                    Target::All => {
+                        (ios_names.is_empty()
+                            || package
+                                .artifacts
+                                .ios_usage_descriptions
+                                .iter()
+                                .any(|(key, _)| ios_names.contains(&key.as_str())))
+                            && (android_names.is_empty()
+                                || package
+                                    .artifacts
+                                    .android_permissions
+                                    .iter()
+                                    .any(|name| android_names.contains(&name.as_str())))
+                    }
+                }
+        })
+    };
+    let configured = config
+        .permissions()
+        .map(|(permission, _)| *permission)
+        .collect::<std::collections::HashSet<_>>();
+    let required = match target {
+        Target::Swift => &facts.requested,
+        Target::Kotlin => &facts.used,
+        Target::All => &facts.used,
+    };
+    for permission in required {
+        if permission_names(*permission).is_empty()
+            || configured.contains(permission)
+            || plugin_declares_permission(*permission)
+        {
+            continue;
+        }
+        return Err(format!(
+            "{}: permission `{}` is used but its native requirement `{}` is missing; add `{}: \"...\"` under `permissions` or declare it in the reachable plugin manifest",
+            config_path.display(),
+            config::permission_name(*permission),
+            permission_names(*permission)[0],
+            config::permission_name(*permission),
+        ));
+    }
+
+    let mut warnings = Vec::new();
+    if facts.dynamic {
+        warnings.push(
+            CompileWarning::new(
+                Default::default(),
+                "permission is selected at runtime, so Nexa cannot verify that every possible native permission is declared",
+            )
+            .with_code(WarningCode::DYNAMIC_PERMISSION)
+            .with_file(config_path.display().to_string()),
+        );
+    }
+    if !facts.dynamic {
+        for (permission, _) in config.permissions() {
+            if facts.used.contains(permission)
+                || plugin_declares_permission(*permission)
+                || permission_names(*permission).is_empty()
+            {
+                continue;
+            }
+            let message = format!(
+                "permission `{}` is declared but unused by this target and its reachable native plugins",
+                config::permission_name(*permission)
+            );
+            warnings.push(
+                CompileWarning::new(
+                    config.permission_span(*permission).unwrap_or_default(),
+                    message,
+                )
+                .with_code(WarningCode::UNUSED_PERMISSION)
+                .with_file(config_path.display().to_string()),
+            );
+        }
+    }
+    Ok(warnings)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -219,6 +336,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
     let app_images_path = project_root.join("assets/images");
     let translations_path = project_root.join("locales/translations.json");
     let existing_config = config_path.is_file();
+    let project_cache_checked = !execute_tests && dev_session.is_none() && existing_config;
     let dependencies = config::load_plugin_dependencies(&config_path)?;
     let resolved_dependencies = crate::dependencies::resolve(project_root, &dependencies)?;
     crate::dependencies::sync_lock(
@@ -326,8 +444,6 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
             Ok((target, compilation.module, packages))
         })
         .collect::<Result<Vec<_>, String>>()?;
-    let warnings = deduplicate_warnings(warnings);
-    report_warnings(&warnings, deny_warnings)?;
 
     let mut project_config = match project_config {
         Some(config) => config,
@@ -367,6 +483,18 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         };
         project_config.set_arch_override(arch, target)?;
     }
+
+    for (compile_target, module, packages) in &compiled {
+        warnings.extend(validate_permission_configuration(
+            module,
+            packages,
+            &project_config,
+            &config_path,
+            *compile_target,
+        )?);
+    }
+    let warnings = deduplicate_warnings(warnings);
+    report_warnings(&warnings, deny_warnings)?;
 
     for (compile_target, _, packages) in &compiled {
         if *compile_target == Target::Kotlin {
@@ -444,8 +572,13 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         eprintln!("warning: could not update project cache: {error}");
     }
     if print_summary {
+        let cache_status = if project_cache_checked {
+            "cache miss"
+        } else {
+            "cache bypassed"
+        };
         println!(
-            "generated {} ({})",
+            "generated {} ({}, {cache_status})",
             output.display(),
             generated_targets.join(", ")
         );
@@ -715,7 +848,8 @@ const ANDROID_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
 ];
 
 fn dev_runtime_source(filename: &str, template: &str, package: &str, module: &Module) -> String {
-    let mut source = template.replace("__NEXA_PACKAGE__", package);
+    let mut source =
+        nexa_dev_protocol::render_runtime_schema(template).replace("__NEXA_PACKAGE__", package);
     match filename {
         "NexaDevRenderer.swift" => {
             let cases = SHARED_ICONS
@@ -1380,7 +1514,8 @@ fn generate_android(
     config: &ProjectConfig,
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
-    validate_android_background_task_minimum(module, config)?;
+    let project_features = nexa_backend_kotlin::KotlinBackend.analyze_project_features(module);
+    validate_android_feature_minimums(project_features, dev_session.is_some(), config)?;
     let widget_generated = KotlinBackend
         .generate_widget_units(module)
         .map_err(|error| error.to_string())?;
@@ -1510,12 +1645,16 @@ fn generate_android(
         format!("{core_package_path}/NexaRuntimeCore.kt"),
         nexa_codegen::value::kotlin_core_runtime_source(),
     )];
+    value_codec_files.push((
+        format!("{core_package_path}/NexaComponentRef.kt"),
+        nexa_codegen::value::kotlin_component_ref_runtime_source(),
+    ));
     let plugin_value_runtime =
         dev_session.is_none() && plugin_packages_require_value_runtime(plugins)?;
-    if !nexa_codegen::value::collect(module).is_empty()
+    let uses_value_codec = !nexa_codegen::value::collect(module).is_empty()
         || dev_session.is_some()
-        || plugin_value_runtime
-    {
+        || plugin_value_runtime;
+    if uses_value_codec {
         value_codec_files.push((
             format!("{core_package_path}/NexaValue.kt"),
             nexa_codegen::value::kotlin_runtime_source(),
@@ -1585,7 +1724,7 @@ fn generate_android(
     // The core runtime lives outside the app's source directory, so the unit
     // sweep never sees it. An app that stopped using generic plugin calls must
     // not keep compiling a value codec no app or plugin contract references.
-    if value_codec_files.len() == 1 {
+    if !uses_value_codec {
         let _ = fs::remove_file(
             root.join("android/app/src/main/java")
                 .join(&core_package_path)
@@ -1619,17 +1758,12 @@ pub(crate) fn validate_ios_background_task_minimum(
     Ok(())
 }
 
-pub(crate) fn validate_android_background_task_minimum(
-    module: &Module,
+pub(crate) fn validate_android_feature_minimums(
+    features: nexa_backend_kotlin::KotlinProjectFeatures,
+    dev_runtime: bool,
     config: &ProjectConfig,
 ) -> Result<(), String> {
-    if !module.background_tasks.is_empty() && config.android_min_sdk < 23 {
-        return Err(format!(
-            "Android background tasks require minSdk 23 because WorkManager 2.11.2 does not support API levels below 23; increase `android.minSdk` from {} in `nexa.config.nx`.",
-            config.android_min_sdk
-        ));
-    }
-    Ok(())
+    templates::validate_android_feature_minimums(features, dev_runtime, config)
 }
 
 /// Computes every Android file and path, without touching the filesystem.
@@ -2425,6 +2559,36 @@ mod tests {
         KotlinBackend, ProjectPlan, SHARED_ICONS, SwiftBackend, dev_runtime_source,
         generate_splash, plugin_package, plugins, writers,
     };
+
+    #[test]
+    fn native_dev_runtime_schemas_use_canonical_rust_versions() {
+        let module =
+            nexa_compiler::compile(r##"app DevIrVersionProbe { body { Text("Ready") } }"##)
+                .expect("compile the Dev IR version fixture");
+        let swift = dev_runtime_source(
+            "NexaDevSchema.swift",
+            include_str!("../../../runtime/ios/NexaDevSchema.swift"),
+            "",
+            &module,
+        );
+        let kotlin = dev_runtime_source(
+            "NexaDevSchema.kt",
+            include_str!("../../../runtime/android/NexaDevSchema.kt"),
+            "dev.nexa",
+            &module,
+        );
+        let version = nexa_dev_ir::DEV_IR_FORMAT_VERSION;
+        let protocol_version = nexa_dev_protocol::PROTOCOL_VERSION;
+
+        assert!(swift.contains(&format!("protocolVersion: Int = {protocol_version}")));
+        assert!(swift.contains(&format!("devIRFormatVersion: Int = {version}")));
+        assert!(kotlin.contains(&format!("PROTOCOL_VERSION: Int = {protocol_version}")));
+        assert!(kotlin.contains(&format!("DEV_IR_FORMAT_VERSION: Int = {version}")));
+        assert!(!swift.contains(nexa_dev_protocol::PROTOCOL_VERSION_TOKEN));
+        assert!(!kotlin.contains(nexa_dev_protocol::PROTOCOL_VERSION_TOKEN));
+        assert!(!swift.contains(nexa_dev_ir::DEV_IR_FORMAT_VERSION_TOKEN));
+        assert!(!kotlin.contains(nexa_dev_ir::DEV_IR_FORMAT_VERSION_TOKEN));
+    }
 
     #[test]
     fn generated_android_projects_pin_native_title_material3_version_without_menus() {

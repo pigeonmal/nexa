@@ -23,6 +23,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 pub(crate) fn render_button(
     label: &nexa_ir::Expr,
     comment: Option<&str>,
+    accessibility_label: Option<&nexa_ir::Expr>,
     icon: Option<&SystemIcon>,
     loading: Option<&nexa_ir::Expr>,
     disabled: Option<&nexa_ir::Expr>,
@@ -62,6 +63,7 @@ pub(crate) fn render_button(
     );
     let loading = loading.map_or_else(|| "false".to_owned(), expression);
     let disabled = disabled.map_or_else(|| "false".to_owned(), expression);
+    let accessibility_label = accessibility_label.map_or_else(|| expression(label), expression);
 
     out.line_at(depth, format_args!("NexaButtonPrimitive("));
     out.line_at(depth + 1, format_args!("style: {style},"));
@@ -70,6 +72,10 @@ pub(crate) fn render_button(
     out.line_at(depth + 1, format_args!("tint: {tint},"));
     out.line_at(depth + 1, format_args!("loading: {loading},"));
     out.line_at(depth + 1, format_args!("disabled: {disabled},"));
+    out.line_at(
+        depth + 1,
+        format_args!("accessibilityLabel: {accessibility_label},"),
+    );
     out.line_at(depth + 1, format_args!("glass: {glass},"));
     out.line_at(
         depth + 1,
@@ -92,6 +98,7 @@ pub(crate) fn render_confirmation_action_button(
     let Node::Button {
         label,
         icon,
+        accessibility_label,
         loading,
         disabled,
         actions,
@@ -131,6 +138,12 @@ pub(crate) fn render_confirmation_action_button(
             out.push_str(&expression(disabled));
         }
         out.push(')');
+        if let Some(accessibility_label) = accessibility_label {
+            out.push_str(&format!(
+                ".accessibilityLabel(Text({}))",
+                expression(accessibility_label)
+            ));
+        }
         return;
     }
     render_button_label(label, None, icon.as_ref(), depth + 1, out);
@@ -139,12 +152,19 @@ pub(crate) fn render_confirmation_action_button(
     if let Some(disabled) = disabled {
         out.push_str(&format!(".disabled({})", expression(disabled)));
     }
+    if let Some(accessibility_label) = accessibility_label {
+        out.push_str(&format!(
+            ".accessibilityLabel(Text({}))",
+            expression(accessibility_label)
+        ));
+    }
 }
 
 pub(crate) fn render_swipe_action_button(button: &Node, depth: usize, out: &mut SourceWriter) {
     let Node::Button {
         label,
         icon,
+        accessibility_label,
         loading,
         disabled,
         tint,
@@ -183,6 +203,12 @@ pub(crate) fn render_swipe_action_button(button: &Node, depth: usize, out: &mut 
         out.push_str(&format!(
             ".tint({})",
             crate::generator::colors::expression_for_color(tint)
+        ));
+    }
+    if let Some(accessibility_label) = accessibility_label {
+        out.push_str(&format!(
+            ".accessibilityLabel(Text({}))",
+            expression(accessibility_label)
         ));
     }
 }
@@ -932,10 +958,63 @@ pub(crate) fn render_event_closure(
 }
 
 pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceWriter) {
+    render_actions_with_task_scope(actions, depth, out, false);
+}
+
+pub(crate) fn render_actions_in_task_scope(
+    actions: &[Action],
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    render_actions_with_task_scope(actions, depth, out, true);
+}
+
+pub(crate) fn render_task_body(
+    actions: &[Action],
+    depth: usize,
+    out: &mut SourceWriter,
+    track_handles: bool,
+) {
+    out.line_at(depth, format_args!("do {{"));
+    render_actions_with_task_scope(actions, depth + 1, out, track_handles);
+    out.line_at(depth, format_args!("}} catch is CancellationError {{"));
+    out.line_at(depth + 1, format_args!("return"));
+    out.line_at(depth, format_args!("}} catch {{"));
+    out.line_at(
+        depth + 1,
+        format_args!("fatalError(\"unhandled error escaped a typed Nexa task\")"),
+    );
+    out.line_at(depth, format_args!("}}"));
+}
+
+fn render_actions_with_task_scope(
+    actions: &[Action],
+    depth: usize,
+    out: &mut SourceWriter,
+    track_handles: bool,
+) {
     for action in actions {
         match action {
             Action::Expression(value) => {
                 out.line_at(depth, format_args!("{}", expression(value)));
+            }
+            Action::NavigationPush {
+                destination,
+                arguments,
+            } => {
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "nexaNavigationPath.wrappedValue.append({})",
+                        super::navigation::action_route_value(*destination, arguments)
+                    ),
+                );
+            }
+            Action::NavigationBack => {
+                out.line_at(
+                    depth,
+                    format_args!("if !nexaNavigationPath.wrappedValue.isEmpty {{ nexaNavigationPath.wrappedValue.removeLast() }}"),
+                );
             }
             Action::Let { name, ty, value } => {
                 out.line_at(
@@ -994,7 +1073,7 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                     out.push_str(" in");
                 }
                 out.push('\n');
-                render_actions(actions, depth + 1, out);
+                render_actions_with_task_scope(actions, depth + 1, out, track_handles);
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1002,7 +1081,7 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 out.text_at(depth, format_args!("NexaNetwork.onStatusChange {{ "));
                 out.push_str(&state_name(parameter));
                 out.push_str(" in\n");
-                render_actions(actions, depth + 1, out);
+                render_actions_with_task_scope(actions, depth + 1, out, track_handles);
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1016,16 +1095,25 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                     out.line_at(depth, format_args!("{handle}?.cancel()"));
                     indent(out, depth);
                     out.push_str(&format!("{handle} = "));
+                    if track_handles {
+                        out.push_str("nexaTaskScope.track(");
+                    }
                 } else {
                     indent(out, depth);
+                    out.push_str("nexaTaskScope.track(");
                 }
                 match executor {
                     TaskExecutor::Main => out.push_str("Task { @MainActor in\n"),
                     TaskExecutor::Background => out.push_str("Task.detached {\n"),
                 }
-                render_actions(actions, depth + 1, out);
+                render_task_body(actions, depth + 1, out, track_handles);
                 indent(out, depth);
-                out.push_str("}\n");
+                out.push('}');
+                if handle.is_none() || track_handles {
+                    out.push_str(")\n");
+                } else {
+                    out.push('\n');
+                }
             }
             Action::TaskCancel { handle } => {
                 out.line_at(depth, format_args!("{}?.cancel()", state_name(handle)));
@@ -1039,7 +1127,7 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 out.push_str("withAnimation(");
                 out.push_str(&swift_animation(*animation));
                 out.push_str(") {\n");
-                render_actions(actions, depth + 1, out);
+                render_actions_with_task_scope(actions, depth + 1, out, track_handles);
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1113,11 +1201,11 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 else_branch,
             } => {
                 out.line_at(depth, format_args!("if {} {{", expression(condition)));
-                render_actions(then_branch, depth + 1, out);
+                render_actions_with_task_scope(then_branch, depth + 1, out, track_handles);
                 if let Some(else_branch) = else_branch {
                     indent(out, depth);
                     out.push_str("} else {\n");
-                    render_actions(else_branch, depth + 1, out);
+                    render_actions_with_task_scope(else_branch, depth + 1, out, track_handles);
                 }
                 indent(out, depth);
                 out.push_str("}\n");
@@ -1131,7 +1219,7 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                     depth,
                     format_args!("for {} in {} {{", state_name(name), expression(iterable)),
                 );
-                render_actions(body, depth + 1, out);
+                render_actions_with_task_scope(body, depth + 1, out, track_handles);
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1150,13 +1238,13 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                         expression(iterable)
                     ),
                 );
-                render_actions(body, depth + 1, out);
+                render_actions_with_task_scope(body, depth + 1, out, track_handles);
                 indent(out, depth);
                 out.push_str("}\n");
             }
             Action::While { condition, body } => {
                 out.line_at(depth, format_args!("while {} {{", expression(condition)));
-                render_actions(body, depth + 1, out);
+                render_actions_with_task_scope(body, depth + 1, out, track_handles);
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1167,8 +1255,14 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
             } => {
                 indent(out, depth);
                 out.push_str("do {\n");
-                render_actions(body, depth + 1, out);
-                render_swift_error_catches(error_catches, catch_body.as_deref(), depth, out);
+                render_actions_with_task_scope(body, depth + 1, out, track_handles);
+                render_swift_error_catches(
+                    error_catches,
+                    catch_body.as_deref(),
+                    depth,
+                    out,
+                    track_handles,
+                );
             }
             Action::Break => {
                 indent(out, depth);
@@ -1230,6 +1324,7 @@ fn render_swift_error_catches(
     catch_all: Option<&[Action]>,
     depth: usize,
     out: &mut SourceWriter,
+    track_handles: bool,
 ) {
     let mut groups: Vec<(&str, &str, Vec<&ErrorCatchArm>)> = Vec::new();
     for arm in catches {
@@ -1259,7 +1354,7 @@ fn render_swift_error_catches(
                     .join(", ");
                 out.push_str(&format!("case let .{}({bindings}):\n", arm.variant));
             }
-            render_actions(&arm.body, depth + 3, out);
+            render_actions_with_task_scope(&arm.body, depth + 3, out, track_handles);
             // Swift does not implicitly terminate an enum switch case. Emit an
             // explicit break even when the handler has actions so generated
             // cases are always complete and never rely on fallthrough rules.
@@ -1269,17 +1364,22 @@ fn render_swift_error_catches(
         if let Some(catch_all) = catch_all {
             indent(out, depth + 2);
             out.push_str("default:\n");
-            render_actions(catch_all, depth + 3, out);
+            render_actions_with_task_scope(catch_all, depth + 3, out, track_handles);
         }
         indent(out, depth + 1);
         out.push_str("}\n");
     }
 
+    indent(out, depth);
+    out.push_str("} catch is CancellationError {\n");
+    indent(out, depth + 1);
+    out.push_str("throw CancellationError()\n");
+
     if catches.is_empty() || catch_all.is_some() {
         indent(out, depth);
         out.push_str("} catch {\n");
         if let Some(catch_all) = catch_all {
-            render_actions(catch_all, depth + 1, out);
+            render_actions_with_task_scope(catch_all, depth + 1, out, track_handles);
         }
         indent(out, depth);
         out.push_str("}\n");
@@ -1303,7 +1403,7 @@ mod tests {
 
     use super::{
         PickerOptions, render_actions, render_button, render_picker, render_progress_bar,
-        render_progress_ring, render_slider,
+        render_progress_ring, render_slider, render_task_body,
     };
 
     #[test]
@@ -1375,6 +1475,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some(nexa_ir::ButtonStyle::Borderless),
             None,
             None,
@@ -1404,6 +1505,7 @@ mod tests {
                 comment: None,
             },
             None,
+            None,
             Some(&SystemIcon::Shared("close".to_owned())),
             None,
             None,
@@ -1422,6 +1524,52 @@ mod tests {
     }
 
     #[test]
+    fn button_accessibility_label_is_emitted_for_icon_only_actions() {
+        let mut output = SourceWriter::new();
+        render_button(
+            &Expr::String(String::new()),
+            None,
+            Some(&Expr::String("Add".to_owned())),
+            Some(&SystemIcon::Shared("add".to_owned())),
+            None,
+            None,
+            Some(nexa_ir::ButtonStyle::BorderedProminent),
+            None,
+            Some(nexa_ir::ButtonShape::Circle),
+            None,
+            false,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("accessibilityLabel: \"Add\""));
+    }
+
+    #[test]
+    fn button_text_is_the_default_accessibility_label() {
+        let mut output = SourceWriter::new();
+        render_button(
+            &Expr::String("Save changes".to_owned()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &[],
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("accessibilityLabel: \"Save changes\""));
+    }
+
+    #[test]
     fn icon_button_uses_the_native_string_label_initializer() {
         let mut output = SourceWriter::new();
         render_button(
@@ -1433,6 +1581,7 @@ mod tests {
                 is_throwing: false,
                 is_constructor: false,
             },
+            None,
             None,
             Some(&SystemIcon::Shared("notifications".to_owned())),
             None,
@@ -1462,6 +1611,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some(nexa_ir::ButtonStyle::Bordered),
             None,
             Some(nexa_ir::ButtonShape::Capsule),
@@ -1481,6 +1631,7 @@ mod tests {
         let mut output = SourceWriter::new();
         render_button(
             &Expr::String("Enable Notifications".to_owned()),
+            None,
             None,
             None,
             None,
@@ -1665,7 +1816,9 @@ mod tests {
         );
         assert!(output.contains("nexa_finished = true"));
         assert!(output.contains("nexa_workerTask = Task.detached {"));
-        assert!(output.contains("Task { @MainActor in\n    false\n}"));
+        assert!(output.contains(
+            "nexaTaskScope.track(Task { @MainActor in\n    do {\n        false\n    } catch is CancellationError {\n        return\n    } catch {"
+        ));
         assert!(output.ends_with("nexa_refreshTask?.cancel()\n"));
     }
 
@@ -1696,8 +1849,16 @@ mod tests {
         render_actions(&actions, 0, &mut output);
 
         assert!(output.contains("do {\n    (try await CameraPlugin.shared.capture())"));
-        assert!(output.contains("} catch {\n    nexa_failed = true\n}"));
+        assert!(output.contains(
+            "} catch is CancellationError {\n    throw CancellationError()\n} catch {\n    nexa_failed = true\n}"
+        ));
         assert!(!output.contains("try?"));
+
+        let mut task_output = SourceWriter::new();
+        render_task_body(&actions, 0, &mut task_output, false);
+        assert!(task_output.contains("throw CancellationError()"));
+        assert!(task_output.contains("} catch is CancellationError {\n    return"));
+        assert!(task_output.contains("fatalError(\"unhandled error escaped a typed Nexa task\")"));
     }
 
     #[test]
@@ -1746,6 +1907,7 @@ mod tests {
         assert!(output.contains("break\n"));
         assert!(output.contains("case let .decodingFailed(nexa_message):"));
         assert!(output.contains("nexa_loadError = nexa_message"));
+        assert!(output.contains("} catch is CancellationError {\n    throw CancellationError()"));
         assert!(
             output.contains("fatalError(\"unexpected error escaped its typed plugin contract\")")
         );

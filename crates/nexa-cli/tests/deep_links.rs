@@ -36,8 +36,10 @@ fn deep_link_config_generates_native_registration_and_typed_screen_routes() {
     let swift = TestProject::concat_sources_in(&ios_root, "swift");
     assert!(swift.contains("NavigationStack(path: $__nexaNavigationPath)"));
     assert!(swift.contains("case \"product-details\":"));
-    assert!(swift.contains("guard segments.count == 3"));
-    assert!(swift.contains("Int32(segments[2])"));
+    assert!(swift.contains("guard segments.count <= 3"));
+    assert!(swift.contains("queryItems.first(where: { $0.name == \"page\" })?.value"));
+    assert!(swift.contains("if segments.count > 2"));
+    assert!(swift.contains("Int32(nexaRouteArgument1)"));
     assert!(swift.contains(".onOpenURL { url in"));
 
     let android_root = output.join("android/app/src/main");
@@ -49,7 +51,9 @@ fn deep_link_config_generates_native_registration_and_typed_screen_routes() {
     let kotlin = TestProject::concat_sources_in(&android_root.join("java"), "kt");
     assert!(kotlin.contains("LaunchedEffect(nexaDeepLink)"));
     assert!(kotlin.contains("product-details"));
-    assert!(kotlin.contains("segments.size == 3"));
-    assert!(kotlin.contains("segments[2].toIntOrNull()"));
+    assert!(kotlin.contains("segments.size <= 3"));
+    assert!(kotlin.contains("uri.getQueryParameter(\"page\")"));
+    assert!(kotlin.contains("segments.getOrNull(2)"));
+    assert!(kotlin.contains("nexaRouteArgument1.toIntOrNull()"));
     assert!(kotlin.contains("navController.navigate("));
 }

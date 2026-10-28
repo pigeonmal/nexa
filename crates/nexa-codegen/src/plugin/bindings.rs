@@ -112,6 +112,11 @@ pub fn kotlin(plan: &BridgePlan, package: &str) -> String {
     if has_components {
         out.push_str("import androidx.compose.runtime.Composable\n\n");
     }
+    if plan.interfaces.iter().any(|interface| {
+        interface.kind == InterfaceKind::NativeComponent && !interface.methods.is_empty()
+    }) {
+        out.push_str("import androidx.compose.runtime.DisposableEffect\n\n");
+    }
     for ty in &plan.types {
         out.push_str(&kotlin_named_type(ty));
         out.push('\n');
@@ -207,12 +212,20 @@ pub fn kotlin(plan: &BridgePlan, package: &str) -> String {
 }
 
 fn swift_native_component(interface: &BridgeInterface) -> String {
+    let mut out = if interface.methods.is_empty() {
+        String::new()
+    } else {
+        swift_component_ref(interface)
+    };
     let generic = if interface.has_content_slot {
         "<Content: View>"
     } else {
         ""
     };
-    let mut out = format!("public struct {}{generic}: View {{\n", interface.name);
+    out.push_str(&format!(
+        "public struct {}{generic}: View {{\n",
+        interface.name
+    ));
     for property in &interface.properties {
         out.push_str(&format!(
             "    public let {}: {}\n",
@@ -229,6 +242,9 @@ fn swift_native_component(interface: &BridgeInterface) -> String {
     }
     if interface.has_content_slot {
         out.push_str("    public let content: Content\n");
+    }
+    if !interface.methods.is_empty() {
+        out.push_str(&format!("    public let ref: {}Ref?\n", interface.name));
     }
     out.push_str("\n    public init(");
     let mut parameters = interface
@@ -257,6 +273,9 @@ fn swift_native_component(interface: &BridgeInterface) -> String {
     if interface.has_content_slot {
         parameters.push("@ViewBuilder content: () -> Content".to_owned());
     }
+    if !interface.methods.is_empty() {
+        parameters.push(format!("ref: {}Ref? = nil", interface.name));
+    }
     out.push_str(&parameters.join(", "));
     out.push_str(") {\n");
     for property in &interface.properties {
@@ -268,6 +287,9 @@ fn swift_native_component(interface: &BridgeInterface) -> String {
     }
     if interface.has_content_slot {
         out.push_str("        self.content = content()\n");
+    }
+    if !interface.methods.is_empty() {
+        out.push_str("        self.ref = ref\n");
     }
     out.push_str("    }\n\n    public var body: some View {\n        ");
     out.push_str(&format!("{}Impl(", interface.name));
@@ -283,12 +305,24 @@ fn swift_native_component(interface: &BridgeInterface) -> String {
     if interface.has_content_slot {
         arguments.push("content: content".to_owned());
     }
+    if !interface.methods.is_empty() {
+        arguments.push("ref: ref".to_owned());
+    }
     out.push_str(&arguments.join(", "));
-    out.push_str(")\n    }\n}");
+    out.push_str(")");
+    if !interface.methods.is_empty() {
+        out.push_str(".onDisappear { ref?.detach() }");
+    }
+    out.push_str("\n    }\n}");
     out
 }
 
 fn kotlin_native_component(interface: &BridgeInterface) -> String {
+    let mut prefix = if interface.methods.is_empty() {
+        String::new()
+    } else {
+        kotlin_component_ref(interface)
+    };
     let mut parameters = interface
         .properties
         .iter()
@@ -325,13 +359,208 @@ fn kotlin_native_component(interface: &BridgeInterface) -> String {
         parameters.push("content: @Composable () -> Unit".to_owned());
         arguments.push("content = content".to_owned());
     }
-    format!(
-        "@Composable\npublic fun {}({}) {{\n    {}Impl({})\n}}",
+    if !interface.methods.is_empty() {
+        parameters.push(format!("ref: {}Ref? = null", interface.name));
+        arguments.push("ref = ref".to_owned());
+    }
+    prefix.push_str(&format!(
+        "@Composable\npublic fun {}({}) {{\n",
         interface.name,
-        parameters.join(", "),
+        parameters.join(", ")
+    ));
+    if !interface.methods.is_empty() {
+        prefix.push_str(
+            "    if (ref != null) DisposableEffect(ref) { onDispose { ref.detach() } }\n",
+        );
+    }
+    prefix.push_str(&format!(
+        "    {}Impl({})\n}}",
         interface.name,
         arguments.join(", ")
-    )
+    ));
+    prefix
+}
+
+fn swift_component_ref(interface: &BridgeInterface) -> String {
+    let mut out = format!("@MainActor\npublic final class {}Ref {{\n", interface.name);
+    for method in &interface.methods {
+        let action = format!("{}Action", method.name);
+        let argument_types = swift_ref_argument_types(method);
+        let success = swift_type(method.success_type());
+        let async_keyword = if method.is_async { " async" } else { "" };
+        let throws_keyword = method
+            .error_type()
+            .map(|error| format!(" throws({error})"))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "    private var {action}: (({argument_types}){async_keyword}{throws_keyword} -> {success})?\n"
+        ));
+    }
+    out.push_str("\n    public init() {}\n\n");
+    for method in &interface.methods {
+        let action = format!("{}Action", method.name);
+        let parameters = swift_ref_parameters(method);
+        let argument_names = swift_ref_argument_names(method);
+        let argument_types = swift_ref_argument_types(method);
+        let success = swift_type(method.success_type());
+        let failure = method.error_type().unwrap_or("Never");
+        let async_keyword = if method.is_async { " async" } else { "" };
+        let throws_keyword = method
+            .error_type()
+            .map(|error| format!(" throws({error})"))
+            .unwrap_or_default();
+        let attach = format!("attach{}", capitalize(&method.name));
+        out.push_str(&format!(
+            "    public func {attach}(_ action: @escaping ({argument_types}){async_keyword}{throws_keyword} -> {success}) {{ self.{action} = action }}\n"
+        ));
+        out.push_str(&format!(
+            "    public func {}({parameters}){async_keyword} -> Result<{success}, NexaComponentRefError<{failure}>> {{\n",
+            method.name
+        ));
+        out.push_str(&format!(
+            "        guard let action = {action} else {{ return .failure(.notAttached) }}\n"
+        ));
+        let call = if argument_names.is_empty() {
+            "action()".to_owned()
+        } else {
+            format!("action({})", argument_names.join(", "))
+        };
+        if method.error_type().is_some() {
+            out.push_str("        do {\n");
+            out.push_str(&format!(
+                "            return .success(try {}{call})\n",
+                if method.is_async { "await " } else { "" }
+            ));
+            out.push_str("        } catch let error { return .failure(.failure(error)) }\n");
+        } else {
+            out.push_str(&format!(
+                "        return .success({}{call})\n",
+                if method.is_async { "await " } else { "" },
+            ));
+        }
+        out.push_str("    }\n\n");
+    }
+    out.push_str("    public func detach() {\n");
+    for method in &interface.methods {
+        out.push_str(&format!("        {}Action = nil\n", method.name));
+    }
+    out.push_str("    }\n}\n\n");
+    out
+}
+
+fn kotlin_component_ref(interface: &BridgeInterface) -> String {
+    let mut out = format!("public class {}Ref {{\n", interface.name);
+    for method in &interface.methods {
+        let action = format!("{}Action", method.name);
+        let params = kotlin_ref_argument_types(method);
+        let success = kotlin_type(method.success_type());
+        let suspend = if method.is_async { "suspend " } else { "" };
+        out.push_str(&format!(
+            "    private var {action}: ({suspend}({params}) -> {success})? = null\n"
+        ));
+    }
+    out.push_str("\n");
+    for method in &interface.methods {
+        let action = format!("{}Action", method.name);
+        let params = kotlin_ref_parameters(method);
+        let argument_types = kotlin_ref_argument_types(method);
+        let argument_names = kotlin_ref_argument_names(method);
+        let success = kotlin_type(method.success_type());
+        let failure = method.error_type().unwrap_or("kotlin.Unit");
+        let suspend = if method.is_async { "suspend " } else { "" };
+        let attach = format!("attach{}", capitalize(&method.name));
+        out.push_str(&format!(
+            "    public fun {attach}(action: {suspend}({argument_types}) -> {success}) {{ this.{action} = action }}\n"
+        ));
+        out.push_str(&format!(
+            "    public {suspend}fun {}({params}): dev.nexa.core.NexaResult<{success}, dev.nexa.core.NexaComponentRefError<{failure}>> {{\n",
+            method.name
+        ));
+        out.push_str(&format!(
+            "        val action = {action} ?: return dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.NotAttached)\n"
+        ));
+        let call = if argument_names.is_empty() {
+            "action()".to_owned()
+        } else {
+            format!("action({})", argument_names.join(", "))
+        };
+        if let Some(failure_type) = method.error_type() {
+            out.push_str(&format!(
+                "        return try {{ dev.nexa.core.NexaResult.Success({call}) }} catch (failure: {failure_type}) {{ dev.nexa.core.NexaResult.Failure(dev.nexa.core.NexaComponentRefError.Failure(failure)) }}\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "        return dev.nexa.core.NexaResult.Success({call})\n"
+            ));
+        }
+        out.push_str("    }\n\n");
+    }
+    out.push_str("    public fun detach() {\n");
+    for method in &interface.methods {
+        out.push_str(&format!("        {}Action = null\n", method.name));
+    }
+    out.push_str("    }\n}\n\n");
+    out
+}
+
+fn swift_ref_parameters(method: &BridgeMethod) -> String {
+    method
+        .parameters
+        .iter()
+        .map(|parameter| format!("_ {}: {}", parameter.name, swift_type(&parameter.ty)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn swift_ref_argument_types(method: &BridgeMethod) -> String {
+    method
+        .parameters
+        .iter()
+        .map(|parameter| swift_type(&parameter.ty))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn swift_ref_argument_names(method: &BridgeMethod) -> Vec<String> {
+    method
+        .parameters
+        .iter()
+        .map(|parameter| parameter.name.clone())
+        .collect()
+}
+
+fn kotlin_ref_parameters(method: &BridgeMethod) -> String {
+    method
+        .parameters
+        .iter()
+        .map(|parameter| format!("{}: {}", parameter.name, kotlin_type(&parameter.ty)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn kotlin_ref_argument_types(method: &BridgeMethod) -> String {
+    method
+        .parameters
+        .iter()
+        .map(|parameter| kotlin_type(&parameter.ty))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn kotlin_ref_argument_names(method: &BridgeMethod) -> Vec<String> {
+    method
+        .parameters
+        .iter()
+        .map(|parameter| parameter.name.clone())
+        .collect()
+}
+
+fn capitalize(value: &str) -> String {
+    let mut characters = value.chars();
+    match characters.next() {
+        Some(first) => first.to_uppercase().chain(characters).collect(),
+        None => String::new(),
+    }
 }
 
 fn swift_literal(value: &Literal) -> String {
@@ -1040,6 +1269,39 @@ mod tests {
         assert!(kotlin.contains("fun <T> observeQuery(sql: String, parameters: List<Value>, mapRow: NexaRowMapper<Value, T, Failure>): NexaSignal<List<T>>"));
     }
 
+    #[test]
+    fn native_component_methods_generate_direct_typed_refs() {
+        let plan = validate_swift_and_kotlin(
+            r#"
+            error PlayerFailure { unavailable }
+            native component VideoView {
+                prop source: String
+                fn seek(position: Float64) -> String throws PlayerFailure
+                async fn currentSource() -> String throws PlayerFailure
+            }
+            "#,
+        );
+
+        let swift = swift(&plan);
+        assert!(swift.contains("public final class VideoViewRef"));
+        assert!(swift.contains(
+            "public func attachSeek(_ action: @escaping (Double) throws(PlayerFailure) -> String)"
+        ));
+        assert!(swift.contains("public func seek(_ position: Double) -> Result<String, NexaComponentRefError<PlayerFailure>>"));
+        assert!(swift.contains("public func attachCurrentSource(_ action: @escaping () async throws(PlayerFailure) -> String)"));
+        assert!(swift.contains("public func currentSource() async -> Result<String, NexaComponentRefError<PlayerFailure>>"));
+        assert!(swift.contains("VideoViewImpl(source: source, ref: ref)"));
+        assert!(swift.contains(".onDisappear { ref?.detach() }"));
+
+        let kotlin = kotlin(&plan, "dev.example.video");
+        assert!(kotlin.contains("public class VideoViewRef"));
+        assert!(kotlin.contains("public fun attachSeek(action: (Double) -> String)"));
+        assert!(kotlin.contains("public fun seek(position: Double): dev.nexa.core.NexaResult<String, dev.nexa.core.NexaComponentRefError<PlayerFailure>>"));
+        assert!(kotlin.contains("public suspend fun currentSource(): dev.nexa.core.NexaResult<String, dev.nexa.core.NexaComponentRefError<PlayerFailure>>"));
+        assert!(kotlin.contains("DisposableEffect(ref) { onDispose { ref.detach() } }"));
+        assert!(kotlin.contains("VideoViewImpl(source = source, ref = ref)"));
+    }
+
     /// The C++ bridge has no spelling for a per-call-site value type, so a
     /// plugin that reaches for it on that surface gets a clear error instead of
     /// a contract that cannot be implemented.
@@ -1239,83 +1501,9 @@ mod tests {
 }
 
 fn swift_type(ty: &BridgeType) -> String {
-    match ty {
-        BridgeType::Scalar(BridgeScalar::Void) => "Void".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bool) => "Bool".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int8) => "Int8".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int16) => "Int16".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int32) => "Int32".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int64) => "Int64".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt8) => "UInt8".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt16) => "UInt16".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt32) => "UInt32".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt64) => "UInt64".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Float32) => "Float".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
-        BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => "Data".to_owned(),
-        BridgeType::Named { name, .. } => name.clone(),
-        BridgeType::TypeParameter(name) => name.clone(),
-        BridgeType::Array(element) => format!("[{}]", swift_type(element)),
-        BridgeType::Set(element) => format!("Set<{}>", swift_type(element)),
-        BridgeType::Signal(element) => format!("NexaSignal<{}>", swift_type(element)),
-        BridgeType::Map(key, value) => {
-            format!("[{}: {}]", swift_type(key), swift_type(value))
-        }
-        BridgeType::Pair(first, second) => {
-            format!("({}, {})", swift_type(first), swift_type(second))
-        }
-        BridgeType::Triple(first, second, third) => format!(
-            "({}, {}, {})",
-            swift_type(first),
-            swift_type(second),
-            swift_type(third)
-        ),
-        BridgeType::Optional(inner) => format!("{}?", swift_type(inner)),
-        BridgeType::Result { success, failure } => {
-            format!("Result<{}, {failure}>", swift_type(success))
-        }
-    }
+    ty.swift_type()
 }
 
 fn kotlin_type(ty: &BridgeType) -> String {
-    match ty {
-        BridgeType::Scalar(BridgeScalar::Void) => "Unit".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int8) => "Byte".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int16) => "Short".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int32) => "Int".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Int64) => "Long".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt8) => "UByte".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt16) => "UShort".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt32) => "UInt".to_owned(),
-        BridgeType::Scalar(BridgeScalar::UInt64) => "ULong".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Float32) => "Float".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bool) => "Boolean".to_owned(),
-        BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
-        BridgeType::Scalar(BridgeScalar::Bytes | BridgeScalar::BufferView) => {
-            "ByteArray".to_owned()
-        }
-        BridgeType::Named { name, .. } => name.clone(),
-        BridgeType::TypeParameter(name) => name.clone(),
-        BridgeType::Array(element) => format!("List<{}>", kotlin_type(element)),
-        BridgeType::Set(element) => format!("Set<{}>", kotlin_type(element)),
-        BridgeType::Signal(element) => format!("NexaSignal<{}>", kotlin_type(element)),
-        BridgeType::Map(key, value) => {
-            format!("Map<{}, {}>", kotlin_type(key), kotlin_type(value))
-        }
-        BridgeType::Pair(first, second) => {
-            format!("Pair<{}, {}>", kotlin_type(first), kotlin_type(second))
-        }
-        BridgeType::Triple(first, second, third) => format!(
-            "Triple<{}, {}, {}>",
-            kotlin_type(first),
-            kotlin_type(second),
-            kotlin_type(third)
-        ),
-        BridgeType::Optional(inner) => format!("{}?", kotlin_type(inner)),
-        BridgeType::Result { success, failure } => {
-            format!("Result<{}, {failure}>", kotlin_type(success))
-        }
-    }
+    ty.kotlin_type()
 }

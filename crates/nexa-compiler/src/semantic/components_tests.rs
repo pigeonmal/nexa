@@ -6,7 +6,7 @@ use nexa_syntax::ast;
 
 use super::{
     FunctionSignatures, SemanticContext, lower_actions_with_aliases, lower_actions_with_depth,
-    lower_node,
+    lower_node, validate_typed_error_recovery,
 };
 use crate::Target;
 use crate::semantic::context::TypeRegistries;
@@ -132,6 +132,7 @@ fn native_component_signatures() -> ComponentSignatures {
             }],
             has_content_slot: false,
             native: true,
+            supports_ref: true,
         },
     )])
 }
@@ -659,6 +660,46 @@ fn typed_catch_cases_require_else_for_untyped_failures() {
             .to_string()
             .contains("catch-all `else` block is required")
     );
+}
+
+#[test]
+fn typed_catch_analysis_looks_through_source_and_await_wrappers() {
+    let (symbols, functions) = throwing_fixture();
+    let player_type = symbols.get("player").expect("player fixture").0.clone();
+    let call = Expr::NativeCall {
+        source_span: Some(Span::default()),
+        receiver: Some(Box::new(Expr::State("player".to_owned(), player_type))),
+        namespace: "Video".to_owned(),
+        name: "prepare".to_owned(),
+        arguments: Vec::new(),
+        codecs: Vec::new(),
+        return_type: Type::Void,
+        is_async: true,
+        is_throwing: true,
+    };
+    let actions = vec![Action::Expression(Expr::Located {
+        source_file: "screens/OrderDetail.nx".to_owned(),
+        source_span: Span {
+            start: 10,
+            end: 25,
+            line: 4,
+            column: 9,
+        },
+        expression: Box::new(Expr::TryAwait(Box::new(call))),
+    })];
+    let catches = ["invalidUrl", "decodingFailed"]
+        .into_iter()
+        .map(|variant| nexa_ir::ErrorCatchArm {
+            namespace: "Video".to_owned(),
+            error_type: "PlayerError".to_owned(),
+            variant: variant.to_owned(),
+            parameters: Vec::new(),
+            body: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+
+    validate_typed_error_recovery(&actions, &catches, false, &functions, Span::default())
+        .expect("transparent location and await wrappers retain the plugin error contract");
 }
 
 #[test]

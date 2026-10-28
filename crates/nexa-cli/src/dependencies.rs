@@ -17,65 +17,34 @@ pub(super) fn resolve(
     project_root: &Path,
     dependencies: &[PluginDependencyConfig],
 ) -> Result<ResolvedDependencies, String> {
+    resolve_with_mode(project_root, dependencies, true)
+}
+
+/// Checks configured packages and their lockfile without fetching or writing.
+pub(super) fn check_offline(
+    project_root: &Path,
+    dependencies: &[PluginDependencyConfig],
+) -> Result<(), String> {
+    let resolved = resolve_with_mode(project_root, dependencies, false)?;
+    sync_lock(
+        project_root,
+        !dependencies.is_empty(),
+        &resolved.lock_file,
+        true,
+    )
+}
+
+fn resolve_with_mode(
+    project_root: &Path,
+    dependencies: &[PluginDependencyConfig],
+    fetch_missing_repositories: bool,
+) -> Result<ResolvedDependencies, String> {
     let mut roots = HashMap::new();
     let mut lock_entries = BTreeMap::new();
     for dependency in dependencies {
-        let (root, source, revision, package) = if let Some(path) = &dependency.path {
-            let root = project_root.join(path);
-            (root, format!("path:{path}"), None, None)
-        } else {
-            let git = dependency.git.as_deref().ok_or_else(|| {
-                format!("dependency `{}` requires `path` or `git`", dependency.alias)
-            })?;
-            let revision = dependency
-                .revision
-                .as_deref()
-                .ok_or_else(|| format!("Git dependency `{}` must pin `rev`", dependency.alias))?;
-            if !valid_commit(revision) {
-                return Err(format!(
-                    "Git dependency `{}` rev must be a full 40- or 64-digit commit hash",
-                    dependency.alias
-                ));
-            }
-            let repo = checkout(project_root, git, revision)?;
-            let package = dependency.package_path.clone();
-            if package
-                .as_deref()
-                .is_some_and(|path| !valid_package_path(path))
-            {
-                return Err(format!(
-                    "Git dependency `{}` package must be a relative path without `..` segments",
-                    dependency.alias
-                ));
-            }
-            let root = package
-                .as_deref()
-                .map(|subdirectory| repo.join(subdirectory))
-                .unwrap_or_else(|| repo.clone());
-            (
-                root,
-                format!("git:{git}"),
-                Some(revision.to_ascii_lowercase()),
-                package,
-            )
-        };
-        let root = fs::canonicalize(&root).map_err(|error| {
-            format!(
-                "plugin dependency `{}` at {}: {error}",
-                dependency.alias,
-                root.display()
-            )
-        })?;
+        let source = dependency_source(project_root, dependency, fetch_missing_repositories)?;
+        let root = validate_package_root(&source.root, dependency)?;
         let content_hash = package_content_hash(&root)?;
-        let manifest_path = root.join("plugin.config.nx");
-        let manifest = nexa_plugin_idl::manifest::parse_file(&manifest_path)
-            .map_err(|error| format!("plugin dependency `{}`: {error}", dependency.alias))?;
-        if manifest.id != dependency.package_id {
-            return Err(format!(
-                "plugin dependency `{}` declares id `{}` but package manifest is `{}`",
-                dependency.alias, dependency.package_id, manifest.id
-            ));
-        }
         if let Some(existing) = roots.get(&dependency.package_id)
             && existing != &root
         {
@@ -89,9 +58,9 @@ pub(super) fn resolve(
             dependency.alias.clone(),
             LockEntry {
                 id: dependency.package_id.clone(),
-                source,
-                revision,
-                package,
+                source: source.source,
+                revision: source.revision,
+                package: source.package,
                 content_hash,
             },
         );
@@ -101,6 +70,91 @@ pub(super) fn resolve(
         plugin_roots: roots,
         lock_file: render_lock(&lock_entries),
     })
+}
+
+struct DependencySource {
+    root: PathBuf,
+    source: String,
+    revision: Option<String>,
+    package: Option<String>,
+}
+
+fn dependency_source(
+    project_root: &Path,
+    dependency: &PluginDependencyConfig,
+    fetch_missing_repositories: bool,
+) -> Result<DependencySource, String> {
+    if let Some(path) = &dependency.path {
+        return Ok(DependencySource {
+            root: project_root.join(path),
+            source: format!("path:{path}"),
+            revision: None,
+            package: None,
+        });
+    }
+
+    let git = dependency
+        .git
+        .as_deref()
+        .ok_or_else(|| format!("dependency `{}` requires `path` or `git`", dependency.alias))?;
+    let revision = dependency
+        .revision
+        .as_deref()
+        .ok_or_else(|| format!("Git dependency `{}` must pin `rev`", dependency.alias))?;
+    if !valid_commit(revision) {
+        return Err(format!(
+            "Git dependency `{}` rev must be a full 40- or 64-digit commit hash",
+            dependency.alias
+        ));
+    }
+    let package = dependency.package_path.clone();
+    if package
+        .as_deref()
+        .is_some_and(|path| !valid_package_path(path))
+    {
+        return Err(format!(
+            "Git dependency `{}` package must be a relative path without `..` segments",
+            dependency.alias
+        ));
+    }
+    let repo = if fetch_missing_repositories {
+        checkout(project_root, git, revision)?
+    } else {
+        cached_checkout(project_root, git, revision)?
+    };
+    let root = package
+        .as_deref()
+        .map(|subdirectory| repo.join(subdirectory))
+        .unwrap_or(repo);
+    Ok(DependencySource {
+        root,
+        source: format!("git:{git}"),
+        revision: Some(revision.to_ascii_lowercase()),
+        package,
+    })
+}
+
+fn validate_package_root(
+    root: &Path,
+    dependency: &PluginDependencyConfig,
+) -> Result<PathBuf, String> {
+    let root = fs::canonicalize(root).map_err(|error| {
+        format!(
+            "plugin dependency `{}` at {}: {error}",
+            dependency.alias,
+            root.display()
+        )
+    })?;
+    let manifest_path = root.join("plugin.config.nx");
+    let manifest = nexa_plugin_idl::manifest::parse_file(&manifest_path)
+        .map_err(|error| format!("plugin dependency `{}`: {error}", dependency.alias))?;
+    if manifest.id != dependency.package_id {
+        return Err(format!(
+            "plugin dependency `{}` declares id `{}` but package manifest is `{}`",
+            dependency.alias, dependency.package_id, manifest.id
+        ));
+    }
+    Ok(root)
 }
 
 pub(super) fn write_lock(project_root: &Path, contents: &str) -> Result<(), String> {
@@ -216,11 +270,7 @@ fn package_content_hash(root: &Path) -> Result<String, String> {
 }
 
 fn checkout(project_root: &Path, url: &str, revision: &str) -> Result<PathBuf, String> {
-    let git_root = project_root.join(".nexa/plugins").join(format!(
-        "{:016x}-{}",
-        stable_hash(url.as_bytes()),
-        revision.to_ascii_lowercase()
-    ));
+    let git_root = checkout_path(project_root, url, revision);
     if !git_root.join(".git").is_dir() {
         if git_root.exists() {
             fs::remove_dir_all(&git_root)
@@ -262,13 +312,37 @@ fn checkout(project_root: &Path, url: &str, revision: &str) -> Result<PathBuf, S
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-    let actual = git_output(&git_root, &["rev-parse", "HEAD"])?;
+    validate_checkout(&git_root, url, revision)?;
+    Ok(git_root)
+}
+
+fn cached_checkout(project_root: &Path, url: &str, revision: &str) -> Result<PathBuf, String> {
+    let git_root = checkout_path(project_root, url, revision);
+    if !git_root.join(".git").is_dir() {
+        return Err(format!(
+            "pinned plugin repository `{url}` at `{revision}` is not cached; run `nexa check` to fetch it"
+        ));
+    }
+    validate_checkout(&git_root, url, revision)?;
+    Ok(git_root)
+}
+
+fn checkout_path(project_root: &Path, url: &str, revision: &str) -> PathBuf {
+    project_root.join(".nexa/plugins").join(format!(
+        "{:016x}-{}",
+        stable_hash(url.as_bytes()),
+        revision.to_ascii_lowercase()
+    ))
+}
+
+fn validate_checkout(git_root: &Path, url: &str, revision: &str) -> Result<(), String> {
+    let actual = git_output(git_root, &["rev-parse", "HEAD"])?;
     if actual != revision.to_ascii_lowercase() {
         return Err(format!(
             "plugin repository `{url}` resolved `{revision}` to unexpected commit `{actual}`"
         ));
     }
-    let actual_url = git_output(&git_root, &["config", "--get", "remote.origin.url"])?;
+    let actual_url = git_output(git_root, &["config", "--get", "remote.origin.url"])?;
     if actual_url != url {
         return Err(format!(
             "cached plugin checkout {} points to `{actual_url}`, expected `{url}`",
@@ -276,7 +350,7 @@ fn checkout(project_root: &Path, url: &str, revision: &str) -> Result<PathBuf, S
         ));
     }
     let changes = git_output(
-        &git_root,
+        git_root,
         &["status", "--porcelain", "--untracked-files=all"],
     )?;
     if !changes.is_empty() {
@@ -285,7 +359,7 @@ fn checkout(project_root: &Path, url: &str, revision: &str) -> Result<PathBuf, S
             git_root.display()
         ));
     }
-    Ok(git_root)
+    Ok(())
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Result<String, String> {

@@ -200,6 +200,7 @@ fn contains_parameter(ty: &Type, parameter: &str) -> bool {
         Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
             contains_parameter(inner, parameter)
         }
+        Type::ComponentRefError(inner) => contains_parameter(inner, parameter),
         Type::Map(key, value) | Type::Pair(key, value) => {
             contains_parameter(key, parameter) || contains_parameter(value, parameter)
         }
@@ -221,7 +222,8 @@ fn contains_parameter(ty: &Type, parameter: &str) -> bool {
         | Type::TaskHandle
         | Type::NetworkResponse
         | Type::Struct { .. }
-        | Type::Class { .. } => false,
+        | Type::Class { .. }
+        | Type::ComponentRef { .. } => false,
     }
 }
 
@@ -238,6 +240,7 @@ pub(super) fn mentions_type_parameter(ty: &Type) -> bool {
         Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) | Type::Signal(inner) => {
             mentions_type_parameter(inner)
         }
+        Type::ComponentRefError(inner) => mentions_type_parameter(inner),
         Type::Map(key, value) => mentions_type_parameter(key) || mentions_type_parameter(value),
         Type::Pair(first, second) => {
             mentions_type_parameter(first) || mentions_type_parameter(second)
@@ -260,7 +263,8 @@ pub(super) fn mentions_type_parameter(ty: &Type) -> bool {
         | Type::TaskHandle
         | Type::NetworkResponse
         | Type::Struct { .. }
-        | Type::Class { .. } => false,
+        | Type::Class { .. }
+        | Type::ComponentRef { .. } => false,
     }
 }
 
@@ -480,6 +484,10 @@ fn require_storable_shape(
         Type::Optional(inner) if allow_optional => {
             require_storable_shape(inner, context, registries, span, false)
         }
+        Type::ComponentRef { .. } | Type::ComponentRefError(_) => Err(CompileError::new(
+            span,
+            format!("component references cannot be serialized as plugin value type for {context}"),
+        )),
         Type::Optional(_) => Err(CompileError::new(
             span,
             format!(
@@ -561,6 +569,10 @@ fn require_encodable(
             Ok(())
         }
         Type::String | Type::Bytes | Type::Bool | Type::Numeric(_) => Ok(()),
+        Type::ComponentRef { .. } | Type::ComponentRefError(_) => Err(CompileError::new(
+            span,
+            format!("component references cannot be serialized as plugin value type for {context}"),
+        )),
         Type::Enum(name) if registries.enums.contains(name.as_str()) => Ok(()),
         Type::Enum(name) => Err(CompileError::new(
             span,

@@ -32,6 +32,19 @@ fn compile_todo_for_both_targets() {
         r#"
 
 test "soft-deleted records remain as hidden tombstones" {
+    let orderedTasks: Array<TaskItem> = [
+        TaskItem(1, "Later", "", null, false, "None", false, null, false, 8, 0, 0),
+        TaskItem(2, "Deleted", "", null, false, "None", false, null, true, -20, 0, 0),
+        TaskItem(3, "Earlier", "", null, false, "None", false, null, false, 4, 0, 0)
+    ]
+    assert(nextTaskSortOrder(orderedTasks) == 3)
+    let deletedTasksOnly: Array<TaskItem> = [
+        TaskItem(4, "Deleted", "", null, false, "None", false, null, true, -20, 0, 0)
+    ]
+    assert(nextTaskSortOrder(deletedTasksOnly) == 0)
+    let noTasks: Array<TaskItem> = []
+    assert(nextTaskSortOrder(noTasks) == 0)
+
     let tasks: Array<TaskItem> = [TaskItem(1, "Task", "", null, false, "None", false, null, false, 0, 0, 0)]
     let foundTask = findTask(tasks, 1)
     assert(foundTask != null)
@@ -205,6 +218,40 @@ test "soft-deleted records remain as hidden tombstones" {
         assert!(module.functions.iter().any(|function| {
             function.receiver.is_some() && function.name.ends_with(".saveTask")
         }));
+
+        let sort_order = module
+            .functions
+            .iter()
+            .find(|function| function.name == "nextTaskSortOrder")
+            .expect("task-order helper should remain reachable");
+        let mut collection_operations = Vec::new();
+        nexa_ir::walk::walk_expression(&sort_order.body, &mut |expression| {
+            if let nexa_ir::Expr::CollectionTransform { operation, .. } = expression {
+                collection_operations.push(*operation);
+            }
+        });
+        for local in &sort_order.locals {
+            nexa_ir::walk::walk_expression(&local.initial, &mut |expression| {
+                if let nexa_ir::Expr::CollectionTransform { operation, .. } = expression {
+                    collection_operations.push(*operation);
+                }
+            });
+        }
+        if let Some(actions) = &sort_order.body_actions {
+            nexa_ir::walk::walk_actions(actions, &mut |expression| {
+                if let nexa_ir::Expr::CollectionTransform { operation, .. } = expression {
+                    collection_operations.push(*operation);
+                }
+            });
+        }
+        assert!(
+            collection_operations.contains(&nexa_ir::CollectionTransform::Reduce),
+            "task-order lookup should use one reduction"
+        );
+        assert!(
+            !collection_operations.contains(&nexa_ir::CollectionTransform::Filter),
+            "task-order lookup should not allocate an active-task projection"
+        );
     }
     assert!(
         swift_module
@@ -320,7 +367,7 @@ test "soft-deleted records remain as hidden tombstones" {
     assert!(generated_source.contains("nexa_source.sorted {"));
     assert!(generated_source.contains("MediaPickerControl"));
     assert!(generated_source.contains("NexaBottomSheetPrimitive("));
-    assert!(generated_source.contains("detents: [.large]"));
+    assert!(generated_source.contains("detents: [.fraction(0.5), .fraction(1)]"));
     assert!(generated_source.contains("NexaTextInputPrimitive(text: $nexa_editingCommentText"));
     assert!(generated_source.contains("placeholder: Text(\"Comment\")"));
     let localized_entries = nexa_ir::localization::extract(swift_module);

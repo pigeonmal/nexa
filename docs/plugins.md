@@ -51,7 +51,7 @@ There is no plugin registry or `nexa plugin add` command. Keep the package in a 
 
 ## Plugin package files
 
-`nexa plugin new` creates the deterministic starter files; `nexa plugin init` remains an alias. A native package contains a `native.nxid` contract and platform implementations; a pure package contains reusable `.nx` source and no native IDL.
+`nexa plugin new` creates the deterministic starter files. `nexa plugin init` is temporarily accepted for compatibility and prints a deprecation warning; use `new` in new projects. A native package contains a `native.nxid` contract and platform implementations; a pure package contains reusable `.nx` source and no native IDL.
 
 ```text
 sensor-plugin/
@@ -67,8 +67,34 @@ sensor-plugin/
 | `nexa plugin new dev.example.formatters --out plugins/formatters --kind pure` | Create a Nexa-only package with `plugin.nx`. |
 | `nexa plugin check plugins/sensor` | Validate the package manifest, IDL, source graph, and available native implementation checks. |
 | `nexa plugin generate plugins/sensor --target swift --out generated/swift` | Emit a Swift binding contract. Use `kotlin` or `cpp` for the other supported outputs. |
+| `nexa plugin doc plugins/sensor --out docs/API.md` | Generate a complete Markdown API reference from `native.nxid`. Omit `--out` to print it to stdout. |
 
 `nexa plugin check` runs syntax and contract validation; native type-checking depends on the installed platform tools and package dependencies. C++ output creates a typed contract; it does not mean every API shape has a generated host adapter.
+
+### Document a plugin API
+
+Place a standalone `//` or `///` comment immediately above a declaration or member in `native.nxid`. Consecutive comment lines become one description; a blank line separates the comment from the following item. Inline comments are ignored. The generated API reference includes all declared types, fields, enum and error cases, services, native classes and components, constructors, methods, properties, events, config options, exact types, defaults, async and error signatures, and the comments attached to each item.
+
+```nxid
+/// Loads the customer's profile from the account service.
+service Account {
+    /// Returns `null` when the account has no saved profile.
+    async fn load(customerId: String) -> Profile? throws AccountError
+}
+
+error AccountError {
+    unavailable
+}
+
+/// A profile shown in account settings.
+struct Profile {
+    displayName: String
+    /// Defaults to false for accounts created before verification.
+    verified: Bool = false
+}
+```
+
+Run `nexa plugin doc plugins/account --out docs/API.md` to write the reference, or omit `--out` to print it for piping into another tool. The parser keeps comments in the typed `.nxid` model, so compiler and documentation consumers read the same contract source.
 
 ## `.nxid` contract declarations
 
@@ -95,7 +121,66 @@ native component BiometricButton {
 }
 ```
 
-`native component` properties become named arguments on `Namespace.Component(...)`. Events become `.onEvent { ... }` modifiers. `service` declarations provide stateless calls; `native class` declarations provide constructed native objects, properties, methods, and instance-scoped events. Use native classes when object identity or explicit disposal is part of the API. Concrete class and service examples live in the [official plugin contracts](../plugins/).
+`native component` properties become named arguments on `Namespace.Component(...)`. Events become `.onEvent { ... }` modifiers. A native component can also declare instance methods; those methods are callable only through a matching `ComponentRef<Namespace.Component>`. `service` declarations provide stateless calls; `native class` declarations provide constructed native objects, properties, methods, and instance-scoped events. Use native classes when object identity or explicit disposal is part of the API. Concrete class and service examples live in the [official plugin contracts](../plugins/).
+
+### Native component methods and typed refs
+
+Declare a method on the component whose native implementation owns the action:
+
+```nxid
+error PlayerControlFailure {
+    unavailable
+}
+
+native component MediaTimeline {
+    prop source: String
+    fn seek(position: Float64) -> Void throws PlayerControlFailure
+    async fn currentPosition() -> Float64 throws PlayerControlFailure
+}
+```
+
+Create a matching handle with an inferred `let` binding, then pass it through
+`ref:`. Calls return a `Result`; its error is
+`ComponentRefError<PlayerControlFailure>`, which distinguishes an unmounted
+component (the not-attached case) from the method's declared failure. Async methods
+are awaited and keep the same typed result:
+
+```nx
+plugin "plugins/media" as Media
+
+app PlaybackReview {
+    let timelineRef = ComponentRef<Media.MediaTimeline>()
+
+    body {
+        Column(spacing: 8) {
+            Media.MediaTimeline(source: "https://media.example.com/trailer.mp4", ref: timelineRef)
+            Button("Seek to the preview") {
+                let seekResult = timelineRef.seek(position: 30.0)
+            }
+            OnAppear async {
+                let positionResult = await timelineRef.currentPosition()
+            }
+        }
+    }
+}
+```
+
+The generated `MediaTimelineRef` exposes one typed `attach...` callback per
+IDL method. In the Swift and Kotlin native component implementations, attach
+callbacks to the component's native view/player when it becomes available and
+clear them when it is released. The generated wrapper passes the same ref
+instance into the implementation and detaches it when the component leaves the
+view tree. Calls made before attachment or after detachment return
+the typed not-attached result; calls are not queued. Dispatch from Nexa code is
+directly generated against the typed ref method, without reflection or string
+method lookup.
+
+Detaching prevents new calls; it does not cancel a call that has already
+started. Async ref methods run in the caller's Swift task or Kotlin coroutine,
+so cancellation follows that task's or coroutine's normal platform behavior.
+If a native operation must stop when its component is released, the component
+implementation must cancel and clean up that operation during its own release
+lifecycle.
 
 ### Async throwing calls
 
@@ -148,8 +233,8 @@ The code generator emits typed Swift and Kotlin contracts and uses direct plugin
 | Concern | iOS | Android |
 |---|---|---|
 | Call boundary | Generated Swift contract; native classes are main-actor isolated. | Generated Kotlin contract; method work stays on the caller's coroutine dispatcher. |
-| Async work | Swift concurrency. | Kotlin suspend functions; Nexa does not silently move plugin work to another dispatcher. |
-| Ownership | Give long-lived native classes an explicit `dispose()` contract when needed. | Release listeners, callbacks, and resources from the same explicit lifecycle. |
+| Async work | Swift concurrency; cancellation follows the caller's task. | Kotlin suspend functions; cancellation follows the caller's coroutine, and Nexa does not silently move plugin work to another dispatcher. |
+| Ownership | Clear component-ref callbacks when the view is released. Give long-lived native classes an explicit `dispose()` contract when needed. | Clear component-ref callbacks when the composable leaves composition. Release listeners, callbacks, and resources from the same explicit lifecycle. |
 | C++ | Optional Objective-C++/Swift adapter for supported signatures. | Optional generated JNI adapter for supported signatures. |
 
 Do not assume all Swift/Kotlin method signatures map to C++. The generated C++ adapter currently supports a smaller set of scalar, optional scalar, string, bytes, selected collection, and typed-error cases.

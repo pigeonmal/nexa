@@ -400,3 +400,29 @@ fn performance_overlay_toggle_reaches_each_authenticated_runtime() {
         ServerMessage::PerformanceOverlay { enabled: true }
     ));
 }
+
+#[test]
+fn runtime_trace_toggle_reaches_each_authenticated_runtime() {
+    let server = DevServer::bind([
+        (TargetPlatform::Ios, module("ios-1", "ios")),
+        (TargetPlatform::Android, module("android-1", "android")),
+    ])
+    .expect("bind dev server");
+    let mut ios = connect(&server, server.session_token(), TargetPlatform::Ios);
+    let mut android = connect(&server, server.session_token(), TargetPlatform::Android);
+    for client in [&mut ios, &mut android] {
+        let _ = read_server_message(client);
+        let _ = read_server_message(client);
+    }
+
+    server.set_runtime_trace(true);
+
+    assert!(matches!(
+        read_server_message(&mut ios),
+        ServerMessage::RuntimeTrace { enabled: true }
+    ));
+    assert!(matches!(
+        read_server_message(&mut android),
+        ServerMessage::RuntimeTrace { enabled: true }
+    ));
+}

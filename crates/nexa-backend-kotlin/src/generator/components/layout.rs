@@ -1215,6 +1215,7 @@ mod tests {
                 shape: None,
                 tint: None,
                 glass: false,
+                accessibility_label: None,
                 actions: Vec::new(),
             },
             Node::Text {

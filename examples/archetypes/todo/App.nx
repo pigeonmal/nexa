@@ -16,6 +16,9 @@ plugin "dev.nexa.mail-composer" as Mail
 plugin "dev.nexa.data-extractor" as DataExtractor
 
 app TodoArchetype {
+    let taskEditorSheetRef = ComponentRef<BottomSheet>()
+    let commentsSheetRef = ComponentRef<BottomSheet>()
+    let remindersSheetRef = ComponentRef<BottomSheet>()
     let notifications = Notifications()
     let browser = Browser.SystemBrowser()
     let mail = Mail.MailComposer()
@@ -55,12 +58,9 @@ app TodoArchetype {
     state dueTimestamp: Int64 = Time.now()
     state hasTime: Bool = false
     state priority: String = "None"
-    state showingTaskEditor: Bool = false
     state showingDatePicker: Bool = false
     state pickerTimestamp: Int64 = Time.now()
     state pickerHasTime: Bool = false
-    state showingComments: Bool = false
-    state showingReminders: Bool = false
     state addingReminder: Bool = false
     state returnToEditorAfterOverlay: Bool = false
     state selectedTaskID: Int32 = -1
@@ -96,7 +96,7 @@ app TodoArchetype {
                     if !task.isCompleted {
                         selectedTab = task.dueTimestamp == null ? 0 : (Time.startOfDay(task.dueTimestamp ?? 0) == Time.startOfDay(Time.now()) ? 1 : 2)
                         taskTitleFocused = editingID < 0
-                        showingTaskEditor = true
+                        taskEditorSheetRef.present()
                     }
                 } else {
                     Log.error(message: "TODO_NOTIFICATION_TASK_NOT_FOUND")

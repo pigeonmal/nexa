@@ -31,10 +31,14 @@ app ReadingQueue {
 |---|---|---|---|
 | **Rust** | `1.85.0+` | Nexa compiler & CLI | `rustc --version` |
 | **macOS & Xcode** | `macOS 14+`, `Xcode 15+` | iOS builds & simulators | `xcodebuild -version` |
-| **Android SDK & JDK** | `JDK 17+`, `SDK 34+` | Android builds & emulators | `javac -version`, `adb --version` |
+<!-- nexadoc:begin android-sdk-requirement -->
+| **Android SDK & JDK** | `JDK 17+`, `Android SDK Platform 37` | Android builds & emulators | `javac -version`, `adb --version` |
+<!-- nexadoc:end android-sdk-requirement -->
 
 > [!TIP]
-> Run `nexa doctor` at any time to verify that your native build toolchains, simulators, and environment variables are properly configured.
+> Run `nexa doctor` to check Rust, Xcode and simulator tools, Java, ADB, Clang, the Android SDK, and the configured plugin dependencies and lockfile. Plugin checks use cached sources only.
+
+Generated Android projects compile against the Android SDK Platform listed above. An Android emulator is optional when building for a connected device; `nexa doctor` reports when no emulator is configured.
 
 ---
 
@@ -120,7 +124,7 @@ config {
 | `app` | `version` | `String` | `"1.0.0"` | Semantic version string (`MAJOR.MINOR.PATCH`). |
 | `app` | `buildNumber` | `Int32` | `1` | Monotonically increasing build integer. |
 | `app` | `orientation` | `String` | `"all"` | `"all"`, `"portrait"`, or `"portrait-phones"`. |
-| `app` | `deepLinks` | `Array<String>` | `[]` | App URL schemes and domains used by native project metadata. Incoming Nexa screen routing is not implemented. |
+| `app` | `deepLinks` | `Array<String>` | `[]` | App URL schemes and HTTPS origins that register typed routes. A link uses the screen slug and supplies scalar arguments in the path or by parameter name in the query. |
 | `app` | `stagingSuffix` | `String` | `"staging"` | Application ID suffix applied by the implicit `staging` flavor. |
 | `assets` | `icon` | `String` | `—` | Path to the app icon asset. |
 | `assets` | `splash` | `String` | `—` | Path to the splash image asset. |
@@ -137,7 +141,7 @@ config {
 | `android` | `arch` | `String` or `Array<String>` | `—` | Requested Android ABIs. |
 | `android.cronet` | `provider` | `String` | `"play-services"` | `"play-services"` or `"embedded"` network provider. |
 | `android.cronet` | `diskCacheSizeMb` | `Int32` | `64` | Cronet disk cache size in MiB. |
-| `permissions` | `<permission>` | `String` | `—` | User-facing purpose message for a native permission used by the app. |
+| `permissions` | `<permission>` | `String` | `—` | Declares a permission; the message supplies its iOS usage description, and Nexa adds the matching Android manifest permissions. |
 | `dependencies.<alias>` | `id`, `path` | strings | `—` | Local plugin package identity and path. |
 | `dependencies.<alias>` | `id`, `git`, `rev`, `package` | strings | `—` | Pinned Git plugin source and optional package subdirectory. `rev` is required with `git`. |
 | `plugins.<alias>` | `scalar option values` | string, boolean, or string array | `—` | Compile-time plugin options validated against the plugin contract. |
@@ -169,16 +173,17 @@ nexa dev --android
 | Command | Key Flags | Description |
 |---|---|---|
 | `nexa create <name>` | `--directory <path>` | Creates the app source, configuration, and local signing template. |
-| `nexa check` | `--ios`, `--android`, `--locked`, `--deny-warnings`, `--audit` | Validates source, plugin dependencies, types, and platform constraints. |
+| `nexa check` | `--ios`, `--android`, `--locked`, `--deny-warnings`, `--audit`, `--json` | Validates source, plugin dependencies, types, and platform constraints; `--json` emits structured diagnostics for CI and editors. |
 | `nexa fmt` | `--check` | Formats Nexa source files or checks whether they need formatting. |
-| `nexa dev` | `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--once`, `--compile-only`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds and launches a native app with DevRuntime hot reload. |
-| `nexa test` | `--unit-only`, `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Runs app tests; `--unit-only` skips native test hosts. |
-| `nexa build` | `--release`, `--ipa`, `--aab`, `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds a signed iOS IPA or Android AAB. |
-| `nexa release` | `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds an iOS archive or Android AAB using platform signing credentials. |
-| `nexa doctor` | `—` | Verifies toolchain installation and environment health. |
-| `nexa audit <file>` | `--target <ios\|android\|all>`, `--release-sizes`, `--out <path>` | Reports reachable features, generated dependencies, and optional release-size data. |
-| `nexa plugin <subcommand>` | `init <plugin.id> --out <directory>`, `check <package-directory\|native.nxid>`, `generate <package-directory\|native.nxid> --target <swift\|kotlin\|cpp>` | Scaffolds, validates, and generates bindings for a plugin package. |
+| `nexa dev` | `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--once`, `--compile-only`, `--dry-run`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds and launches a native app with DevRuntime hot reload; `--dry-run` prints the plan. |
+| `nexa test` | `--unit-only`, `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--dry-run`, `--out <directory>`, `--locked` | Runs app tests; `--unit-only` skips native test hosts and `--dry-run` prints the build plan. |
+| `nexa release` | `--ios`, `--android`, `--all`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--dry-run`, `--out <directory>`, `--locked` | Builds an iOS archive or Android AAB using platform signing credentials; `--dry-run` prints the plan. |
+| `nexa doctor` | `—` | Checks Rust, Xcode and simulator tools, Java, ADB, Clang, the Android SDK, and configured plugin dependencies without fetching or editing files. |
+| `nexa audit <file>` | `--target <ios\|android\|all>`, `--release-sizes`, `--optimization-report`, `--out <path>` | Reports dependency resolution, compiler and codegen timings, generated source size, reachable features, permissions, and optional optimizer or native release measurements. |
+| `nexa plugin <subcommand>` | `init <plugin.id> --out <directory>`, `check <package-directory\|native.nxid>`, `generate <package-directory\|native.nxid> --target <swift\|kotlin\|cpp>`, `doc <package-directory\|native.nxid> [--out <file>]` | Scaffolds and validates plugin packages, generates native bindings, and writes a typed API reference from `.nxid`. |
 <!-- nexadoc:end cli-commands -->
+
+`nexa check --json` writes one JSON report to stdout. It contains `formatVersion`, `ok`, `platform`, `diagnostics`, and `error`; each diagnostic has `severity`, `code`, `file`, `span`, and `message`. Compiler diagnostics include source locations, warnings include their stable code, and fields unavailable for a configuration error are `null`. The command exit status still indicates success or failure. Use `nexa audit` separately because `--audit` cannot be combined with `--json`.
 
 ### Interactive DevRuntime Shortcuts
 
@@ -190,8 +195,11 @@ While `nexa dev` is running in your terminal:
 | `Shift + R` | **Hot Restart** | Clears in-memory state and restarts the application flow. |
 | `b` | **Rebuild Native Host**| Re-runs native compiler (Xcode/Gradle) when plugins or native code change. |
 | `p` | **Toggle Overlay** | Toggles the on-device live FPS and frame latency diagnostics HUD. |
+| `t` | **Runtime Trace** | Prints opt-in state, task, and native-call events without values or task handles. |
 
-When a source compile fails, the running debug app keeps the last working screen and shows a tappable error banner. Open its details and choose **Open in editor** to ask the `nexa dev` host to open the reported file and line through the desktop's `vscode://` URL handler. Uncaught failures in asynchronous app actions, tasks, and native event callbacks also appear in the banner; their details include the runtime stack trace. Runtime diagnostics currently lack `.nx` source spans, so they cannot open a source location.
+When a source compile fails, the running debug app keeps the last working screen and shows a tappable error banner. Choose **Open in editor** to open the reported file and line through the desktop's `vscode://` URL handler. Uncaught failures in asynchronous actions, tasks, and native event callbacks also show their `.nx` call site when available, alongside the runtime stack trace.
+
+Hot reload keeps state while its scope, name, and declared shape stay the same. Changing only an initializer does not reset a live value. Changing a state type, a struct field, or an enum case set reinitializes that state; removing a state drops it. This applies to app, screen, and reusable component state. **Hot Restart** resets in-memory state from the current initializers.
 
 ---
 

@@ -182,14 +182,21 @@ internal class NexaDevSocketClient(
                     return
                 }
                 val revision = patch.optString(NexaDevKeys.REVISION).takeIf(String::isNotEmpty) ?: return
-                currentRevision = revision
+                val applied = AtomicBoolean(false)
                 onMainAndWait {
-                    if (patch.has("translations")) {
-                        store.installTranslations(patch.optJSONObject("translations"))
+                    if (store.applyPatch(patch)) {
+                        if (patch.has("translations")) {
+                            store.installTranslations(patch.optJSONObject("translations"))
+                        }
+                        store.publishDiagnostics(emptyList())
+                        applied.set(true)
                     }
-                    store.applyPatch(patch)
-                    store.publishDiagnostics(emptyList())
                 }
+                if (!applied.get()) {
+                    sendFrame(output, 0x1, JSONObject().put(NexaDevKeys.TYPE, NexaDevKeys.MSG_REQUEST_FULL_MODULE).toString())
+                    return
+                }
+                currentRevision = revision
                 acknowledge(output, revision)
                 android.util.Log.i("NexaDevRuntime", "Applied patch $revision")
             }
@@ -210,6 +217,10 @@ internal class NexaDevSocketClient(
             NexaDevKeys.MSG_PERFORMANCE_OVERLAY -> {
                 val enabled = payload.optBoolean(NexaDevKeys.ENABLED, false)
                 mainHandler.post { store.performanceOverlayEnabled = enabled }
+            }
+            NexaDevKeys.MSG_RUNTIME_TRACE -> {
+                val enabled = payload.optBoolean(NexaDevKeys.ENABLED, false)
+                mainHandler.post { store.runtimeTraceEnabled = enabled }
             }
         }
     }

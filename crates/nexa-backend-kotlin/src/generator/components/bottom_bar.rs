@@ -42,7 +42,15 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     }
     imports.add(
         features.uses_page_pager,
-        "androidx.compose.foundation.clickable",
+        "androidx.compose.foundation.gestures.detectTapGestures",
+    );
+    imports.add(
+        features.uses_page_pager,
+        "androidx.compose.ui.input.pointer.pointerInput",
+    );
+    imports.add(
+        features.uses_page_pager,
+        "androidx.compose.ui.semantics.onClick",
     );
     imports.add(
         features.uses_page_pager,

@@ -1,0 +1,36 @@
+app CachedReadingList {
+    state message: String = "No reading list loaded"
+    state requestTask: TaskHandle? = null
+
+    body {
+        Column {
+            Text(message)
+            Button("Open saved reading list") {
+                Task.launch(handle: requestTask, executor: TaskExecutor.Main) {
+                    try {
+                        let response = await Network.fetch(
+                            url: "https://api.example.com/v1/reading-list",
+                            cachePolicy: CacheOnly
+                        )
+                        message = "Loaded saved list: HTTP \(response.statusCode)"
+                    } catch {
+                        message = "No saved reading list is available"
+                    }
+                }
+            }
+            Button("Refresh reading list") {
+                Task.launch(handle: requestTask, executor: TaskExecutor.Main) {
+                    try {
+                        let response = await Network.fetch(
+                            url: "https://api.example.com/v1/reading-list",
+                            cachePolicy: Reload
+                        )
+                        message = "Refreshed list: HTTP \(response.statusCode)"
+                    } catch {
+                        message = "Could not refresh reading list"
+                    }
+                }
+            }
+        }
+    }
+}

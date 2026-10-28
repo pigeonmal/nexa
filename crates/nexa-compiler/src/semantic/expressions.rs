@@ -80,11 +80,11 @@ pub(super) fn collect_plugin_components(
             ) {
                 continue;
             }
-            if !interface.constructors.is_empty() || !interface.methods.is_empty() {
+            if !interface.constructors.is_empty() {
                 return Err(CompileError::new(
                     plugin.span,
                     format!(
-                        "native component `{}.{}` may declare properties and events only",
+                        "native component `{}.{}` cannot declare constructors",
                         plugin.namespace, interface.name
                     ),
                 ));
@@ -188,10 +188,7 @@ pub(super) fn collect_plugin_signatures(
                 interface.kind,
                 nexa_plugin_idl::InterfaceKind::NativeComponent
             );
-            if native_component {
-                continue;
-            }
-            if !native_class && interface.name != plugin.namespace {
+            if !native_class && !native_component && interface.name != plugin.namespace {
                 return Err(CompileError::new(
                     plugin.span,
                     format!(
@@ -199,6 +196,27 @@ pub(super) fn collect_plugin_signatures(
                         interface.name, plugin.namespace
                     ),
                 ));
+            }
+            if native_component {
+                let receiver = Type::ComponentRef {
+                    namespace: plugin.namespace.clone(),
+                    name: interface.name.clone(),
+                };
+                signatures.insert(
+                    format!("{}.{}.__component_ref", plugin.namespace, interface.name),
+                    FunctionSignature {
+                        parameters: Vec::new(),
+                        type_parameters: Vec::new(),
+                        return_type: receiver,
+                        is_async: false,
+                        is_throwing: false,
+                        receiver: None,
+                        is_constructor: true,
+                        is_mutable_property: false,
+                        error_handling_allowed: false,
+                        error_type: None,
+                    },
+                );
             }
             if native_class {
                 if interface.constructors.len() > 1 {
@@ -277,6 +295,8 @@ pub(super) fn collect_plugin_signatures(
                 }
                 let key = if native_class {
                     format!("{}.{}", interface.name, method.name)
+                } else if native_component {
+                    format!("{}.{}.{}", plugin.namespace, interface.name, method.name)
                 } else {
                     format!("{}.{}", plugin.namespace, method.name)
                 };
@@ -336,10 +356,19 @@ pub(super) fn collect_plugin_signatures(
                         return_type,
                         is_async: method.is_async,
                         is_throwing: method.return_type.name == "Result" || method.throws.is_some(),
-                        receiver: native_class.then(|| Type::Plugin {
-                            namespace: plugin.namespace.clone(),
-                            name: interface.name.clone(),
-                        }),
+                        receiver: if native_class {
+                            Some(Type::Plugin {
+                                namespace: plugin.namespace.clone(),
+                                name: interface.name.clone(),
+                            })
+                        } else if native_component {
+                            Some(Type::ComponentRef {
+                                namespace: plugin.namespace.clone(),
+                                name: interface.name.clone(),
+                            })
+                        } else {
+                            None
+                        },
                         is_constructor: false,
                         is_mutable_property: false,
                         error_handling_allowed: false,
@@ -680,6 +709,12 @@ pub(super) fn collect_function_signatures(
 ) -> Result<FunctionSignatures, CompileError> {
     let mut signatures = HashMap::with_capacity(declarations.len());
     for declaration in declarations {
+        if declaration.failure_type.is_some() {
+            return Err(CompileError::new(
+                declaration.span,
+                "typed `throws` is supported on reusable component ref methods only",
+            ));
+        }
         if signatures.contains_key(&declaration.name) {
             return Err(CompileError::new(
                 declaration.span,
@@ -985,6 +1020,24 @@ pub(super) fn lower_expr(
     expected: Option<&Type>,
     ctx: &ExprContext<'_>,
 ) -> Result<Expr, CompileError> {
+    let lowered = lower_expr_inner(expr, expected, ctx)?;
+    if let Some(source_file) = ctx.source_file
+        && lowered.is_throwing_call()
+    {
+        return Ok(Expr::Located {
+            source_file: source_file.to_owned(),
+            source_span: expr.span(),
+            expression: Box::new(lowered),
+        });
+    }
+    Ok(lowered)
+}
+
+fn lower_expr_inner(
+    expr: &ast::Expr,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+) -> Result<Expr, CompileError> {
     // A non-null value may be promoted to its optional type without a runtime
     // wrapper. Keep an already-optional expression and the `null` literal on
     // the outer type so their nullability is checked exactly.
@@ -992,6 +1045,15 @@ pub(super) fn lower_expr(
         Some(Type::Optional(inner))
             if !matches!(expr, ast::Expr::Null(_))
                 && !matches!(expr, ast::Expr::Conditional { .. })
+                && !matches!(
+                    expr,
+                    ast::Expr::QualifiedCall {
+                        namespace,
+                        name,
+                        type_arguments,
+                        ..
+                    } if namespace == "Storage" && name == "get" && type_arguments.is_empty()
+                )
                 && !matches!(
                     infer_expr_type(expr, ctx.symbols, ctx.functions),
                     Some(Type::Optional(_))
@@ -1155,12 +1217,14 @@ pub(super) fn lower_expr(
             let ty = match expected {
                 Some(Type::Numeric(ty)) => *ty,
                 Some(other) => {
+                    let literal_type = Type::Numeric(if raw.contains('.') {
+                        NumericType::Float64
+                    } else {
+                        NumericType::Int32
+                    });
                     return Err(CompileError::new(
                         *span,
-                        format!(
-                            "number cannot be used where {} is expected",
-                            type_name(other)
-                        ),
+                        type_mismatch_message(other, &literal_type),
                     ));
                 }
                 None if raw.contains('.') => NumericType::Float64,
@@ -1274,21 +1338,26 @@ pub(super) fn lower_expr(
                     CompileError::new(*span, "`+` requires numeric values of the same type")
                 })?;
             let numeric = Type::Numeric(ty);
-            if expected.is_some_and(|expected| expected != &numeric) {
+            if let Some(expected) = expected
+                && expected != &numeric
+            {
                 return Err(CompileError::new(
                     *span,
-                    format!(
-                        "`+` produces {}, which does not match the expected type",
-                        type_name(&numeric)
-                    ),
+                    type_mismatch_message(expected, &numeric),
                 ));
             }
             let left = lower_expr(left, Some(&numeric), ctx)?;
             let right = lower_expr(right, Some(&numeric), ctx)?;
-            if expr_numeric_type(&left) != Some(ty) || expr_numeric_type(&right) != Some(ty) {
+            let left_type = expr_numeric_type(&left);
+            let right_type = expr_numeric_type(&right);
+            if left_type != Some(ty) || right_type != Some(ty) {
                 return Err(CompileError::new(
                     *span,
-                    "both sides of `+` must have the same numeric type",
+                    format!(
+                        "`+` needs operands with the same numeric type; the left side is `{}` and the right side is `{}`",
+                        left_type.map(numeric_name).unwrap_or("unknown"),
+                        right_type.map(numeric_name).unwrap_or("unknown")
+                    ),
                 ));
             }
             Ok(Expr::Add(Box::new(left), Box::new(right), ty))
@@ -1308,21 +1377,26 @@ pub(super) fn lower_expr(
                     CompileError::new(*span, "arithmetic operators require numeric values")
                 })?;
             let numeric = Type::Numeric(ty);
-            if expected.is_some_and(|expected| expected != &numeric) {
+            if let Some(expected) = expected
+                && expected != &numeric
+            {
                 return Err(CompileError::new(
                     *span,
-                    format!(
-                        "arithmetic produces {}, which does not match the expected type",
-                        type_name(&numeric)
-                    ),
+                    type_mismatch_message(expected, &numeric),
                 ));
             }
             let left = lower_expr(left, Some(&numeric), ctx)?;
             let right = lower_expr(right, Some(&numeric), ctx)?;
-            if expr_numeric_type(&left) != Some(ty) || expr_numeric_type(&right) != Some(ty) {
+            let left_type = expr_numeric_type(&left);
+            let right_type = expr_numeric_type(&right);
+            if left_type != Some(ty) || right_type != Some(ty) {
                 return Err(CompileError::new(
                     *span,
-                    "both arithmetic operands must have the same numeric type",
+                    format!(
+                        "arithmetic needs operands with the same numeric type; the left side is `{}` and the right side is `{}`",
+                        left_type.map(numeric_name).unwrap_or("unknown"),
+                        right_type.map(numeric_name).unwrap_or("unknown")
+                    ),
                 ));
             }
             let op = match operator {
@@ -1347,13 +1421,12 @@ pub(super) fn lower_expr(
                 })
                 .ok_or_else(|| CompileError::new(*span, "unary `-` requires a numeric value"))?;
             let numeric = Type::Numeric(ty);
-            if expected.is_some_and(|expected| expected != &numeric) {
+            if let Some(expected) = expected
+                && expected != &numeric
+            {
                 return Err(CompileError::new(
                     *span,
-                    format!(
-                        "unary `-` produces {}, which does not match the expected type",
-                        type_name(&numeric)
-                    ),
+                    type_mismatch_message(expected, &numeric),
                 ));
             }
             let value = lower_expr(value, Some(&numeric), ctx)?;
@@ -1392,6 +1465,47 @@ pub(super) fn lower_expr(
             named_arguments,
             span,
         } => {
+            if matches!(
+                infer_expr_type(base, ctx.symbols, ctx.functions),
+                Some(Type::ComponentRef { .. })
+            ) {
+                return lower_component_ref_method_call(
+                    base,
+                    name,
+                    arguments,
+                    named_arguments,
+                    *span,
+                    expected,
+                    ctx,
+                );
+            }
+            if matches!(
+                infer_expr_type(base, ctx.symbols, ctx.functions),
+                Some(Type::NetworkResponse)
+            ) {
+                let Some(api) =
+                    super::core_api::lookup_method(super::core_api::ApiType::NetworkResponse, name)
+                else {
+                    return Err(CompileError::new(
+                        *span,
+                        format!("`NetworkResponse` has no method `{name}`"),
+                    ));
+                };
+                return lower_network_response_method_call(
+                    base,
+                    name,
+                    CallArguments {
+                        type_arguments,
+                        arguments,
+                        named_arguments,
+                        span: *span,
+                        expected,
+                        ctx,
+                        awaited: false,
+                    },
+                    api,
+                );
+            }
             if let Some((namespace, enum_name)) = qualified_plugin_enum_path(base)
                 && ctx
                     .functions
@@ -1789,7 +1903,6 @@ pub(super) fn lower_expr(
                 (Type::Class { .. }, field) => MemberKind::ClassField(field.to_owned()),
                 (Type::Plugin { .. }, field) => MemberKind::PluginField(field.to_owned()),
                 (Type::NetworkResponse, "statusCode") => MemberKind::NetworkStatusCode,
-                (Type::NetworkResponse, "headers") => MemberKind::NetworkHeaders,
                 (Type::NetworkResponse, "body") => MemberKind::NetworkBody,
                 (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "count") => {
                     MemberKind::CollectionCount
@@ -1799,6 +1912,9 @@ pub(super) fn lower_expr(
                 }
                 (Type::String, "trimmed") => MemberKind::StringTrimmed,
                 (Type::Signal(_), "value") => MemberKind::SignalValue,
+                (Type::Result(_, _), "isSuccess") => MemberKind::ResultIsSuccess,
+                (Type::Result(_, _), "value") => MemberKind::ResultValue,
+                (Type::Result(_, _), "error") => MemberKind::ResultError,
                 _ => {
                     return Err(CompileError::new(
                         *span,
@@ -1903,7 +2019,7 @@ pub(super) fn lower_expr(
                     span: call_span,
                 } if matches!(
                     infer_expr_type(base, ctx.symbols, ctx.functions),
-                    Some(Type::Plugin { .. } | Type::Class { .. })
+                    Some(Type::Plugin { .. } | Type::Class { .. } | Type::ComponentRef { .. })
                 ) =>
                 {
                     if matches!(
@@ -2061,15 +2177,15 @@ fn lower_collection_transform(
     };
     let mut parameter_types = vec![element_type.as_ref().clone()];
     if operation == CollectionTransform::Reduce {
-        parameter_types.insert(
-            0,
-            initial_type.clone().ok_or_else(|| {
-                CompileError::new(
-                    initial.expect("reduce always has an initial value").span(),
-                    "cannot infer the type of the reduce initial value",
-                )
-            })?,
-        );
+        let initial_value = initial
+            .ok_or_else(|| CompileError::new(*closure_span, "reduce requires an initial value"))?;
+        let initial_type = initial_type.clone().ok_or_else(|| {
+            CompileError::new(
+                initial_value.span(),
+                "cannot infer the type of the reduce initial value",
+            )
+        })?;
+        parameter_types.insert(0, initial_type);
     }
     if parameters.len() != parameter_types.len() {
         return Err(CompileError::new(
@@ -2218,6 +2334,44 @@ fn lower_string_method(
         source_span: Some(span),
         is_async: false,
         is_throwing: false,
+    })
+}
+
+fn lower_network_response_method_call(
+    base: &ast::Expr,
+    method: &str,
+    call: CallArguments<'_, '_>,
+    api: &super::core_api::CoreApiDefinition,
+) -> Result<Expr, CompileError> {
+    let CallArguments {
+        type_arguments,
+        arguments,
+        named_arguments,
+        span,
+        expected,
+        ctx,
+        ..
+    } = call;
+    if !type_arguments.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "type arguments are not supported on NetworkResponse methods",
+        ));
+    }
+    let lowered_arguments = lower_api_arguments(api, arguments, named_arguments, span, ctx)?;
+    let return_type = api.result.to_ir();
+    require_expected(expected, &return_type, span)?;
+    let receiver = lower_expr(base, Some(&Type::NetworkResponse), ctx)?;
+    Ok(Expr::NativeCall {
+        receiver: Some(Box::new(receiver)),
+        namespace: "__NexaNetworkResponse".to_owned(),
+        name: method.to_owned(),
+        arguments: lowered_arguments,
+        codecs: Vec::new(),
+        return_type,
+        source_span: Some(span),
+        is_async: api.asynchronous,
+        is_throwing: api.throwing,
     })
 }
 
@@ -2511,6 +2665,69 @@ fn lower_call(
     ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
+    if name == "ComponentRef" {
+        if awaited {
+            return Err(CompileError::new(
+                span,
+                "ComponentRef creation is synchronous and cannot be awaited",
+            ));
+        }
+        if !arguments.is_empty() {
+            return Err(CompileError::new(
+                span,
+                "ComponentRef creation does not take value arguments",
+            ));
+        }
+        if type_arguments.len() != 1 {
+            return Err(CompileError::new(
+                span,
+                "ComponentRef expects one component type argument, such as `ComponentRef<FastList>()`",
+            ));
+        }
+        let Some(Type::ComponentRef { namespace, name }) =
+            type_arguments.first().and_then(component_ref_target)
+        else {
+            return Err(CompileError::new(
+                type_arguments
+                    .first()
+                    .map(ast::TypeSyntax::span)
+                    .unwrap_or(span),
+                "ComponentRef target must be `FastList`, a reusable component with declared methods, or a native component such as `Media.VideoView`",
+            ));
+        };
+        if namespace != "Nexa"
+            && !ctx
+                .functions
+                .contains_key(&format!("{namespace}.{name}.__component_ref"))
+        {
+            return Err(CompileError::new(
+                span,
+                format!("unknown native component ref target `{namespace}.{name}`"),
+            ));
+        }
+        if namespace == "Nexa"
+            && name != "FastList"
+            && name != "BottomSheet"
+            && !ctx
+                .functions
+                .contains_key(&format!("Nexa.{name}.__component_ref"))
+        {
+            return Err(CompileError::new(
+                span,
+                format!("component `{name}` does not declare ref methods"),
+            ));
+        }
+        let return_type = Type::ComponentRef {
+            namespace: namespace.clone(),
+            name: name.clone(),
+        };
+        require_expected(expected, &return_type, span)?;
+        return Ok(Expr::ComponentRefCreate {
+            namespace,
+            name,
+            identity: format!("{}:{}", span.start, span.end),
+        });
+    }
     if !type_arguments.is_empty() {
         return Err(CompileError::new(
             span,
@@ -2647,6 +2864,148 @@ fn lower_call(
                     ..
                 } if struct_name == name
             ),
+    })
+}
+
+fn lower_component_ref_method_call(
+    base: &ast::Expr,
+    name: &str,
+    arguments: &[ast::Expr],
+    named_arguments: &BTreeMap<String, ast::Expr>,
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+) -> Result<Expr, CompileError> {
+    let Some(Type::ComponentRef {
+        namespace,
+        name: component,
+    }) = infer_expr_type(base, ctx.symbols, ctx.functions)
+    else {
+        return Err(CompileError::new(
+            span,
+            "method receiver is not a component reference",
+        ));
+    };
+    if namespace == "Nexa" && component == "BottomSheet" {
+        if !matches!(name, "present" | "dismiss") {
+            return Err(CompileError::new(
+                span,
+                format!("unknown BottomSheet ref method `{name}`"),
+            ));
+        }
+        if !arguments.is_empty() || !named_arguments.is_empty() {
+            return Err(CompileError::new(
+                span,
+                format!("BottomSheet ref method `{name}` takes no arguments"),
+            ));
+        }
+        let error = Type::ComponentRefError(Box::new(Type::Void));
+        let return_type = Type::Result(Box::new(Type::Void), Box::new(error));
+        require_expected(expected, &return_type, span)?;
+        return Ok(Expr::NativeCall {
+            receiver: Some(Box::new(lower_expr(base, None, ctx)?)),
+            namespace: "NexaBottomSheetRef".to_owned(),
+            name: name.to_owned(),
+            arguments: Vec::new(),
+            codecs: Vec::new(),
+            return_type,
+            source_span: Some(span),
+            is_async: false,
+            is_throwing: false,
+        });
+    }
+    if namespace != "Nexa" || component != "FastList" {
+        return lower_plugin_method_call(
+            base,
+            name,
+            CallArguments {
+                type_arguments: &[],
+                arguments,
+                named_arguments,
+                span,
+                expected,
+                ctx,
+                awaited: false,
+            },
+        );
+    }
+    let signature: &[(&str, Type)] = match name {
+        "scrollToIndex" => &[
+            ("index", Type::Numeric(NumericType::Int32)),
+            ("animated", Type::Bool),
+            ("viewPosition", Type::Numeric(NumericType::Float64)),
+        ],
+        "scrollToTop" | "scrollToEnd" => &[("animated", Type::Bool)],
+        "scrollToOffset" => &[
+            ("offset", Type::Numeric(NumericType::Float64)),
+            ("animated", Type::Bool),
+        ],
+        _ => {
+            return Err(CompileError::new(
+                span,
+                format!("unknown FastList ref method `{name}`"),
+            ));
+        }
+    };
+    if arguments.len() > signature.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "FastList ref method `{name}` accepts at most {} argument(s)",
+                signature.len()
+            ),
+        ));
+    }
+    let mut supplied = vec![None; signature.len()];
+    for (index, argument) in arguments.iter().enumerate() {
+        supplied[index] = Some(argument);
+    }
+    for (parameter, argument) in named_arguments {
+        let Some(index) = signature.iter().position(|(name, _)| name == parameter) else {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("unknown argument `{parameter}` for FastList ref method `{name}`"),
+            ));
+        };
+        if supplied[index].replace(argument).is_some() {
+            return Err(CompileError::new(
+                argument.span(),
+                format!("argument `{parameter}` was provided more than once to `{name}`"),
+            ));
+        }
+    }
+    let mut lowered = Vec::with_capacity(signature.len());
+    for ((parameter, ty), argument) in signature.iter().zip(supplied) {
+        let value = if let Some(argument) = argument {
+            lower_expr(argument, Some(ty), ctx)?
+        } else if *parameter == "animated" {
+            Expr::Bool(true)
+        } else if *parameter == "viewPosition" {
+            Expr::Number {
+                raw: "0.0".to_owned(),
+                ty: NumericType::Float64,
+            }
+        } else {
+            return Err(CompileError::new(
+                span,
+                format!("FastList ref method `{name}` requires `{parameter}`"),
+            ));
+        };
+        lowered.push(((*parameter).to_owned(), value));
+    }
+    let error = Type::ComponentRefError(Box::new(Type::Void));
+    let return_type = Type::Result(Box::new(Type::Void), Box::new(error));
+    require_expected(expected, &return_type, span)?;
+    Ok(Expr::NativeCall {
+        receiver: Some(Box::new(lower_expr(base, None, ctx)?)),
+        namespace: "NexaFastListRef".to_owned(),
+        name: name.to_owned(),
+        arguments: lowered,
+        codecs: Vec::new(),
+        return_type,
+        source_span: Some(span),
+        is_async: false,
+        is_throwing: false,
     })
 }
 
@@ -2955,225 +3314,26 @@ fn lower_native_call(
     if !is_core_native_namespace(namespace) && ctx.functions.contains_key(&qualified_name) {
         return lower_plugin_call(namespace, name, call);
     }
-    if namespace == "Json" || namespace == "JSON" {
+    if namespace == "Storage" && matches!(name, "get" | "set") {
+        return lower_typed_storage_call(name, call);
+    }
+    if namespace == "Json" {
         return lower_json_call(name, call);
     }
     if namespace == "Locale" && matches!(name, "displayName" | "localized") {
         return lower_locale_call(name, call);
     }
-    // One named argument a built-in native API call accepts: its parameter
-    // name, the parameter's type, and the argument the call site supplied.
-    type ArgumentSpecs = Vec<(&'static str, Type, Option<ast::Expr>)>;
-    let (return_type, is_async, specs): (Type, bool, ArgumentSpecs) = match qualified_name.as_str()
-    {
-        "Network.fetch" => (Type::NetworkResponse, true, network_specs(span, false)),
-        "Network.download" => (Type::Bool, true, network_specs(span, true)),
-        "Network.upload" => (
-            Type::NetworkResponse,
-            true,
-            vec![
-                ("url", Type::String, None),
-                ("file", Type::String, None),
-                (
-                    "fields",
-                    Type::Map(Box::new(Type::String), Box::new(Type::String)),
-                    Some(ast::Expr::Map(Vec::new(), span)),
-                ),
-            ],
-        ),
-        "Path.documents" | "Path.caches" | "Path.temporary" | "Path.appSupport" => {
-            (Type::String, false, Vec::new())
-        }
-        "Path.join" => (
-            Type::String,
-            false,
-            vec![
-                ("path", Type::String, None),
-                ("component", Type::String, None),
-            ],
-        ),
-        "File.exists" => (Type::Bool, false, vec![("path", Type::String, None)]),
-        "File.readText" => (Type::String, true, vec![("path", Type::String, None)]),
-        "File.writeText" => (
-            Type::Bool,
-            true,
-            vec![
-                ("path", Type::String, None),
-                ("contents", Type::String, None),
-            ],
-        ),
-        "File.delete" => (Type::Bool, true, vec![("path", Type::String, None)]),
-        "Keyboard.dismiss" => (Type::Void, false, Vec::new()),
-        "Screen.lockOrientation" => (Type::Void, false, vec![("mode", Type::String, None)]),
-        "Bytes.fromText" => (Type::Bytes, false, vec![("text", Type::String, None)]),
-        "Bytes.fromArray" => (
-            Type::Bytes,
-            false,
-            vec![(
-                "values",
-                Type::Array(Box::new(Type::Numeric(NumericType::UInt8))),
-                None,
-            )],
-        ),
-        "Bytes.count" => (
-            Type::Numeric(NumericType::Int32),
-            false,
-            vec![("bytes", Type::Bytes, None)],
-        ),
-        "Permissions.status" => (
-            Type::Enum("PermissionStatus".to_owned()),
-            true,
-            vec![("permission", Type::Enum("Permission".to_owned()), None)],
-        ),
-        "Permissions.request" => (
-            Type::Enum("PermissionStatus".to_owned()),
-            true,
-            vec![("permission", Type::Enum("Permission".to_owned()), None)],
-        ),
-        "Time.now" => (Type::Numeric(NumericType::Int64), false, Vec::new()),
-        "Time.monotonic" => (Type::Numeric(NumericType::Int64), false, Vec::new()),
-        "Time.elapsed" => (
-            Type::Numeric(NumericType::Int64),
-            false,
-            vec![("since", Type::Numeric(NumericType::Int64), None)],
-        ),
-        "Time.sleep" => (
-            Type::Void,
-            true,
-            vec![("milliseconds", Type::Numeric(NumericType::Int64), None)],
-        ),
-        "Time.iso8601" => (
-            Type::String,
-            false,
-            vec![("timestamp", Type::Numeric(NumericType::Int64), None)],
-        ),
-        "Time.iso8601ToMillis" => (
-            Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
-            false,
-            vec![("text", Type::String, None)],
-        ),
-        "Time.startOfDay" => (
-            Type::Numeric(NumericType::Int64),
-            false,
-            vec![("timestamp", Type::Numeric(NumericType::Int64), None)],
-        ),
-        "Time.addCalendarDays" => (
-            Type::Numeric(NumericType::Int64),
-            false,
-            vec![
-                ("timestamp", Type::Numeric(NumericType::Int64), None),
-                ("days", Type::Numeric(NumericType::Int32), None),
-            ],
-        ),
-        "Time.localizedDate" | "Time.localizedTime" | "Time.localizedDateTime" => (
-            Type::String,
-            false,
-            vec![("timestamp", Type::Numeric(NumericType::Int64), None)],
-        ),
-        "Time.format" => (
-            Type::String,
-            false,
-            vec![
-                ("timestamp", Type::Numeric(NumericType::Int64), None),
-                ("pattern", Type::String, None),
-            ],
-        ),
-        "AppIcon.set" => (
-            Type::Bool,
-            true,
-            vec![("name", Type::Optional(Box::new(Type::String)), None)],
-        ),
-        "Number.formatCurrency" => (
-            Type::String,
-            false,
-            vec![
-                ("amount", Type::Numeric(NumericType::Float64), None),
-                ("currencyCode", Type::String, None),
-            ],
-        ),
-        "Locale.currentLanguageCode" => (Type::String, false, Vec::new()),
-        "Locale.preferredLanguageCodes" => (Type::Array(Box::new(Type::String)), false, Vec::new()),
-        "Crypto.sha256" | "Crypto.sha512" => {
-            (Type::String, false, vec![("text", Type::String, None)])
-        }
-        "Crypto.hmacSha256" => (
-            Type::String,
-            false,
-            vec![("key", Type::String, None), ("message", Type::String, None)],
-        ),
-        "Crypto.randomBytes" => (
-            Type::String,
-            false,
-            vec![("count", Type::Numeric(NumericType::Int32), None)],
-        ),
-        "SecureStorage.get" => (
-            Type::Optional(Box::new(Type::String)),
-            true,
-            // Secure storage operations can fail because the OS denies access,
-            // the device is locked, or the protected data cannot be decoded.
-            // Keep failures explicit so callers can recover with `try`.
-            vec![("key", Type::String, None)],
-        ),
-        "SecureStorage.set" => (
-            Type::Void,
-            true,
-            vec![("key", Type::String, None), ("value", Type::String, None)],
-        ),
-        "SecureStorage.delete" => (Type::Void, true, vec![("key", Type::String, None)]),
-        "SecureStorage.clear" => (Type::Void, true, Vec::new()),
-        "Storage.getString" => (
-            Type::Optional(Box::new(Type::String)),
-            false,
-            vec![("key", Type::String, None)],
-        ),
-        "Storage.setString" => (
-            Type::Void,
-            false,
-            vec![("key", Type::String, None), ("value", Type::String, None)],
-        ),
-        "Storage.delete" => (Type::Void, false, vec![("key", Type::String, None)]),
-        "Storage.clear" => (Type::Void, false, Vec::new()),
-        "Clipboard.setText" => (Type::Void, false, vec![("text", Type::String, None)]),
-        "Clipboard.getText" => (Type::Optional(Box::new(Type::String)), false, Vec::new()),
-        "Clipboard.hasText" => (Type::Bool, false, Vec::new()),
-        "Haptics.impact" => (Type::Void, false, vec![("style", Type::String, None)]),
-        "Haptics.notification" => (Type::Void, false, vec![("kind", Type::String, None)]),
-        "Haptics.selection" => (Type::Void, false, Vec::new()),
-        "Log.info" | "Log.warning" | "Log.error" => {
-            (Type::Void, false, vec![("message", Type::String, None)])
-        }
-        "Regex.isMatch" => (
-            Type::Bool,
-            false,
-            vec![
-                ("pattern", Type::String, None),
-                ("text", Type::String, None),
-            ],
-        ),
-        "Regex.matches" => (
-            Type::Array(Box::new(Type::String)),
-            false,
-            vec![
-                ("pattern", Type::String, None),
-                ("text", Type::String, None),
-            ],
-        ),
-        "Regex.replace" => (
-            Type::String,
-            false,
-            vec![
-                ("pattern", Type::String, None),
-                ("text", Type::String, None),
-                ("replacement", Type::String, None),
-            ],
-        ),
-        _ => {
-            return Err(CompileError::new(
-                span,
-                format!("unknown native API `{qualified_name}`"),
-            ));
-        }
+    // The catalog is the source of truth for the built-in signature. This
+    // also makes a newly documented API compile only after it has a typed IR
+    // contract here and a native_plan lowering.
+    let Some(api) = super::core_api::lookup(&qualified_name) else {
+        return Err(CompileError::new(
+            span,
+            format!("unknown native API `{qualified_name}`"),
+        ));
     };
+    let return_type = api.result.to_ir();
+    let is_async = api.asynchronous;
     if is_async && !awaited {
         return Err(CompileError::new(
             span,
@@ -3193,89 +3353,102 @@ fn lower_native_call(
         ));
     }
     require_expected(expected, &return_type, span)?;
+    let lowered = lower_api_arguments(api, arguments, named_arguments, span, ctx)?;
+    native_plan(api, lowered, span)
+}
 
-    // Native APIs accept positional arguments in their documented parameter
-    // order, followed by named arguments for clarity or optional parameters.
-    // Binding here keeps the generated IR identical for both call styles.
-    if arguments.len() > specs.len() {
+fn lower_api_arguments(
+    api: &super::core_api::CoreApiDefinition,
+    arguments: &[ast::Expr],
+    named_arguments: &BTreeMap<String, ast::Expr>,
+    span: Span,
+    ctx: &ExprContext<'_>,
+) -> Result<Vec<(String, Expr)>, CompileError> {
+    let qualified_name = api.qualified_name;
+    if arguments.len() > api.arguments.len() {
         return Err(CompileError::new(
             span,
             format!(
                 "`{qualified_name}` accepts at most {} positional arguments",
-                specs.len()
+                api.arguments.len()
             ),
         ));
     }
-    let mut supplied = named_arguments.clone();
+
+    // Positional values bind by catalog order; named values use the same
+    // catalog labels, so both forms produce the same typed IR arguments.
+    let mut supplied = vec![None; api.arguments.len()];
     for (index, argument) in arguments.iter().enumerate() {
-        let parameter = specs[index].0;
-        if supplied
-            .insert(parameter.to_owned(), argument.clone())
-            .is_some()
-        {
+        supplied[index] = Some(argument);
+    }
+    for (name, argument) in named_arguments {
+        let Some(index) = api
+            .arguments
+            .iter()
+            .position(|parameter| parameter.name == name.as_str())
+        else {
+            let hint = if name == "timeout" && qualified_name.starts_with("Network.") {
+                "; use `timeoutSeconds` (measured in seconds)"
+            } else if name == "useCache" && qualified_name.starts_with("Network.") {
+                "; use `cachePolicy` with `Default`, `Reload`, or `CacheOnly`"
+            } else {
+                ""
+            };
+            return Err(CompileError::new(
+                span,
+                format!("unknown option `{name}` for `{qualified_name}`{hint}"),
+            ));
+        };
+        if supplied[index].replace(argument).is_some() {
             return Err(CompileError::new(
                 argument.span(),
-                format!("`{parameter}` was provided more than once to `{qualified_name}`"),
+                format!("`{name}` was provided more than once to `{qualified_name}`"),
             ));
         }
     }
-    let known = specs.iter().map(|(name, ..)| *name).collect::<HashSet<_>>();
-    if let Some(unknown) = supplied.keys().find(|name| !known.contains(name.as_str())) {
-        return Err(CompileError::new(
-            span,
-            format!("unknown option `{unknown}` for `{qualified_name}`"),
-        ));
-    }
-    let mut lowered = Vec::with_capacity(specs.len());
-    for (argument_name, argument_type, default) in specs {
-        let argument = supplied
-            .get(argument_name)
-            .or(default.as_ref())
-            .ok_or_else(|| {
-                CompileError::new(
-                    span,
-                    format!("`{qualified_name}` requires `{argument_name}`"),
-                )
-            })?;
-        let lowered_argument = match (qualified_name.as_str(), argument_name, argument) {
-            ("Haptics.impact", "style", ast::Expr::Name(name, _))
-                if matches!(name.as_str(), "Light" | "Medium" | "Heavy") =>
-            {
-                Expr::String(name.clone())
-            }
-            ("Haptics.notification", "kind", ast::Expr::Name(name, _))
-                if matches!(name.as_str(), "Success" | "Error") =>
-            {
-                Expr::String(name.clone())
-            }
-            ("Screen.lockOrientation", "mode", ast::Expr::Name(name, _))
-                if matches!(name.as_str(), "Portrait" | "Landscape" | "All") =>
-            {
-                Expr::String(name.clone())
-            }
-            ("Screen.lockOrientation", "mode", value) => {
+
+    let mut lowered = Vec::with_capacity(api.arguments.len());
+    for (index, contract) in api.arguments.iter().enumerate() {
+        let default = contract.default.to_ast(span);
+        let argument = supplied[index].or(default.as_ref()).ok_or_else(|| {
+            CompileError::new(
+                span,
+                format!("`{qualified_name}` requires `{}`", contract.name),
+            )
+        })?;
+        let lowered_argument = if !contract.allowed_values.is_empty() {
+            let (value, value_span) = match argument {
+                ast::Expr::Name(value, value_span) | ast::Expr::String(value, value_span) => {
+                    (value, value_span)
+                }
+                _ => {
+                    return Err(CompileError::new(
+                        argument.span(),
+                        format!(
+                            "{qualified_name} {} must be one of: {}",
+                            contract.name,
+                            contract.allowed_values.join(", ")
+                        ),
+                    ));
+                }
+            };
+            if !contract.allowed_values.contains(&value.as_str()) {
                 return Err(CompileError::new(
-                    value.span(),
-                    "Screen.lockOrientation mode must be `Portrait`, `Landscape`, or `All`",
+                    *value_span,
+                    format!(
+                        "{qualified_name} {} must be one of: {}",
+                        contract.name,
+                        contract.allowed_values.join(", ")
+                    ),
                 ));
             }
-            ("Haptics.impact", "style", value) => {
-                return Err(CompileError::new(
-                    value.span(),
-                    "Haptics.impact style must be `Light`, `Medium`, or `Heavy`",
-                ));
-            }
-            ("Haptics.notification", "kind", value) => {
-                return Err(CompileError::new(
-                    value.span(),
-                    "Haptics.notification kind must be `Success` or `Error`",
-                ));
-            }
-            _ => lower_expr(argument, Some(&argument_type), ctx)?,
+            Expr::String(value.clone())
+        } else {
+            lower_expr(argument, Some(&contract.ty.to_ir()), ctx)?
         };
-        lowered.push((argument_name.to_owned(), lowered_argument));
+        lowered.push((contract.name.to_owned(), lowered_argument));
     }
-    native_plan(&qualified_name, lowered, span)
+    Ok(lowered)
 }
 
 fn lower_user_class_static_call(
@@ -3378,10 +3551,11 @@ fn lower_user_class_static_call(
 /// a panic, and the returned variants carry no optional bindings for
 /// renderers to unwrap.
 fn native_plan(
-    qualified_name: &str,
+    api: &super::core_api::CoreApiDefinition,
     lowered: Vec<(String, Expr)>,
     span: Span,
 ) -> Result<Expr, CompileError> {
+    let qualified_name = api.qualified_name;
     let take = |name: &str| {
         lowered
             .iter()
@@ -3398,13 +3572,19 @@ fn native_plan(
             url: Box::new(take("url")?),
             method: Box::new(take("method")?),
             headers: Box::new(take("headers")?),
-            timeout: Box::new(take("timeout")?),
-            use_cache: Box::new(take("useCache")?),
+            timeout: Box::new(take("timeoutSeconds")?),
+            cache_policy: Box::new(take("cachePolicy")?),
             follow_redirects: Box::new(take("followRedirects")?),
             max_response_bytes: Box::new(take("maxResponseBytes")?),
             certificate_pins: Box::new(take("certificatePins")?),
             body,
         })
+    };
+    let time_call = |method, arguments| Expr::TimeCall {
+        method,
+        arguments,
+        return_type: api.result.to_ir(),
+        is_async: api.asynchronous,
     };
     match qualified_name {
         "Network.fetch" => Ok(Expr::NetworkFetch(Box::new(network_request()?))),
@@ -3412,37 +3592,6 @@ fn native_plan(
             destination: Box::new(take("destinationPath")?),
             request: Box::new(network_request()?),
         }),
-        "Network.upload" => Ok(Expr::NativeCall {
-            receiver: None,
-            namespace: "Network".to_owned(),
-            name: "upload".to_owned(),
-            arguments: vec![
-                ("url".to_owned(), take("url")?),
-                ("file".to_owned(), take("file")?),
-                ("fields".to_owned(), take("fields")?),
-            ],
-            codecs: Vec::new(),
-            return_type: Type::NetworkResponse,
-            source_span: Some(span),
-            is_async: true,
-            is_throwing: true,
-        }),
-        "Path.documents" | "Path.caches" | "Path.temporary" | "Path.appSupport" => {
-            let Some((namespace, name)) = qualified_name.split_once('.') else {
-                return Err(CompileError::new(span, "invalid built-in path API"));
-            };
-            Ok(Expr::NativeCall {
-                receiver: None,
-                namespace: namespace.to_owned(),
-                name: name.to_owned(),
-                arguments: Vec::new(),
-                codecs: Vec::new(),
-                return_type: Type::String,
-                source_span: Some(span),
-                is_async: false,
-                is_throwing: false,
-            })
-        }
         "Path.join" => Ok(Expr::PathJoin {
             path: Box::new(take("path")?),
             component: Box::new(take("component")?),
@@ -3453,34 +3602,19 @@ fn native_plan(
         "File.readText" => Ok(Expr::FileReadText {
             path: Box::new(take("path")?),
         }),
+        "File.readBytes" => Ok(Expr::FileReadBytes {
+            path: Box::new(take("path")?),
+        }),
         "File.writeText" => Ok(Expr::FileWriteText {
+            path: Box::new(take("path")?),
+            contents: Box::new(take("contents")?),
+        }),
+        "File.writeBytes" => Ok(Expr::FileWriteBytes {
             path: Box::new(take("path")?),
             contents: Box::new(take("contents")?),
         }),
         "File.delete" => Ok(Expr::FileDelete {
             path: Box::new(take("path")?),
-        }),
-        "Keyboard.dismiss" => Ok(Expr::NativeCall {
-            receiver: None,
-            namespace: "Keyboard".to_owned(),
-            name: "dismiss".to_owned(),
-            arguments: Vec::new(),
-            codecs: Vec::new(),
-            return_type: Type::Void,
-            source_span: Some(span),
-            is_async: false,
-            is_throwing: false,
-        }),
-        "Screen.lockOrientation" => Ok(Expr::NativeCall {
-            receiver: None,
-            namespace: "Screen".to_owned(),
-            name: "lockOrientation".to_owned(),
-            arguments: vec![("mode".to_owned(), take("mode")?)],
-            codecs: Vec::new(),
-            return_type: Type::Void,
-            source_span: Some(span),
-            is_async: false,
-            is_throwing: false,
         }),
         "Permissions.status" => Ok(Expr::PermissionOp {
             op: nexa_ir::PermissionOpKind::Status,
@@ -3499,266 +3633,6 @@ fn native_plan(
         "Bytes.count" => Ok(Expr::BytesCount {
             bytes: Box::new(take("bytes")?),
         }),
-        "Time.now" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::Now,
-            arguments: Vec::new(),
-            return_type: Type::Numeric(NumericType::Int64),
-            is_async: false,
-        }),
-        "Time.monotonic" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::Monotonic,
-            arguments: Vec::new(),
-            return_type: Type::Numeric(NumericType::Int64),
-            is_async: false,
-        }),
-        "Time.elapsed" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::Elapsed,
-            arguments: vec![take("since")?],
-            return_type: Type::Numeric(NumericType::Int64),
-            is_async: false,
-        }),
-        "Time.sleep" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::Sleep,
-            arguments: vec![take("milliseconds")?],
-            return_type: Type::Void,
-            is_async: true,
-        }),
-        "Time.iso8601" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::Iso8601,
-            arguments: vec![take("timestamp")?],
-            return_type: Type::String,
-            is_async: false,
-        }),
-        "Time.iso8601ToMillis" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::Iso8601ToMillis,
-            arguments: vec![take("text")?],
-            return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
-            is_async: false,
-        }),
-        "Time.startOfDay" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::StartOfDay,
-            arguments: vec![take("timestamp")?],
-            return_type: Type::Numeric(NumericType::Int64),
-            is_async: false,
-        }),
-        "Time.addCalendarDays" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::AddCalendarDays,
-            arguments: vec![take("timestamp")?, take("days")?],
-            return_type: Type::Numeric(NumericType::Int64),
-            is_async: false,
-        }),
-        "Time.localizedDate" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::LocalizedDate,
-            arguments: vec![take("timestamp")?],
-            return_type: Type::String,
-            is_async: false,
-        }),
-        "Time.localizedTime" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::LocalizedTime,
-            arguments: vec![take("timestamp")?],
-            return_type: Type::String,
-            is_async: false,
-        }),
-        "Time.localizedDateTime" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::LocalizedDateTime,
-            arguments: vec![take("timestamp")?],
-            return_type: Type::String,
-            is_async: false,
-        }),
-        "Time.format" => Ok(Expr::TimeCall {
-            method: nexa_ir::TimeMethod::Format,
-            arguments: vec![take("timestamp")?, take("pattern")?],
-            return_type: Type::String,
-            is_async: false,
-        }),
-        "AppIcon.set" => Ok(Expr::NativeCall {
-            receiver: None,
-            namespace: "AppIcon".to_owned(),
-            name: "set".to_owned(),
-            arguments: vec![("name".to_owned(), take("name")?)],
-            codecs: Vec::new(),
-            return_type: Type::Bool,
-            source_span: Some(span),
-            is_async: true,
-            is_throwing: false,
-        }),
-        "Number.formatCurrency" => Ok(Expr::NativeCall {
-            receiver: None,
-            namespace: "Number".to_owned(),
-            name: "formatCurrency".to_owned(),
-            arguments: vec![
-                ("amount".to_owned(), take("amount")?),
-                ("currencyCode".to_owned(), take("currencyCode")?),
-            ],
-            codecs: Vec::new(),
-            return_type: Type::String,
-            source_span: Some(span),
-            is_async: false,
-            is_throwing: false,
-        }),
-        "Locale.currentLanguageCode" | "Locale.preferredLanguageCodes" => {
-            let Some((namespace, name)) = qualified_name.split_once('.') else {
-                return Err(CompileError::new(span, "invalid built-in locale API"));
-            };
-            Ok(Expr::NativeCall {
-                receiver: None,
-                namespace: namespace.to_owned(),
-                name: name.to_owned(),
-                arguments: Vec::new(),
-                codecs: Vec::new(),
-                return_type: if name == "currentLanguageCode" {
-                    Type::String
-                } else {
-                    Type::Array(Box::new(Type::String))
-                },
-                source_span: Some(span),
-                is_async: false,
-                is_throwing: false,
-            })
-        }
-        "Crypto.sha256" | "Crypto.sha512" | "Crypto.hmacSha256" | "Crypto.randomBytes" => {
-            let Some((namespace, name)) = qualified_name.split_once('.') else {
-                return Err(CompileError::new(span, "invalid built-in crypto API"));
-            };
-            let argument_names: &[&str] = match name {
-                "sha256" | "sha512" => &["text"],
-                "hmacSha256" => &["key", "message"],
-                _ => &["count"],
-            };
-            let arguments = argument_names
-                .iter()
-                .map(|argument| Ok(((*argument).to_owned(), take(argument)?)))
-                .collect::<Result<Vec<_>, CompileError>>()?;
-            Ok(Expr::NativeCall {
-                receiver: None,
-                namespace: namespace.to_owned(),
-                name: name.to_owned(),
-                arguments,
-                codecs: Vec::new(),
-                return_type: Type::String,
-                source_span: Some(span),
-                is_async: false,
-                is_throwing: false,
-            })
-        }
-        "SecureStorage.get"
-        | "SecureStorage.set"
-        | "SecureStorage.delete"
-        | "SecureStorage.clear" => {
-            let Some((namespace, name)) = qualified_name.split_once('.') else {
-                return Err(CompileError::new(
-                    span,
-                    "invalid built-in secure storage API",
-                ));
-            };
-            let arguments = match name {
-                "get" | "delete" => vec![("key".to_owned(), take("key")?)],
-                "set" => vec![
-                    ("key".to_owned(), take("key")?),
-                    ("value".to_owned(), take("value")?),
-                ],
-                _ => Vec::new(),
-            };
-            Ok(Expr::NativeCall {
-                receiver: None,
-                namespace: namespace.to_owned(),
-                name: name.to_owned(),
-                arguments,
-                codecs: Vec::new(),
-                return_type: if name == "get" {
-                    Type::Optional(Box::new(Type::String))
-                } else {
-                    Type::Void
-                },
-                source_span: Some(span),
-                is_async: true,
-                is_throwing: true,
-            })
-        }
-        "Storage.getString" | "Storage.setString" | "Storage.delete" | "Storage.clear" => {
-            let arguments = match qualified_name {
-                "Storage.getString" | "Storage.delete" => {
-                    vec![("key".to_owned(), take("key")?)]
-                }
-                "Storage.setString" => vec![
-                    ("key".to_owned(), take("key")?),
-                    ("value".to_owned(), take("value")?),
-                ],
-                _ => Vec::new(),
-            };
-            let (namespace, name) = qualified_name
-                .split_once('.')
-                .ok_or_else(|| CompileError::new(span, "invalid storage API"))?;
-            Ok(Expr::NativeCall {
-                receiver: None,
-                namespace: namespace.to_owned(),
-                name: name.to_owned(),
-                arguments,
-                codecs: Vec::new(),
-                return_type: if name == "getString" {
-                    Type::Optional(Box::new(Type::String))
-                } else {
-                    Type::Void
-                },
-                source_span: Some(span),
-                is_async: false,
-                is_throwing: false,
-            })
-        }
-        "Clipboard.setText" | "Clipboard.getText" | "Clipboard.hasText" => {
-            let Some((namespace, name)) = qualified_name.split_once('.') else {
-                return Err(CompileError::new(span, "invalid clipboard API"));
-            };
-            let arguments = if name == "setText" {
-                vec![("text".to_owned(), take("text")?)]
-            } else {
-                Vec::new()
-            };
-            Ok(Expr::NativeCall {
-                receiver: None,
-                namespace: namespace.to_owned(),
-                name: name.to_owned(),
-                arguments,
-                codecs: Vec::new(),
-                return_type: match name {
-                    "getText" => Type::Optional(Box::new(Type::String)),
-                    "hasText" => Type::Bool,
-                    _ => Type::Void,
-                },
-                source_span: Some(span),
-                is_async: false,
-                is_throwing: false,
-            })
-        }
-        "Haptics.impact" | "Haptics.notification" | "Haptics.selection" => {
-            let name = match qualified_name {
-                "Haptics.impact" => "impact",
-                "Haptics.notification" => "notification",
-                "Haptics.selection" => "selection",
-                _ => {
-                    return Err(CompileError::new(
-                        span,
-                        format!("unknown native API `{qualified_name}`"),
-                    ));
-                }
-            };
-            let arguments = match qualified_name {
-                "Haptics.impact" => vec![("style".to_owned(), take("style")?)],
-                "Haptics.notification" => vec![("kind".to_owned(), take("kind")?)],
-                _ => Vec::new(),
-            };
-            Ok(Expr::NativeCall {
-                receiver: None,
-                namespace: "Haptics".to_owned(),
-                name: name.to_owned(),
-                arguments,
-                codecs: Vec::new(),
-                return_type: Type::Void,
-                source_span: Some(span),
-                is_async: false,
-                is_throwing: false,
-            })
-        }
         "Log.info" | "Log.warning" | "Log.error" => Ok(Expr::LogCall {
             method: match qualified_name {
                 "Log.info" => nexa_ir::LogMethod::Info,
@@ -3767,64 +3641,89 @@ fn native_plan(
             },
             message: Box::new(take("message")?),
         }),
-        "Regex.isMatch" | "Regex.matches" | "Regex.replace" => {
-            let (method_name, return_type) = match qualified_name {
-                "Regex.isMatch" => ("isMatch", Type::Bool),
-                "Regex.matches" => ("matches", Type::Array(Box::new(Type::String))),
-                _ => ("replace", Type::String),
+        "Time.now" => Ok(time_call(nexa_ir::TimeMethod::Now, Vec::new())),
+        "Time.monotonic" => Ok(time_call(nexa_ir::TimeMethod::Monotonic, Vec::new())),
+        "Time.elapsed" => Ok(time_call(
+            nexa_ir::TimeMethod::Elapsed,
+            vec![take("since")?],
+        )),
+        "Time.sleep" => Ok(time_call(
+            nexa_ir::TimeMethod::Sleep,
+            vec![take("milliseconds")?],
+        )),
+        "Time.iso8601" => Ok(time_call(
+            nexa_ir::TimeMethod::Iso8601,
+            vec![take("timestamp")?],
+        )),
+        "Time.iso8601ToMillis" => Ok(time_call(
+            nexa_ir::TimeMethod::Iso8601ToMillis,
+            vec![take("text")?],
+        )),
+        "Time.startOfDay" => Ok(time_call(
+            nexa_ir::TimeMethod::StartOfDay,
+            vec![take("timestamp")?],
+        )),
+        "Time.addCalendarDays" => Ok(time_call(
+            nexa_ir::TimeMethod::AddCalendarDays,
+            vec![take("timestamp")?, take("days")?],
+        )),
+        "Time.localizedDate" => Ok(time_call(
+            nexa_ir::TimeMethod::LocalizedDate,
+            vec![take("timestamp")?],
+        )),
+        "Time.localizedTime" => Ok(time_call(
+            nexa_ir::TimeMethod::LocalizedTime,
+            vec![take("timestamp")?],
+        )),
+        "Time.localizedDateTime" => Ok(time_call(
+            nexa_ir::TimeMethod::LocalizedDateTime,
+            vec![take("timestamp")?],
+        )),
+        "Time.format" => Ok(time_call(
+            nexa_ir::TimeMethod::Format,
+            vec![take("timestamp")?, take("pattern")?],
+        )),
+        _ if api.receiver.is_some() => Err(CompileError::new(
+            span,
+            format!("native method `{qualified_name}` must be called on an instance"),
+        )),
+        _ => {
+            let Some((namespace, name)) = qualified_name.split_once('.') else {
+                return Err(CompileError::new(
+                    span,
+                    format!("invalid built-in API name `{qualified_name}`"),
+                ));
             };
-            let arguments = match qualified_name {
-                "Regex.isMatch" | "Regex.matches" => vec![
-                    ("pattern".to_owned(), take("pattern")?),
-                    ("text".to_owned(), take("text")?),
-                ],
-                _ => vec![
-                    ("pattern".to_owned(), take("pattern")?),
-                    ("text".to_owned(), take("text")?),
-                    ("replacement".to_owned(), take("replacement")?),
-                ],
-            };
+            let arguments = lowered
+                .into_iter()
+                .map(|(argument_name, value)| {
+                    let argument_name = if qualified_name == "Network.upload"
+                        && argument_name == "timeoutSeconds"
+                    {
+                        "timeout".to_owned()
+                    } else {
+                        argument_name
+                    };
+                    (argument_name, value)
+                })
+                .collect();
             Ok(Expr::NativeCall {
                 receiver: None,
-                namespace: "Regex".to_owned(),
-                name: method_name.to_owned(),
+                namespace: namespace.to_owned(),
+                name: name.to_owned(),
                 arguments,
                 codecs: Vec::new(),
-                return_type,
+                return_type: api.result.to_ir(),
                 source_span: Some(span),
-                is_async: false,
-                is_throwing: false,
+                is_async: api.asynchronous,
+                is_throwing: api.throwing,
             })
         }
-        _ => Err(CompileError::new(
-            span,
-            format!("unknown native API `{qualified_name}`"),
-        )),
     }
 }
 
 fn is_core_native_namespace(namespace: &str) -> bool {
-    matches!(
-        namespace,
-        "Network"
-            | "Path"
-            | "File"
-            | "Permissions"
-            | "Bytes"
-            | "Time"
-            | "Log"
-            | "Keyboard"
-            | "Number"
-            | "Json"
-            | "JSON"
-            | "Crypto"
-            | "SecureStorage"
-            | "Storage"
-            | "Clipboard"
-            | "Haptics"
-            | "Regex"
-            | "BottomSheet"
-    )
+    super::core_api::is_core_namespace(namespace)
 }
 
 fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, CompileError> {
@@ -4011,6 +3910,198 @@ fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, Comp
     }
 }
 
+fn lower_typed_storage_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, CompileError> {
+    let CallArguments {
+        type_arguments,
+        arguments,
+        named_arguments,
+        span,
+        expected,
+        ctx,
+        awaited,
+    } = call;
+    let resolved_expected = expected.map(|ty| resolve_struct_type(ty, ctx.structs));
+    if awaited {
+        return Err(CompileError::new(
+            span,
+            format!("native call `Storage.{name}` is not async and cannot be awaited"),
+        ));
+    }
+    let qualified_name = format!("Storage.{name}");
+    let explicit_type = match name {
+        "get" if type_arguments.len() != 1 => {
+            if type_arguments.is_empty() {
+                None
+            } else {
+                return Err(CompileError::new(
+                    span,
+                    "`Storage.get` accepts one type argument, for example `Storage.get<Settings>(key: \"reader.settings\")`",
+                ));
+            }
+        }
+        "set" if type_arguments.len() > 1 => {
+            return Err(CompileError::new(
+                span,
+                "`Storage.set` accepts at most one type argument",
+            ));
+        }
+        _ => type_arguments
+            .first()
+            .map(parse_type)
+            .transpose()?
+            .map(|ty| resolve_struct_type(&ty, ctx.structs)),
+    };
+    let value_type = if name == "get" {
+        let expected_value = match resolved_expected.as_ref() {
+            Some(Type::Optional(inner)) => Some(inner.as_ref().clone()),
+            Some(other) => {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "`Storage.get<T>` returns `T?`, found expected {}",
+                        type_name(other)
+                    ),
+                ));
+            }
+            None => None,
+        };
+        match (explicit_type, expected_value) {
+            (Some(explicit), Some(expected)) if explicit != expected => {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "`Storage.get` type argument is {}, but the expected value is {}",
+                        type_name(&explicit),
+                        type_name(&expected)
+                    ),
+                ));
+            }
+            (Some(explicit), _) => explicit,
+            (None, Some(expected)) => expected,
+            (None, None) => {
+                return Err(CompileError::new(
+                    span,
+                    "`Storage.get` needs a value type; write `Storage.get<Settings>(key: \"reader.settings\")` or annotate the result as `Settings?`",
+                ));
+            }
+        }
+    } else {
+        let value = storage_argument(
+            arguments,
+            named_arguments,
+            1,
+            "value",
+            &qualified_name,
+            span,
+        )?;
+        let inferred = infer_expr_type(value, ctx.symbols, ctx.functions)
+            .map(|ty| resolve_struct_type(&ty, ctx.structs));
+        match (explicit_type, inferred) {
+            (Some(explicit), Some(inferred)) if explicit != inferred => {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "`Storage.set` type argument is {}, but the value has type {}",
+                        type_name(&explicit),
+                        type_name(&inferred)
+                    ),
+                ));
+            }
+            (Some(explicit), _) => explicit,
+            (None, Some(inferred)) => inferred,
+            (None, None) => {
+                return Err(CompileError::new(
+                    span,
+                    "cannot infer the value type for `Storage.set`; add a type argument such as `Storage.set<Settings>(key: \"reader.settings\", value: settings)`",
+                ));
+            }
+        }
+    };
+    validate_json_value_type(&value_type, ctx.enums, span)?;
+    let result_type = if name == "get" {
+        Type::Optional(Box::new(value_type.clone()))
+    } else {
+        Type::Void
+    };
+    require_expected(resolved_expected.as_ref(), &result_type, span)?;
+    let key = storage_argument(arguments, named_arguments, 0, "key", &qualified_name, span)?;
+    let lowered_key = lower_expr(key, Some(&Type::String), ctx)?;
+    let mut lowered_arguments = vec![("key".to_owned(), lowered_key)];
+    if name == "set" {
+        let value = storage_argument(
+            arguments,
+            named_arguments,
+            1,
+            "value",
+            &qualified_name,
+            span,
+        )?;
+        lowered_arguments.push((
+            "value".to_owned(),
+            lower_expr(value, Some(&value_type), ctx)?,
+        ));
+    }
+    Ok(Expr::NativeCall {
+        receiver: None,
+        namespace: "Storage".to_owned(),
+        name: name.to_owned(),
+        arguments: lowered_arguments,
+        codecs: vec![PluginCodec {
+            ty: value_type,
+            decodes: name == "get",
+            row_mapper: false,
+        }],
+        return_type: result_type,
+        source_span: Some(span),
+        is_async: false,
+        is_throwing: false,
+    })
+}
+
+fn storage_argument<'a>(
+    arguments: &'a [ast::Expr],
+    named_arguments: &'a BTreeMap<String, ast::Expr>,
+    position: usize,
+    name: &str,
+    qualified_name: &str,
+    span: Span,
+) -> Result<&'a ast::Expr, CompileError> {
+    let allowed_names: &[&str] = if qualified_name == "Storage.get" {
+        &["key"]
+    } else {
+        &["key", "value"]
+    };
+    if arguments.len() > allowed_names.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "`{qualified_name}` accepts at most {} positional argument(s)",
+                allowed_names.len()
+            ),
+        ));
+    }
+    if let Some(unknown) = named_arguments
+        .keys()
+        .find(|key| !allowed_names.contains(&key.as_str()))
+    {
+        return Err(CompileError::new(
+            span,
+            format!("unknown argument `{unknown}` for `{qualified_name}`"),
+        ));
+    }
+    let named = named_arguments.get(name);
+    let positional = arguments.get(position);
+    if named.is_some() && positional.is_some() {
+        return Err(CompileError::new(
+            span,
+            format!("`{name}` was provided more than once to `{qualified_name}`"),
+        ));
+    }
+    named
+        .or(positional)
+        .ok_or_else(|| CompileError::new(span, format!("`{qualified_name}` requires `{name}`")))
+}
+
 fn validate_json_value_type(
     ty: &Type,
     enum_names: &HashSet<String>,
@@ -4049,9 +4140,12 @@ fn validate_json_value_type(
             validate_json_value_type(second, enum_names, span)?;
             validate_json_value_type(third, enum_names, span)
         }
-        Type::Struct { fields, .. } | Type::Class { fields, .. } => fields
+        Type::Struct { fields, .. } => fields
             .iter()
             .try_for_each(|(_, field)| validate_json_value_type(field, enum_names, span)),
+        Type::Class { .. } => Err(unsupported(
+            "native class instances cannot be represented as JSON values; use a `.nx` struct",
+        )),
         Type::Void => Err(unsupported("`Void` is not a JSON value type")),
         Type::TypeParam(_) => Err(unsupported(
             "JSON codecs require a concrete value type at compile time",
@@ -4064,6 +4158,9 @@ fn validate_json_value_type(
         )),
         Type::NetworkResponse => Err(unsupported(
             "`NetworkResponse` cannot be represented directly as a JSON value; decode its body string instead",
+        )),
+        Type::ComponentRef { .. } | Type::ComponentRefError(_) => Err(unsupported(
+            "component references and their errors cannot be represented as JSON values",
         )),
         Type::Signal(_) => Err(unsupported("signals cannot be represented as JSON values")),
     }
@@ -4086,10 +4183,9 @@ fn lower_plugin_call(
     let expected_type = expected.map(|ty| resolve_struct_type(ty, ctx.structs));
     let expected = expected_type.as_ref();
     let qualified_name = format!("{namespace}.{name}");
-    let signature = ctx
-        .functions
-        .get(&qualified_name)
-        .expect("plugin signature checked before lowering");
+    let signature = ctx.functions.get(&qualified_name).ok_or_else(|| {
+        CompileError::new(span, format!("unknown native function `{qualified_name}`"))
+    })?;
     reject_unhandled_plugin_errors(&qualified_name, signature, span)?;
     if signature.is_async && !awaited {
         return Err(CompileError::new(
@@ -4163,6 +4259,9 @@ fn lower_plugin_call(
             structs: ctx.structs,
             enums: ctx.enums,
             allow_nullable_generic_plugin_reads: ctx.allow_nullable_generic_plugin_reads,
+            screen_ids: ctx.screen_ids,
+            allow_navigation_actions: ctx.allow_navigation_actions,
+            source_file: ctx.source_file,
         },
         span,
     )?;
@@ -4253,6 +4352,7 @@ fn lower_plugin_method_call(
     let (namespace, class) = match &base_type {
         Type::Plugin { namespace, name } => (namespace.clone(), name.clone()),
         Type::Class { name, .. } => (format!("__NexaUserClass:{name}"), name.clone()),
+        Type::ComponentRef { namespace, name } => (namespace.clone(), name.clone()),
         _ => {
             return Err(CompileError::new(
                 span,
@@ -4260,14 +4360,25 @@ fn lower_plugin_method_call(
             ));
         }
     };
-    let qualified_name = format!("{class}.{name}");
+    let qualified_name = match &base_type {
+        Type::ComponentRef {
+            namespace,
+            name: component,
+        } => {
+            format!("{namespace}.{component}.{name}")
+        }
+        _ => format!("{class}.{name}"),
+    };
     let Some(signature) = ctx.functions.get(&qualified_name) else {
         return Err(CompileError::new(
             span,
             format!("unknown class method `{class}.{name}`"),
         ));
     };
-    reject_unhandled_plugin_errors(&qualified_name, signature, span)?;
+    let is_component_ref = matches!(base_type, Type::ComponentRef { .. });
+    if !is_component_ref {
+        reject_unhandled_plugin_errors(&qualified_name, signature, span)?;
+    }
     if signature.receiver.as_ref() != Some(&base_type) {
         return Err(CompileError::new(
             span,
@@ -4346,6 +4457,9 @@ fn lower_plugin_method_call(
             structs: ctx.structs,
             enums: ctx.enums,
             allow_nullable_generic_plugin_reads: ctx.allow_nullable_generic_plugin_reads,
+            screen_ids: ctx.screen_ids,
+            allow_navigation_actions: ctx.allow_navigation_actions,
+            source_file: ctx.source_file,
         },
         span,
     )?;
@@ -4356,6 +4470,27 @@ fn lower_plugin_method_call(
             signature.return_type.clone(),
             Vec::new(),
         ),
+    };
+    let return_type = if is_component_ref {
+        let (success, declared_failure) = match return_type {
+            Type::Result(success, failure) => (*success, Some(*failure)),
+            value => (value, None),
+        };
+        let failure = signature
+            .error_type
+            .as_ref()
+            .map(|error| Type::Plugin {
+                namespace: error.namespace.clone(),
+                name: error.name.clone(),
+            })
+            .or(declared_failure)
+            .unwrap_or(Type::Void);
+        Type::Result(
+            Box::new(success),
+            Box::new(Type::ComponentRefError(Box::new(failure))),
+        )
+    } else {
+        return_type
     };
     if !expected.is_some_and(crate::semantic::generics::mentions_type_parameter) {
         require_expected(expected, &return_type, span)?;
@@ -4379,7 +4514,7 @@ fn lower_plugin_method_call(
             .collect(),
         source_span: Some(span),
         is_async: signature.is_async,
-        is_throwing: signature.is_throwing,
+        is_throwing: signature.is_throwing && !is_component_ref,
     })
 }
 
@@ -4452,52 +4587,6 @@ pub(super) fn plugin_error_variant(
             .find(|variant| variant.name == variant_name)
             .cloned()
     })
-}
-
-fn network_specs(span: Span, download: bool) -> Vec<(&'static str, Type, Option<ast::Expr>)> {
-    let string = || Type::String;
-    let optional_string = || Type::Optional(Box::new(Type::String));
-    let empty_map = ast::Expr::Map(Vec::new(), span);
-    let empty_set = ast::Expr::Array(Vec::new(), span);
-    let mut specs = vec![
-        ("url", string(), None),
-        (
-            "method",
-            string(),
-            Some(ast::Expr::String("GET".to_owned(), span)),
-        ),
-        ("body", optional_string(), Some(ast::Expr::Null(span))),
-        (
-            "headers",
-            Type::Map(Box::new(Type::String), Box::new(Type::String)),
-            Some(empty_map),
-        ),
-        (
-            "timeout",
-            Type::Numeric(NumericType::Float64),
-            Some(ast::Expr::Number("30".to_owned(), span)),
-        ),
-        ("useCache", Type::Bool, Some(ast::Expr::Bool(true, span))),
-        (
-            "followRedirects",
-            Type::Bool,
-            Some(ast::Expr::Bool(true, span)),
-        ),
-        (
-            "maxResponseBytes",
-            Type::Numeric(NumericType::Int64),
-            Some(ast::Expr::Number("67108864".to_owned(), span)),
-        ),
-        (
-            "certificatePins",
-            Type::Set(Box::new(Type::String)),
-            Some(empty_set),
-        ),
-    ];
-    if download {
-        specs.insert(1, ("destinationPath", string(), None));
-    }
-    specs
 }
 
 fn lower_binary(
@@ -4587,10 +4676,12 @@ fn lower_binary(
         });
     }
 
-    if expected.is_some_and(|expected| expected != &Type::Bool) {
+    if let Some(expected) = expected
+        && expected != &Type::Bool
+    {
         return Err(CompileError::new(
             span,
-            "comparison expressions produce Bool",
+            type_mismatch_message(expected, &Type::Bool),
         ));
     }
     let left_type = infer_expr_type(left, ctx.symbols, ctx.functions);
@@ -4682,7 +4773,12 @@ fn is_equatable_type(ty: &Type, symbols: &HashMap<String, (Type, bool)>) -> bool
         }
         Type::Class { .. } => false,
         Type::Signal(_) => false,
-        Type::Void | Type::Bytes | Type::TaskHandle | Type::NetworkResponse => false,
+        Type::Void
+        | Type::Bytes
+        | Type::TaskHandle
+        | Type::NetworkResponse
+        | Type::ComponentRef { .. }
+        | Type::ComponentRefError(_) => false,
     }
 }
 
@@ -4763,6 +4859,8 @@ pub(super) fn infer_expr_type(
         ast::Expr::Call(name, type_arguments, args, _) => {
             if name == "Regex" && args.len() == 1 {
                 Some(regex_type())
+            } else if name == "ComponentRef" && args.is_empty() {
+                type_arguments.first().and_then(component_ref_target)
             } else if name == "Ok" && args.len() == 1 {
                 infer_expr_type(&args[0], symbols, functions)
                     .map(|v| Type::Result(Box::new(v), Box::new(Type::String)))
@@ -4810,57 +4908,35 @@ pub(super) fn infer_expr_type(
             arguments,
             named_arguments,
             ..
-        } => match (namespace.as_str(), name.as_str()) {
-            ("Network", "fetch" | "upload") => Some(Type::NetworkResponse),
-            ("Network", "download")
-            | ("File", "writeText")
-            | ("File", "delete")
-            | ("File", "exists") => Some(Type::Bool),
-            ("Path", "documents")
-            | ("Path", "caches")
-            | ("Path", "temporary")
-            | ("Path", "appSupport")
-            | ("Path", "join")
-            | ("File", "readText") => Some(Type::String),
-            ("Bytes", "fromText") | ("Bytes", "fromArray") => Some(Type::Bytes),
-            ("Bytes", "count") => Some(Type::Numeric(NumericType::Int32)),
-            ("Clipboard", "getText") => Some(Type::Optional(Box::new(Type::String))),
-            ("Clipboard", "hasText") => Some(Type::Bool),
-            ("Clipboard", "setText") => Some(Type::Void),
-            ("Storage", "getString") => Some(Type::Optional(Box::new(Type::String))),
-            ("Storage", "setString" | "delete" | "clear") => Some(Type::Void),
-            ("Haptics", "impact" | "notification" | "selection") => Some(Type::Void),
-            ("Screen", "lockOrientation") => Some(Type::Void),
-            ("Regex", "isMatch") => Some(Type::Bool),
-            ("Regex", "matches") => Some(Type::Array(Box::new(Type::String))),
-            ("Regex", "replace") => Some(Type::String),
-            ("Time", "now")
-            | ("Time", "monotonic")
-            | ("Time", "startOfDay")
-            | ("Time", "addCalendarDays") => Some(Type::Numeric(NumericType::Int64)),
-            ("Time", "sleep") => Some(Type::Void),
-            (
-                "Time",
-                "iso8601" | "format" | "localizedDate" | "localizedTime" | "localizedDateTime",
-            ) => Some(Type::String),
-            ("Time", "iso8601ToMillis") => {
-                Some(Type::Optional(Box::new(Type::Numeric(NumericType::Int64))))
+        } => {
+            if namespace == "Storage" && name == "get" {
+                return type_arguments
+                    .first()
+                    .and_then(|syntax| parse_type(syntax).ok())
+                    .map(|ty| Type::Optional(Box::new(ty)));
             }
-            ("Permissions", "status") => Some(Type::Enum("PermissionStatus".to_owned())),
-            ("Permissions", "request") => Some(Type::Enum("PermissionStatus".to_owned())),
-            _ => functions
-                .get(&format!("{namespace}.{name}"))
-                .and_then(|signature| {
-                    infer_call_return_type(
-                        signature,
-                        type_arguments,
-                        arguments,
-                        named_arguments,
-                        symbols,
-                        functions,
-                    )
-                }),
-        },
+            if let Some(api) = super::core_api::lookup(&format!("{namespace}.{name}")) {
+                Some(api.result.to_ir())
+            } else {
+                match (namespace.as_str(), name.as_str()) {
+                    ("Regex", "isMatch") => Some(Type::Bool),
+                    ("Regex", "matches") => Some(Type::Array(Box::new(Type::String))),
+                    ("Regex", "replace") => Some(Type::String),
+                    _ => functions
+                        .get(&format!("{namespace}.{name}"))
+                        .and_then(|signature| {
+                            infer_call_return_type(
+                                signature,
+                                type_arguments,
+                                arguments,
+                                named_arguments,
+                                symbols,
+                                functions,
+                            )
+                        }),
+                }
+            }
+        }
         ast::Expr::Index {
             collection,
             optional,
@@ -4933,6 +5009,25 @@ pub(super) fn infer_expr_type(
             named_arguments,
             ..
         } => {
+            if matches!(
+                infer_expr_type(base, symbols, functions),
+                Some(Type::NetworkResponse)
+            ) {
+                let api = super::core_api::lookup_method(
+                    super::core_api::ApiType::NetworkResponse,
+                    name,
+                )?;
+                let supplied = arguments.len() + named_arguments.len();
+                let required = api
+                    .arguments
+                    .iter()
+                    .filter(|argument| argument.default == super::core_api::ApiDefault::None)
+                    .count();
+                if supplied < required || supplied > api.arguments.len() {
+                    return None;
+                }
+                return Some(api.result.to_ir());
+            }
             if matches!(
                 infer_expr_type(base, symbols, functions),
                 Some(Type::Plugin {
@@ -5293,10 +5388,6 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
             .find(|(field, _)| field == field_name)
             .map(|(_, ty)| ty.clone()),
         (Type::NetworkResponse, "statusCode") => Some(Type::Numeric(NumericType::Int32)),
-        (Type::NetworkResponse, "headers") => Some(Type::Map(
-            Box::new(Type::String),
-            Box::new(Type::Array(Box::new(Type::String))),
-        )),
         (Type::NetworkResponse, "body") => Some(Type::String),
         (Type::Map(key, _), "keys") => Some(Type::Array(key.clone())),
         (Type::Map(_, value), "values") => Some(Type::Array(value.clone())),
@@ -5306,6 +5397,9 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
         (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "isEmpty") => Some(Type::Bool),
         (Type::String, "trimmed") => Some(Type::String),
         (Type::Signal(inner), "value") => Some((**inner).clone()),
+        (Type::Result(_, _), "isSuccess") => Some(Type::Bool),
+        (Type::Result(value, _), "value") => Some(optional_type((**value).clone())),
+        (Type::Result(_, error), "error") => Some(optional_type((**error).clone())),
         _ => None,
     }
 }
@@ -5355,7 +5449,7 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
         ast::TypeSyntax::Optional(inner, _) => Ok(Type::Optional(Box::new(parse_type(inner)?))),
         ast::TypeSyntax::Generic(name, arguments, span) => {
             let expected_arity = match name.as_str() {
-                "Array" | "Set" | "Signal" => 1,
+                "Array" | "Set" | "Signal" | "ComponentRef" | "ComponentRefError" => 1,
                 "Map" | "Pair" | "Result" => 2,
                 "Triple" => 3,
                 _ => {
@@ -5370,11 +5464,13 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
                     "Array" => "Array<String>",
                     "Set" => "Set<String>",
                     "Signal" => "Signal<Array<Note>>",
+                    "ComponentRef" => "ComponentRef<FastList>",
+                    "ComponentRefError" => "ComponentRefError<Failure>",
                     "Map" => "Map<String, Int32>",
                     "Pair" => "Pair<String, Int32>",
                     "Result" => "Result<String, String>",
                     "Triple" => "Triple<String, Int32, Bool>",
-                    _ => unreachable!(),
+                    _ => "T",
                 };
                 return Err(CompileError::new(
                     *span,
@@ -5383,51 +5479,92 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
                     ),
                 ));
             }
+            if name == "ComponentRef" {
+                let Some(target) = arguments.first() else {
+                    return Err(CompileError::new(
+                        *span,
+                        "ComponentRef expects one component type argument",
+                    ));
+                };
+                return component_ref_target(target).ok_or_else(|| {
+                    CompileError::new(
+                        target.span(),
+                        "ComponentRef target must be `FastList`, a reusable component with declared methods, or a native component such as `Media.VideoView`",
+                    )
+                });
+            }
+            if name == "ComponentRefError" {
+                let Some(error_type) = arguments.first() else {
+                    return Err(CompileError::new(
+                        *span,
+                        "ComponentRefError expects one failure type argument",
+                    ));
+                };
+                return Ok(Type::ComponentRefError(Box::new(parse_type(error_type)?)));
+            }
             let types = arguments
                 .iter()
                 .map(parse_type)
                 .collect::<Result<Vec<_>, _>>()?;
+            let type_at = |index: usize| {
+                types.get(index).cloned().ok_or_else(|| {
+                    CompileError::new(
+                        *span,
+                        format!("{name} is missing type argument {}", index + 1),
+                    )
+                })
+            };
             match name.as_str() {
-                "Array" => Ok(Type::Array(Box::new(types.into_iter().next().unwrap()))),
+                "Array" => Ok(Type::Array(Box::new(type_at(0)?))),
                 "Set" => {
-                    let element = types.into_iter().next().unwrap();
+                    let element = type_at(0)?;
                     require_hashable_key(&element, *span, "Set elements")?;
                     Ok(Type::Set(Box::new(element)))
                 }
-                "Signal" => Ok(Type::Signal(Box::new(types.into_iter().next().unwrap()))),
+                "Signal" => Ok(Type::Signal(Box::new(type_at(0)?))),
                 "Map" => {
-                    let mut types = types.into_iter();
-                    let key = types.next().unwrap();
-                    let value = types.next().unwrap();
+                    let key = type_at(0)?;
+                    let value = type_at(1)?;
                     require_hashable_key(&key, *span, "Map keys")?;
                     Ok(Type::Map(Box::new(key), Box::new(value)))
                 }
-                "Pair" => {
-                    let mut types = types.into_iter();
-                    Ok(Type::Pair(
-                        Box::new(types.next().unwrap()),
-                        Box::new(types.next().unwrap()),
-                    ))
-                }
-                "Result" => {
-                    let mut types = types.into_iter();
-                    Ok(Type::Result(
-                        Box::new(types.next().unwrap()),
-                        Box::new(types.next().unwrap()),
-                    ))
-                }
-                "Triple" => {
-                    let mut types = types.into_iter();
-                    Ok(Type::Triple(
-                        Box::new(types.next().unwrap()),
-                        Box::new(types.next().unwrap()),
-                        Box::new(types.next().unwrap()),
-                    ))
-                }
-                _ => unreachable!("generic type name checked above"),
+                "Pair" => Ok(Type::Pair(Box::new(type_at(0)?), Box::new(type_at(1)?))),
+                "Result" => Ok(Type::Result(Box::new(type_at(0)?), Box::new(type_at(1)?))),
+                "Triple" => Ok(Type::Triple(
+                    Box::new(type_at(0)?),
+                    Box::new(type_at(1)?),
+                    Box::new(type_at(2)?),
+                )),
+                _ => Err(CompileError::new(
+                    *span,
+                    format!("generic type `{name}` is not supported yet"),
+                )),
             }
         }
     }
+}
+
+fn component_ref_target(syntax: &ast::TypeSyntax) -> Option<Type> {
+    let ast::TypeSyntax::Named(target, _) = syntax else {
+        return None;
+    };
+    if matches!(target.as_str(), "FastList" | "BottomSheet") {
+        return Some(Type::ComponentRef {
+            namespace: "Nexa".to_owned(),
+            name: target.to_owned(),
+        });
+    }
+    let (namespace, name) = match target.split_once('.') {
+        Some((namespace, name)) => (namespace, name),
+        None => ("Nexa", target.as_str()),
+    };
+    if namespace.is_empty() || name.is_empty() || name.contains('.') {
+        return None;
+    }
+    Some(Type::ComponentRef {
+        namespace: namespace.to_owned(),
+        name: name.to_owned(),
+    })
 }
 
 pub(super) fn parse_return_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError> {
@@ -5461,6 +5598,9 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
             Box::new(resolve_struct_type(second, structs)),
             Box::new(resolve_struct_type(third, structs)),
         ),
+        Type::ComponentRefError(failure) => {
+            Type::ComponentRefError(Box::new(resolve_struct_type(failure, structs)))
+        }
         Type::Void
         | Type::TypeParam(_)
         | Type::String
@@ -5472,6 +5612,7 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
         | Type::NetworkResponse
         | Type::Struct { .. }
         | Type::Class { .. } => ty.clone(),
+        Type::ComponentRef { .. } => ty.clone(),
     }
 }
 
@@ -5538,6 +5679,8 @@ fn type_contains_task_handle(ty: &Type) -> bool {
         | Type::Enum(_)
         | Type::TypeParam(_)
         | Type::Plugin { .. }
+        | Type::ComponentRef { .. }
+        | Type::ComponentRefError(_)
         | Type::NetworkResponse => false,
     }
 }
@@ -5611,7 +5754,9 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
         | Type::TaskHandle
         | Type::NetworkResponse
         | Type::Struct { .. }
-        | Type::Class { .. } => Ok(()),
+        | Type::Class { .. }
+        | Type::ComponentRef { .. }
+        | Type::ComponentRefError(_) => Ok(()),
     }
 }
 
@@ -5686,7 +5831,16 @@ fn is_permission_case(name: &str) -> bool {
 }
 
 fn is_permission_status_case(name: &str) -> bool {
-    matches!(name, "granted" | "denied" | "restricted" | "notDetermined")
+    matches!(
+        name,
+        "granted"
+            | "limited"
+            | "provisional"
+            | "denied"
+            | "permanentlyDenied"
+            | "restricted"
+            | "notDetermined"
+    )
 }
 
 fn validate_number(raw: &str, ty: NumericType, span: Span) -> Result<(), CompileError> {
@@ -5742,14 +5896,18 @@ fn require_expected(
     {
         return Err(CompileError::new(
             span,
-            format!(
-                "expected {}, found {}",
-                type_name(expected),
-                type_name(actual)
-            ),
+            type_mismatch_message(expected, actual),
         ));
     }
     Ok(())
+}
+
+fn type_mismatch_message(expected: &Type, actual: &Type) -> String {
+    format!(
+        "expected {}, found {}; change the expression or expected type so they match",
+        type_name(expected),
+        type_name(actual)
+    )
 }
 /// The type of an already-lowered expression, when the IR node carries one.
 ///
@@ -5819,6 +5977,12 @@ pub(super) fn type_name(ty: &Type) -> String {
         }
         Type::Optional(inner) => format!("{}?", type_name(inner)),
         Type::Signal(inner) => format!("Signal<{}>", type_name(inner)),
+        Type::ComponentRef { namespace, name } => {
+            format!("ComponentRef<{namespace}.{name}>")
+        }
+        Type::ComponentRefError(failure) => {
+            format!("ComponentRefError<{}>", type_name(failure))
+        }
     }
 }
 fn numeric_name(ty: NumericType) -> &'static str {
@@ -5841,12 +6005,12 @@ mod tests {
     use std::collections::{BTreeMap, HashMap};
 
     use nexa_diagnostics::Span;
-    use nexa_ir::{NumericType, Type};
+    use nexa_ir::{Expr, NumericType, Type};
     use nexa_syntax::ast;
 
     use super::{
         CallArguments, FunctionSignature, FunctionSignatures, collect_plugin_signatures,
-        lower_plugin_call, lower_plugin_method_call, member_field_type_with_plugins,
+        lower_expr, lower_plugin_call, lower_plugin_method_call, member_field_type_with_plugins,
     };
     use crate::semantic::context::ExprContext;
 
@@ -5954,6 +6118,48 @@ mod tests {
     }
 
     #[test]
+    fn throwing_async_calls_keep_source_location_in_a_transparent_ir_wrapper() {
+        let symbols = HashMap::new();
+        let mut recovery_signature = throwing_signature(None);
+        recovery_signature.error_handling_allowed = true;
+        let functions = HashMap::from([("recovery".to_owned(), recovery_signature)]);
+        let context = ExprContext::new(&symbols, &functions, true)
+            .with_source_file(Some("screens/OrderDetail.nx"));
+        let span = Span {
+            start: 10,
+            end: 25,
+            line: 4,
+            column: 9,
+        };
+        let source = ast::Expr::Await(
+            Box::new(ast::Expr::QualifiedCall {
+                namespace: "Network".to_owned(),
+                name: "fetch".to_owned(),
+                type_arguments: Vec::new(),
+                arguments: Vec::new(),
+                named_arguments: BTreeMap::from([(
+                    "url".to_owned(),
+                    ast::Expr::String("https://example.com".to_owned(), span),
+                )]),
+                span,
+            }),
+            span,
+        );
+        let expression = lower_expr(&source, None, &context).expect("Network.fetch lowers");
+        let Expr::Located {
+            source_file,
+            source_span,
+            expression,
+        } = expression
+        else {
+            panic!("throwing expression carries source metadata");
+        };
+        assert_eq!(source_file, "screens/OrderDetail.nx");
+        assert_eq!((source_span.line, source_span.column), (4, 9));
+        assert!(matches!(*expression, Expr::TryAwait(_)));
+    }
+
+    #[test]
     fn rejects_throwing_native_class_methods_without_a_recovery_block() {
         let player_type = Type::Plugin {
             namespace: "Video".to_owned(),
@@ -5993,5 +6199,93 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("must be synchronous"));
+    }
+
+    #[test]
+    fn generic_core_apis_lower_from_catalog_arguments_and_effect_metadata() {
+        let api_names = [
+            "Path.documents",
+            "Path.caches",
+            "Path.temporary",
+            "Path.appSupport",
+            "Keyboard.dismiss",
+            "Screen.lockOrientation",
+            "AppIcon.set",
+            "Number.formatCurrency",
+            "Locale.currentLanguageCode",
+            "Locale.preferredLanguageCodes",
+            "Crypto.sha256",
+            "Crypto.sha512",
+            "Crypto.hmacSha256",
+            "Crypto.randomBytes",
+            "SecureStorage.get",
+            "SecureStorage.set",
+            "SecureStorage.delete",
+            "SecureStorage.clear",
+            "Storage.getString",
+            "Storage.setString",
+            "Storage.getBool",
+            "Storage.setBool",
+            "Storage.getInt64",
+            "Storage.setInt64",
+            "Storage.getFloat64",
+            "Storage.setFloat64",
+            "Storage.delete",
+            "Storage.clear",
+            "Clipboard.setText",
+            "Clipboard.getText",
+            "Clipboard.hasText",
+            "Haptics.impact",
+            "Haptics.notification",
+            "Haptics.selection",
+            "Regex.isMatch",
+            "Regex.matches",
+            "Regex.replace",
+        ];
+
+        for api_name in api_names {
+            let api = crate::semantic::core_api::lookup(api_name)
+                .unwrap_or_else(|| panic!("{api_name} should exist in the core API catalog"));
+            let lowered = api
+                .arguments
+                .iter()
+                .map(|argument| (argument.name.to_owned(), Expr::String("value".to_owned())))
+                .collect();
+
+            let expression = super::native_plan(api, lowered, Span::default())
+                .unwrap_or_else(|error| panic!("{api_name} should lower: {error}"));
+            let Expr::NativeCall {
+                namespace,
+                name,
+                arguments,
+                return_type,
+                is_async,
+                is_throwing,
+                ..
+            } = expression
+            else {
+                panic!("{api_name} should use the generic native-call IR variant");
+            };
+            let (expected_namespace, expected_name) = api_name
+                .split_once('.')
+                .expect("core API names should be qualified");
+
+            assert_eq!(namespace, expected_namespace, "{api_name} namespace");
+            assert_eq!(name, expected_name, "{api_name} name");
+            assert_eq!(return_type, api.result.to_ir(), "{api_name} result type");
+            assert_eq!(is_async, api.asynchronous, "{api_name} async metadata");
+            assert_eq!(is_throwing, api.throwing, "{api_name} error metadata");
+            assert_eq!(
+                arguments
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>(),
+                api.arguments
+                    .iter()
+                    .map(|argument| argument.name)
+                    .collect::<Vec<_>>(),
+                "{api_name} argument order"
+            );
+        }
     }
 }

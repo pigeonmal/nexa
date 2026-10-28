@@ -64,5 +64,8 @@ fn canonical_modes_lower_to_synchronous_screen_calls() {
 fn unknown_modes_are_rejected_at_compile_time() {
     let error = compile("nexa-screen-orientation-invalid", "Sideways")
         .expect_err("unsupported orientations must not silently map to a valid mode");
-    assert!(error.contains("Portrait`, `Landscape`, or `All"), "{error}");
+    assert!(
+        error.contains("mode must be one of: Portrait, Landscape, All"),
+        "{error}"
+    );
 }

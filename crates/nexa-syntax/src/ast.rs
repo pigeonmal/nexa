@@ -5,6 +5,7 @@ use nexa_diagnostics::Span;
 #[derive(Clone, Debug)]
 pub struct App {
     pub name: String,
+    pub source_file: Option<String>,
     pub plugins: Vec<PluginDecl>,
     pub enums: Vec<EnumDecl>,
     pub structs: Vec<StructDecl>,
@@ -338,6 +339,8 @@ pub struct ComponentDecl {
     pub name: String,
     pub parameters: Vec<ComponentParameter>,
     pub states: Vec<StateDecl>,
+    /// Methods that are exposed through `ComponentRef<Component>`.
+    pub ref_methods: Vec<FunctionDecl>,
     pub body: Vec<Node>,
     pub span: Span,
     pub source_file: Option<String>,
@@ -355,6 +358,9 @@ pub struct FunctionDecl {
     pub name: String,
     pub is_async: bool,
     pub is_throwing: bool,
+    /// Optional plugin error declared by a reusable component ref method.
+    /// Ordinary functions keep the existing untyped `throws` behavior.
+    pub failure_type: Option<TypeSyntax>,
     pub parameters: Vec<FunctionParameter>,
     pub return_type: TypeSyntax,
     pub body: Vec<Stmt>,
@@ -490,6 +496,9 @@ pub enum Node {
         value: Expr,
         cases: Vec<WhenCase>,
         else_body: Vec<Node>,
+        /// Whether source included an explicit `else` arm. An omitted arm is
+        /// accepted only when semantic analysis proves the match exhaustive.
+        has_else: bool,
         transition: Option<ViewTransition>,
         transition_animation: Option<Expr>,
         span: Span,

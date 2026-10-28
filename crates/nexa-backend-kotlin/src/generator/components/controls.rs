@@ -137,6 +137,14 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.size",
     );
     imports.add(features.uses_button, "androidx.compose.ui.Modifier");
+    imports.add(
+        features.uses_button,
+        "androidx.compose.ui.semantics.semantics",
+    );
+    imports.add(
+        features.uses_button,
+        "androidx.compose.ui.semantics.contentDescription",
+    );
     imports.add(features.uses_button, "androidx.compose.ui.unit.dp");
     imports.add(features.uses_button, "androidx.compose.ui.unit.sp");
     imports.add(
@@ -301,6 +309,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_button(
     label: &Expr,
+    accessibility_label: Option<&Expr>,
     icon: Option<&SystemIcon>,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
@@ -354,6 +363,7 @@ pub(crate) fn render_button(
     );
     let loading = loading.map_or_else(|| "false".to_owned(), expression);
     let disabled = disabled.map_or_else(|| "false".to_owned(), expression);
+    let accessibility_label = accessibility_label.map_or_else(|| expression(label), expression);
     let icon_only_circle = icon != "null"
         && shape != "null"
         && matches!(
@@ -371,6 +381,10 @@ pub(crate) fn render_button(
     out.line_at(depth + 1, format_args!("tint = {tint},"));
     out.line_at(depth + 1, format_args!("loading = {loading},"));
     out.line_at(depth + 1, format_args!("disabled = {disabled},"));
+    out.line_at(
+        depth + 1,
+        format_args!("accessibilityLabel = {accessibility_label},"),
+    );
     out.line_at(
         depth + 1,
         format_args!("iconOnlyCircle = {icon_only_circle},"),
@@ -1248,6 +1262,7 @@ fn render_context_menu(nodes: &[Node], item_count: usize, depth: usize, out: &mu
     for node in nodes {
         let Node::Button {
             label,
+            accessibility_label,
             icon,
             disabled,
             actions,
@@ -1257,6 +1272,15 @@ fn render_context_menu(nodes: &[Node], item_count: usize, depth: usize, out: &mu
             continue;
         };
         out.line_at(depth, format_args!("DropdownMenuItem("));
+        if let Some(accessibility_label) = accessibility_label {
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "modifier = Modifier.semantics {{ contentDescription = {} }},",
+                    expression(accessibility_label)
+                ),
+            );
+        }
         out.line_at(
             depth + 1,
             format_args!(
@@ -1339,6 +1363,21 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
         match action {
             Action::Expression(value) => {
                 out.line_at(depth, format_args!("{}", expression(value)));
+            }
+            Action::NavigationPush {
+                destination,
+                arguments,
+            } => {
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "navController.navigate({})",
+                        super::navigation::action_route_value(*destination, arguments)
+                    ),
+                );
+            }
+            Action::NavigationBack => {
+                out.line_at(depth, format_args!("navController.popBackStack()"));
             }
             Action::Let { name, ty, value } => {
                 out.line_at(
@@ -1687,6 +1726,10 @@ fn render_kotlin_error_catches(
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
+    out.push_str("} catch (cancellation: kotlinx.coroutines.CancellationException) {\n");
+    indent(out, depth + 1);
+    out.push_str("throw cancellation\n");
+    indent(out, depth);
     if catches.is_empty() {
         out.push_str("} catch (_: Exception) {\n");
         if let Some(catch_all) = catch_all {
@@ -1835,6 +1878,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some(nexa_ir::ButtonStyle::Borderless),
             Some(nexa_ir::ButtonSize::Large),
             Some(nexa_ir::ButtonShape::Capsule),
@@ -1863,6 +1907,7 @@ mod tests {
 
         render_button(
             &label,
+            None,
             None,
             None,
             Some(&disabled),
@@ -1896,6 +1941,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &[],
             false,
             false,
@@ -1919,6 +1965,7 @@ mod tests {
 
         render_button(
             &label,
+            None,
             Some(&SystemIcon::Shared("add".to_owned())),
             None,
             None,
@@ -1936,6 +1983,57 @@ mod tests {
         assert!(output.contains("icon = Icons.Filled.Add"));
         assert!(output.contains("iconOnlyCircle = true"));
         assert!(output.contains("shape = androidx.compose.foundation.shape.CircleShape"));
+    }
+
+    #[test]
+    fn button_accessibility_label_is_emitted_for_icon_only_actions() {
+        let label = Expr::String(String::new());
+        let accessibility_label = Expr::String("Add".to_owned());
+        let mut output = SourceWriter::new();
+
+        render_button(
+            &label,
+            Some(&accessibility_label),
+            Some(&SystemIcon::Shared("add".to_owned())),
+            None,
+            None,
+            Some(nexa_ir::ButtonStyle::BorderedProminent),
+            None,
+            Some(nexa_ir::ButtonShape::Circle),
+            None,
+            &[],
+            false,
+            false,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("accessibilityLabel = \"Add\""));
+    }
+
+    #[test]
+    fn button_text_is_the_default_accessibility_label() {
+        let label = Expr::String("Save changes".to_owned());
+        let mut output = SourceWriter::new();
+
+        render_button(
+            &label,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            false,
+            false,
+            0,
+            &mut output,
+        );
+
+        assert!(output.contains("accessibilityLabel = \"Save changes\""));
     }
 
     #[test]
@@ -2172,7 +2270,9 @@ mod tests {
         render_actions(&actions, 0, &mut output);
 
         assert!(output.contains("try {\n    CameraPlugin.instance.capture()"));
-        assert!(output.contains("} catch (_: Exception) {\n    nexa_failed = true\n}"));
+        assert!(output.contains(
+            "} catch (cancellation: kotlinx.coroutines.CancellationException) {\n    throw cancellation\n} catch (_: Exception) {\n    nexa_failed = true\n}"
+        ));
     }
 
     #[test]
@@ -2220,6 +2320,9 @@ mod tests {
         render_actions(&actions, 0, &mut output);
 
         assert!(output.contains("catch (error: Exception)"));
+        assert!(output.contains(
+            "} catch (cancellation: kotlinx.coroutines.CancellationException) {\n    throw cancellation\n} catch (error: Exception)"
+        ));
         assert!(output.contains("PlayerError.invalidUrl -> {"));
         assert!(output.contains("is PlayerError.decodingFailed -> {"));
         assert!(output.contains("val nexa_message = error.message"));

@@ -1082,18 +1082,6 @@ fn render_layout(
         }
         _ => String::new(),
     };
-    if kind == LayoutKind::Row
-        && let Some(arrangement) = style.horizontal_arrangement
-    {
-        let alignment = match arrangement {
-            nexa_ir::HorizontalArrangement::Start => "Start",
-            nexa_ir::HorizontalArrangement::Center => "CenterHorizontally",
-            nexa_ir::HorizontalArrangement::End => "End",
-        };
-        arguments.push(format!(
-            "horizontalAlignment = androidx.glance.layout.Alignment.Horizontal.{alignment}"
-        ));
-    }
     if !alignment.is_empty() {
         arguments.push(alignment);
     }
@@ -1163,8 +1151,8 @@ mod tests {
     use super::{generate, render_layout};
     use nexa_codegen::SourceWriter;
     use nexa_ir::{
-        Expr, HorizontalArrangement, LayoutKind, Module, Node, StructDecl, TextStyle, Type,
-        ViewStyle, Widget, WidgetFamily,
+        Alignment, Expr, HorizontalArrangement, LayoutKind, Module, Node, StructDecl, TextStyle,
+        Type, ViewStyle, Widget, WidgetFamily,
     };
 
     #[test]
@@ -1202,6 +1190,7 @@ mod tests {
                 0.0,
                 &ViewStyle {
                     horizontal_arrangement: Some(arrangement),
+                    alignment: Some(Alignment::End),
                     ..ViewStyle::default()
                 },
                 0,
@@ -1216,6 +1205,18 @@ mod tests {
                     "horizontalAlignment = androidx.glance.layout.Alignment.Horizontal.{native_alignment}"
                 )),
                 "{source}"
+            );
+            assert_eq!(
+                source
+                    .matches("horizontalAlignment = androidx.glance.layout.Alignment.Horizontal.")
+                    .count(),
+                1,
+                "each Glance Row should emit one main-axis arrangement: {source}"
+            );
+            assert!(
+                source.contains(
+                    "verticalAlignment = androidx.glance.layout.Alignment.Vertical.Bottom"
+                )
             );
         }
 

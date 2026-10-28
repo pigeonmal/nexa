@@ -4,13 +4,16 @@
 //! `--release-sizes` opts into isolated Release builds and measures the actual
 //! APK or iOS app bundle when the relevant toolchain is installed.
 
-use std::{collections::BTreeSet, fs, path::PathBuf};
+use std::{collections::BTreeSet, fs, path::PathBuf, time::Instant};
 
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_compiler::{Target, compile_file_with_warnings_for_targets_and_plugin_roots};
-use nexa_ir::{Module, capabilities::Capabilities};
+use nexa_compiler::{
+    OptimizationReport, Target, compile_file_with_optimization_report_for_targets_and_plugin_roots,
+    compile_file_with_warnings_for_targets_and_plugin_roots,
+};
+use nexa_ir::{Module, Permission, capabilities::Capabilities};
 
 mod native;
 
@@ -19,6 +22,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     let mut output = None;
     let mut target = "all";
     let mut release_sizes = false;
+    let mut optimization_report = false;
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
@@ -44,6 +48,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
                 ));
             }
             "--release-sizes" => release_sizes = true,
+            "--optimization-report" => optimization_report = true,
             option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
             value if input.is_none() => input = Some(PathBuf::from(value)),
             value => return Err(format!("unexpected argument `{value}`")),
@@ -51,7 +56,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         cursor += 1;
     }
     let input = input.ok_or(
-        "usage: nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]",
+        "usage: nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--optimization-report] [--out <path>]",
     )?;
     let targets = match target {
         "ios" | "swift" => vec![("ios", Target::Swift)],
@@ -64,20 +69,49 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| std::path::Path::new("."));
     let config_path = project_root.join("nexa.config.nx");
+    let dependency_started = Instant::now();
     let dependencies = crate::config::load_plugin_dependencies(&config_path)?;
     let resolved = crate::dependencies::resolve(project_root, &dependencies)?;
+    let dependency_resolution_micros = elapsed_micros(dependency_started);
     let compile_targets = targets
         .iter()
         .map(|(_, target)| *target)
         .collect::<Vec<_>>();
-    let compilations = compile_file_with_warnings_for_targets_and_plugin_roots(
-        &input,
-        &compile_targets,
-        &resolved.plugin_roots,
-    )
+    let compiler_started = Instant::now();
+    let compilations = if optimization_report {
+        compile_file_with_optimization_report_for_targets_and_plugin_roots(
+            &input,
+            &compile_targets,
+            &resolved.plugin_roots,
+        )
+    } else {
+        compile_file_with_warnings_for_targets_and_plugin_roots(
+            &input,
+            &compile_targets,
+            &resolved.plugin_roots,
+        )
+    }
     .map_err(|error| error.to_string())?;
+    let compiler_micros = elapsed_micros(compiler_started);
+    let app_permissions = if config_path.is_file() {
+        let plugin_definitions =
+            crate::config::load_plugin_definitions(&input, &resolved.plugin_roots)?;
+        let fallback_name = input
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("NexaApp");
+        crate::config::ProjectConfig::parse_file(&config_path, &plugin_definitions, fallback_name)?
+            .permissions()
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     let mut report = String::from("{\n  \"format\": 2,\n  \"tool\": \"nexa audit\",\n");
+    report.push_str(&format!(
+        "  \"performance\": {{\"dependencyResolutionMicros\": {dependency_resolution_micros}, \"compilerMicros\": {compiler_micros}}},\n"
+    ));
     report.push_str(&format!(
         "  \"entry\": \"{}\",\n  \"targets\": [\n",
         json_escape(&input.display().to_string())
@@ -91,18 +125,25 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         );
         let module = compilation.module;
         let capabilities = nexa_ir::capabilities::analyze(&module);
+        let codegen_started = Instant::now();
         let (source, dependencies) = generated_source_and_dependencies(name, &module);
+        let codegen_micros = elapsed_micros(codegen_started);
         if index != 0 {
             report.push_str(",\n");
         }
-        report.push_str(&target_report(
-            name,
-            &module,
+        report.push_str(&target_report(TargetReportInput {
+            target: name,
+            module: &module,
             capabilities,
-            source.len(),
-            &dependencies,
-            &native_plugins,
-        ));
+            source: GeneratedSourceMetrics {
+                bytes: source.len(),
+                codegen_micros,
+            },
+            dependencies: &dependencies,
+            native_plugins: &native_plugins,
+            app_permissions: &app_permissions,
+            optimization_report: compilation.optimization_report.as_ref(),
+        }));
     }
     report.push_str("\n  ],\n  \"warnings\": [");
     let warnings = all_warnings
@@ -144,9 +185,15 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
 
 pub(super) fn print_help() {
     println!(
-        "Usage: nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]"
+        "Usage: nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--optimization-report] [--out <path>]"
     );
-    println!("Reports generated native capabilities and optional release package sizes.");
+    println!(
+        "Reports compiler and backend timings, generated source size, capabilities, and optional native release package sizes or optimizer decisions."
+    );
+}
+
+pub(super) fn elapsed_micros(started: Instant) -> u64 {
+    started.elapsed().as_micros().min(u64::MAX as u128) as u64
 }
 
 fn generated_source_and_dependencies(target: &str, module: &Module) -> (String, Vec<String>) {
@@ -194,17 +241,38 @@ fn generated_source_and_dependencies(target: &str, module: &Module) -> (String, 
     }
 }
 
-fn target_report(
-    target: &str,
-    module: &Module,
+struct GeneratedSourceMetrics {
+    bytes: usize,
+    codegen_micros: u64,
+}
+
+struct TargetReportInput<'a> {
+    target: &'a str,
+    module: &'a Module,
     capabilities: Capabilities,
-    generated_bytes: usize,
-    dependencies: &[String],
-    native_plugins: &[crate::project::plugin_package::PluginPackage],
-) -> String {
+    source: GeneratedSourceMetrics,
+    dependencies: &'a [String],
+    native_plugins: &'a [crate::project::plugin_package::PluginPackage],
+    app_permissions: &'a [(Permission, String)],
+    optimization_report: Option<&'a OptimizationReport>,
+}
+
+fn target_report(input: TargetReportInput<'_>) -> String {
+    let TargetReportInput {
+        target,
+        module,
+        capabilities,
+        source,
+        dependencies,
+        native_plugins,
+        app_permissions,
+        optimization_report,
+    } = input;
     let mut output = format!(
-        "    {{\n      \"target\": \"{target}\",\n      \"app\": \"{}\",\n      \"generatedSourceBytes\": {generated_bytes},\n      \"capabilities\": {{\n        \"remoteImage\": {},\n        \"network\": {},\n        \"path\": {},\n        \"file\": {},\n        \"fileAsync\": {},\n        \"storage\": {},\n        \"secureStorage\": {}\n      }},\n      \"dependencies\": [",
+        "    {{\n      \"target\": \"{target}\",\n      \"app\": \"{}\",\n      \"codegenMicros\": {},\n      \"generatedSourceBytes\": {},\n      \"capabilities\": {{\n        \"remoteImage\": {},\n        \"network\": {},\n        \"path\": {},\n        \"file\": {},\n        \"fileAsync\": {},\n        \"storage\": {},\n        \"secureStorage\": {}\n      }},\n      \"dependencies\": [",
         json_escape(&module.app_name),
+        source.codegen_micros,
+        source.bytes,
         capabilities.uses_remote_image,
         capabilities.uses_network_api,
         capabilities.uses_path_api,
@@ -221,7 +289,96 @@ fn target_report(
     }
     output.push_str("],\n      \"nativePlugins\": ");
     output.push_str(&native_plugins_report(target, native_plugins));
+    output.push_str(",\n      \"permissions\": ");
+    output.push_str(&permissions_report(target, app_permissions, native_plugins));
+    output.push_str(",\n      \"optimizations\": ");
+    output.push_str(&optimization_report_json(optimization_report));
     output.push_str("\n    }");
+    output
+}
+
+fn optimization_report_json(report: Option<&OptimizationReport>) -> String {
+    let Some(report) = report else {
+        return "null".to_owned();
+    };
+    let mut output = format!(
+        "{{\"constantBranchesRemoved\": {}, \"simplifiedLayouts\": {}, \"constantFolds\": {{",
+        report.constant_branches_removed, report.simplified_layouts
+    );
+    for (index, (kind, count)) in report.constant_folds.iter().enumerate() {
+        if index != 0 {
+            output.push_str(", ");
+        }
+        output.push_str(&format!("\"{}\": {count}", json_escape(kind)));
+    }
+    output.push_str("}, \"removedItems\": {");
+    for (index, (kind, names)) in report.removed_items.iter().enumerate() {
+        if index != 0 {
+            output.push_str(", ");
+        }
+        output.push_str(&format!(
+            "\"{}\": {}",
+            json_escape(kind),
+            string_array_json(names)
+        ));
+    }
+    output.push_str("}}");
+    output
+}
+
+fn permissions_report(
+    target: &str,
+    app_permissions: &[(Permission, String)],
+    plugins: &[crate::project::plugin_package::PluginPackage],
+) -> String {
+    let mut output = String::from("{\"app\": [");
+    for (index, (permission, purpose)) in app_permissions.iter().enumerate() {
+        if index != 0 {
+            output.push_str(", ");
+        }
+        output.push_str(&format!(
+            "{{\"name\": \"{}\", \"purpose\": \"{}\"}}",
+            crate::config::permission_name(*permission),
+            json_escape(purpose)
+        ));
+    }
+    output.push_str("], \"plugins\": [");
+    let mut first_plugin = true;
+    for plugin in plugins {
+        let details = if target == "ios" {
+            let usage = &plugin.artifacts.ios_usage_descriptions;
+            if usage.is_empty() {
+                continue;
+            }
+            format!(
+                "\"iosUsageDescriptions\": [{}]",
+                usage
+                    .iter()
+                    .map(|(key, purpose)| format!(
+                        "{{\"key\": \"{}\", \"purpose\": \"{}\"}}",
+                        json_escape(key),
+                        json_escape(purpose)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else {
+            let permissions = &plugin.artifacts.android_permissions;
+            if permissions.is_empty() {
+                continue;
+            }
+            format!("\"androidPermissions\": {}", string_array_json(permissions))
+        };
+        if !first_plugin {
+            output.push_str(", ");
+        }
+        first_plugin = false;
+        output.push_str(&format!(
+            "{{\"namespace\": \"{}\", {details}}}",
+            json_escape(&plugin.namespace)
+        ));
+    }
+    output.push_str("]}");
     output
 }
 
@@ -317,9 +474,47 @@ fn json_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::native_plugins_report;
+    use super::{native_plugins_report, permissions_report};
     use crate::project::plugin_package::{PluginArtifacts, PluginPackage};
+    use nexa_ir::Permission;
     use nexa_plugin_idl::manifest::{SwiftPackage, SwiftPackageRequirement};
+
+    #[test]
+    fn permission_report_includes_reachable_plugin_requirements_per_platform() {
+        let plugins = [PluginPackage {
+            namespace: "Camera".to_owned(),
+            idl_path: "camera/native.nxid".to_owned(),
+            artifacts: PluginArtifacts {
+                ios_usage_descriptions: vec![(
+                    "NSCameraUsageDescription".to_owned(),
+                    "Scan a receipt".to_owned(),
+                )],
+                android_permissions: vec!["android.permission.CAMERA".to_owned()],
+                ..PluginArtifacts::default()
+            },
+        }];
+        let app = [(Permission::Camera, "Take a profile photo".to_owned())];
+
+        let ios: serde_json::Value =
+            serde_json::from_str(&permissions_report("ios", &app, &plugins))
+                .expect("iOS permissions should be valid JSON");
+        assert_eq!(ios["app"][0]["purpose"], "Take a profile photo");
+        assert_eq!(
+            ios["plugins"][0]["iosUsageDescriptions"][0]["key"],
+            "NSCameraUsageDescription"
+        );
+        assert!(ios.to_string().contains("Scan a receipt"));
+        assert!(!ios.to_string().contains("android.permission"));
+
+        let android: serde_json::Value =
+            serde_json::from_str(&permissions_report("android", &app, &plugins))
+                .expect("Android permissions should be valid JSON");
+        assert_eq!(
+            android["plugins"][0]["androidPermissions"][0],
+            "android.permission.CAMERA"
+        );
+        assert!(!android.to_string().contains("NSCameraUsageDescription"));
+    }
 
     #[test]
     fn native_plugin_report_shows_platform_dependencies_without_machine_paths() {

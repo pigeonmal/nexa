@@ -36,12 +36,14 @@ pub fn walk_ir(
                 walk_ir(children, visit_node, visit_expression);
             }
             Node::BottomSheet {
+                component_ref,
                 background_color,
                 scrim_color,
                 on_dismiss,
                 children,
                 ..
             } => {
+                walk_expression(component_ref, visit_expression);
                 if let Some(crate::ColorExpression::Dynamic(color)) = background_color {
                     walk_expression(color, visit_expression);
                 }
@@ -207,7 +209,9 @@ pub fn walk_ir(
                     walk_expression(&case.value, visit_expression);
                     walk_ir(&case.body, visit_node, visit_expression);
                 }
-                walk_ir(else_body, visit_node, visit_expression);
+                if let Some(else_body) = else_body {
+                    walk_ir(else_body, visit_node, visit_expression);
+                }
             }
             Node::Text { value, .. } => walk_expression(value, visit_expression),
             Node::ContentUnavailable {
@@ -365,10 +369,14 @@ pub fn walk_ir(
                 loading,
                 disabled,
                 tint,
+                accessibility_label,
                 actions,
                 ..
             } => {
                 walk_expression(label, visit_expression);
+                if let Some(accessibility_label) = accessibility_label {
+                    walk_expression(accessibility_label, visit_expression);
+                }
                 if let Some(loading) = loading {
                     walk_expression(loading, visit_expression);
                 }
@@ -382,11 +390,15 @@ pub fn walk_ir(
             }
             Node::ComponentCall {
                 arguments,
+                component_ref,
                 children,
                 ..
             } => {
                 for (_, argument) in arguments {
                     walk_expression(argument, visit_expression);
+                }
+                if let Some(component_ref) = component_ref {
+                    walk_expression(component_ref, visit_expression);
                 }
                 if let Some(children) = children {
                     walk_ir(children, visit_node, visit_expression);
@@ -394,12 +406,16 @@ pub fn walk_ir(
             }
             Node::NativeComponentCall {
                 arguments,
+                component_ref,
                 children,
                 event_handlers,
                 ..
             } => {
                 for (_, argument) in arguments {
                     walk_expression(argument, visit_expression);
+                }
+                if let Some(component_ref) = component_ref {
+                    walk_expression(component_ref, visit_expression);
                 }
                 for handler in event_handlers {
                     walk_actions(&handler.actions, visit_expression);
@@ -585,6 +601,8 @@ fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Act
                 }
             }
             Action::Expression(_)
+            | Action::NavigationPush { .. }
+            | Action::NavigationBack
             | Action::Let { .. }
             | Action::Return { .. }
             | Action::Assign { .. }
@@ -615,7 +633,10 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(collection, visit);
         }
         Expr::Not(value) | Expr::Negate { value, .. } => walk_expression(value, visit),
-        Expr::LocalizedText { value, .. } => walk_expression(value, visit),
+        Expr::LocalizedText { value, .. }
+        | Expr::Located {
+            expression: value, ..
+        } => walk_expression(value, visit),
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
                 walk_expression(item, visit);
@@ -708,7 +729,10 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(path, visit);
             walk_expression(component, visit);
         }
-        Expr::FileExists { path } | Expr::FileReadText { path } | Expr::FileDelete { path } => {
+        Expr::FileExists { path }
+        | Expr::FileReadText { path }
+        | Expr::FileReadBytes { path }
+        | Expr::FileDelete { path } => {
             walk_expression(path, visit);
         }
         Expr::BytesFromText { text } => walk_expression(text, visit),
@@ -720,7 +744,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             }
         }
         Expr::LogCall { message, .. } => walk_expression(message, visit),
-        Expr::FileWriteText { path, contents } => {
+        Expr::FileWriteText { path, contents } | Expr::FileWriteBytes { path, contents } => {
             walk_expression(path, visit);
             walk_expression(contents, visit);
         }
@@ -759,6 +783,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             }
         }
         Expr::String(_)
+        | Expr::ComponentRefCreate { .. }
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::State(_, _)
@@ -811,7 +836,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
             cases, else_body, ..
         } => {
             cases.iter().any(|case| contains_scrollable(&case.body))
-                || contains_scrollable(else_body)
+                || else_body.as_deref().is_some_and(contains_scrollable)
         }
         Node::StatusBar { .. }
         | Node::Direction { .. }
@@ -849,7 +874,7 @@ fn walk_network_request_children(request: &NetworkRequest, visit: &mut impl FnMu
     visit(&request.method);
     visit(&request.headers);
     visit(&request.timeout);
-    visit(&request.use_cache);
+    visit(&request.cache_policy);
     visit(&request.follow_redirects);
     visit(&request.max_response_bytes);
     visit(&request.certificate_pins);
@@ -864,9 +889,27 @@ fn walk_network_request(request: &NetworkRequest, visit: &mut impl FnMut(&Expr))
 
 fn walk_list_plan_children(plan: &ListPlan, visit: &mut impl FnMut(&Expr)) {
     match plan {
-        ListPlan::Count { count, .. } => visit(count),
-        ListPlan::Items { collection, .. } | ListPlan::Sections { collection, .. } => {
+        ListPlan::Count { count, common } => {
+            visit(count);
+            if let Some(component_ref) = &common.component_ref {
+                visit(component_ref);
+            }
+        }
+        ListPlan::Items {
+            collection, common, ..
+        } => {
             visit(collection);
+            if let Some(component_ref) = &common.component_ref {
+                visit(component_ref);
+            }
+        }
+        ListPlan::Sections {
+            collection, common, ..
+        } => {
+            visit(collection);
+            if let Some(component_ref) = &common.component_ref {
+                visit(component_ref);
+            }
         }
     }
     if let Some(enabled) = plan.scroll_enabled() {
@@ -879,9 +922,25 @@ fn walk_list_plan(plan: &ListPlan, visit: &mut impl FnMut(&Expr)) {
 }
 
 pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
+    walk_action_expressions(actions, visit, true);
+}
+
+/// Traverses action expressions once while optionally treating subscription
+/// handlers as separate callback boundaries.
+fn walk_action_expressions(
+    actions: &[Action],
+    visit: &mut impl FnMut(&Expr),
+    include_subscription_handlers: bool,
+) {
     for action in actions {
         match action {
             Action::Expression(expression) => walk_expression(expression, visit),
+            Action::NavigationPush { arguments, .. } => {
+                for argument in arguments {
+                    walk_expression(argument, visit);
+                }
+            }
+            Action::NavigationBack => {}
             Action::Let { value, .. } | Action::Return { value } => walk_expression(value, visit),
             Action::Assign { value, .. } => walk_expression(value, visit),
             Action::NativePropertyAssign {
@@ -894,16 +953,22 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
                 receiver, actions, ..
             } => {
                 walk_expression(receiver, visit);
-                walk_actions(actions, visit);
+                if include_subscription_handlers {
+                    walk_action_expressions(actions, visit, include_subscription_handlers);
+                }
             }
-            Action::NetworkStatusSubscribe { actions, .. } => walk_actions(actions, visit),
+            Action::NetworkStatusSubscribe { actions, .. } => {
+                if include_subscription_handlers {
+                    walk_action_expressions(actions, visit, include_subscription_handlers);
+                }
+            }
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
                     walk_expression(argument, visit);
                 }
             }
             Action::TaskLaunch { actions, .. } | Action::WithAnimation { actions, .. } => {
-                walk_actions(actions, visit)
+                walk_action_expressions(actions, visit, include_subscription_handlers)
             }
             Action::TaskCancel { .. } => {}
             Action::If {
@@ -912,34 +977,34 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
                 else_branch,
             } => {
                 walk_expression(condition, visit);
-                walk_actions(then_branch, visit);
+                walk_action_expressions(then_branch, visit, include_subscription_handlers);
                 if let Some(else_branch) = else_branch {
-                    walk_actions(else_branch, visit);
+                    walk_action_expressions(else_branch, visit, include_subscription_handlers);
                 }
             }
             Action::For { iterable, body, .. } => {
                 walk_expression(iterable, visit);
-                walk_actions(body, visit);
+                walk_action_expressions(body, visit, include_subscription_handlers);
             }
             Action::ForMap { iterable, body, .. } => {
                 walk_expression(iterable, visit);
-                walk_actions(body, visit);
+                walk_action_expressions(body, visit, include_subscription_handlers);
             }
             Action::While { condition, body } => {
                 walk_expression(condition, visit);
-                walk_actions(body, visit);
+                walk_action_expressions(body, visit, include_subscription_handlers);
             }
             Action::TryCatch {
                 body,
                 error_catches,
                 catch_body,
             } => {
-                walk_actions(body, visit);
+                walk_action_expressions(body, visit, include_subscription_handlers);
                 for arm in error_catches {
-                    walk_actions(&arm.body, visit);
+                    walk_action_expressions(&arm.body, visit, include_subscription_handlers);
                 }
                 if let Some(catch_body) = catch_body {
-                    walk_actions(catch_body, visit);
+                    walk_action_expressions(catch_body, visit, include_subscription_handlers);
                 }
             }
             Action::Break | Action::Continue => {}
@@ -985,6 +1050,8 @@ pub fn walk_action_tree(actions: &[Action], visit: &mut impl FnMut(&Action)) {
                 }
             }
             Action::Expression(_)
+            | Action::NavigationPush { .. }
+            | Action::NavigationBack
             | Action::Let { .. }
             | Action::Return { .. }
             | Action::Assign { .. }
@@ -995,6 +1062,24 @@ pub fn walk_action_tree(actions: &[Action], visit: &mut impl FnMut(&Action)) {
             | Action::Continue => {}
         }
     }
+}
+
+/// Returns whether any action in a callback tree launches a task.
+pub fn actions_contain_task_launch(actions: &[Action]) -> bool {
+    let mut found = false;
+    walk_action_tree(actions, &mut |action| {
+        found |= matches!(action, Action::TaskLaunch { .. });
+    });
+    found
+}
+
+/// Returns whether a callback tree launches a task without retaining a handle.
+pub fn actions_contain_untracked_task_launch(actions: &[Action]) -> bool {
+    let mut found = false;
+    walk_action_tree(actions, &mut |action| {
+        found |= matches!(action, Action::TaskLaunch { handle: None, .. });
+    });
+    found
 }
 
 /// Returns whether any action expression reads one of the named state/local
@@ -1016,67 +1101,7 @@ pub fn actions_reference_state(actions: &[Action], names: &[&str]) -> bool {
 /// nested native-event subscription is included, but its handler body is a
 /// separate callback and is not traversed here.
 pub fn walk_callback_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
-    for action in actions {
-        match action {
-            Action::Expression(expression) => walk_expression(expression, visit),
-            Action::Let { value, .. } | Action::Return { value } => walk_expression(value, visit),
-            Action::Assign { value, .. } => walk_expression(value, visit),
-            Action::NativePropertyAssign {
-                receiver, value, ..
-            } => {
-                walk_expression(receiver, visit);
-                walk_expression(value, visit);
-            }
-            Action::NativeEventSubscribe { receiver, .. } => walk_expression(receiver, visit),
-            Action::TaskLaunch { actions, .. } | Action::WithAnimation { actions, .. } => {
-                walk_callback_expressions(actions, visit)
-            }
-            Action::TaskCancel { .. } => {}
-            Action::NetworkStatusSubscribe { .. } => {}
-            Action::CollectionMutation { arguments, .. } => {
-                for argument in arguments {
-                    walk_expression(argument, visit);
-                }
-            }
-            Action::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                walk_expression(condition, visit);
-                walk_callback_expressions(then_branch, visit);
-                if let Some(else_branch) = else_branch {
-                    walk_callback_expressions(else_branch, visit);
-                }
-            }
-            Action::For { iterable, body, .. } => {
-                walk_expression(iterable, visit);
-                walk_callback_expressions(body, visit);
-            }
-            Action::ForMap { iterable, body, .. } => {
-                walk_expression(iterable, visit);
-                walk_callback_expressions(body, visit);
-            }
-            Action::While { condition, body } => {
-                walk_expression(condition, visit);
-                walk_callback_expressions(body, visit);
-            }
-            Action::TryCatch {
-                body,
-                error_catches,
-                catch_body,
-            } => {
-                walk_callback_expressions(body, visit);
-                for arm in error_catches {
-                    walk_callback_expressions(&arm.body, visit);
-                }
-                if let Some(catch_body) = catch_body {
-                    walk_callback_expressions(catch_body, visit);
-                }
-            }
-            Action::Break | Action::Continue => {}
-        }
-    }
+    walk_action_expressions(actions, visit, false);
 }
 
 /// Trait for immutable traversal over IR trees.
@@ -1143,12 +1168,14 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         | Node::KeyboardAware { children, .. }
         | Node::Dialog { children, .. } => visitor.visit_nodes(children),
         Node::BottomSheet {
+            component_ref,
             background_color,
             scrim_color,
             on_dismiss,
             children,
             ..
         } => {
+            visitor.visit_expr(component_ref);
             if let Some(crate::ColorExpression::Dynamic(color)) = background_color {
                 visitor.visit_expr(color);
             }
@@ -1319,7 +1346,9 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 visitor.visit_expr(&case.value);
                 visitor.visit_nodes(&case.body);
             }
-            visitor.visit_nodes(else_body);
+            if let Some(else_body) = else_body {
+                visitor.visit_nodes(else_body);
+            }
         }
         Node::Text { value, .. } => visitor.visit_expr(value),
         Node::ContentUnavailable {
@@ -1475,10 +1504,14 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             loading,
             disabled,
             tint,
+            accessibility_label,
             actions,
             ..
         } => {
             visitor.visit_expr(label);
+            if let Some(accessibility_label) = accessibility_label {
+                visitor.visit_expr(accessibility_label);
+            }
             if let Some(loading) = loading {
                 visitor.visit_expr(loading);
             }
@@ -1497,11 +1530,15 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         }
         Node::ComponentCall {
             arguments,
+            component_ref,
             children,
             ..
         } => {
             for (_, argument) in arguments {
                 visitor.visit_expr(argument);
+            }
+            if let Some(component_ref) = component_ref {
+                visitor.visit_expr(component_ref);
             }
             if let Some(children) = children {
                 visitor.visit_nodes(children);
@@ -1582,6 +1619,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
         }
         Expr::Not(value) | Expr::Negate { value, .. } => visitor.visit_expr(value),
         Expr::LocalizedText { value, .. } => visitor.visit_expr(value),
+        Expr::Located { expression, .. } => visitor.visit_expr(expression),
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
                 visitor.visit_expr(item);
@@ -1676,7 +1714,10 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
             visitor.visit_expr(path);
             visitor.visit_expr(component);
         }
-        Expr::FileExists { path } | Expr::FileReadText { path } | Expr::FileDelete { path } => {
+        Expr::FileExists { path }
+        | Expr::FileReadText { path }
+        | Expr::FileReadBytes { path }
+        | Expr::FileDelete { path } => {
             visitor.visit_expr(path);
         }
         Expr::BytesFromText { text } => visitor.visit_expr(text),
@@ -1688,7 +1729,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
             }
         }
         Expr::LogCall { message, .. } => visitor.visit_expr(message),
-        Expr::FileWriteText { path, contents } => {
+        Expr::FileWriteText { path, contents } | Expr::FileWriteBytes { path, contents } => {
             visitor.visit_expr(path);
             visitor.visit_expr(contents);
         }
@@ -1727,6 +1768,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
             }
         }
         Expr::String(_)
+        | Expr::ComponentRefCreate { .. }
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::State(_, _)
@@ -1745,6 +1787,12 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
 pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
     match action {
         Action::Expression(expr) => visitor.visit_expr(expr),
+        Action::NavigationPush { arguments, .. } => {
+            for argument in arguments {
+                visitor.visit_expr(argument);
+            }
+        }
+        Action::NavigationBack => {}
         Action::Let { value, .. } | Action::Return { value } => visitor.visit_expr(value),
         Action::Assign { value, .. } => visitor.visit_expr(value),
         Action::NativePropertyAssign {
@@ -1860,12 +1908,9 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             children: folder.fold_nodes(children),
         }),
         Node::BottomSheet {
-            state,
+            component_ref,
             content_padding,
             detents,
-            snap_points,
-            initial_snap_point,
-            selected_snap_point,
             initial_detent,
             show_drag_indicator,
             allows_dismissal,
@@ -1876,12 +1921,9 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             on_dismiss,
             children,
         } => Some(Node::BottomSheet {
-            state,
+            component_ref: folder.fold_expr(component_ref),
             content_padding,
             detents,
-            snap_points,
-            initial_snap_point,
-            selected_snap_point,
             initial_detent,
             show_drag_indicator,
             allows_dismissal,
@@ -2078,7 +2120,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                     body: folder.fold_nodes(case.body),
                 })
                 .collect(),
-            else_body: folder.fold_nodes(else_body),
+            else_body: else_body.map(|body| folder.fold_nodes(body)),
             transition,
             transition_animation,
         }),
@@ -2245,6 +2287,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             shape,
             tint,
             glass,
+            accessibility_label,
             actions,
         } => Some(Node::Button {
             label: folder.fold_expr(label),
@@ -2261,6 +2304,8 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 other => other,
             }),
             glass,
+            accessibility_label: accessibility_label
+                .map(|value| Box::new(folder.fold_expr(*value))),
             actions: folder.fold_actions(actions),
         }),
         Node::TextInput {
@@ -2308,6 +2353,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::ComponentCall {
             name,
             arguments,
+            component_ref,
             children,
         } => Some(Node::ComponentCall {
             name,
@@ -2315,12 +2361,14 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 .into_iter()
                 .map(|(name, arg)| (name, folder.fold_expr(arg)))
                 .collect(),
+            component_ref: component_ref.map(|reference| folder.fold_expr(reference)),
             children: children.map(|c| folder.fold_nodes(c)),
         }),
         Node::NativeComponentCall {
             namespace,
             name,
             arguments,
+            component_ref,
             children,
             event_handlers,
         } => Some(Node::NativeComponentCall {
@@ -2330,6 +2378,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 .into_iter()
                 .map(|(name, arg)| (name, folder.fold_expr(arg)))
                 .collect(),
+            component_ref: component_ref.map(|reference| folder.fold_expr(reference)),
             children: children.map(|c| folder.fold_nodes(c)),
             event_handlers: event_handlers
                 .into_iter()
@@ -2432,6 +2481,9 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
             count: folder.fold_expr(count),
             common: ListCommon {
                 key: common.key.map(|k| folder.fold_expr(k)),
+                component_ref: common
+                    .component_ref
+                    .map(|reference| folder.fold_expr(reference)),
                 scroll_enabled: common
                     .scroll_enabled
                     .map(|enabled| folder.fold_expr(enabled)),
@@ -2464,6 +2516,9 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
             item,
             common: ListCommon {
                 key: common.key.map(|k| folder.fold_expr(k)),
+                component_ref: common
+                    .component_ref
+                    .map(|reference| folder.fold_expr(reference)),
                 scroll_enabled: common
                     .scroll_enabled
                     .map(|enabled| folder.fold_expr(enabled)),
@@ -2498,6 +2553,9 @@ pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
             item,
             common: SectionedListCommon {
                 key: common.key.map(|k| folder.fold_expr(k)),
+                component_ref: common
+                    .component_ref
+                    .map(|reference| folder.fold_expr(reference)),
                 scroll_enabled: common
                     .scroll_enabled
                     .map(|enabled| folder.fold_expr(enabled)),
@@ -2524,6 +2582,15 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
             key,
             value: Box::new(folder.fold_expr(*value)),
             comment,
+        },
+        Expr::Located {
+            source_file,
+            source_span,
+            expression,
+        } => Expr::Located {
+            source_file,
+            source_span,
+            expression: Box::new(folder.fold_expr(*expression)),
         },
         Expr::Add(left, right, ty) => Expr::Add(
             Box::new(folder.fold_expr(*left)),
@@ -2729,7 +2796,14 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
         Expr::FileReadText { path } => Expr::FileReadText {
             path: Box::new(folder.fold_expr(*path)),
         },
+        Expr::FileReadBytes { path } => Expr::FileReadBytes {
+            path: Box::new(folder.fold_expr(*path)),
+        },
         Expr::FileWriteText { path, contents } => Expr::FileWriteText {
+            path: Box::new(folder.fold_expr(*path)),
+            contents: Box::new(folder.fold_expr(*contents)),
+        },
+        Expr::FileWriteBytes { path, contents } => Expr::FileWriteBytes {
             path: Box::new(folder.fold_expr(*path)),
             contents: Box::new(folder.fold_expr(*contents)),
         },
@@ -2851,6 +2925,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
                 .collect(),
         ),
         Expr::String(_)
+        | Expr::ComponentRefCreate { .. }
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::State(_, _)
@@ -2869,6 +2944,17 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
 pub fn fold_action_children<F: IrFolder>(action: Action, folder: &mut F) -> Option<Action> {
     match action {
         Action::Expression(expr) => Some(Action::Expression(folder.fold_expr(expr))),
+        Action::NavigationPush {
+            destination,
+            arguments,
+        } => Some(Action::NavigationPush {
+            destination,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| folder.fold_expr(argument))
+                .collect(),
+        }),
+        Action::NavigationBack => Some(Action::NavigationBack),
         Action::Let { name, ty, value } => Some(Action::Let {
             name,
             ty,
@@ -3001,7 +3087,7 @@ pub fn fold_network_request<F: IrFolder>(
     request.method = Box::new(folder.fold_expr(*request.method));
     request.headers = Box::new(folder.fold_expr(*request.headers));
     request.timeout = Box::new(folder.fold_expr(*request.timeout));
-    request.use_cache = Box::new(folder.fold_expr(*request.use_cache));
+    request.cache_policy = Box::new(folder.fold_expr(*request.cache_policy));
     request.follow_redirects = Box::new(folder.fold_expr(*request.follow_redirects));
     request.max_response_bytes = Box::new(folder.fold_expr(*request.max_response_bytes));
     request.certificate_pins = Box::new(folder.fold_expr(*request.certificate_pins));
@@ -3047,7 +3133,10 @@ mod tests {
             receiver: Expr::State("player".to_owned(), Type::Void),
             property: "onEnded".to_owned(),
             parameters: Vec::new(),
-            actions: vec![Action::Expression(Expr::String("nested".to_owned()))],
+            actions: vec![Action::Expression(Expr::State(
+                "nested_handler_state".to_owned(),
+                Type::String,
+            ))],
         }];
         let nodes = [
             Node::Button {
@@ -3060,12 +3149,14 @@ mod tests {
                 shape: None,
                 tint: None,
                 glass: false,
+                accessibility_label: None,
                 actions: nested,
             },
             Node::NativeComponentCall {
                 namespace: "Video".to_owned(),
                 name: "VideoView".to_owned(),
                 arguments: Vec::new(),
+                component_ref: None,
                 children: None,
                 event_handlers: vec![NativeComponentEventHandler {
                     property: "onTapped".to_owned(),
@@ -3079,12 +3170,16 @@ mod tests {
             let kind = match actions.first() {
                 Some(Action::NativeEventSubscribe { .. }) => "subscription",
                 Some(Action::Expression(Expr::String(value))) => value.as_str(),
+                Some(Action::Expression(Expr::State(name, _))) => name.as_str(),
                 _ => "other",
             };
             callback_kinds.push(kind.to_owned());
         });
 
-        assert_eq!(callback_kinds, ["subscription", "nested", "component"]);
+        assert_eq!(
+            callback_kinds,
+            ["subscription", "nested_handler_state", "component"]
+        );
 
         let mut outer_states = Vec::new();
         walk_callback_expressions(nodes_button_actions(&nodes[0]), &mut |expression| {
@@ -3093,6 +3188,14 @@ mod tests {
             }
         });
         assert_eq!(outer_states, ["player"]);
+
+        let mut all_action_states = Vec::new();
+        walk_actions(nodes_button_actions(&nodes[0]), &mut |expression| {
+            if let Expr::State(name, _) = expression {
+                all_action_states.push(name.clone());
+            }
+        });
+        assert_eq!(all_action_states, ["player", "nested_handler_state"]);
     }
 
     fn nodes_button_actions(node: &Node) -> &[Action] {
@@ -3147,6 +3250,7 @@ mod tests {
                         shape: None,
                         tint: None,
                         glass: false,
+                        accessibility_label: None,
                         actions: vec![Action::Assign {
                             name: "count".to_owned(),
                             value: Expr::State(

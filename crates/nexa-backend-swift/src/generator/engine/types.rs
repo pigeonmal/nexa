@@ -72,6 +72,21 @@ pub(crate) fn swift_type(ty: &Type) -> String {
         Type::Struct { name, .. } => struct_name(name),
         Type::Class { name, .. } => struct_name(name),
         Type::Signal(inner) => format!("NexaSignal<{}>", swift_type(inner)),
+        Type::ComponentRef { namespace, name } => {
+            if namespace == "Nexa" {
+                format!("{}Ref", struct_name(name))
+            } else {
+                format!("{name}Ref")
+            }
+        }
+        Type::ComponentRefError(failure) => {
+            let failure = if matches!(failure.as_ref(), Type::Void) {
+                "Never".to_owned()
+            } else {
+                swift_type(failure)
+            };
+            format!("NexaComponentRefError<{failure}>")
+        }
     }
 }
 
@@ -117,6 +132,153 @@ pub(crate) fn render_enums(module: &Module, out: &mut SourceWriter) {
     }
 }
 
+pub(crate) fn render_component_ref_types(out: &mut SourceWriter) {
+    out.push_str(
+        r#"
+public extension Result {
+    var isSuccess: Bool {
+        switch self {
+        case .success: return true
+        case .failure: return false
+        }
+    }
+
+    var value: Success? {
+        switch self {
+        case .success(let value): return value
+        case .failure: return nil
+        }
+    }
+
+    var error: Failure? {
+        switch self {
+        case .success: return nil
+        case .failure(let error): return error
+        }
+    }
+}
+
+public enum NexaComponentRefError<Failure: Error>: Error {
+    case notAttached
+    case failure(Failure)
+}
+
+@MainActor
+public final class NexaFastListRef {
+    private weak var attachedView: AnyObject?
+    private weak var nativeScrollView: AnyObject?
+    private var isAttached = false
+    private var indexAction: ((Int32, Bool, Double) -> Void)?
+    private var topAction: ((Bool) -> Void)?
+    private var endAction: ((Bool) -> Void)?
+    private var offsetAction: ((Double, Bool) -> Void)?
+
+    public init() {}
+
+    func attach(
+        view: AnyObject,
+        scrollToIndex: @escaping (Int32, Bool, Double) -> Void,
+        scrollToTop: @escaping (Bool) -> Void,
+        scrollToEnd: @escaping (Bool) -> Void,
+        scrollToOffset: @escaping (Double, Bool) -> Void
+    ) {
+        attachedView = view
+        isAttached = true
+        indexAction = scrollToIndex
+        topAction = scrollToTop
+        endAction = scrollToEnd
+        offsetAction = scrollToOffset
+    }
+
+    func detach() {
+        attachedView = nil
+        nativeScrollView = nil
+        isAttached = false
+        indexAction = nil
+        topAction = nil
+        endAction = nil
+        offsetAction = nil
+    }
+
+    func updateNativeScrollView(_ view: AnyObject?) {
+        nativeScrollView = view
+    }
+
+    func nativeScrollViewObject() -> AnyObject? {
+        nativeScrollView
+    }
+
+    public func scrollToIndex(
+        _ index: Int32,
+        animated: Bool = true,
+        viewPosition: Double = 0.0
+    ) -> Result<Void, NexaComponentRefError<Never>> {
+        guard isAttached, attachedView != nil, let indexAction else { return .failure(.notAttached) }
+        let normalizedPosition = viewPosition.isFinite ? min(max(viewPosition, 0.0), 1.0) : 0.0
+        indexAction(index, animated, normalizedPosition)
+        return .success(())
+    }
+
+    public func scrollToTop(animated: Bool = true) -> Result<Void, NexaComponentRefError<Never>> {
+        guard isAttached, attachedView != nil, let topAction else { return .failure(.notAttached) }
+        topAction(animated)
+        return .success(())
+    }
+
+    public func scrollToEnd(animated: Bool = true) -> Result<Void, NexaComponentRefError<Never>> {
+        guard isAttached, attachedView != nil, let endAction else { return .failure(.notAttached) }
+        endAction(animated)
+        return .success(())
+    }
+
+    public func scrollToOffset(
+        _ offset: Double,
+        animated: Bool = true
+    ) -> Result<Void, NexaComponentRefError<Never>> {
+        guard isAttached, attachedView != nil, offset.isFinite, let offsetAction else { return .failure(.notAttached) }
+        offsetAction(max(0, offset), animated)
+        return .success(())
+    }
+}
+
+@MainActor
+public final class NexaBottomSheetRef {
+    private var generation: UInt64 = 0
+    private var presentAction: (() -> Void)?
+    private var dismissAction: (() -> Void)?
+
+    public init() {}
+
+    @discardableResult
+    func attach(present: @escaping () -> Void, dismiss: @escaping () -> Void) -> UInt64 {
+        generation &+= 1
+        presentAction = present
+        dismissAction = dismiss
+        return generation
+    }
+
+    func detach(generation expected: UInt64) {
+        guard generation == expected else { return }
+        presentAction = nil
+        dismissAction = nil
+    }
+
+    public func present() -> Result<Void, NexaComponentRefError<Never>> {
+        guard let presentAction else { return .failure(.notAttached) }
+        presentAction()
+        return .success(())
+    }
+
+    public func dismiss() -> Result<Void, NexaComponentRefError<Never>> {
+        guard let dismissAction else { return .failure(.notAttached) }
+        dismissAction()
+        return .success(())
+    }
+}
+"#,
+    );
+}
+
 /// Renders the `NexaNavigationRoute` enum that types the navigation path.
 ///
 /// Each case carries a `UUID` route identity ahead of the screen's parameters.
@@ -126,7 +288,7 @@ pub(crate) fn render_navigation_routes(module: &Module, out: &mut SourceWriter) 
     if module.screens.is_empty() {
         return;
     }
-    out.push_str("private enum NexaNavigationRoute: Hashable {\n");
+    out.push_str("private struct NexaNavigationPathEnvironmentKey: EnvironmentKey {\n    nonisolated(unsafe) static let defaultValue: Binding<NavigationPath> = .constant(NavigationPath())\n}\n\nprivate extension EnvironmentValues {\n    var nexaNavigationPath: Binding<NavigationPath> {\n        get { self[NexaNavigationPathEnvironmentKey.self] }\n        set { self[NexaNavigationPathEnvironmentKey.self] = newValue }\n    }\n}\n\nprivate enum NexaNavigationRoute: Hashable {\n");
     for screen in &module.screens {
         let case_name = nexa_codegen::names::navigation_case_name(screen.id);
         let mut payload_types = vec!["UUID".to_owned()];
@@ -142,4 +304,28 @@ pub(crate) fn render_navigation_routes(module: &Module, out: &mut SourceWriter) 
         ));
     }
     out.push_str("}\n\n");
+}
+
+#[cfg(test)]
+mod component_ref_type_tests {
+    use super::swift_type;
+    use nexa_ir::Type;
+
+    #[test]
+    fn component_refs_use_the_builtin_or_plugin_binding_name() {
+        assert_eq!(
+            swift_type(&Type::ComponentRef {
+                namespace: "Nexa".to_owned(),
+                name: "FastList".to_owned(),
+            }),
+            "NexaFastListRef"
+        );
+        assert_eq!(
+            swift_type(&Type::ComponentRef {
+                namespace: "Media".to_owned(),
+                name: "VideoView".to_owned(),
+            }),
+            "VideoViewRef"
+        );
+    }
 }

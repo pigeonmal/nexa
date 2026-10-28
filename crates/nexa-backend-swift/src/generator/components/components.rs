@@ -154,7 +154,7 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
-        Node::Spacer => out.line_at(depth, format_args!("Spacer()")),
+        Node::Spacer => out.line_at(depth, format_args!("Spacer(minLength: 0)")),
         Node::Divider { color, thickness } => out.line_at(
             depth,
             format_args!(
@@ -165,6 +165,7 @@ pub(crate) fn render_node(
         ),
         Node::Button {
             label,
+            accessibility_label,
             icon,
             loading,
             disabled,
@@ -179,6 +180,7 @@ pub(crate) fn render_node(
             controls::render_button(
                 label,
                 None,
+                accessibility_label.as_deref(),
                 icon.as_ref(),
                 loading.as_ref(),
                 disabled.as_ref(),
@@ -421,12 +423,9 @@ pub(crate) fn render_node(
             keyboard::render_keyboard_aware(*dismiss, children, module, features, depth, out)
         }
         Node::BottomSheet {
-            state,
+            component_ref,
             content_padding,
             detents,
-            snap_points,
-            initial_snap_point,
-            selected_snap_point,
             initial_detent,
             show_drag_indicator,
             allows_dismissal,
@@ -438,12 +437,9 @@ pub(crate) fn render_node(
             children,
         } => bottom_sheet::render_bottom_sheet(
             bottom_sheet::BottomSheetRenderArgs {
-                state,
+                component_ref,
                 content_padding: *content_padding,
                 detents,
-                snap_points,
-                initial_snap_point: *initial_snap_point,
-                selected_snap_point: selected_snap_point.as_deref(),
                 initial_detent: *initial_detent,
                 show_drag_indicator: *show_drag_indicator,
                 allows_dismissal: *allows_dismissal,
@@ -496,7 +492,16 @@ pub(crate) fn render_node(
             bottom_bar::render_page_pager(state, pages, depth, out);
         }
         Node::FastList { plan } => {
-            lists::render_virtualized_list(plan, module, features, depth, out);
+            if plan
+                .on_end_reached()
+                .is_some_and(nexa_ir::walk::actions_contain_task_launch)
+            {
+                out.line_at(depth, format_args!("NexaTaskScopeView {{ nexaTaskScope in"));
+                lists::render_virtualized_list(plan, module, features, depth + 1, out);
+                out.line_at(depth, format_args!("}}"));
+            } else {
+                lists::render_virtualized_list(plan, module, features, depth, out);
+            }
         }
         Node::If {
             condition,
@@ -571,10 +576,12 @@ pub(crate) fn render_node(
                 render_children(&case.body, module, features, content_depth + 2, out);
                 out.push('\n');
             }
-            indent(out, content_depth + 1);
-            out.push_str("default:\n");
-            render_children(else_body, module, features, content_depth + 2, out);
-            out.push('\n');
+            if let Some(else_body) = else_body {
+                indent(out, content_depth + 1);
+                out.push_str("default:\n");
+                render_children(else_body, module, features, content_depth + 2, out);
+                out.push('\n');
+            }
             indent(out, content_depth);
             out.push('}');
             out.push('\n');
@@ -601,22 +608,25 @@ pub(crate) fn render_node(
         Node::ComponentCall {
             name,
             arguments,
+            component_ref,
             children,
         } => {
+            let mut rendered_arguments = arguments
+                .iter()
+                .map(|(_, argument)| crate::generator::engine::expressions::expression(argument))
+                .collect::<Vec<_>>();
+            if let Some(component_ref) = component_ref {
+                rendered_arguments.push(format!(
+                    "nexaComponentRef: {}",
+                    crate::generator::engine::expressions::expression(component_ref)
+                ));
+            }
             out.text_at(
                 depth,
                 format_args!(
                     "{}({})",
                     nexa_codegen::names::component_name(name),
-                    arguments
-                        .iter()
-                        .map(
-                            |(_, argument)| crate::generator::engine::expressions::expression(
-                                argument
-                            )
-                        )
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    rendered_arguments.join(", ")
                 ),
             );
             if let Some(children) = children {

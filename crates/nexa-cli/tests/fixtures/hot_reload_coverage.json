@@ -56,6 +56,16 @@
         "android": "covered"
       },
       {
+        "name": "NavigationPush",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NavigationBack",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "NativeEventSubscribe",
         "ios": "covered",
         "android": "covered"
@@ -296,18 +306,6 @@
       },
       {
         "name": "GreaterEqual",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
-    "BottomSheetDetent": [
-      {
-        "name": "Medium",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Expanded",
         "ios": "covered",
         "android": "covered"
       }
@@ -564,6 +562,11 @@
         "android": "covered"
       },
       {
+        "name": "Located",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Bool",
         "ios": "covered",
         "android": "covered"
@@ -689,6 +692,11 @@
         "android": "covered"
       },
       {
+        "name": "ComponentRefCreate",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Closure",
         "ios": "covered",
         "android": "covered"
@@ -794,7 +802,17 @@
         "android": "covered"
       },
       {
+        "name": "FileReadBytes",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "FileWriteText",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FileWriteBytes",
         "ios": "covered",
         "android": "covered"
       },
@@ -1029,6 +1047,11 @@
         "name": "AutoGrid",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "Masonry",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "ListPlan": [
@@ -1097,11 +1120,6 @@
         "android": "covered"
       },
       {
-        "name": "NetworkHeaders",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
         "name": "NetworkBody",
         "ios": "covered",
         "android": "covered"
@@ -1123,6 +1141,21 @@
       },
       {
         "name": "SignalValue",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ResultIsSuccess",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ResultValue",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ResultError",
         "ios": "covered",
         "android": "covered"
       }
@@ -1843,6 +1876,16 @@
       },
       {
         "name": "Result",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ComponentRef",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ComponentRefError",
         "ios": "covered",
         "android": "covered"
       },

@@ -33,7 +33,7 @@ screen Completed {
                         hasTime = task.hasTime
                         priority = task.priority
                         taskTitleFocused = editingID < 0
-                        showingTaskEditor = true
+                        taskEditorSheetRef.present()
                     }.contextMenu {
                         Button("Edit", icon: "edit") {
                             editingID = task.id
@@ -44,7 +44,7 @@ screen Completed {
                             hasTime = task.hasTime
                             priority = task.priority
                             taskTitleFocused = editingID < 0
-                            showingTaskEditor = true
+                            taskEditorSheetRef.present()
                         }
                         Button("Mark Incomplete", icon: "undo") {
                             tasks = toggleTodo(tasks, task.id)

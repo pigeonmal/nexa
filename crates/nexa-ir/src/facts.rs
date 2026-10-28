@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::capabilities::Capabilities;
 use crate::walk::{
-    contains_scrollable, walk_action_tree, walk_actions, walk_callback_actions, walk_expression,
-    walk_ir,
+    actions_contain_task_launch, actions_contain_untracked_task_launch, contains_scrollable,
+    walk_action_tree, walk_actions, walk_callback_actions, walk_expression, walk_ir,
 };
 use crate::{
     AccessibilityRole, AnimationEasing, AnimationSpec, ButtonStyle, ColorValue, Expr, ImageSource,
@@ -36,6 +36,9 @@ pub struct ModuleFacts {
     /// Keeping this scoped avoids allocating a remembered scope in unrelated
     /// screens and components when any part of the module launches a task.
     pub task_launch_scopes: TaskLaunchScopes,
+    /// Swift task scopes are only needed for launches without a TaskHandle;
+    /// handle-backed launches already have a direct cancellation handle.
+    pub untracked_task_launch_scopes: TaskLaunchScopes,
     pub ui: UiFacts,
     pub permissions: PermissionFacts,
     pub component_calls: ComponentCallGraph,
@@ -77,7 +80,11 @@ pub struct PermissionFacts {
     /// A `request` query exists.
     pub request: bool,
     pub used: HashSet<Permission>,
+    /// Permissions passed to a statically known `Permissions.request` call.
+    pub requested: HashSet<Permission>,
     pub dynamic: bool,
+    /// A request call uses a runtime value whose permission case is unknown.
+    pub dynamic_request: bool,
 }
 
 /// Direct component-to-component calls, keyed by caller name in source order.
@@ -150,6 +157,7 @@ pub struct ScopeUi {
     pub link: bool,
     pub navigation: bool,
     pub navigation_back: bool,
+    pub navigation_actions: bool,
     pub keyboard_interactive: bool,
 }
 
@@ -258,9 +266,10 @@ pub struct ListFacts {
     pub scroll_events_grid: bool,
     pub scroll_position: bool,
     pub scroll_position_grid: bool,
-    pub scroll_commands: bool,
     pub end_reached: bool,
     pub end_reached_grid: bool,
+    /// An end-reached callback launches work that must be cancelled with its list.
+    pub end_reached_task_launch: bool,
     pub item_extent: bool,
     pub refresh_fused: bool,
 }
@@ -482,6 +491,8 @@ impl ModuleFacts {
             facts.capabilities.uses_network_connectivity |=
                 actions_contain_network_status_subscription(actions);
             let launches_task = actions_contain_task_launch(actions);
+            facts.untracked_task_launch_scopes.app |=
+                actions_contain_untracked_task_launch(actions);
             facts.uses_task_launch |= launches_task;
             facts.uses_with_animation |= actions_contain_with_animation(actions);
             facts.task_launch_scopes.app |= launches_task;
@@ -513,6 +524,12 @@ impl ModuleFacts {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
+                if actions_contain_untracked_task_launch(actions) {
+                    facts
+                        .untracked_task_launch_scopes
+                        .screens
+                        .insert(screen.name.clone());
+                }
                 facts.uses_task_launch |= launches_task;
                 facts.uses_with_animation |= actions_contain_with_animation(actions);
                 if launches_task {
@@ -537,6 +554,12 @@ impl ModuleFacts {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
+                if actions_contain_untracked_task_launch(actions) {
+                    facts
+                        .untracked_task_launch_scopes
+                        .components
+                        .insert(component.name.clone());
+                }
                 facts.uses_task_launch |= launches_task;
                 facts.uses_with_animation |= actions_contain_with_animation(actions);
                 if launches_task {
@@ -554,6 +577,35 @@ impl ModuleFacts {
                     );
                 });
             }
+            for method in &component.ref_methods {
+                if let Some(actions) = &method.body_actions {
+                    facts.capabilities.uses_network_connectivity |=
+                        actions_contain_network_status_subscription(actions);
+                    let launches_task = actions_contain_task_launch(actions);
+                    if actions_contain_untracked_task_launch(actions) {
+                        facts
+                            .untracked_task_launch_scopes
+                            .components
+                            .insert(component.name.clone());
+                    }
+                    facts.uses_task_launch |= launches_task;
+                    facts.uses_with_animation |= actions_contain_with_animation(actions);
+                    if launches_task {
+                        facts
+                            .task_launch_scopes
+                            .components
+                            .insert(component.name.clone());
+                    }
+                    walk_actions(actions, &mut |expression| {
+                        observe_expr(
+                            expression,
+                            &mut facts.capabilities,
+                            &mut facts.permissions,
+                            &mut false,
+                        );
+                    });
+                }
+            }
         }
 
         // Bodies: one walk per scope observes nodes and expressions together.
@@ -564,6 +616,8 @@ impl ModuleFacts {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
+                facts.untracked_task_launch_scopes.app |=
+                    actions_contain_untracked_task_launch(actions);
                 facts.uses_task_launch |= launches_task;
                 facts.uses_with_animation |= actions_contain_with_animation(actions);
                 facts.task_launch_scopes.app |= launches_task;
@@ -599,6 +653,12 @@ impl ModuleFacts {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
+                if actions_contain_untracked_task_launch(actions) {
+                    facts
+                        .untracked_task_launch_scopes
+                        .screens
+                        .insert(screen.name.clone());
+                }
                 facts.uses_task_launch |= launches_task;
                 facts.uses_with_animation |= actions_contain_with_animation(actions);
                 if launches_task {
@@ -640,6 +700,12 @@ impl ModuleFacts {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
+                if actions_contain_untracked_task_launch(actions) {
+                    facts
+                        .untracked_task_launch_scopes
+                        .components
+                        .insert(component.name.clone());
+                }
                 facts.uses_task_launch |= launches_task;
                 facts.uses_with_animation |= actions_contain_with_animation(actions);
                 if launches_task {
@@ -657,6 +723,12 @@ impl ModuleFacts {
                 facts.capabilities.uses_network_connectivity |=
                     actions_contain_network_status_subscription(actions);
                 let launches_task = actions_contain_task_launch(actions);
+                if actions_contain_untracked_task_launch(actions) {
+                    facts
+                        .untracked_task_launch_scopes
+                        .components
+                        .insert(component.name.clone());
+                }
                 facts.uses_task_launch |= launches_task;
                 if launches_task {
                     facts
@@ -695,6 +767,35 @@ impl ModuleFacts {
                     );
                 },
             );
+            for method in &component.ref_methods {
+                if let Some(actions) = &method.body_actions {
+                    walk_actions(actions, &mut |expression| {
+                        observe_expr(
+                            expression,
+                            &mut facts.capabilities,
+                            &mut facts.permissions,
+                            &mut size_hit,
+                        );
+                    });
+                    facts.capabilities.uses_network_connectivity |=
+                        actions_contain_network_status_subscription(actions);
+                    let launches_task = actions_contain_task_launch(actions);
+                    if actions_contain_untracked_task_launch(actions) {
+                        facts
+                            .untracked_task_launch_scopes
+                            .components
+                            .insert(component.name.clone());
+                    }
+                    facts.uses_task_launch |= launches_task;
+                    facts.uses_with_animation |= actions_contain_with_animation(actions);
+                    if launches_task {
+                        facts
+                            .task_launch_scopes
+                            .components
+                            .insert(component.name.clone());
+                    }
+                }
+            }
             if size_hit {
                 facts
                     .ui
@@ -822,6 +923,10 @@ fn observe_node(
             Scope::App => &mut ui.app,
             Scope::Component(name) => ui.components.entry(name.to_owned()).or_default(),
         }
+    }
+    if node_uses_navigation_actions(node) {
+        scope_of(ui, scope).navigation = true;
+        scope_of(ui, scope).navigation_actions = true;
     }
     match node {
         Node::Appearance { .. } => ui.appearance = true,
@@ -1250,7 +1355,6 @@ fn observe_node(
                 ui.lists.scroll_position |= !grid;
                 ui.lists.scroll_position_grid |= grid;
             }
-            ui.lists.scroll_commands |= plan.has_scroll_commands();
             if plan.on_scroll().is_some() {
                 ui.lists.scroll_events |= !grid;
                 ui.lists.scroll_events_grid |= grid;
@@ -1258,6 +1362,9 @@ fn observe_node(
             if plan.on_end_reached().is_some() {
                 ui.lists.end_reached |= !grid;
                 ui.lists.end_reached_grid |= grid;
+                ui.lists.end_reached_task_launch |= plan
+                    .on_end_reached()
+                    .is_some_and(actions_contain_task_launch);
             }
             ui.lists.item_extent |= plan.item_extent().is_some();
             record_child_layout(plan.children(), ui);
@@ -1283,6 +1390,65 @@ fn observe_node(
                 calls.push(name.clone());
             }
         }
+    }
+}
+
+fn actions_use_navigation(actions: &[crate::Action]) -> bool {
+    let mut found = false;
+    crate::walk::walk_action_tree(actions, &mut |action| {
+        found |= matches!(
+            action,
+            crate::Action::NavigationPush { .. } | crate::Action::NavigationBack
+        );
+    });
+    found
+}
+
+fn node_uses_navigation_actions(node: &Node) -> bool {
+    match node {
+        Node::OnAppear { actions, .. }
+        | Node::OnDisappear { actions }
+        | Node::OnActive { actions }
+        | Node::OnInactive { actions }
+        | Node::OnBackground { actions }
+        | Node::Button { actions, .. }
+        | Node::RefreshControl { actions, .. } => actions_use_navigation(actions),
+        Node::TextInput {
+            actions, on_change, ..
+        } => {
+            actions_use_navigation(actions)
+                || on_change
+                    .as_ref()
+                    .is_some_and(|change| actions_use_navigation(&change.actions))
+        }
+        Node::Pressable {
+            actions,
+            double_tap_actions,
+            long_press_actions,
+            drag_actions,
+            pinch_actions,
+            ..
+        } => [
+            actions,
+            double_tap_actions,
+            long_press_actions,
+            drag_actions,
+            pinch_actions,
+        ]
+        .into_iter()
+        .any(|actions| actions_use_navigation(actions)),
+        Node::BottomSheet { on_dismiss, .. } => actions_use_navigation(on_dismiss),
+        Node::FastList { plan } => {
+            plan.on_end_reached().is_some_and(actions_use_navigation)
+                || plan.on_scroll().is_some_and(actions_use_navigation)
+                || plan
+                    .refresh()
+                    .is_some_and(|refresh| actions_use_navigation(&refresh.actions))
+        }
+        Node::NativeComponentCall { event_handlers, .. } => event_handlers
+            .iter()
+            .any(|handler| actions_use_navigation(&handler.actions)),
+        _ => false,
     }
 }
 
@@ -1393,42 +1559,6 @@ fn actions_contain_network_status_subscription(actions: &[crate::Action]) -> boo
     })
 }
 
-fn actions_contain_task_launch(actions: &[crate::Action]) -> bool {
-    actions.iter().any(|action| match action {
-        crate::Action::TaskLaunch { .. } => true,
-        crate::Action::NativeEventSubscribe { actions, .. }
-        | crate::Action::NetworkStatusSubscribe { actions, .. }
-        | crate::Action::WithAnimation { actions, .. }
-        | crate::Action::For { body: actions, .. }
-        | crate::Action::ForMap { body: actions, .. }
-        | crate::Action::While { body: actions, .. } => actions_contain_task_launch(actions),
-        crate::Action::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            actions_contain_task_launch(then_branch)
-                || else_branch
-                    .as_deref()
-                    .is_some_and(actions_contain_task_launch)
-        }
-        crate::Action::TryCatch {
-            body,
-            error_catches,
-            catch_body,
-        } => {
-            actions_contain_task_launch(body)
-                || error_catches
-                    .iter()
-                    .any(|arm| actions_contain_task_launch(&arm.body))
-                || catch_body
-                    .as_deref()
-                    .is_some_and(actions_contain_task_launch)
-        }
-        _ => false,
-    })
-}
-
 fn actions_contain_with_animation(actions: &[crate::Action]) -> bool {
     let mut found = false;
     walk_action_tree(actions, &mut |action| {
@@ -1468,7 +1598,11 @@ fn observe_expr(
         Expr::NetworkDownload { .. } => {
             capabilities.uses_network_api = true;
         }
-        Expr::FileReadText { .. } | Expr::FileWriteText { .. } | Expr::FileDelete { .. } => {
+        Expr::FileReadText { .. }
+        | Expr::FileReadBytes { .. }
+        | Expr::FileWriteText { .. }
+        | Expr::FileWriteBytes { .. }
+        | Expr::FileDelete { .. } => {
             capabilities.uses_file_api = true;
             capabilities.uses_file_async = true;
         }
@@ -1485,7 +1619,10 @@ fn observe_expr(
         _ => {}
     }
     if let Expr::NativeCall {
-        namespace, name, ..
+        namespace,
+        name,
+        codecs,
+        ..
     } = expression
     {
         match namespace.as_str() {
@@ -1508,7 +1645,11 @@ fn observe_expr(
             "Regex" => capabilities.uses_regex_api = true,
             "Crypto" => capabilities.uses_crypto_api = true,
             "SecureStorage" => capabilities.uses_secure_storage_api = true,
-            "Storage" => capabilities.uses_storage_api = true,
+            "Storage" => {
+                capabilities.uses_storage_api = true;
+                capabilities.uses_json_api |=
+                    matches!(name.as_str(), "get" | "set") && !codecs.is_empty();
+            }
             "Clipboard" => capabilities.uses_clipboard_api = true,
             "Haptics" => capabilities.uses_haptics_api = true,
             "Screen" => capabilities.uses_screen_orientation_api |= name == "lockOrientation",
@@ -1543,46 +1684,39 @@ fn observe_expr(
 }
 
 fn record_permission_usage(expression: &Expr, permissions: &mut PermissionFacts) {
-    let permission = match expression {
-        Expr::PermissionOp { permission, .. } => permission.as_ref(),
+    let (op, permission) = match expression {
+        Expr::PermissionOp { op, permission } => (op, permission.as_ref()),
         _ => return,
     };
-    match permission {
+    let permission = match permission {
         Expr::EnumValue {
             enum_name,
             case_name,
             ..
         } if enum_name == "Permission" => match case_name.as_str() {
-            "Camera" => {
-                permissions.used.insert(Permission::Camera);
-            }
-            "Microphone" => {
-                permissions.used.insert(Permission::Microphone);
-            }
-            "Photos" => {
-                permissions.used.insert(Permission::Photos);
-            }
-            "Location" => {
-                permissions.used.insert(Permission::Location);
-            }
-            "Notifications" => {
-                permissions.used.insert(Permission::Notifications);
-            }
-            "Contacts" => {
-                permissions.used.insert(Permission::Contacts);
-            }
-            "Calendar" => {
-                permissions.used.insert(Permission::Calendar);
-            }
-            "Bluetooth" => {
-                permissions.used.insert(Permission::Bluetooth);
-            }
-            "Motion" => {
-                permissions.used.insert(Permission::Motion);
-            }
-            _ => permissions.dynamic = true,
+            "Camera" => Some(Permission::Camera),
+            "Microphone" => Some(Permission::Microphone),
+            "Photos" => Some(Permission::Photos),
+            "Location" => Some(Permission::Location),
+            "Notifications" => Some(Permission::Notifications),
+            "Contacts" => Some(Permission::Contacts),
+            "Calendar" => Some(Permission::Calendar),
+            "Bluetooth" => Some(Permission::Bluetooth),
+            "Motion" => Some(Permission::Motion),
+            _ => None,
         },
-        _ => permissions.dynamic = true,
+        _ => None,
+    };
+    if let Some(permission) = permission {
+        permissions.used.insert(permission);
+        if *op == PermissionOpKind::Request {
+            permissions.requested.insert(permission);
+        }
+    } else {
+        permissions.dynamic = true;
+        if *op == PermissionOpKind::Request {
+            permissions.dynamic_request = true;
+        }
     }
 }
 
@@ -1725,6 +1859,7 @@ mod tests {
                 shape: None,
                 tint: None,
                 glass: false,
+                accessibility_label: None,
                 actions: vec![
                     Action::Expression(call("Network", "fetch")),
                     Action::Expression(call("Path", "documents")),
@@ -1747,7 +1882,7 @@ mod tests {
     }
 
     #[test]
-    fn task_launches_without_stored_handles_are_reported() {
+    fn task_launches_without_stored_handles_get_an_owning_scope() {
         let module = empty_module(vec![Node::Button {
             label: Expr::String("Release cached media".to_owned()),
             icon: None,
@@ -1758,6 +1893,7 @@ mod tests {
             shape: None,
             tint: None,
             glass: false,
+            accessibility_label: None,
             actions: vec![Action::TaskLaunch {
                 handle: None,
                 executor: crate::TaskExecutor::Main,
@@ -1767,6 +1903,34 @@ mod tests {
 
         let facts = ModuleFacts::analyze(&module);
         assert!(facts.uses_task_launch);
+        assert!(facts.task_launch_scopes.app);
+        assert!(facts.untracked_task_launch_scopes.app);
+    }
+
+    #[test]
+    fn task_launches_with_explicit_handles_get_an_owning_scope() {
+        let module = empty_module(vec![Node::Button {
+            label: Expr::String("Refresh".to_owned()),
+            icon: None,
+            loading: None,
+            disabled: None,
+            style: None,
+            size: None,
+            shape: None,
+            tint: None,
+            glass: false,
+            accessibility_label: None,
+            actions: vec![Action::TaskLaunch {
+                handle: Some("refreshTask".to_owned()),
+                executor: crate::TaskExecutor::Main,
+                actions: Vec::new(),
+            }],
+        }]);
+
+        let facts = ModuleFacts::analyze(&module);
+        assert!(facts.uses_task_launch);
+        assert!(facts.task_launch_scopes.app);
+        assert!(!facts.untracked_task_launch_scopes.app);
     }
 
     #[test]
@@ -1781,6 +1945,7 @@ mod tests {
             shape: Some(crate::ButtonShape::Capsule),
             tint: None,
             glass: false,
+            accessibility_label: None,
             actions: Vec::new(),
         }]);
 
@@ -1889,6 +2054,7 @@ mod tests {
                 item_extent: None,
                 index: "index".to_owned(),
                 key: None,
+                component_ref: None,
                 children: Vec::new(),
                 section_header: None,
                 swipe_actions: None,
@@ -1970,6 +2136,7 @@ mod tests {
             shape: None,
             tint: None,
             glass: false,
+            accessibility_label: None,
             actions: vec![
                 Action::Expression(Expr::PermissionOp {
                     op: crate::PermissionOpKind::Request,
@@ -1992,7 +2159,45 @@ mod tests {
         assert!(facts.permissions.request);
         assert!(facts.permissions.used.contains(&crate::Permission::Camera));
         assert!(facts.permissions.used.contains(&crate::Permission::Motion));
+        assert!(
+            facts
+                .permissions
+                .requested
+                .contains(&crate::Permission::Camera)
+        );
+        assert!(
+            facts
+                .permissions
+                .requested
+                .contains(&crate::Permission::Motion)
+        );
         assert!(!facts.permissions.dynamic);
+        assert!(!facts.permissions.dynamic_request);
+    }
+
+    #[test]
+    fn dynamic_permission_requests_are_marked_separately_from_known_cases() {
+        let module = empty_module(vec![Node::Button {
+            label: Expr::String("Request access".to_owned()),
+            icon: None,
+            loading: None,
+            disabled: None,
+            style: None,
+            size: None,
+            shape: None,
+            tint: None,
+            glass: false,
+            accessibility_label: None,
+            actions: vec![Action::Expression(Expr::PermissionOp {
+                op: crate::PermissionOpKind::Request,
+                permission: Box::new(Expr::Bool(true)),
+            })],
+        }]);
+
+        let facts = ModuleFacts::analyze(&module);
+        assert!(facts.permissions.dynamic);
+        assert!(facts.permissions.dynamic_request);
+        assert!(facts.permissions.requested.is_empty());
     }
 
     #[test]
@@ -2003,6 +2208,7 @@ mod tests {
             source_file: None,
             parameters: Vec::new(),
             states: Vec::new(),
+            ref_methods: Vec::new(),
             body: vec![Node::TextInput {
                 state: "query".to_owned(),
                 placeholder: String::new(),
@@ -2032,9 +2238,11 @@ mod tests {
             source_file: None,
             parameters: Vec::new(),
             states: Vec::new(),
+            ref_methods: Vec::new(),
             body: vec![Node::ComponentCall {
                 name: "Callee".to_owned(),
                 arguments: Vec::new(),
+                component_ref: None,
                 children: None,
             }],
             on_appear: None,

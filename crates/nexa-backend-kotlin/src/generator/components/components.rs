@@ -128,6 +128,7 @@ pub(crate) fn render_node(
         ),
         Node::Button {
             label,
+            accessibility_label,
             icon,
             loading,
             disabled,
@@ -140,6 +141,7 @@ pub(crate) fn render_node(
         } => {
             controls::render_button(
                 label,
+                accessibility_label.as_deref(),
                 icon.as_ref(),
                 loading.as_ref(),
                 disabled.as_ref(),
@@ -332,12 +334,9 @@ pub(crate) fn render_node(
             keyboard::render_keyboard_aware(*dismiss, children, module, features, depth, out)
         }
         Node::BottomSheet {
-            state,
+            component_ref,
             content_padding,
             detents,
-            snap_points,
-            initial_snap_point,
-            selected_snap_point,
             initial_detent,
             show_drag_indicator,
             allows_dismissal,
@@ -349,12 +348,9 @@ pub(crate) fn render_node(
             children,
         } => bottom_sheet::render_bottom_sheet(
             bottom_sheet::BottomSheetRenderArgs {
-                state,
+                component_ref,
                 content_padding: *content_padding,
                 detents,
-                snap_points,
-                initial_snap_point: *initial_snap_point,
-                selected_snap_point: selected_snap_point.as_deref(),
                 initial_detent: *initial_detent,
                 show_drag_indicator: *show_drag_indicator,
                 allows_dismissal: *allows_dismissal,
@@ -441,7 +437,7 @@ pub(crate) fn render_node(
             conditional::render_when(
                 value,
                 cases,
-                else_body,
+                else_body.as_deref(),
                 *transition,
                 *transition_animation,
                 conditional::RenderScope {
@@ -459,6 +455,7 @@ pub(crate) fn render_node(
         Node::ComponentCall {
             name,
             arguments,
+            component_ref,
             children,
         } => {
             indent(out, depth);
@@ -471,6 +468,11 @@ pub(crate) fn render_node(
             }
             if features.component_requires_navigation(name) {
                 rendered_arguments.push("navController".to_owned());
+            }
+            if let Some(component_ref) = component_ref {
+                rendered_arguments.push(crate::generator::engine::expressions::expression(
+                    component_ref,
+                ));
             }
             out.push_str(&format!(
                 "{}({})",
@@ -545,6 +547,7 @@ pub(crate) fn render_node_in_form_row(
     match node {
         Node::Button {
             label,
+            accessibility_label,
             icon,
             loading,
             disabled,
@@ -556,6 +559,7 @@ pub(crate) fn render_node_in_form_row(
             ..
         } => controls::render_button(
             label,
+            accessibility_label.as_deref(),
             icon.as_ref(),
             loading.as_ref(),
             disabled.as_ref(),

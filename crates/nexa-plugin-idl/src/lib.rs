@@ -15,6 +15,16 @@ pub struct PluginIdl {
     pub types: Vec<NamedType>,
     pub interfaces: Vec<Interface>,
     pub config: Vec<ConfigOption>,
+    /// Documentation comments attached to declarations and members. Paths are
+    /// tagged (for example `interface:Storage.method:get`) so names cannot
+    /// collide between kinds of API items.
+    pub documentation: Vec<Documentation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Documentation {
+    pub path: String,
+    pub text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -211,6 +221,7 @@ enum TokenKind {
 struct Token {
     kind: TokenKind,
     location: Location,
+    documentation: Option<String>,
 }
 
 pub fn parse_file(path: &Path) -> Result<PluginIdl, String> {
@@ -219,9 +230,306 @@ pub fn parse_file(path: &Path) -> Result<PluginIdl, String> {
     parse(&source).map_err(|error| format!("{}: {error}", path.display()))
 }
 
+/// Renders the complete typed plugin contract as deterministic Markdown.
+/// Documentation comments are included beside the declaration they precede.
+pub fn render_markdown(idl: &PluginIdl) -> String {
+    use std::collections::HashMap;
+
+    let documentation = idl
+        .documentation
+        .iter()
+        .map(|item| (item.path.as_str(), item.text.as_str()))
+        .collect::<HashMap<_, _>>();
+    let mut output = String::from("# Plugin API\n\nGenerated from `native.nxid`.\n");
+
+    if !idl.types.is_empty() {
+        output.push_str("\n## Types\n");
+        for ty in &idl.types {
+            let keyword = match ty.kind {
+                NamedTypeKind::Struct => "struct",
+                NamedTypeKind::Enum => "enum",
+                NamedTypeKind::Error => "error",
+            };
+            let path = format!("type:{}", ty.name);
+            output.push_str(&format!("\n### `{keyword} {}`\n", ty.name));
+            append_documentation(&mut output, &documentation, &path);
+            if ty.kind == NamedTypeKind::Struct {
+                output.push_str("\n| Field | Type | Default | Description |\n|---|---|---|---|\n");
+                for field in &ty.fields {
+                    let field_path = format!("{path}.field:{}", field.name);
+                    output.push_str(&format!(
+                        "| `{}` | `{}` | {} | {} |\n",
+                        field.name,
+                        format_type(&field.ty),
+                        format_default(field.default.as_ref()),
+                        documentation_cell(&documentation, &field_path),
+                    ));
+                }
+            } else {
+                output.push_str("\n| Case | Payload | Description |\n|---|---|---|\n");
+                for case in &ty.cases {
+                    let case_path = format!("{path}.case:{}", case.name);
+                    let payload = case
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            format!("{}: {}", parameter.name, format_type(&parameter.ty))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    output.push_str(&format!(
+                        "| `{}` | `{}` | {} |\n",
+                        case.name,
+                        escape_cell(&payload),
+                        documentation_cell(&documentation, &case_path),
+                    ));
+                    append_parameter_documentation(
+                        &mut output,
+                        &documentation,
+                        &format!("{case_path}.parameter"),
+                        &case.parameters,
+                    );
+                }
+            }
+        }
+    }
+
+    if !idl.interfaces.is_empty() {
+        output.push_str("\n## Interfaces and native APIs\n");
+        for interface in &idl.interfaces {
+            let (keyword, kind) = match interface.kind {
+                InterfaceKind::Interface => ("interface", "Interface"),
+                InterfaceKind::Service => ("service", "Service"),
+                InterfaceKind::NativeClass => ("native class", "Native class"),
+                InterfaceKind::NativeComponent => ("native component", "Native component"),
+            };
+            let base_path = format!("interface:{}", interface.name);
+            output.push_str(&format!("\n### `{keyword} {}`\n", interface.name));
+            output.push_str(&format!("\n**Kind:** {kind}.\n"));
+            append_documentation(&mut output, &documentation, &base_path);
+
+            if interface.has_content_slot {
+                let content_path = format!("{base_path}.content");
+                output.push_str("\n**Content slot:** accepts child content.\n");
+                append_documentation(&mut output, &documentation, &content_path);
+            }
+            for constructor in &interface.constructors {
+                let signature = format!("init({})", format_parameters(&constructor.parameters));
+                let constructor_path = format!("{base_path}.constructor");
+                output.push_str(&format!("\n**Constructor:** `{signature}`\n"));
+                append_documentation(&mut output, &documentation, &constructor_path);
+                append_parameter_documentation(
+                    &mut output,
+                    &documentation,
+                    &format!("{constructor_path}.parameter"),
+                    &constructor.parameters,
+                );
+            }
+            if !interface.properties.is_empty() {
+                output.push_str("\n| Property | Type | Access | Default | Description |\n|---|---|---|---|---|\n");
+                for property in &interface.properties {
+                    let property_path = format!("{base_path}.property:{}", property.name);
+                    output.push_str(&format!(
+                        "| `{}` | `{}` | {} | {} | {} |\n",
+                        property.name,
+                        format_type(&property.ty),
+                        if property.mutable {
+                            "read/write"
+                        } else {
+                            "read-only"
+                        },
+                        format_default(property.default.as_ref()),
+                        documentation_cell(&documentation, &property_path),
+                    ));
+                }
+            }
+            if !interface.methods.is_empty() {
+                output.push_str("\n| Method | Description |\n|---|---|\n");
+                for method in &interface.methods {
+                    let method_path = format!("{base_path}.method:{}", method.name);
+                    output.push_str(&format!(
+                        "| `{}` | {} |\n",
+                        escape_cell(&format_method(method)),
+                        documentation_cell(&documentation, &method_path),
+                    ));
+                    append_parameter_documentation(
+                        &mut output,
+                        &documentation,
+                        &format!("{method_path}.parameter"),
+                        &method.parameters,
+                    );
+                }
+            }
+            if !interface.events.is_empty() {
+                output.push_str("\n| Event | Parameters | Description |\n|---|---|---|\n");
+                for event in &interface.events {
+                    let event_path = format!("{base_path}.event:{}", event.name);
+                    output.push_str(&format!(
+                        "| `{}` | `{}` | {} |\n",
+                        event.name,
+                        escape_cell(&format_parameters(&event.parameters)),
+                        documentation_cell(&documentation, &event_path),
+                    ));
+                    append_parameter_documentation(
+                        &mut output,
+                        &documentation,
+                        &format!("{event_path}.parameter"),
+                        &event.parameters,
+                    );
+                }
+            }
+        }
+    }
+
+    if !idl.config.is_empty() {
+        output.push_str("\n## Package configuration\n");
+        append_documentation(&mut output, &documentation, "config");
+        output.push_str("\n| Option | Type | Default | Description |\n|---|---|---|---|\n");
+        for option in &idl.config {
+            let path = format!("config:{}", option.name);
+            output.push_str(&format!(
+                "| `{}` | `{}` | {} | {} |\n",
+                option.name,
+                format_type(&option.ty),
+                format_default(option.default.as_ref()),
+                documentation_cell(&documentation, &path),
+            ));
+        }
+    }
+
+    output.trim_end().to_owned() + "\n"
+}
+
+fn format_type(ty: &TypeRef) -> String {
+    let mut value = ty.name.clone();
+    if !ty.arguments.is_empty() {
+        value.push('<');
+        value.push_str(
+            &ty.arguments
+                .iter()
+                .map(format_type)
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        value.push('>');
+    }
+    if ty.optional {
+        value.push('?');
+    }
+    value
+}
+
+fn format_default(value: Option<&Literal>) -> String {
+    match value {
+        None => "—".to_owned(),
+        Some(Literal::String(value)) => format!("`\"{}\"`", escape_cell(value)),
+        Some(Literal::Number(value)) => format!("`{value}`"),
+        Some(Literal::Bool(value)) => format!("`{value}`"),
+        Some(Literal::Null) => "`null`".to_owned(),
+    }
+}
+
+fn format_parameters(parameters: &[Parameter]) -> String {
+    parameters
+        .iter()
+        .map(|parameter| format!("{}: {}", parameter.name, format_type(&parameter.ty)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn format_method(method: &Method) -> String {
+    let mut value = String::new();
+    if method.is_async {
+        value.push_str("async ");
+    }
+    value.push_str("fn ");
+    value.push_str(&method.name);
+    if !method.type_parameters.is_empty() {
+        let type_parameters = method
+            .type_parameters
+            .iter()
+            .map(|name| {
+                if method.struct_type_parameters.contains(name) {
+                    format!("{name}: Struct")
+                } else if method.row_type_parameters.contains(name) {
+                    format!("{name}: Row")
+                } else {
+                    name.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        value.push('<');
+        value.push_str(&type_parameters);
+        value.push('>');
+    }
+    value.push('(');
+    value.push_str(&format_parameters(&method.parameters));
+    value.push(')');
+    if method.return_type.name != "Void" || !method.return_type.arguments.is_empty() {
+        value.push_str(" -> ");
+        value.push_str(&format_type(&method.return_type));
+    }
+    if let Some(error) = &method.throws {
+        value.push_str(" throws ");
+        value.push_str(&format_type(error));
+    }
+    if let Some(case) = &method.row_error_case {
+        value.push_str(" rowFailure ");
+        value.push_str(case);
+    }
+    value
+}
+
+fn append_documentation(
+    output: &mut String,
+    documentation: &std::collections::HashMap<&str, &str>,
+    path: &str,
+) {
+    if let Some(text) = documentation.get(path) {
+        output.push('\n');
+        output.push_str(text.trim());
+        output.push('\n');
+    }
+}
+
+fn documentation_cell(documentation: &std::collections::HashMap<&str, &str>, path: &str) -> String {
+    documentation
+        .get(path)
+        .map(|text| escape_cell(&text.replace('\n', "<br>")))
+        .unwrap_or_default()
+}
+
+fn append_parameter_documentation(
+    output: &mut String,
+    documentation: &std::collections::HashMap<&str, &str>,
+    prefix: &str,
+    parameters: &[Parameter],
+) {
+    for parameter in parameters {
+        let path = format!("{prefix}:{}", parameter.name);
+        if let Some(text) = documentation.get(path.as_str()) {
+            output.push_str(&format!(
+                "  - `{}`: {}\n",
+                parameter.name,
+                text.trim().replace('\n', " ")
+            ));
+        }
+    }
+}
+
+fn escape_cell(value: &str) -> String {
+    value.replace('|', "\\|").replace('\n', " ")
+}
+
 pub fn parse(source: &str) -> Result<PluginIdl, String> {
     let tokens = lex(source)?;
-    Parser { tokens, cursor: 0 }.parse()
+    Parser {
+        tokens,
+        cursor: 0,
+        documentation: Vec::new(),
+    }
+    .parse()
 }
 
 fn lex(source: &str) -> Result<Vec<Token>, String> {
@@ -230,12 +538,16 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
     let mut cursor = 0;
     let mut line = 1;
     let mut column = 1;
+    let mut line_has_token = false;
+    let mut pending_docs = Vec::new();
+    let mut last_doc_line = None;
     while cursor < characters.len() {
         let character = characters[cursor];
         if character.is_whitespace() {
             if character == '\n' {
                 line += 1;
                 column = 1;
+                line_has_token = false;
             } else {
                 column += 1;
             }
@@ -243,14 +555,43 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
             continue;
         }
         if character == '/' && characters.get(cursor + 1) == Some(&'/') {
+            let comment_line = line;
+            let is_standalone = !line_has_token;
             cursor += 2;
             column += 2;
+            let start = cursor;
             while cursor < characters.len() && characters[cursor] != '\n' {
                 cursor += 1;
                 column += 1;
             }
+            if is_standalone {
+                if last_doc_line.is_some_and(|previous| previous + 1 != comment_line) {
+                    pending_docs.clear();
+                }
+                let mut comment: String = characters[start..cursor].iter().collect();
+                if let Some(doc_text) = comment.strip_prefix('/') {
+                    comment = doc_text.strip_prefix(' ').unwrap_or(doc_text).to_owned();
+                } else {
+                    comment = comment.strip_prefix(' ').unwrap_or(&comment).to_owned();
+                }
+                pending_docs.push(comment);
+                last_doc_line = Some(comment_line);
+            } else {
+                pending_docs.clear();
+                last_doc_line = None;
+            }
             continue;
         }
+        if last_doc_line.is_some_and(|doc_line| doc_line + 1 != line) {
+            pending_docs.clear();
+            last_doc_line = None;
+        }
+        let documentation = (!pending_docs.is_empty()).then(|| {
+            let text = pending_docs.join("\n").trim().to_owned();
+            pending_docs.clear();
+            last_doc_line = None;
+            text
+        });
         let location = Location { line, column };
         let kind = match character {
             '{' => TokenKind::LeftBrace,
@@ -283,7 +624,9 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
                 tokens.push(Token {
                     kind: TokenKind::Number(characters[start..cursor].iter().collect()),
                     location,
+                    documentation,
                 });
+                line_has_token = true;
                 continue;
             }
             '-' if characters.get(cursor + 1) == Some(&'>') => {
@@ -303,7 +646,9 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
                 tokens.push(Token {
                     kind: TokenKind::Identifier(characters[start..cursor].iter().collect()),
                     location,
+                    documentation,
                 });
+                line_has_token = true;
                 continue;
             }
             _ => {
@@ -313,7 +658,12 @@ fn lex(source: &str) -> Result<Vec<Token>, String> {
                 ));
             }
         };
-        tokens.push(Token { kind, location });
+        tokens.push(Token {
+            kind,
+            location,
+            documentation,
+        });
+        line_has_token = true;
         cursor += 1;
         column += 1;
     }
@@ -379,6 +729,7 @@ fn read_string(
 struct Parser {
     tokens: Vec<Token>,
     cursor: usize,
+    documentation: Vec<Documentation>,
 }
 
 impl Parser {
@@ -387,6 +738,7 @@ impl Parser {
             types: Vec::new(),
             interfaces: Vec::new(),
             config: Vec::new(),
+            documentation: Vec::new(),
         };
         let mut has_config = false;
         while !self.at_end() {
@@ -410,13 +762,16 @@ impl Parser {
             }
         }
         self.validate_names(&result)?;
+        result.documentation = self.documentation;
         Ok(result)
     }
 
     fn parse_struct_type(&mut self) -> Result<NamedType, String> {
+        let documentation = self.take_documentation();
         self.expect_identifier("struct")?;
         let name = self.expect_name("struct name")?;
-        let fields = self.parse_fields()?;
+        self.record_documentation(format!("type:{name}"), documentation);
+        let fields = self.parse_fields(&name)?;
         Ok(NamedType {
             name,
             is_error: false,
@@ -427,9 +782,11 @@ impl Parser {
     }
 
     fn parse_enum_type(&mut self) -> Result<NamedType, String> {
+        let documentation = self.take_documentation();
         self.expect_identifier("enum")?;
         let name = self.expect_name("enum name")?;
-        let cases = self.parse_cases(true)?;
+        self.record_documentation(format!("type:{name}"), documentation);
+        let cases = self.parse_cases(true, &name)?;
         Ok(NamedType {
             name,
             is_error: false,
@@ -440,10 +797,12 @@ impl Parser {
     }
 
     fn parse_error_type(&mut self) -> Result<NamedType, String> {
+        let documentation = self.take_documentation();
         self.expect_identifier("error")?;
         let name = self.expect_name("error name")?;
+        self.record_documentation(format!("type:{name}"), documentation);
         let cases = if self.peek_kind(TokenKind::LeftBrace) {
-            self.parse_cases(true)?
+            self.parse_cases(true, &name)?
         } else {
             self.consume(TokenKind::Semicolon);
             Vec::new()
@@ -460,11 +819,13 @@ impl Parser {
         })
     }
 
-    fn parse_fields(&mut self) -> Result<Vec<Field>, String> {
+    fn parse_fields(&mut self, owner: &str) -> Result<Vec<Field>, String> {
         self.expect(TokenKind::LeftBrace, "`{`")?;
         let mut fields = Vec::new();
         while !self.consume(TokenKind::RightBrace) {
+            let documentation = self.take_documentation();
             let name = self.expect_name("field name")?;
+            self.record_documentation(format!("type:{owner}.field:{name}"), documentation);
             self.expect(TokenKind::Colon, "`:`")?;
             let ty = self.parse_type()?;
             let default = self
@@ -483,13 +844,16 @@ impl Parser {
         Ok(fields)
     }
 
-    fn parse_cases(&mut self, allow_payloads: bool) -> Result<Vec<Variant>, String> {
+    fn parse_cases(&mut self, allow_payloads: bool, owner: &str) -> Result<Vec<Variant>, String> {
         self.expect(TokenKind::LeftBrace, "`{`")?;
         let mut cases = Vec::new();
         while !self.consume(TokenKind::RightBrace) {
+            let documentation = self.take_documentation();
             let name = self.expect_name("case name")?;
+            let path = format!("type:{owner}.case:{name}");
+            self.record_documentation(path.clone(), documentation);
             let parameters = if allow_payloads && self.peek_kind(TokenKind::LeftParen) {
-                self.parse_parameters()?
+                self.parse_parameters(&format!("{path}.parameter"))?
             } else {
                 Vec::new()
             };
@@ -506,18 +870,23 @@ impl Parser {
     }
 
     fn parse_interface(&mut self) -> Result<Interface, String> {
+        let documentation = self.take_documentation();
         self.expect_identifier("interface")?;
         let name = self.expect_name("interface name")?;
+        self.record_documentation(format!("interface:{name}"), documentation);
         self.parse_interface_body(name, InterfaceKind::Interface)
     }
 
     fn parse_service(&mut self) -> Result<Interface, String> {
+        let documentation = self.take_documentation();
         self.expect_identifier("service")?;
         let name = self.expect_name("service name")?;
+        self.record_documentation(format!("interface:{name}"), documentation);
         self.parse_interface_body(name, InterfaceKind::Service)
     }
 
     fn parse_native_declaration(&mut self) -> Result<Interface, String> {
+        let documentation = self.take_documentation();
         self.expect_identifier("native")?;
         let kind = match self.peek_identifier() {
             Some("class") => {
@@ -531,6 +900,7 @@ impl Parser {
             _ => return self.error("expected `class` or `component` after `native`"),
         };
         let name = self.expect_name("native declaration name")?;
+        self.record_documentation(format!("interface:{name}"), documentation);
         self.parse_interface_body(name, kind)
     }
 
@@ -550,12 +920,13 @@ impl Parser {
                 return self.error("expected `}` to close native declaration");
             }
             match self.peek_identifier() {
-                Some("init") => constructors.push(self.parse_constructor()?),
+                Some("init") => constructors.push(self.parse_constructor(&name)?),
                 Some("readonly") | Some("property") | Some("prop") => {
-                    properties.push(self.parse_property()?)
+                    properties.push(self.parse_property(&name)?)
                 }
-                Some("event") => events.push(self.parse_event()?),
+                Some("event") => events.push(self.parse_event(&name)?),
                 Some("content") => {
+                    let documentation = self.take_documentation();
                     if kind != InterfaceKind::NativeComponent {
                         return self.error("content slots are supported only by native components");
                     }
@@ -563,10 +934,11 @@ impl Parser {
                         return self.error("native components can declare only one `content` slot");
                     }
                     self.cursor += 1;
+                    self.record_documentation(format!("interface:{name}.content"), documentation);
                     self.consume(TokenKind::Semicolon);
                     has_content_slot = true;
                 }
-                _ => methods.push(self.parse_method()?),
+                _ => methods.push(self.parse_method(&name)?),
             }
         }
         Ok(Interface {
@@ -580,14 +952,18 @@ impl Parser {
         })
     }
 
-    fn parse_constructor(&mut self) -> Result<Constructor, String> {
+    fn parse_constructor(&mut self, owner: &str) -> Result<Constructor, String> {
+        let documentation = self.take_documentation();
+        let path = format!("interface:{owner}.constructor");
         self.expect_identifier("init")?;
-        let parameters = self.parse_parameters()?;
+        self.record_documentation(path.clone(), documentation);
+        let parameters = self.parse_parameters(&format!("{path}.parameter"))?;
         self.consume(TokenKind::Semicolon);
         Ok(Constructor { parameters })
     }
 
-    fn parse_property(&mut self) -> Result<Property, String> {
+    fn parse_property(&mut self, owner: &str) -> Result<Property, String> {
+        let documentation = self.take_documentation();
         let mutable = if self.consume_identifier("readonly") {
             self.expect_identifier("property")?;
             false
@@ -598,6 +974,7 @@ impl Parser {
             true
         };
         let name = self.expect_name("property name")?;
+        self.record_documentation(format!("interface:{owner}.property:{name}"), documentation);
         self.expect(TokenKind::Colon, "`:`")?;
         let ty = self.parse_type()?;
         let default = if self.consume(TokenKind::Equal) {
@@ -614,20 +991,25 @@ impl Parser {
         })
     }
 
-    fn parse_event(&mut self) -> Result<Event, String> {
+    fn parse_event(&mut self, owner: &str) -> Result<Event, String> {
+        let documentation = self.take_documentation();
         self.expect_identifier("event")?;
         let name = self.expect_name("event name")?;
-        let parameters = self.parse_parameters()?;
+        let path = format!("interface:{owner}.event:{name}");
+        self.record_documentation(path.clone(), documentation);
+        let parameters = self.parse_parameters(&format!("{path}.parameter"))?;
         self.consume(TokenKind::Semicolon);
         Ok(Event { name, parameters })
     }
 
-    fn parse_parameters(&mut self) -> Result<Vec<Parameter>, String> {
+    fn parse_parameters(&mut self, path: &str) -> Result<Vec<Parameter>, String> {
         self.expect(TokenKind::LeftParen, "`(`")?;
         let mut parameters = Vec::new();
         if !self.consume(TokenKind::RightParen) {
             loop {
+                let documentation = self.take_documentation();
                 let name = self.expect_name("parameter name")?;
+                self.record_documentation(format!("{path}:{name}"), documentation);
                 self.expect(TokenKind::Colon, "`:`")?;
                 parameters.push(Parameter {
                     name,
@@ -643,6 +1025,8 @@ impl Parser {
     }
 
     fn parse_config(&mut self) -> Result<Vec<ConfigOption>, String> {
+        let documentation = self.take_documentation();
+        self.record_documentation("config".to_owned(), documentation);
         self.expect_identifier("config")?;
         self.expect(TokenKind::LeftBrace, "`{`")?;
         let mut options = Vec::new();
@@ -650,7 +1034,9 @@ impl Parser {
             if self.at_end() {
                 return self.error("expected `}` to close config");
             }
+            let documentation = self.take_documentation();
             let name = self.expect_name("config option name")?;
+            self.record_documentation(format!("config:{name}"), documentation);
             self.expect(TokenKind::Colon, "`:`")?;
             let ty = self.parse_type()?;
             let default = if self.consume(TokenKind::Equal) {
@@ -707,13 +1093,16 @@ impl Parser {
         }
     }
 
-    fn parse_method(&mut self) -> Result<Method, String> {
+    fn parse_method(&mut self, owner: &str) -> Result<Method, String> {
+        let documentation = self.take_documentation();
         let is_async = self.consume_identifier("async");
         self.expect_identifier("fn")?;
         let name = self.expect_name("method name")?;
+        let path = format!("interface:{owner}.method:{name}");
+        self.record_documentation(path.clone(), documentation);
         let (type_parameters, struct_type_parameters, row_type_parameters) =
             self.parse_type_parameters()?;
-        let parameters = self.parse_parameters()?;
+        let parameters = self.parse_parameters(&format!("{path}.parameter"))?;
         let return_type = if self.consume(TokenKind::Arrow) {
             self.parse_type()?
         } else {
@@ -1097,6 +1486,19 @@ impl Parser {
         self.cursor >= self.tokens.len()
     }
 
+    fn take_documentation(&mut self) -> Option<String> {
+        self.tokens
+            .get_mut(self.cursor)
+            .and_then(|token| token.documentation.take())
+            .filter(|text| !text.is_empty())
+    }
+
+    fn record_documentation(&mut self, path: String, text: Option<String>) {
+        if let Some(text) = text {
+            self.documentation.push(Documentation { path, text });
+        }
+    }
+
     fn peek_identifier(&self) -> Option<&str> {
         match self.tokens.get(self.cursor).map(|token| &token.kind) {
             Some(TokenKind::Identifier(value)) => Some(value),
@@ -1452,7 +1854,160 @@ fn integer_value_fits(value: &str, name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{InterfaceKind, Literal, NamedTypeKind, event_callback_property, parse};
+    use super::{
+        InterfaceKind, Literal, NamedTypeKind, event_callback_property, parse, render_markdown,
+    };
+
+    #[test]
+    fn preserves_adjacent_documentation_comments_for_nested_api_items() {
+        let idl = parse(
+            r#"
+            /// Settings saved for the signed-in customer.
+            struct AccountSettings {
+                /// Whether biometric unlock is enabled.
+                biometricUnlock: Bool = false
+            }
+
+            /// Native account operations.
+            service Account {
+                /// Updates the customer's preferences.
+                async fn update(
+                    /// New settings to persist.
+                    settings: AccountSettings
+                ) -> Bool throws AccountError
+            }
+
+            /// Errors returned by account operations.
+            error AccountError {
+                /// The server refused the change.
+                updateRejected(message: String)
+            }
+
+            /// The supported regions.
+            config {
+                /// Region used when creating a new account.
+                region: String = "us"
+            }
+            "#,
+        )
+        .expect("documented contracts should parse");
+
+        assert_eq!(
+            idl.documentation
+                .iter()
+                .map(|item| (item.path.as_str(), item.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "type:AccountSettings",
+                    "Settings saved for the signed-in customer."
+                ),
+                (
+                    "type:AccountSettings.field:biometricUnlock",
+                    "Whether biometric unlock is enabled."
+                ),
+                ("interface:Account", "Native account operations."),
+                (
+                    "interface:Account.method:update",
+                    "Updates the customer's preferences."
+                ),
+                (
+                    "interface:Account.method:update.parameter:settings",
+                    "New settings to persist."
+                ),
+                (
+                    "type:AccountError",
+                    "Errors returned by account operations."
+                ),
+                (
+                    "type:AccountError.case:updateRejected",
+                    "The server refused the change."
+                ),
+                ("config", "The supported regions."),
+                ("config:region", "Region used when creating a new account."),
+            ]
+        );
+    }
+
+    #[test]
+    fn ordinary_inline_comments_and_blank_separated_comments_are_not_docs() {
+        let idl = parse(
+            r#"
+            // Comment separated from declaration by a blank line.
+
+            struct Receipt { total: Float64 } // trailing implementation note
+            "#,
+        )
+        .expect("comments should not affect parsing");
+        assert!(idl.documentation.is_empty());
+    }
+
+    #[test]
+    fn plugin_api_markdown_documents_signatures_defaults_and_comments() {
+        let idl = parse(
+            r#"
+            /// Read the saved profile.
+            service Profiles {
+                /// Load by stable customer identifier.
+                async fn load(customerId: String) -> Profile? throws ProfileError
+            }
+            struct Profile { displayName: String, verified: Bool = false }
+            error ProfileError { unavailable }
+            config { cacheDuration: Int64 = 900 }
+            "#,
+        )
+        .expect("contract should parse");
+        let markdown = render_markdown(&idl);
+        assert!(markdown.contains("### `struct Profile`"));
+        assert!(markdown.contains("| `verified` | `Bool` | `false` |  |"));
+        assert!(markdown.contains("### `service Profiles`"));
+        assert!(
+            markdown
+                .contains("`async fn load(customerId: String) -> Profile? throws ProfileError`")
+        );
+        assert!(markdown.contains("| `unavailable` | `` |  |"));
+        assert!(markdown.contains("| `cacheDuration` | `Int64` | `900` |  |"));
+        assert!(markdown.contains("Read the saved profile."));
+        assert!(markdown.contains("Load by stable customer identifier."));
+    }
+
+    #[test]
+    fn plugin_api_markdown_covers_native_component_surface() {
+        let idl = parse(
+            r#"
+            struct Photo { path: String }
+            error PickerError { unavailable }
+            /// Opens a native photo picker.
+            native component PhotoPicker {
+                /// Provides caller-owned content below the picker.
+                content
+                /// Creates a picker with an optional initial source.
+                init(source: String?)
+                /// Whether editing tools are shown.
+                readonly property allowsEditing: Bool = true
+                /// Requests an image from the system library.
+                async fn load(album: String?) -> Photo throws PickerError
+                /// Fires after a photo is selected.
+                event selected(photo: Photo)
+            }
+            "#,
+        )
+        .expect("native component contract should parse");
+        let markdown = render_markdown(&idl);
+        for expected in [
+            "### `native component PhotoPicker`",
+            "**Content slot:** accepts child content.",
+            "**Constructor:** `init(source: String?)`",
+            "| `allowsEditing` | `Bool` | read-only | `true` | Whether editing tools are shown. |",
+            "`async fn load(album: String?) -> Photo throws PickerError`",
+            "| `selected` | `photo: Photo` | Fires after a photo is selected. |",
+        ] {
+            assert!(
+                markdown.contains(expected),
+                "missing `{expected}` in:\n{markdown}"
+            );
+        }
+    }
 
     #[test]
     fn event_callback_property_matches_generated_contract_naming() {
