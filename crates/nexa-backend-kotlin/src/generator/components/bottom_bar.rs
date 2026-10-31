@@ -8,7 +8,7 @@ use crate::generator::{
     components::{
         RenderScope, accessibility, controls,
         input::{self, TextInputProps},
-        navigation, render_children, render_node,
+        navigation, render_children, render_node, system_icons,
     },
     features::Features,
     utils::{indent, kotlin_string},
@@ -149,6 +149,18 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_adaptive_tabs,
         "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_adaptive_tabs,
+        "androidx.compose.foundation.layout.WindowInsets",
+    );
+    imports.add(
+        features.uses_adaptive_tabs,
+        "androidx.compose.foundation.layout.windowInsetsPadding",
+    );
+    imports.add(
+        features.uses_adaptive_tabs,
+        "androidx.compose.foundation.layout.navigationBars",
     );
     imports.add(
         features.uses_adaptive_tabs,
@@ -331,8 +343,8 @@ pub(crate) fn render_app_bottom_bar(
                 out.line_at(
                     content_depth + 3,
                     format_args!(
-                        "Icon(imageVector = {}, contentDescription = null)",
-                        icon.material_reference()
+                        "NexaIconContent(icon = {}, description = \"\", size = 24.dp)",
+                        system_icons::spec(icon)
                     ),
                 );
             } else {
@@ -521,12 +533,17 @@ pub(crate) fn render_app_bottom_bar(
                         focused: None,
                         max_length: None,
                         font: None,
+                        font_size: None,
+                        font_family: None,
+                        text_color: None,
+                        placeholder_color: None,
                         min_lines: None,
                         max_lines: Some(1),
                         searchable: true,
                         horizontal_padding: Some(16),
                         weight_in_row: false,
                         actions: &[],
+                        on_focus: None,
                         on_change: None,
                     },
                     content_depth + 4,
@@ -568,12 +585,17 @@ pub(crate) fn render_app_bottom_bar(
                     focused: None,
                     max_length: None,
                     font: None,
+                    font_size: None,
+                    font_family: None,
+                    text_color: None,
+                    placeholder_color: None,
                     min_lines: None,
                     max_lines: Some(1),
                     searchable: true,
                     horizontal_padding: Some(16),
                     weight_in_row: false,
                     actions: &[],
+                    on_focus: None,
                     on_change: None,
                 },
                 content_depth + 4,
@@ -594,10 +616,17 @@ pub(crate) fn render_app_bottom_bar(
     }
     if let Some(custom_bar) = custom_bar {
         out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars)) {{"
+            ),
+        );
         for child in custom_bar {
             render_node(child, module, features, depth + 2, out);
             out.push('\n');
         }
+        out.line_at(depth + 1, format_args!("}}"));
         out.line_at(depth, format_args!("}}"));
     }
     out.line_at(depth, format_args!("}}"));
@@ -739,7 +768,7 @@ pub(crate) fn without_tab_toolbars(children: &[Node]) -> Vec<Node> {
             } => Some(Node::Layout {
                 kind: *kind,
                 spacing: *spacing,
-                style: *style,
+                style: style.clone(),
                 children: without_tab_toolbars(children),
             }),
             _ => Some(child.clone()),
@@ -1096,7 +1125,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "NexaPickerPrimitive(items = nexa_sortOptions, itemIcons = emptyList(), selected = nexa_sortSelection, icon = Icons.AutoMirrored.Filled.Sort, label = null, tint = null, fillMaxWidth = false)"
+            "NexaPickerPrimitive(items = nexa_sortOptions, itemIcons = emptyList(), selected = nexa_sortSelection, icon = NexaIconSpec(vector = Icons.AutoMirrored.Filled.Sort), label = null, tint = null, fillMaxWidth = false)"
         ));
     }
 
@@ -1255,7 +1284,13 @@ mod tests {
             value: nexa_ir::Expr::String("Custom bar".to_owned()),
             style: nexa_ir::TextStyle::default(),
         }];
-        let module = empty_module();
+        let mut module = empty_module();
+        module.body = vec![Node::AppBottomBar {
+            state: "selectedTab".to_owned(),
+            tint: None,
+            tabs: vec![tab.clone()],
+            custom_bar: Some(custom_bar.clone()),
+        }];
         let mut output = SourceWriter::new();
 
         render_app_bottom_bar(
@@ -1271,7 +1306,25 @@ mod tests {
 
         assert!(output.contains("showNavigationSuite = false"));
         assert!(output.contains("Box(Modifier.weight(1f).fillMaxWidth())"));
+        assert!(output.contains(
+            "Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars)) {"
+        ));
         assert!(output.contains("NexaTextPrimitive(text = \"Destination\")"));
         assert!(output.contains("NexaTextPrimitive(text = \"Custom bar\")"));
+
+        let features = Features::analyze(&module);
+        let mut generated_imports = crate::generator::engine::imports::ImportSet::default();
+        imports(&features, &mut generated_imports);
+        let rendered_imports = generated_imports.render();
+        assert!(
+            rendered_imports.contains("import androidx.compose.foundation.layout.WindowInsets")
+        );
+        assert!(
+            rendered_imports
+                .contains("import androidx.compose.foundation.layout.windowInsetsPadding")
+        );
+        assert!(
+            rendered_imports.contains("import androidx.compose.foundation.layout.navigationBars")
+        );
     }
 }

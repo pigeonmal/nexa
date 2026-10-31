@@ -77,6 +77,43 @@ fn ios_localization_catalog_is_a_compiled_bundle_resource() {
 }
 
 #[test]
+fn ios_custom_fonts_are_copied_into_the_app_bundle_and_registered() {
+    let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+    let project = templates::ios_project_file_with_localization_config_and_widgets(
+        "Demo",
+        false,
+        true,
+        false,
+        false,
+        false,
+        &["NexaGenerated.swift".to_owned()],
+        &[],
+        &[],
+        &[],
+        &[],
+        &config,
+        &[],
+        false,
+    )
+    .expect("iOS project with custom fonts should render");
+    let plist = templates::ios_info_plist_with_orientation_and_fonts(
+        "Demo",
+        &config,
+        &[],
+        false,
+        false,
+        &["Fonts/Gilroy-Regular.ttf".to_owned()],
+        &[],
+    )
+    .expect("iOS font registration should render");
+
+    assert!(project.contains("path = Fonts;"));
+    assert!(project.contains("PBXResourcesBuildPhase"));
+    assert!(plist.contains("<key>UIAppFonts</key>"));
+    assert!(plist.contains("<string>Fonts/Gilroy-Regular.ttf</string>"));
+}
+
+#[test]
 fn android_release_signing_is_configured_at_build_time() {
     let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
     let gradle = templates::android_app_gradle_with_dev_runtime(
@@ -206,8 +243,8 @@ fn android_aot_dependencies_remain_feature_gated() {
     )
     .unwrap();
 
+    assert!(dependencies.contains("implementation(\"androidx.compose.foundation:foundation"));
     for dependency in [
-        "androidx.compose.foundation:foundation",
         "androidx.compose.runtime:runtime",
         "androidx.compose.animation:animation",
         "androidx.navigation:navigation-compose",

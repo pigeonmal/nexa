@@ -58,11 +58,17 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
         );
     }
 
-    let function_names = app
+    let mut function_by_name = app
         .functions
         .iter()
-        .map(|function| function.name.clone())
-        .collect::<HashSet<_>>();
+        .map(|function| (function.name.clone(), function))
+        .collect::<std::collections::HashMap<_, _>>();
+    for class in &app.classes {
+        for function in &class.static_methods {
+            function_by_name.insert(format!("{}.{}", class.name, function.name), function);
+        }
+    }
+    let function_names = function_by_name.keys().cloned().collect::<HashSet<_>>();
     let mut used_functions = HashSet::new();
     let mut reachability_warnings = Vec::new();
     for state in &app.states {
@@ -168,11 +174,6 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             &mut reachability_warnings,
         );
     }
-    let function_by_name = app
-        .functions
-        .iter()
-        .map(|function| (function.name.as_str(), function))
-        .collect::<std::collections::HashMap<_, _>>();
     let mut pending = used_functions.iter().cloned().collect::<Vec<_>>();
     let mut expanded_functions = HashSet::new();
     while let Some(name) = pending.pop() {
@@ -499,8 +500,10 @@ fn walk_invocation(
     }
     match inv.name.as_str() {
         "Column" | "Row" | "Stack" => {
-            if let Some(spacing) = inv.arguments.get("spacing") {
-                walk_expression(spacing, names, used);
+            for argument in ["spacing", "scale"] {
+                if let Some(value) = inv.arguments.get(argument) {
+                    walk_expression(value, names, used);
+                }
             }
             if let ast::ChildBody::Nodes(children) = &inv.children {
                 walk_child_nodes(children, names, used, target, file, warnings);
@@ -509,6 +512,9 @@ fn walk_invocation(
         "Text" => {
             if let Some(value) = inv.positional.first() {
                 walk_expression(value, names, used);
+            }
+            if let Some(scale) = inv.arguments.get("scale") {
+                walk_expression(scale, names, used);
             }
         }
         "StatusBar" | "Direction" | "NavigationBack" | "Content" => {}
@@ -1348,10 +1354,16 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
         }
         ast::Expr::Closure { body, .. } => walk_expression(body, names, used),
         ast::Expr::QualifiedCall {
+            namespace,
+            name,
             arguments,
             named_arguments,
             ..
         } => {
+            let qualified_name = format!("{namespace}.{name}");
+            if names.contains(&qualified_name) {
+                used.insert(qualified_name);
+            }
             for argument in arguments {
                 walk_expression(argument, names, used);
             }

@@ -142,12 +142,21 @@ extension NexaDevStateStore {
             if let unitVariant = action as? String {
                 if unitVariant == "Break" { return .break }
                 if unitVariant == "Continue" { return .continue }
-                if unitVariant == "NavigationBack" { popNavigation() }
+                if unitVariant == "NavigationBack" {
+                    popNavigation(
+                        stackIdentity: actionLocals["__nexa_navigation_stack_identity"] as? String,
+                        scope: scope,
+                        locals: actionLocals
+                    )
+                }
                 continue
             }
             guard let tagged = action as? [String: Any] else { continue }
-            if let navigation = tagged["NavigationPush"] as? [String: Any],
-               let destination = navigation["destination"] as? Int {
+            if let navigation = tagged["NavigationPush"] as? [String: Any] {
+                let destination = (navigation["destination"] as? NSNumber)?.intValue
+                    ?? (navigation["destination"] as? Int)
+                    ?? -1
+                NSLog("NexaDevRuntime performActions NavigationPush destination=%d scope=%@", destination, scope)
                 pushNavigation(
                     destination: destination,
                     expressions: navigation["arguments"] as? [Any] ?? [],
@@ -157,7 +166,11 @@ extension NexaDevStateStore {
                 continue
             }
             if tagged["NavigationBack"] != nil {
-                popNavigation()
+                popNavigation(
+                    stackIdentity: actionLocals["__nexa_navigation_stack_identity"] as? String,
+                    scope: scope,
+                    locals: actionLocals
+                )
                 continue
             }
             if let binding = tagged["Let"] as? [String: Any],
@@ -709,12 +722,20 @@ extension NexaDevStateStore {
             if let flow = action as? String {
                 if flow == "Break" { return .break }
                 if flow == "Continue" { return .continue }
-                if flow == "NavigationBack" { popNavigation() }
+                if flow == "NavigationBack" {
+                    popNavigation(
+                        stackIdentity: locals["__nexa_navigation_stack_identity"] as? String,
+                        scope: scope,
+                        locals: locals
+                    )
+                }
                 continue
             }
             guard let tagged = action as? [String: Any] else { continue }
-            if let navigation = tagged["NavigationPush"] as? [String: Any],
-               let destination = navigation["destination"] as? Int {
+            if let navigation = tagged["NavigationPush"] as? [String: Any] {
+                let destination = (navigation["destination"] as? NSNumber)?.intValue
+                    ?? (navigation["destination"] as? Int)
+                    ?? -1
                 pushNavigation(
                     destination: destination,
                     expressions: navigation["arguments"] as? [Any] ?? [],
@@ -722,7 +743,11 @@ extension NexaDevStateStore {
                     scope: scope
                 )
             } else if tagged["NavigationBack"] != nil {
-                popNavigation()
+                popNavigation(
+                    stackIdentity: locals["__nexa_navigation_stack_identity"] as? String,
+                    scope: scope,
+                    locals: locals
+                )
             } else if let tryCatch = tagged["TryCatch"] as? [String: Any] {
                 do {
                     let flow = try await performAsync(

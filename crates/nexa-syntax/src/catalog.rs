@@ -82,8 +82,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "Stack",
         summary: "Overlapping layout container",
-        snippet: "Stack {\n    $0\n}",
-        probe: "app P { body { Stack { Text(\"a\") } } }",
+        snippet: "Stack(screenHeightFraction: ${1:0.5}, cornerRadiusBottom: ${2:24}) {\n    $0\n}",
+        probe: "app P { body { Stack(screenHeightFraction: 0.5, cornerRadiusBottom: 24) { Text(\"a\") } } }",
     },
     ComponentEntry {
         name: "Form",
@@ -99,9 +99,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Spacer",
-        summary: "Expands along the parent layout axis",
-        snippet: "Spacer()",
-        probe: "app P { body { Column { Text(\"a\") Spacer(accessibilityLabel: \"Spacer\") Text(\"b\") } } }",
+        summary: "Expands along the parent layout axis or creates a fixed gap",
+        snippet: "Spacer(height: ${1:16})",
+        probe: "app P { body { Column { Text(\"a\") Spacer(height: 16) Text(\"b\") } } }",
     },
     ComponentEntry {
         name: "Divider",
@@ -110,10 +110,22 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         probe: "app P { body { Column { Text(\"a\") Divider(color: \"#808080\", thickness: 1) Text(\"b\") } } }",
     },
     ComponentEntry {
+        name: "Shape",
+        summary: "Draws a filled native shape at an explicit size",
+        snippet: "Shape(shape: Capsule, width: ${1:32}, height: ${2:4}, fill: \"#FFFFFF\")",
+        probe: "app P { state expanded: Bool = false body { Column { Shape(shape: Capsule, width: expanded ? 32 : 4, height: 4, fill: \"#FFFFFF\", animation: Tween(duration: 0.2, easing: Linear)) Shape(shape: Rounded(8), width: 24, height: 24, fill: \"#FF0000\") } } }",
+    },
+    ComponentEntry {
         name: "Text",
         summary: "Displays formatted text",
         snippet: "Text(\"${1:Label}\")",
-        probe: "app P { body { Text(\"a\", fontStyle: Subheadline, fontDesign: Serif, accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityValue: \"Ready\", accessibilityRole: Image) } }",
+        probe: "app P { theme { fontFamily Default: \"Gilroy\" } body { Text(\"a\", fontStyle: Subheadline, fontDesign: Serif, fontFamily: \"Gilroy\", accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityValue: \"Ready\", accessibilityRole: Image) } }",
+    },
+    ComponentEntry {
+        name: "TextReveal",
+        summary: "Reveals timed text segments using native text layout and animation",
+        snippet: "TextReveal(\"${1:Timed text}\", segments: ${2:segments}, position: ${3:playbackPosition}, active: ${4:isActive}, playing: ${5:isPlaying}, enabled: ${6:true}, seekRevision: ${7:seekRevision})",
+        probe: "app P { body { TextReveal(\"Stay\", segments: [], position: 0.0, active: true, playing: true, enabled: true, seekRevision: 0) } }",
     },
     ComponentEntry {
         name: "ContentUnavailable",
@@ -131,19 +143,19 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "TextInput",
         summary: "Text input control bound to mutable state",
         snippet: "TextInput(value: ${1:binding}, placeholder: \"${2:Enter text}\")",
-        probe: "app P { state name: String = \"\"\n body { TextInput(value: name, placeholder: \"Name\", searchable: true) } }",
+        probe: "app P { state name: String = \"\"\n state focused: Bool = false\n body { TextInput(value: name, placeholder: \"Name\", searchable: true, fontSize: 16, fontFamily: \"Inter-Regular\", textColor: \"#FFFFFF\", placeholderColor: \"#888888\", clearable: true, focused: focused).onFocus { focused = true } } }",
     },
     ComponentEntry {
         name: "Switch",
-        summary: "Boolean toggle with a label",
-        snippet: "Switch(value: ${1:flag}, label: \"${2:Label}\")",
-        probe: "app P { state flag: Bool = false\n body { Switch(value: flag, label: \"On\") } }",
+        summary: "Boolean toggle with a label and optional change action",
+        snippet: "Switch(value: ${1:flag}, label: \"${2:Label}\").onChange { value ->\n    $0\n}",
+        probe: "app P { state flag: Bool = false\n state saved: Bool = false\n body { Switch(value: flag, label: \"On\").onChange { value -> saved = value } } }",
     },
     ComponentEntry {
         name: "Slider",
-        summary: "Adjusts a Float64 state value within a stepped range",
-        snippet: "Slider(value: ${1:amount}, min: 0.0, max: 1.0, step: 0.1)",
-        probe: "app P { state amount: Float64 = 0.5\n body { Slider(value: amount, min: 0.0, max: 1.0, step: 0.1) } }",
+        summary: "Adjusts a Float64 state value within a styled, stepped or continuous range",
+        snippet: "Slider(value: ${1:amount}, min: 0.0, max: 1.0, step: 0.1).onChange { value ->\n    $0\n}",
+        probe: "app P { state amount: Float64 = 0.5\n state editing: Bool = false\n body { Slider(value: amount, min: 0.0, max: 1.0, step: 0.0, tint: \"#CA2828\", trackColor: \"#424242\", thumbColor: \"#FFFFFF\", trackHeight: 3.5, thumbSize: 14, hitSlop: 18).onChange { value -> amount = value }.onEditingChanged { active -> editing = active } } }",
     },
     ComponentEntry {
         name: "ProgressBar",
@@ -183,9 +195,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Icon",
-        summary: "Displays one portable or platform-specific native system icon",
+        summary: "Displays a system symbol or a glyph from a registered font",
         snippet: "Icon(system: \"${1:favorite}\", description: \"${2:Like}\", size: ${3:28}, tint: \"#FFFFFF\")",
-        probe: "app P { body { Icon(system: \"favorite\", description: \"Like\", size: 28, tint: \"#FFFFFF\") } }",
+        probe: "app P { body { Icon(system: \"favorite\", description: \"Like\", size: 28, tint: \"#FFFFFF\")\n Icon(fontFamily: \"Mazicon\", glyph: 61696, description: \"Activity\", size: 24, tint: \"#FFFFFF\") } }",
     },
     ComponentEntry {
         name: "LinearGradient",
@@ -202,8 +214,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "NavigationStack",
         summary: "Navigation host rooted at a declared screen",
-        snippet: "NavigationStack(root: ${1:Home}, titleMode: ${2|Inline,Large|}, titleAlignment: ${3|Automatic,Leading,Center|})",
-        probe: "app P { screen Home { body { Text(\"x\") } }\n body { NavigationStack(root: Home, titleMode: Inline, titleAlignment: Automatic) } }",
+        snippet: "NavigationStack(root: ${1:Home}, showNavigationBar: ${2|true,false|}, titleMode: ${3|Inline,Large|}, titleAlignment: ${4|Automatic,Leading,Center|})",
+        probe: "app P { screen Home { body { Text(\"x\") } }\n body { NavigationStack(root: Home, showNavigationBar: false, titleMode: Inline, titleAlignment: Automatic) } }",
     },
     ComponentEntry {
         name: "NavigationSplitView",
@@ -231,9 +243,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "KeyboardAware",
-        summary: "Adjusts layout for the software keyboard",
+        summary: "Keeps content at the window edge by default, with an option to avoid the software keyboard",
         snippet: "KeyboardAware {\n    $0\n}",
-        probe: "app P { body { KeyboardAware { Text(\"x\") } } }",
+        probe: "app P { body { KeyboardAware(behavior: Avoid) { Text(\"x\") } } }",
     },
     ComponentEntry {
         name: "BottomSheet",
@@ -281,7 +293,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "FastList",
         summary: "High-performance virtualized list with configurable dividers and responsive grids",
         snippet: "FastList(${1:items}) { ${2:item}, ${3:index} in\n    $0\n}",
-        probe: "app P { state enabled: Bool = true\n body { FastList(count: 3, axis: AutoGrid(168), scrollEnabled: enabled, showDividers: false) { index in Text(\"x\") } } }",
+        probe: "app P { state enabled: Bool = true\n state dragCount: Int32 = 0\n body { FastList(count: 3, scrollEnabled: enabled, showDividers: false) { index in Text(\"x\") }.onScrollBeginDrag { dragCount += 1 } } }",
     },
     ComponentEntry {
         name: "StatusBar",
@@ -649,6 +661,16 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         snippet: "onChange { text ->\n    $0\n}",
     },
     DotModifierEntry {
+        name: "onFocus",
+        summary: "Text input focus action",
+        snippet: "onFocus {\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "onEditingChanged",
+        summary: "Slider horizontal-drag lifecycle action",
+        snippet: "onEditingChanged { editing ->\n    $0\n}",
+    },
+    DotModifierEntry {
         name: "onLongPress",
         summary: "Pressable long-press action with an optional duration",
         snippet: "onLongPress(durationMs: ${1:500}) {\n    $0\n}",
@@ -699,6 +721,11 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         snippet: "onScroll {\n    $0\n}",
     },
     DotModifierEntry {
+        name: "onScrollBeginDrag",
+        summary: "FastList callback when the user begins dragging",
+        snippet: "onScrollBeginDrag {\n    $0\n}",
+    },
+    DotModifierEntry {
         name: "stickyHeader",
         summary: "FastList sticky header content",
         snippet: "stickyHeader {\n    $0\n}",
@@ -712,6 +739,21 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         name: "swipeActions",
         summary: "Native trailing actions for list rows",
         snippet: "swipeActions {\n    Button(\"Delete\", icon: \"trash\") {\n        $0\n    }\n}",
+    },
+    DotModifierEntry {
+        name: "safeAreaPadding",
+        summary: "Protect selected edges with remaining system safe insets and optional design spacing",
+        snippet: "safeAreaPadding(edges: [Top, Bottom], spacing: ${1:0})",
+    },
+    DotModifierEntry {
+        name: "safeAreaInset",
+        summary: "Attach content to a safe edge and accommodate one unambiguous scroll endpoint",
+        snippet: "safeAreaInset(edge: Bottom, spacing: ${1:0}) {\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "scrollHeader",
+        summary: "Attach a pinned, collapsing, or hide-on-scroll header to one vertical scroll owner",
+        snippet: "scrollHeader(behavior: ${1:Pinned}, collapsedHeight: ${2:56}) {\n    $0\n}",
     },
 ];
 
@@ -838,6 +880,21 @@ pub struct ModifierSchema {
     pub required: bool,
 }
 
+/// Semantic target for a modifier registered in the shared view-modifier
+/// catalog. The parser accepts the modifier at any component invocation;
+/// semantic lowering validates scroll-owner-only targets against typed IR.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewModifierTarget {
+    AnyView,
+    ScrollOwner,
+}
+
+/// A shared behavioral modifier that can be attached to a rendered view.
+pub struct SharedViewModifierSchema {
+    pub modifier: ModifierSchema,
+    pub target: ViewModifierTarget,
+}
+
 /// Semantic feature family used to group components in the syntax audit and
 /// to keep feature documentation aligned with the grammar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -885,6 +942,91 @@ pub struct ComponentSchema {
     pub trailing_message: Option<&'static str>,
 }
 
+/// Shared modifiers which are applied to an existing rendered view. Their
+/// parser entries are enabled only while typed lowering, both AOT generators,
+/// and both DevRuntimes have corresponding implementations.
+pub const SHARED_VIEW_MODIFIERS: &[SharedViewModifierSchema] = &[
+    SharedViewModifierSchema {
+        modifier: ModifierSchema {
+            name: "safeAreaPadding",
+            arguments: &[
+                ArgSchema {
+                    name: "edges",
+                    required: false,
+                    required_message: None,
+                },
+                ArgSchema {
+                    name: "spacing",
+                    required: false,
+                    required_message: None,
+                },
+            ],
+            body: ModifierBody::None,
+            required: false,
+        },
+        target: ViewModifierTarget::AnyView,
+    },
+    SharedViewModifierSchema {
+        modifier: ModifierSchema {
+            name: "safeAreaInset",
+            arguments: &[
+                ArgSchema {
+                    name: "edge",
+                    required: true,
+                    required_message: Some("modifier `.safeAreaInset` requires `edge`"),
+                },
+                ArgSchema {
+                    name: "spacing",
+                    required: false,
+                    required_message: None,
+                },
+            ],
+            body: ModifierBody::Nodes,
+            required: false,
+        },
+        target: ViewModifierTarget::AnyView,
+    },
+    SharedViewModifierSchema {
+        modifier: ModifierSchema {
+            name: "scrollHeader",
+            arguments: &[
+                ArgSchema {
+                    name: "behavior",
+                    required: false,
+                    required_message: None,
+                },
+                ArgSchema {
+                    name: "collapsedHeight",
+                    required: false,
+                    required_message: None,
+                },
+            ],
+            body: ModifierBody::Nodes,
+            required: false,
+        },
+        target: ViewModifierTarget::ScrollOwner,
+    },
+];
+
+/// Find a modifier declared either by a component or by the shared view
+/// catalog. Component declarations take precedence so existing syntax remains
+/// stable if a future shared modifier uses the same spelling.
+pub fn modifier_schema_for<'a>(
+    component_modifiers: &'a [ModifierSchema],
+    view_modifiers: &'a [SharedViewModifierSchema],
+    name: &str,
+) -> Option<&'a ModifierSchema> {
+    component_modifiers
+        .iter()
+        .find(|modifier| modifier.name == name)
+        .or_else(|| {
+            view_modifiers
+                .iter()
+                .find(|modifier| modifier.modifier.name == name)
+                .map(|modifier| &modifier.modifier)
+        })
+}
+
 /// Human-facing type/default/behavior documentation for a component argument.
 /// Kept beside the parser catalog so the published parameter table can be
 /// generated and checked against the accepted language.
@@ -893,6 +1035,284 @@ pub struct ComponentParameterDoc {
     pub type_name: &'static str,
     pub default: &'static str,
     pub behavior: &'static str,
+}
+
+pub const TEXT_INPUT_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
+    ComponentParameterDoc {
+        name: "value",
+        type_name: "mutable `String` state",
+        default: "Required",
+        behavior: "Current text; native edits update the bound state before `.onChange` runs",
+    },
+    ComponentParameterDoc {
+        name: "placeholder",
+        type_name: "`String` literal",
+        default: "Required",
+        behavior: "Shown while the bound value is empty and automatically localized",
+    },
+    ComponentParameterDoc {
+        name: "comment",
+        type_name: "`String` literal",
+        default: "Omitted",
+        behavior: "Translator context for the placeholder",
+    },
+    ComponentParameterDoc {
+        name: "keyboardType",
+        type_name: "`Text`, `Number`, `Email`, `Phone`, or `Url`",
+        default: "`Text`",
+        behavior: "Selects the native keyboard layout",
+    },
+    ComponentParameterDoc {
+        name: "isSecure",
+        type_name: "`Bool`",
+        default: "`false`",
+        behavior: "Masks the entered text and selects secure-entry behavior",
+    },
+    ComponentParameterDoc {
+        name: "autofill",
+        type_name: "`Username`, `Password`, or `OneTimeCode`",
+        default: "Omitted",
+        behavior: "Hints the native autofill service about the expected value",
+    },
+    ComponentParameterDoc {
+        name: "returnKeyType",
+        type_name: "`Done`, `Search`, `Send`, or `Next`",
+        default: "Native default; `Done` for an action block and `Search` for `searchable`",
+        behavior: "Sets the keyboard action; submit actions run before native dismissal",
+    },
+    ComponentParameterDoc {
+        name: "multiline",
+        type_name: "`Bool`",
+        default: "`false`",
+        behavior: "Uses a vertically expanding native text control; submit action blocks are not supported",
+    },
+    ComponentParameterDoc {
+        name: "autocorrect",
+        type_name: "`Bool`",
+        default: "Platform default",
+        behavior: "Enables or disables native spelling correction",
+    },
+    ComponentParameterDoc {
+        name: "capitalization",
+        type_name: "`None`, `Sentences`, `Words`, or `Characters`",
+        default: "`Sentences`",
+        behavior: "Selects automatic capitalization behavior",
+    },
+    ComponentParameterDoc {
+        name: "focused",
+        type_name: "mutable `Bool` state",
+        default: "Omitted",
+        behavior: "Requests focus when true and reflects native focus changes",
+    },
+    ComponentParameterDoc {
+        name: "maxLength",
+        type_name: "positive integer literal",
+        default: "Unlimited",
+        behavior: "Bounds text accepted from native editing",
+    },
+    ComponentParameterDoc {
+        name: "font",
+        type_name: "`Body` or `Title3`",
+        default: "Platform default",
+        behavior: "Selects a shared native text style",
+    },
+    ComponentParameterDoc {
+        name: "fontSize",
+        type_name: "non-negative number or `FontSize` theme token",
+        default: "Platform default",
+        behavior: "Sets entered-text and placeholder size in points on iOS and `sp` on Android",
+    },
+    ComponentParameterDoc {
+        name: "fontFamily",
+        type_name: "registered font-face `String` or font-family theme token",
+        default: "`Theme.Default` when declared, otherwise platform default",
+        behavior: "Uses the registered native font face from `assets/fonts/`",
+    },
+    ComponentParameterDoc {
+        name: "textColor",
+        type_name: "hex color `String` or color theme token",
+        default: "Platform default",
+        behavior: "Sets the entered-text color",
+    },
+    ComponentParameterDoc {
+        name: "placeholderColor",
+        type_name: "hex color `String` or color theme token",
+        default: "Platform default",
+        behavior: "Sets the placeholder color independently of entered text",
+    },
+    ComponentParameterDoc {
+        name: "clearable",
+        type_name: "`Bool`",
+        default: "`false`",
+        behavior: "Shows an inline clear control on iOS while text is present; Android keeps its native field behavior",
+    },
+    ComponentParameterDoc {
+        name: "minLines",
+        type_name: "positive integer literal",
+        default: "1",
+        behavior: "Minimum visible line count; requires `multiline: true`",
+    },
+    ComponentParameterDoc {
+        name: "maxLines",
+        type_name: "positive integer literal",
+        default: "Unlimited",
+        behavior: "Maximum visible line count; requires `multiline: true`",
+    },
+    ComponentParameterDoc {
+        name: "searchable",
+        type_name: "`Bool`",
+        default: "`false`",
+        behavior: "Adds a native search icon and uses the Search return-key action; cannot be combined with multiline or submit actions",
+    },
+];
+
+pub const TEXT_INPUT_EVENT_DOCS: &[ComponentParameterDoc] = &[
+    ComponentParameterDoc {
+        name: "action block",
+        type_name: "actions",
+        default: "Omitted",
+        behavior: "Runs on submit for a single-line field; defaults the return key to `Done`",
+    },
+    ComponentParameterDoc {
+        name: ".onChange",
+        type_name: "one `String` binding and actions",
+        default: "Omitted",
+        behavior: "Runs after user-driven edits with the new text bound to its parameter; programmatic state changes do not trigger it",
+    },
+    ComponentParameterDoc {
+        name: ".onFocus",
+        type_name: "actions",
+        default: "Omitted",
+        behavior: "Runs when the field gains native focus; requires `focused` so both native targets can track the focus binding",
+    },
+];
+
+pub fn render_text_input_parameter_table() -> String {
+    render_parameter_table("Parameter", TEXT_INPUT_PARAMETER_DOCS)
+}
+
+pub fn render_text_input_event_table() -> String {
+    render_parameter_table("Action or modifier", TEXT_INPUT_EVENT_DOCS)
+}
+
+fn render_parameter_table(heading: &str, parameters: &[ComponentParameterDoc]) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = format!("| {heading} | Type | Default | Behavior |\n|---|---|---|---|\n");
+    for parameter in parameters {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} |",
+            parameter.name, parameter.type_name, parameter.default, parameter.behavior
+        );
+    }
+    out.trim_end().to_owned()
+}
+
+pub const SLIDER_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
+    ComponentParameterDoc {
+        name: "value",
+        type_name: "mutable `Float64` state",
+        default: "Required",
+        behavior: "Current slider value; updated before `.onChange` actions run",
+    },
+    ComponentParameterDoc {
+        name: "min",
+        type_name: "`Float64` expression",
+        default: "Required",
+        behavior: "Lower end of the value range",
+    },
+    ComponentParameterDoc {
+        name: "max",
+        type_name: "`Float64` expression",
+        default: "Required",
+        behavior: "Upper end of the range; must be greater than `min` when rendered",
+    },
+    ComponentParameterDoc {
+        name: "step",
+        type_name: "non-negative `Float64` literal",
+        default: "Required; use `0.0` for continuous values",
+        behavior: "Quantization interval; a zero step keeps native pointer precision",
+    },
+    ComponentParameterDoc {
+        name: "tint",
+        type_name: "color expression (`String`) or `String` state",
+        default: "Platform accent",
+        behavior: "Filled portion of the track",
+    },
+    ComponentParameterDoc {
+        name: "trackColor",
+        type_name: "color expression (`String`) or `String` state",
+        default: "Platform inactive track color",
+        behavior: "Unfilled portion of the track",
+    },
+    ComponentParameterDoc {
+        name: "thumbColor",
+        type_name: "color expression (`String`) or `String` state",
+        default: "White",
+        behavior: "Circular thumb fill",
+    },
+    ComponentParameterDoc {
+        name: "trackHeight",
+        type_name: "positive `Dp` number",
+        default: "4 dp",
+        behavior: "Track thickness",
+    },
+    ComponentParameterDoc {
+        name: "thumbSize",
+        type_name: "positive `Dp` number",
+        default: "14 dp",
+        behavior: "Thumb diameter",
+    },
+    ComponentParameterDoc {
+        name: "hitSlop",
+        type_name: "non-negative `Dp` number",
+        default: "0 dp",
+        behavior: "Extra vertical pointer hit area above and below the visual control",
+    },
+];
+
+pub const SLIDER_EVENT_DOCS: &[ComponentParameterDoc] = &[
+    ComponentParameterDoc {
+        name: ".onChange",
+        type_name: "one `Float64` binding and actions",
+        default: "Omitted",
+        behavior: "Runs as the bound value changes; its `Float64` parameter is commonly named `value` and tap and drag input are supported",
+    },
+    ComponentParameterDoc {
+        name: ".onEditingChanged",
+        type_name: "one `Bool` binding and actions",
+        default: "Omitted",
+        behavior: "Runs with `true` when horizontal dragging begins and `false` when it ends; its `Bool` parameter is commonly named `editing`; taps do not enter editing state",
+    },
+];
+
+pub fn render_slider_parameter_table() -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::from("| Parameter | Type | Default | Behavior |\n|---|---|---|---|\n");
+    for parameter in SLIDER_PARAMETER_DOCS {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} |",
+            parameter.name, parameter.type_name, parameter.default, parameter.behavior
+        );
+    }
+    out.trim_end().to_owned()
+}
+
+pub fn render_slider_event_table() -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::from("| Modifier | Type | Default | Behavior |\n|---|---|---|---|\n");
+    for event in SLIDER_EVENT_DOCS {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} |",
+            event.name, event.type_name, event.default, event.behavior
+        );
+    }
+    out.trim_end().to_owned()
 }
 
 pub const SEGMENTED_CONTROL_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
@@ -1010,10 +1430,22 @@ pub const BOTTOM_SHEET_PARAMETER_DOCS: &[ComponentParameterDoc] = &[
         behavior: "Controls presentation through the typed `present()` and `dismiss()` methods",
     },
     ComponentParameterDoc {
+        name: "contentSized",
+        type_name: "`Bool`",
+        default: "`false`",
+        behavior: "Fits the sheet to its laid-out content; cannot be combined with `detents` or `initialDetent`",
+    },
+    ComponentParameterDoc {
         name: "contentPadding",
         type_name: "non-negative `Dp` number",
         default: "0 dp",
         behavior: "Uniform inset around sheet content; explicit child padding adds to it",
+    },
+    ComponentParameterDoc {
+        name: "cornerRadius",
+        type_name: "non-negative `Dp` number",
+        default: "Platform sheet shape",
+        behavior: "Sets the top radius on Android and on all supported iOS versions through SwiftUI or UIKit",
     },
     ComponentParameterDoc {
         name: "detents",
@@ -1113,18 +1545,25 @@ const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
     opt("alignment"),
     opt("padding"),
     opt("width"),
+    opt("fillMaxWidth"),
+    opt("screenWidthFraction"),
     opt("height"),
+    opt("fillMaxHeight"),
+    opt("screenHeightFraction"),
     opt("minWidth"),
     opt("maxWidth"),
     opt("minHeight"),
     opt("maxHeight"),
     opt("background"),
     opt("cornerRadius"),
+    opt("cornerRadiusBottom"),
     opt("borderColor"),
     opt("borderWidth"),
     opt("opacity"),
     opt("scale"),
+    opt("scaleY"),
     opt("rotation"),
+    opt("offsetY"),
     opt("shadow"),
     opt("blur"),
     opt("clip"),
@@ -1141,18 +1580,25 @@ const ROW_LAYOUT_ARGUMENTS: &[ArgSchema] = &[
     opt("horizontalArrangement"),
     opt("padding"),
     opt("width"),
+    opt("fillMaxWidth"),
+    opt("screenWidthFraction"),
     opt("height"),
+    opt("fillMaxHeight"),
+    opt("screenHeightFraction"),
     opt("minWidth"),
     opt("maxWidth"),
     opt("minHeight"),
     opt("maxHeight"),
     opt("background"),
     opt("cornerRadius"),
+    opt("cornerRadiusBottom"),
     opt("borderColor"),
     opt("borderWidth"),
     opt("opacity"),
     opt("scale"),
+    opt("scaleY"),
     opt("rotation"),
+    opt("offsetY"),
     opt("shadow"),
     opt("blur"),
     opt("clip"),
@@ -1167,18 +1613,25 @@ const STACK_ARGUMENTS: &[ArgSchema] = &[
     opt("alignment"),
     opt("padding"),
     opt("width"),
+    opt("fillMaxWidth"),
+    opt("screenWidthFraction"),
     opt("height"),
+    opt("fillMaxHeight"),
+    opt("screenHeightFraction"),
     opt("minWidth"),
     opt("maxWidth"),
     opt("minHeight"),
     opt("maxHeight"),
     opt("background"),
     opt("cornerRadius"),
+    opt("cornerRadiusBottom"),
     opt("borderColor"),
     opt("borderWidth"),
     opt("opacity"),
     opt("scale"),
+    opt("scaleY"),
     opt("rotation"),
+    opt("offsetY"),
     opt("shadow"),
     opt("blur"),
     opt("clip"),
@@ -1281,9 +1734,9 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         name: "Spacer",
         doc: "components.md#spacer",
         features: &[FeatureTag::Layout],
-        parens: ParensModel::Empty,
+        parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[],
+        arguments: &[opt("width"), opt("height")],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -1304,6 +1757,25 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
+        name: "Shape",
+        doc: "components.md#shape",
+        features: &[FeatureTag::Layout],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[
+            req("shape"),
+            req("width"),
+            req("height"),
+            req("fill"),
+            opt("animation"),
+        ],
+        exclusive: &[],
+        children: ChildModel::None,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
         name: "Text",
         doc: "components.md#text",
         features: &[FeatureTag::Typography],
@@ -1316,10 +1788,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("fontSize"),
             opt("fontStyle"),
             opt("fontDesign"),
+            opt("fontFamily"),
             opt("fontWeight"),
             opt("padding"),
             opt("opacity"),
             opt("scale"),
+            opt("scaleY"),
             opt("rotation"),
             opt("shadow"),
             opt("blur"),
@@ -1332,6 +1806,53 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("italic"),
             opt("underline"),
             opt("selectable"),
+        ],
+        exclusive: &[],
+        children: ChildModel::None,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
+        name: "TextReveal",
+        doc: "components.md#text-reveal",
+        features: &[FeatureTag::Typography],
+        parens: ParensModel::Required,
+        positional: PositionalModel::Single,
+        arguments: &[
+            req("segments"),
+            req("position"),
+            req("active"),
+            req("playing"),
+            req("enabled"),
+            req("seekRevision"),
+            opt("revealOpacity"),
+            opt("leadTime"),
+            opt("targetOffset"),
+            opt("smoothingDuration"),
+            opt("comment"),
+            opt("color"),
+            opt("alignment"),
+            opt("fontSize"),
+            opt("fontStyle"),
+            opt("fontDesign"),
+            opt("fontFamily"),
+            opt("fontWeight"),
+            opt("padding"),
+            opt("opacity"),
+            opt("scale"),
+            opt("scaleY"),
+            opt("rotation"),
+            opt("shadow"),
+            opt("blur"),
+            opt("clip"),
+            opt("zIndex"),
+            opt("lineLimit"),
+            opt("lineHeight"),
+            opt("letterSpacing"),
+            opt("strikethrough"),
+            opt("italic"),
+            opt("underline"),
         ],
         exclusive: &[],
         children: ChildModel::None,
@@ -1408,18 +1929,31 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("focused"),
             opt("maxLength"),
             opt("font"),
+            opt("fontSize"),
+            opt("fontFamily"),
+            opt("textColor"),
+            opt("placeholderColor"),
+            opt("clearable"),
             opt("minLines"),
             opt("maxLines"),
             opt("searchable"),
         ],
         exclusive: &[],
         children: ChildModel::OptionalActions,
-        modifiers: &[ModifierSchema {
-            name: "onChange",
-            arguments: &[],
-            body: ModifierBody::EventActions,
-            required: false,
-        }],
+        modifiers: &[
+            ModifierSchema {
+                name: "onChange",
+                arguments: &[],
+                body: ModifierBody::EventActions,
+                required: false,
+            },
+            ModifierSchema {
+                name: "onFocus",
+                arguments: &[],
+                body: ModifierBody::Actions,
+                required: false,
+            },
+        ],
         flags: &[],
         trailing_message: None,
     },
@@ -1432,7 +1966,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         arguments: &[req("value"), req("label"), opt("comment")],
         exclusive: &[],
         children: ChildModel::None,
-        modifiers: &[],
+        modifiers: &[ModifierSchema {
+            name: "onChange",
+            arguments: &[],
+            body: ModifierBody::EventActions,
+            required: false,
+        }],
         flags: &[],
         trailing_message: None,
     },
@@ -1442,10 +1981,34 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Controls],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[req("value"), req("min"), req("max"), req("step")],
+        arguments: &[
+            req("value"),
+            req("min"),
+            req("max"),
+            req("step"),
+            opt("tint"),
+            opt("trackColor"),
+            opt("thumbColor"),
+            opt("trackHeight"),
+            opt("thumbSize"),
+            opt("hitSlop"),
+        ],
         exclusive: &[],
         children: ChildModel::None,
-        modifiers: &[],
+        modifiers: &[
+            ModifierSchema {
+                name: "onChange",
+                arguments: &[],
+                body: ModifierBody::EventActions,
+                required: false,
+            },
+            ModifierSchema {
+                name: "onEditingChanged",
+                arguments: &[],
+                body: ModifierBody::EventActions,
+                required: false,
+            },
+        ],
         flags: &[],
         trailing_message: None,
     },
@@ -1614,14 +2177,16 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("system"),
             opt("sfsymbol"),
             opt("materialsymbol"),
+            opt("fontFamily"),
+            opt("glyph"),
             req("description"),
             req("size"),
             req("tint"),
         ],
         exclusive: &[ExclusiveGroup {
-            options: &["system", "sfsymbol", "materialsymbol"],
-            missing_message: "Icon requires exactly one of `system`, `sfsymbol`, or `materialsymbol`",
-            both_message: "Icon accepts exactly one of `system`, `sfsymbol`, or `materialsymbol`",
+            options: &["system", "sfsymbol", "materialsymbol", "glyph"],
+            missing_message: "Icon requires one system symbol or a font glyph with `fontFamily`",
+            both_message: "Icon accepts one system symbol or one font glyph",
         }],
         children: ChildModel::None,
         modifiers: &[],
@@ -1709,6 +2274,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
                 "root",
                 "NavigationStack requires a declared screen as `root`",
             ),
+            opt("showNavigationBar"),
             opt("titleMode"),
             opt("titleAlignment"),
         ],
@@ -1782,7 +2348,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Layout],
         parens: ParensModel::Optional,
         positional: PositionalModel::None,
-        arguments: &[opt("dismiss")],
+        arguments: &[opt("dismiss"), opt("behavior")],
         exclusive: &[],
         children: ChildModel::Nodes,
         modifiers: &[],
@@ -1797,7 +2363,9 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         positional: PositionalModel::None,
         arguments: &[
             req("ref"),
+            opt("contentSized"),
             opt("contentPadding"),
+            opt("cornerRadius"),
             opt("detents"),
             opt("initialDetent"),
             opt("showDragIndicator"),
@@ -1939,6 +2507,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
                 required: false,
             },
             ModifierSchema {
+                name: "onScrollBeginDrag",
+                arguments: &[],
+                body: ModifierBody::Actions,
+                required: false,
+            },
+            ModifierSchema {
                 name: "onMove",
                 arguments: &[opt("enabled")],
                 body: ModifierBody::EventActions,
@@ -1987,7 +2561,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         features: &[FeatureTag::Theming],
         parens: ParensModel::Required,
         positional: PositionalModel::None,
-        arguments: &[opt("style"), opt("hidden"), opt("background")],
+        arguments: &[
+            opt("style"),
+            opt("hidden"),
+            opt("background"),
+            opt("navigationBarBackground"),
+        ],
         exclusive: &[],
         children: ChildModel::None,
         modifiers: &[],
@@ -2151,13 +2730,17 @@ fn modifier_alternation(names: &[&str]) -> String {
 
 /// `unknown {Component} modifier `.x`; expected ...` diagnostic.
 pub fn unknown_modifier_message(schema: &ComponentSchema, modifier: &str) -> String {
-    let expected = modifier_alternation(
-        &schema
-            .modifiers
+    let mut names = schema
+        .modifiers
+        .iter()
+        .map(|modifier| modifier.name)
+        .collect::<Vec<_>>();
+    names.extend(
+        SHARED_VIEW_MODIFIERS
             .iter()
-            .map(|modifier| modifier.name)
-            .collect::<Vec<_>>(),
+            .map(|modifier| modifier.modifier.name),
     );
+    let expected = modifier_alternation(&names);
     format!(
         "unknown {} modifier `.{modifier}`; expected {expected}",
         schema.name
@@ -2429,7 +3012,7 @@ pub fn render_syntax_audit() -> String {
             out.push_str(&format!("### `{}`\n\n", schema.name));
             out.push_str(&format!("{}\n\n", entry.summary));
             out.push_str(&format!("Signature: {}\n\n", audit_signature(schema)));
-            let (required, _optional): (Vec<_>, Vec<_>) =
+            let (required, _optional): (Vec<&ArgSchema>, Vec<&ArgSchema>) =
                 schema.arguments.iter().partition(|arg| arg.required);
             if !required.is_empty() {
                 out.push_str(&format!(
@@ -2526,6 +3109,42 @@ pub fn render_syntax_audit() -> String {
             }
             out.push_str(&format!("Reference: {}\n\n", schema.doc));
         }
+    }
+    out.push_str(
+        "## Shared view modifiers\n\n\
+        These modifiers wrap an existing rendered view and keep layout policy separate from its component type.\n\n",
+    );
+    for entry in SHARED_VIEW_MODIFIERS {
+        let modifier = &entry.modifier;
+        let arguments = match modifier.name {
+            "safeAreaPadding" => {
+                "`edges: [Top, Bottom, Leading, Trailing]` (default all edges), `spacing: non-negative numeric literal = 0`"
+            }
+            "safeAreaInset" => {
+                "`edge: Top | Bottom | Leading | Trailing` (required), `spacing: non-negative numeric literal = 0`"
+            }
+            "scrollHeader" => {
+                "`behavior: Pinned | Collapse | HideOnScroll = Pinned`, `collapsedHeight: positive numeric literal = 56` for `Collapse`"
+            }
+            _ => "catalog-defined arguments",
+        };
+        out.push_str(&format!(
+            "### `.{}`\n\nArguments: {}.\n\n",
+            modifier.name, arguments
+        ));
+        match modifier.name {
+            "safeAreaPadding" => out.push_str(
+                "Applies the remaining visual safe inset on each selected edge, then adds the fixed `spacing` value. Nested scopes consume each selected dynamic edge once. System gesture regions and IME insets are separate.\n\n",
+            ),
+            "safeAreaInset" => out.push_str(
+                "Places its node block at the selected safe edge. The node block is measured natively; a uniquely inferred compatible scroll owner receives endpoint accommodation. Without an owner, placement still works. `spacing` remains fixed design distance and is not an inset value.\n\n",
+            ),
+            "scrollHeader" => out.push_str(
+                "Attaches one reusable header to exactly one vertical scroll owner. `Pinned` keeps its measured height, `Collapse` interpolates its height toward `collapsedHeight`, and `HideOnScroll` hides on downward movement and reveals on upward movement. It does not change standard `NavigationStack` large-title behavior.\n\n",
+            ),
+            _ => out.push_str("Applied through the shared typed view-modifier path.\n\n"),
+        }
+        out.push_str("Reference: components.md#safe-area-and-edge-attached-content\n\n");
     }
     out.push_str(&format!(
         "## Vocabulary\n\n\

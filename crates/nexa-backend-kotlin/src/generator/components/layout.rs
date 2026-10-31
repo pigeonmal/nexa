@@ -16,6 +16,40 @@ use super::RenderScope;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let uses_linear_gradient = features.facts.ui.linear_gradient;
+    let uses_safe_area = features.uses_safe_area_padding
+        || features.uses_safe_area_inset
+        || features.uses_safe_area_endpoint;
+    imports.add(
+        uses_safe_area || features.uses_keyboard_aware || features.uses_form,
+        "androidx.compose.foundation.layout.padding",
+    );
+    imports.add(uses_safe_area, "androidx.compose.foundation.layout.only");
+    imports.add(
+        uses_safe_area,
+        "androidx.compose.foundation.layout.windowInsetsPadding",
+    );
+    imports.add(
+        uses_safe_area,
+        "androidx.compose.foundation.layout.consumeWindowInsets",
+    );
+    imports.add(uses_safe_area, "androidx.compose.foundation.layout.union");
+    imports.add(
+        uses_safe_area,
+        "androidx.compose.foundation.layout.systemBars",
+    );
+    imports.add(
+        uses_safe_area,
+        "androidx.compose.foundation.layout.displayCutout",
+    );
+    imports.add(
+        uses_safe_area,
+        "androidx.compose.foundation.layout.waterfall",
+    );
+    imports.add(uses_safe_area, "androidx.compose.ui.unit.dp");
+    imports.add(
+        features.uses_safe_area_inset,
+        "androidx.compose.foundation.layout.fillMaxSize",
+    );
     imports.add(
         uses_linear_gradient,
         "androidx.compose.foundation.layout.Box",
@@ -113,6 +147,26 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.Spacer",
     );
     imports.add(
+        features.uses_spacer,
+        "androidx.compose.foundation.layout.width",
+    );
+    imports.add(
+        features.uses_spacer,
+        "androidx.compose.foundation.layout.height",
+    );
+    imports.add(features.uses_spacer, "androidx.compose.ui.Modifier");
+    imports.add(features.uses_spacer, "androidx.compose.ui.unit.dp");
+    imports.add(
+        features.uses_spacer,
+        "androidx.compose.foundation.layout.width",
+    );
+    imports.add(
+        features.uses_spacer,
+        "androidx.compose.foundation.layout.height",
+    );
+    imports.add(features.uses_spacer, "androidx.compose.ui.Modifier");
+    imports.add(features.uses_spacer, "androidx.compose.ui.unit.dp");
+    imports.add(
         features.uses_divider,
         "androidx.compose.material3.HorizontalDivider",
     );
@@ -146,8 +200,16 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.width",
     );
     imports.add(
+        features.uses_fill_max_width,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
         features.uses_height,
         "androidx.compose.foundation.layout.height",
+    );
+    imports.add(
+        features.uses_fill_max_height,
+        "androidx.compose.foundation.layout.fillMaxHeight",
     );
     imports.add(
         features.uses_width_in,
@@ -188,6 +250,11 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_graphics_layer,
         "androidx.compose.ui.graphics.graphicsLayer",
     );
+    imports.add(features.uses_graphics_layer, "androidx.compose.ui.composed");
+    imports.add(
+        features.uses_translation,
+        "androidx.compose.ui.platform.LocalDensity",
+    );
     imports.add(
         features.uses_drop_shadow,
         "androidx.compose.ui.draw.dropShadow",
@@ -223,6 +290,50 @@ pub(crate) fn render_layout(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    render_layout_inner(
+        kind,
+        spacing,
+        style,
+        children,
+        LayoutRenderContext { scope, depth, out },
+        false,
+    );
+}
+
+pub(crate) fn render_row_child_layout(
+    kind: LayoutKind,
+    spacing: f32,
+    style: &ViewStyle,
+    children: &[Node],
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    render_layout_inner(
+        kind,
+        spacing,
+        style,
+        children,
+        LayoutRenderContext { scope, depth, out },
+        style.fill_max_width,
+    );
+}
+
+struct LayoutRenderContext<'scope, 'source, 'out> {
+    scope: &'scope RenderScope<'source>,
+    depth: usize,
+    out: &'out mut SourceWriter,
+}
+
+fn render_layout_inner(
+    kind: LayoutKind,
+    spacing: f32,
+    style: &ViewStyle,
+    children: &[Node],
+    context: LayoutRenderContext<'_, '_, '_>,
+    row_width_weight: bool,
+) {
+    let LayoutRenderContext { scope, depth, out } = context;
     let preserve_row_child_widths = row_has_only_fixed_width_layout_children(kind, children);
     let layout = match kind {
         LayoutKind::Column => "NexaColumnPrimitive",
@@ -231,9 +342,12 @@ pub(crate) fn render_layout(
     };
     indent(out, depth);
     out.push_str(&format!("{layout}(\n"));
-    if style.has_modifiers() {
+    if style.has_modifiers() || row_width_weight {
         indent(out, depth + 1);
         out.push_str("modifier = Modifier");
+        if row_width_weight {
+            out.push_str(".weight(1f)");
+        }
         render_modifiers(style, depth + 2, out);
         out.push_str(",\n");
     }
@@ -319,7 +433,7 @@ fn row_has_only_fixed_width_layout_children(kind: LayoutKind, children: &[Node])
         && !children.is_empty()
         && children
             .iter()
-            .all(|child| matches!(child, Node::Layout { style, .. } if style.width.is_some()))
+            .all(|child| matches!(child, Node::Layout { style, .. } if style.width.is_some() || style.screen_width_fraction.is_some()))
 }
 
 fn render_toolbar_row(
@@ -426,7 +540,13 @@ pub(crate) fn render_form_section(
     );
     out.line_at(depth, format_args!(") {{"));
     for (index, child) in children.iter().enumerate() {
-        render_form_row(child, 0, scope, depth + 1, out);
+        render_form_row(
+            child,
+            nexa_codegen::design_system::FORM_ROW_HORIZONTAL_INSET,
+            scope,
+            depth + 1,
+            out,
+        );
         if options.show_dividers && index + 1 < children.len() {
             out.line_at(depth + 1, format_args!("NexaFormDividerPrimitive()"));
         }
@@ -526,6 +646,14 @@ fn render_required_outer_width(style: &ViewStyle, depth: usize, out: &mut Source
             spaces(depth),
             number(outer_width)
         ));
+    } else if let Some(fraction) = style.screen_width_fraction {
+        let horizontal_padding = style.padding.unwrap_or(0.0) * 2.0;
+        out.push_str(&format!(
+            "\n{}.requiredWidth((LocalConfiguration.current.screenWidthDp.toFloat() * {}f + {}f).dp)",
+            spaces(depth),
+            number(fraction),
+            number(horizontal_padding)
+        ));
     }
 }
 
@@ -583,41 +711,46 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             number(opacity)
         ));
     }
-    if effects.scale.is_some() || effects.rotation.is_some() {
-        let scale = effects
-            .scale
-            .map(number)
-            .unwrap_or_else(|| "1.0".to_owned());
-        let rotation = effects
-            .rotation
-            .map(number)
-            .unwrap_or_else(|| "0.0".to_owned());
-        out.push_str(&format!(
-            "\n{}.graphicsLayer(scaleX = {scale}f, scaleY = {scale}f, rotationZ = {rotation}f)",
-            spaces(depth)
-        ));
+    if effects.scale.is_some()
+        || effects.scale_expression.is_some()
+        || effects.scale_y.is_some()
+        || effects.scale_y_expression.is_some()
+        || effects.opacity_expression.is_some()
+        || effects.offset_y_expression.is_some()
+        || effects.rotation.is_some()
+    {
+        super::graphics_layer::append_multiline(effects, depth, out);
     }
     if let Some(blur) = effects.blur {
         out.push_str(&format!("\n{}.blur({}.dp)", spaces(depth), number(blur)));
     }
     if let Some(shadow) = effects.shadow {
-        let radius = effects.clip_rounded.or(style.corner_radius).unwrap_or(0.0);
+        let shape = if let Some(radius) = effects.clip_rounded {
+            format!("RoundedCornerShape({}.dp)", number(radius))
+        } else {
+            kotlin_corner_shape(style)
+        };
         out.push_str(&format!(
-            "\n{}.dropShadow(shape = RoundedCornerShape({}.dp), shadow = Shadow(radius = {}.dp, color = {}, offset = DpOffset({}.dp, {}.dp)))",
+            "\n{}.dropShadow(shape = {}, shadow = Shadow(radius = {}.dp, color = {}, offset = DpOffset({}.dp, {}.dp)))",
             spaces(depth),
-            number(radius),
+            shape,
             number(shadow.radius),
             colors::expression(shadow.color),
             number(shadow.x),
             number(shadow.y)
         ));
     }
-    if let Some(radius) = effects.clip_rounded.or(style.corner_radius) {
-        out.push_str(&format!(
-            "\n{}.clip(RoundedCornerShape({}.dp))",
-            spaces(depth),
-            number(radius)
-        ));
+    if effects.clip_rounded.is_some()
+        || style.corner_radius.is_some()
+        || style.corner_radius_expression.is_some()
+        || style.corner_radius_bottom.is_some()
+    {
+        let shape = if let Some(radius) = effects.clip_rounded {
+            format!("RoundedCornerShape({}.dp)", number(radius))
+        } else {
+            kotlin_corner_shape(style)
+        };
+        out.push_str(&format!("\n{}.clip({})", spaces(depth), shape));
     }
     if let Some(color) = style.background {
         out.push_str(&format!(
@@ -627,13 +760,13 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
         ));
     }
     if let (Some(color), Some(width)) = (style.border_color, style.border_width) {
-        let radius = style.corner_radius.unwrap_or(0.0);
+        let shape = kotlin_corner_shape(style);
         out.push_str(&format!(
-            "\n{}.border(width = {}.dp, color = {}, shape = RoundedCornerShape({}.dp))",
+            "\n{}.border(width = {}.dp, color = {}, shape = {})",
             spaces(depth),
             number(width),
             colors::expression(color),
-            number(radius)
+            shape
         ));
     }
     if let Some(glass) = &effects.glass {
@@ -666,12 +799,24 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
     }
     if let Some(width) = style.width {
         out.push_str(&format!("\n{}.width({}.dp)", spaces(depth), number(width)));
+    } else if let Some(fraction) = style.screen_width_fraction {
+        out.push_str(&format!(
+            "\n{}.width((LocalConfiguration.current.screenWidthDp.toFloat() * {}f).dp)",
+            spaces(depth),
+            number(fraction)
+        ));
     }
     if let Some(height) = style.height {
         out.push_str(&format!(
             "\n{}.height({}.dp)",
             spaces(depth),
             number(height)
+        ));
+    } else if let Some(fraction) = style.screen_height_fraction {
+        out.push_str(&format!(
+            "\n{}.height((LocalConfiguration.current.screenHeightDp.toFloat() * {}f).dp)",
+            spaces(depth),
+            number(fraction)
         ));
     }
     let mut width_bounds = Vec::with_capacity(2);
@@ -702,9 +847,41 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             height_bounds.join(", ")
         ));
     }
+    if style.fill_max_width {
+        out.push_str(&format!("\n{}.fillMaxWidth()", spaces(depth)));
+    }
+    if style.fill_max_height {
+        out.push_str(&format!("\n{}.fillMaxHeight()", spaces(depth)));
+    }
     if let Some(z_index) = effects.z_index {
         out.push_str(&format!("\n{}.zIndex({}f)", spaces(depth), z_index));
     }
+}
+
+fn kotlin_corner_shape(style: &ViewStyle) -> String {
+    let top = style
+        .corner_radius_expression
+        .as_ref()
+        .map(|expression| {
+            format!(
+                "({}).toFloat().dp",
+                crate::generator::engine::expressions::expression(expression)
+            )
+        })
+        .or_else(|| {
+            style
+                .corner_radius
+                .map(|value| format!("{}.dp", number(value)))
+        })
+        .unwrap_or_else(|| "0.dp".to_owned());
+    if let Some(bottom) = style.corner_radius_bottom {
+        return format!(
+            "RoundedCornerShape(topStart = {top}, topEnd = {top}, bottomEnd = {}.dp, bottomStart = {}.dp)",
+            number(bottom),
+            number(bottom),
+        );
+    }
+    format!("RoundedCornerShape({top})")
 }
 
 fn easing_name(easing: AnimationEasing) -> String {
@@ -813,6 +990,47 @@ mod tests {
         assert!(output
             .finish()
             .contains(".animateContentSize(animationSpec = spring(dampingRatio = 0.8f, stiffness = 816.32654f))"));
+    }
+
+    #[test]
+    fn vertical_scale_overrides_only_the_vertical_graphics_layer_axis() {
+        let style = ViewStyle {
+            effects: nexa_ir::ViewEffects {
+                scale: Some(0.8),
+                scale_y: Some(0.4),
+                ..nexa_ir::ViewEffects::default()
+            },
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        assert!(output.finish().contains(
+            ".graphicsLayer {\n    scaleX = 0.8f\n    scaleY = 0.4f\n    alpha = 1f\n    translationY = 0f\n    rotationZ = 0.0f\n}"
+        ));
+    }
+
+    #[test]
+    fn animated_vertical_scale_reads_float_state_in_the_graphics_layer() {
+        let style = ViewStyle {
+            effects: nexa_ir::ViewEffects {
+                scale_y_expression: Some(Box::new(nexa_ir::Expr::AnimatedState(
+                    "squash".to_owned(),
+                    nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64),
+                ))),
+                ..nexa_ir::ViewEffects::default()
+            },
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        assert!(generated.contains(
+            ".graphicsLayer {\n    scaleX = 1.0f\n    scaleY = (nexa_squashAnimated.value.toDouble()).toFloat()\n    alpha = 1f\n    translationY = 0f\n    rotationZ = 0.0f\n}"
+        ), "{generated}");
     }
 
     #[test]
@@ -998,10 +1216,16 @@ mod tests {
             focused: None,
             max_length: None,
             font: None,
+            font_size: None,
+            font_family: None,
+            text_color: None,
+            placeholder_color: None,
+            clearable: false,
             min_lines: None,
             max_lines: None,
             searchable: false,
             actions: Vec::new(),
+            on_focus: None,
             on_change: None,
         };
         let children = [
@@ -1030,7 +1254,7 @@ mod tests {
     }
 
     #[test]
-    fn rows_with_explicitly_sized_layout_children_preserve_their_intrinsic_widths() {
+    fn rows_preserve_fixed_children_and_weight_fill_width_children() {
         let module = Module {
             app_name: "RowFixedChildren".to_owned(),
             plugins: Vec::new(),
@@ -1091,6 +1315,49 @@ mod tests {
 
         assert!(output.contains("preserveChildWidths = true"));
         assert!(output.contains("verticalAlignment = Alignment.Top"));
+
+        let flexible_children = [
+            Node::Layout {
+                kind: LayoutKind::Column,
+                spacing: 0.0,
+                style: ViewStyle {
+                    height: Some(117.0),
+                    fill_max_width: true,
+                    ..ViewStyle::default()
+                },
+                children: Vec::new(),
+            },
+            Node::Layout {
+                kind: LayoutKind::Stack,
+                spacing: 0.0,
+                style: ViewStyle {
+                    width: Some(117.0),
+                    height: Some(117.0),
+                    ..ViewStyle::default()
+                },
+                children: Vec::new(),
+            },
+        ];
+        let mut flexible_output = SourceWriter::new();
+
+        render_layout(
+            LayoutKind::Row,
+            5.85,
+            &ViewStyle {
+                fill_max_width: true,
+                padding: Some(23.4),
+                ..ViewStyle::default()
+            },
+            &flexible_children,
+            &scope,
+            0,
+            &mut flexible_output,
+        );
+
+        let flexible_source = flexible_output.finish();
+        assert!(flexible_source.contains("modifier = Modifier.weight(1f)"));
+        assert!(flexible_source.contains(".fillMaxWidth()"));
+        assert!(!flexible_source.contains("preserveChildWidths = true"));
     }
 
     #[test]
@@ -1255,7 +1522,7 @@ mod tests {
         assert!(output.contains("NexaFormSectionPrimitive("));
         assert!(output.contains("title = null,"));
         assert!(output.contains("footer = \"ToDoList v1.0.0 (1)\","));
-        assert!(output.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 0f) {"));
+        assert!(output.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 16f) {"));
         assert!(output.contains("fullWidth = true,"));
         assert!(output.contains("leadingContent = true,"));
         assert_eq!(

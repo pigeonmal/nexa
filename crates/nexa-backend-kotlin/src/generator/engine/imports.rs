@@ -67,6 +67,11 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     let uses_date_picker =
         context.include_all_shared_primitives || context.features.uses_date_picker;
     imports.add(uses_date_picker, "androidx.compose.ui.unit.dp");
+    // Date and time picker primitives are available in every DevRuntime host;
+    // their local edited values use Compose state delegates even when the
+    // initial app does not declare a picker.
+    imports.add(uses_date_picker, "androidx.compose.runtime.getValue");
+    imports.add(uses_date_picker, "androidx.compose.runtime.setValue");
     let uses_bottom_sheet =
         context.include_all_shared_primitives || context.features.uses_bottom_sheet;
     imports.add(uses_bottom_sheet, "androidx.compose.ui.unit.dp");
@@ -77,6 +82,14 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(
         uses_bottom_sheet,
         "androidx.compose.foundation.gestures.detectVerticalDragGestures",
+    );
+    imports.add(
+        uses_bottom_sheet,
+        "androidx.compose.ui.input.pointer.pointerInput",
+    );
+    imports.add(
+        uses_bottom_sheet,
+        "androidx.compose.ui.layout.onSizeChanged",
     );
     imports.add(
         uses_bottom_sheet,
@@ -199,6 +212,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::status_bar::imports(context.features, &mut imports);
     crate::generator::components::text::imports(context.features, &mut imports);
     crate::generator::components::accessibility::imports(context.features, &mut imports);
+    crate::generator::components::adaptive_layout::imports(&context, &mut imports);
     crate::generator::components::assets::imports(context.features, &mut imports);
     crate::generator::components::bottom_bar::imports(context.features, &mut imports);
     crate::generator::components::content_unavailable::imports(context.features, &mut imports);
@@ -283,10 +297,13 @@ mod tests {
         date_picker_features.uses_date_picker = true;
         let imports = render_features(&date_picker_features);
         assert!(imports.contains("import androidx.compose.ui.unit.dp\n"));
+        assert!(imports.contains("import androidx.compose.runtime.getValue\n"));
+        assert!(imports.contains("import androidx.compose.runtime.setValue\n"));
         assert!(imports.contains("import kotlinx.coroutines.flow.collect\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.heightIn\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.requiredWidthIn\n"));
         assert!(imports.contains("import androidx.compose.ui.input.pointer.pointerInput\n"));
+        assert!(imports.contains("import androidx.compose.ui.layout.onSizeChanged\n"));
         assert!(imports.contains("import androidx.compose.ui.semantics.clearAndSetSemantics\n"));
         assert!(imports.contains("import androidx.compose.ui.semantics.disabled\n"));
         assert!(imports.contains("import androidx.compose.ui.semantics.selected\n"));
@@ -305,6 +322,14 @@ mod tests {
             imports
                 .contains("import androidx.compose.material.icons.automirrored.filled.ArrowBack\n")
         );
+    }
+
+    #[test]
+    fn dev_runtime_imports_state_delegates_for_shared_picker_helpers() {
+        let imports = render_features_with_shared_primitives(&Features::default(), true);
+
+        assert!(imports.contains("import androidx.compose.runtime.getValue\n"));
+        assert!(imports.contains("import androidx.compose.runtime.setValue\n"));
     }
 
     #[test]
@@ -487,6 +512,7 @@ mod tests {
                 "import androidx.compose.foundation.gestures.detectVerticalDragGestures\n"
             )
         );
+        assert!(imports.contains("import androidx.compose.ui.input.pointer.pointerInput\n"));
         assert!(imports.contains("import androidx.compose.foundation.gestures.animateTo\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.imePadding\n"));
         assert!(imports.contains("import androidx.compose.ui.unit.dp\n"));

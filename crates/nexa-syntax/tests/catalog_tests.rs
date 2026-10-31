@@ -83,6 +83,7 @@ fn catalog_advertises_no_unsupported_parser_names() {
     assert!(catalog::component("TextInput").is_some());
     assert!(catalog::component("Spacer").is_some());
     assert!(catalog::component("Divider").is_some());
+    assert!(catalog::component("Shape").is_some());
     assert!(catalog::component("Slider").is_some());
     assert!(catalog::component("ProgressBar").is_some());
     assert!(catalog::component("ProgressRing").is_some());
@@ -133,19 +134,78 @@ fn dot_modifiers_match_parser_accepted_names() {
             "onDismiss",
             "onDoubleTap",
             "onDrag",
+            "onEditingChanged",
             "onEndReached",
+            "onFocus",
             "onLongPress",
             "onMove",
             "onPinch",
             "onRefresh",
             "onScroll",
+            "onScrollBeginDrag",
             "onTap",
+            "safeAreaInset",
+            "safeAreaPadding",
+            "scrollHeader",
             "sectionHeader",
             "sharedElement",
             "stickyHeader",
             "swipeActions",
         ]
     );
+}
+
+#[test]
+fn shared_view_modifier_probes_parse_and_format() {
+    let probes = [
+        "app SafePaddingProbe { body { Stack { Text(\"Profile\") }.safeAreaPadding(edges: [Top, Leading], spacing: 12) } }",
+        r#"app AttachedProbe { body { Column { FastList(count: 24) { index in Text("Article \(index)") } }.safeAreaInset(edge: Bottom, spacing: 8) { Button("Compose") { } } } }"#,
+        r#"app HeaderProbe { body { Form { Text("Account") }.scrollHeader(behavior: Collapse, collapsedHeight: 56) { Text("Settings") } } }"#,
+    ];
+    for probe in probes {
+        nexa_syntax::parse_program(probe).expect("shared view modifier probe should parse");
+        let formatted = nexa_syntax::format_source(probe).expect("shared view probe should format");
+        nexa_syntax::parse_program(&formatted)
+            .expect("formatted shared view modifier probe should parse");
+    }
+    assert_eq!(catalog::SHARED_VIEW_MODIFIERS.len(), 3);
+}
+
+#[test]
+fn animated_screen_geometry_and_safe_area_expressions_parse() {
+    let probe = r#"app GeometryProbe { state progress: Double = 0.0 body { Stack { Column(width: Layout.screenWidth, height: Layout.screenHeight, cornerRadius: (1.0 - progress) * 35.1, offsetY: SafeArea.top) { Text("Search") } } } }"#;
+    nexa_syntax::parse_program(probe).expect("animated viewport and safe-area probe should parse");
+}
+
+#[test]
+fn shared_modifier_lookup_falls_back_after_component_modifiers() {
+    static SHARED: [catalog::SharedViewModifierSchema; 1] = [catalog::SharedViewModifierSchema {
+        modifier: catalog::ModifierSchema {
+            name: "probeShared",
+            arguments: &[],
+            body: catalog::ModifierBody::None,
+            required: false,
+        },
+        target: catalog::ViewModifierTarget::AnyView,
+    }];
+    static COMPONENT: [catalog::ModifierSchema; 1] = [catalog::ModifierSchema {
+        name: "probeComponent",
+        arguments: &[],
+        body: catalog::ModifierBody::None,
+        required: false,
+    }];
+
+    assert_eq!(
+        catalog::modifier_schema_for(&COMPONENT, &SHARED, "probeShared")
+            .map(|modifier| modifier.name),
+        Some("probeShared")
+    );
+    assert_eq!(
+        catalog::modifier_schema_for(&COMPONENT, &SHARED, "probeComponent")
+            .map(|modifier| modifier.name),
+        Some("probeComponent")
+    );
+    assert!(catalog::modifier_schema_for(&COMPONENT, &SHARED, "unknown").is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +275,10 @@ fn component_schemas_cover_every_vocabulary_entry() {
             catalog::COMPONENT_SCHEMAS.iter().any(|schema| schema
                 .modifiers
                 .iter()
-                .any(|modifier| modifier.name == entry.name)),
+                .any(|modifier| modifier.name == entry.name))
+                || catalog::SHARED_VIEW_MODIFIERS
+                    .iter()
+                    .any(|modifier| modifier.modifier.name == entry.name),
             "dot-modifier `{}` is accepted by no component schema",
             entry.name
         );
@@ -242,6 +305,95 @@ fn segmented_control_parameter_table_matches_the_catalog() {
         "SEGMENTED_CONTROL_PARAMETERS",
         &catalog::render_segmented_control_parameter_table(),
         "docs/components.md",
+    );
+}
+
+#[test]
+fn slider_parameter_and_event_tables_match_the_catalog() {
+    let schema = catalog::component_schema("Slider").expect("Slider schema");
+    let argument_names: Vec<&str> = schema
+        .arguments
+        .iter()
+        .map(|argument| argument.name)
+        .collect();
+    let documented_names: Vec<&str> = catalog::SLIDER_PARAMETER_DOCS
+        .iter()
+        .map(|parameter| parameter.name)
+        .collect();
+    assert_eq!(argument_names, documented_names);
+
+    let modifier_names: Vec<String> = schema
+        .modifiers
+        .iter()
+        .map(|modifier| format!(".{}", modifier.name))
+        .collect();
+    let documented_modifiers: Vec<&str> = catalog::SLIDER_EVENT_DOCS
+        .iter()
+        .map(|event| event.name)
+        .collect();
+    assert_eq!(
+        modifier_names,
+        documented_modifiers
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>()
+    );
+
+    nexa_testkit::assert_region(
+        &workspace_path("../../docs/components.md"),
+        "SLIDER_PARAMETERS",
+        &catalog::render_slider_parameter_table(),
+        "docs/components.md",
+    );
+    nexa_testkit::assert_region(
+        &workspace_path("../../docs/components.md"),
+        "SLIDER_EVENTS",
+        &catalog::render_slider_event_table(),
+        "docs/components.md",
+    );
+}
+
+#[test]
+fn text_input_parameter_and_event_tables_match_the_catalog() {
+    let schema = catalog::component_schema("TextInput").expect("TextInput schema");
+    let catalog_names: Vec<&str> = schema
+        .arguments
+        .iter()
+        .map(|argument| argument.name)
+        .collect();
+    let documented_names: Vec<&str> = catalog::TEXT_INPUT_PARAMETER_DOCS
+        .iter()
+        .map(|parameter| parameter.name)
+        .collect();
+    assert_eq!(catalog_names, documented_names);
+    assert_eq!(schema.children, catalog::ChildModel::OptionalActions);
+    assert_eq!(
+        schema
+            .modifiers
+            .iter()
+            .map(|modifier| format!(".{}", modifier.name))
+            .collect::<Vec<_>>(),
+        [".onChange", ".onFocus"]
+    );
+    assert_eq!(
+        catalog::TEXT_INPUT_EVENT_DOCS
+            .iter()
+            .map(|event| event.name)
+            .collect::<Vec<_>>(),
+        ["action block", ".onChange", ".onFocus"]
+    );
+
+    nexa_testkit::assert_region(
+        &workspace_path("../../docs/components.md"),
+        "TEXT_INPUT_PARAMETERS",
+        &catalog::render_text_input_parameter_table(),
+        "docs/components.md#textinput-parameters",
+    );
+    nexa_testkit::assert_region(
+        &workspace_path("../../docs/components.md"),
+        "TEXT_INPUT_EVENTS",
+        &catalog::render_text_input_event_table(),
+        "docs/components.md#textinput-events",
     );
 }
 

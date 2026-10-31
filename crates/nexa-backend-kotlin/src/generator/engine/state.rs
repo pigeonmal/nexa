@@ -151,7 +151,7 @@ pub(crate) fn render_animated_state_aliases(
             "{prefix}var {animation_spec} by remember {{\n{prefix}    androidx.compose.runtime.mutableStateOf<androidx.compose.animation.core.AnimationSpec<Float>>(\n{prefix}        androidx.compose.animation.core.snap()\n{prefix}    )\n{prefix}}}\n"
         ));
         out.push_str(&format!(
-            "{prefix}val {animated} by androidx.compose.animation.core.animateFloatAsState(\n{prefix}    targetValue = {name}.toFloat(),\n{prefix}    animationSpec = {animation_spec},\n{prefix}    finishedListener = {{ _ -> {animation_spec} = androidx.compose.animation.core.snap() }},\n{prefix}    label = {label}\n{prefix})\n"
+            "{prefix}val {animated} = androidx.compose.animation.core.animateFloatAsState(\n{prefix}    targetValue = {name}.toFloat(),\n{prefix}    animationSpec = {animation_spec},\n{prefix}    finishedListener = {{ _ -> {animation_spec} = androidx.compose.animation.core.snap() }},\n{prefix}    label = {label}\n{prefix})\n"
         ));
     }
 }

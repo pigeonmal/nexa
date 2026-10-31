@@ -88,6 +88,11 @@ pub const PLUGIN_SUMMARIES: &[PluginSummary] = &[
         capabilities: "On-device Vision OCR, barcode scanning, text recognition",
     },
     PluginSummary {
+        id: "dev.nexa.download-manager",
+        display_name: "Download Manager",
+        capabilities: "Managed downloads with progress and cancellation",
+    },
+    PluginSummary {
         id: "dev.nexa.in-app-purchases",
         display_name: "In-App Purchases",
         capabilities: "StoreKit 2 and Google Play Billing subscriptions",
@@ -123,6 +128,21 @@ pub const PLUGIN_SUMMARIES: &[PluginSummary] = &[
         capabilities: "Accelerometer, gyroscope, and magnetometer telemetry",
     },
     PluginSummary {
+        id: "dev.nexa.share-sheet",
+        display_name: "Share Sheet",
+        capabilities: "Native sharing for text and links",
+    },
+    PluginSummary {
+        id: "dev.nexa.social-sign-in",
+        display_name: "Social Sign-In",
+        capabilities: "Typed Google and Apple identity credentials",
+    },
+    PluginSummary {
+        id: "dev.nexa.text-codec",
+        display_name: "Text Codec",
+        capabilities: "Base64 UTF-8 text decoding without extra dependencies",
+    },
+    PluginSummary {
         id: "dev.nexa.sqlite",
         display_name: "SQLite",
         capabilities: "Reactive `observeQuery<T>`, WAL mode, cross-process sync",
@@ -136,6 +156,11 @@ pub const PLUGIN_SUMMARIES: &[PluginSummary] = &[
         id: "dev.nexa.websocket",
         display_name: "Websocket",
         capabilities: "Low-latency binary and text WebSockets with auto-reconnect",
+    },
+    PluginSummary {
+        id: "dev.nexa.youtube-downloader",
+        display_name: "YouTube Downloader",
+        capabilities: "YouTube stream extraction with playback metadata and request headers",
     },
     PluginSummary {
         id: "dev.nexa.webview",
@@ -264,8 +289,8 @@ pub fn render_native_requirements(packages: &[PluginPackage]) -> String {
 /// and all of them live in the manifest.
 pub fn render_native_integration(packages: &[PluginPackage]) -> String {
     let mut out = String::from(
-        "| Plugin | iOS entitlements | iOS background modes | App delegate | Android services | Android metadata |\n\
-         |---|---|---|---|---|---|\n",
+        "| Plugin | Host capabilities | iOS entitlements | iOS background modes | App delegate | Android services | Android metadata |\n\
+         |---|---|---|---|---|---|---|\n",
     );
     for package in packages {
         let ios = &package.manifest.ios;
@@ -277,8 +302,13 @@ pub fn render_native_integration(packages: &[PluginPackage]) -> String {
             .map(|service| format!("`{service}`"))
             .collect::<Vec<_>>();
         out.push_str(&format!(
-            "| **{}** | {} | {} | {} | {} | {} |\n",
+            "| **{}** | {} | {} | {} | {} | {} | {} |\n",
             package.summary.display_name,
+            code_list(package.manifest.host_capabilities.iter().map(
+                |capability| match capability {
+                    nexa_plugin_idl::manifest::HostCapability::Network => "network",
+                },
+            )),
             key_list(
                 &ios.entitlements
                     .iter()
@@ -409,6 +439,20 @@ const CONFIG_OPTIONS: &[ConfigOptionDoc] = &[
         ty: "`String`",
         summary: "Path to the splash image asset.",
         default: |config| optional_path(config.splash_source.as_deref()),
+    },
+    ConfigOptionDoc {
+        section: "assets",
+        key: "iconFonts",
+        ty: "font-family to path",
+        summary: "Registers a TTF or OTF file directly inside `assets/fonts` for custom glyph icons.",
+        default: |_| unset(),
+    },
+    ConfigOptionDoc {
+        section: "assets",
+        key: "icons",
+        ty: "icon name to `[font family, codepoint]`",
+        summary: "Defines compile-time glyph aliases accepted by built-in component `icon:` parameters.",
+        default: |_| unset(),
     },
     ConfigOptionDoc {
         section: "flavors.<name>",

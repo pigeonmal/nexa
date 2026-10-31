@@ -61,6 +61,44 @@ func nexaFormatDate(_ milliseconds: Int64, _ pattern: String) -> String {
     return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000))
 }
 
+/// Reuses long-date formatters for app-language announcement dates.
+func nexaLocalizedLongDate(_ milliseconds: Int64, _ languageCode: String) -> String {
+    let locale = Locale(identifier: languageCode.replacingOccurrences(of: "_", with: "-"))
+    let calendar = locale.calendar
+    let timeZone = TimeZone.current
+    let key = "nexa.long-date.\(locale.identifier).\(String(describing: calendar.identifier)).\(timeZone.identifier)"
+    let cache = Thread.current.threadDictionary
+    let formatter: DateFormatter
+    if let cached = cache[key] as? DateFormatter {
+        formatter = cached
+    } else {
+        let cachedKeys = cache.allKeys.compactMap { key -> String? in
+            guard let key = key as? String, key.hasPrefix("nexa.long-date.") else { return nil }
+            return key
+        }
+        if cachedKeys.count >= 16 {
+            cachedKeys.forEach { cache.removeObject(forKey: $0) }
+        }
+        formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        cache[key] = formatter
+    }
+    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000))
+}
+
+/// Formats playback durations without locale-sensitive date conversion or formatter allocation.
+func nexaFormatDuration(_ seconds: Double) -> String {
+    guard seconds.isFinite, seconds > 0 else { return "00:00" }
+    let wholeSeconds = Int(seconds.rounded(.down))
+    let minutes = wholeSeconds / 60
+    let remainder = wholeSeconds % 60
+    return "\(minutes < 10 ? "0" : "")\(minutes):\(remainder < 10 ? "0" : "")\(remainder)"
+}
+
 /// The local calendar-day key for a wall-clock timestamp.
 func nexaStartOfDay(_ milliseconds: Int64) -> Int64 {
     let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
@@ -195,3 +233,16 @@ private func nexaDaysFromCivil(year: Int64, month: Int64, day: Int64) -> Int64 {
     return era * nexaDaysIn400Years + dayOfEra - nexaEpochDays
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::TIME_RUNTIME;
+
+    #[test]
+    fn long_dates_use_cached_app_locale_calendar_and_device_timezone() {
+        assert!(TIME_RUNTIME.contains("let calendar = locale.calendar"));
+        assert!(TIME_RUNTIME.contains("formatter.dateStyle = .long"));
+        assert!(TIME_RUNTIME.contains("formatter.timeStyle = .none"));
+        assert!(TIME_RUNTIME.contains("cache[key] = formatter"));
+    }
+}

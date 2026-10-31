@@ -5,7 +5,7 @@ use nexa_ir::{BottomBarTab, Module, Node, ToolbarPlacement, walk::walk_ir};
 use crate::generator::{
     components::{
         input::{self, TextInputProps},
-        render_children,
+        render_children, system_icons,
     },
     features::Features,
     utils::{indent, swift_string},
@@ -43,11 +43,17 @@ pub(crate) fn render_bottom_bar_helpers(
                                 focused: None,
                                 max_length: None,
                                 font: None,
+                                font_size: None,
+                                font_family: None,
+                                text_color: None,
+                                placeholder_color: None,
+                                clearable: false,
                                 min_lines: None,
                                 max_lines: Some(1),
                                 searchable: true,
                                 horizontal_padding: Some(16),
                                 actions: &[],
+                                on_focus: None,
                                 on_change: None,
                             },
                             3,
@@ -192,7 +198,7 @@ pub(crate) fn render_app_bottom_bar(
         format_args!("TabView(selection: ${}) {{", state_name(state)),
     );
     for (i, tab) in tabs.iter().enumerate() {
-        render_modern_tab_ref(tab, &prefix, i, depth + 2, out);
+        render_modern_tab_ref(tab, &prefix, i, depth + 2, custom_bar.is_some(), out);
     }
     indent(out, depth + 1);
     out.push_str(&format!(
@@ -200,6 +206,7 @@ pub(crate) fn render_app_bottom_bar(
         custom_bar.is_none()
     ));
     if let Some(custom_bar) = custom_bar {
+        out.push_str(".modifier(NexaAppBottomBarSafeAreaPrimitive())");
         out.push_str(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom, spacing: 0) {");
         out.push('\n');
         for child in custom_bar {
@@ -216,7 +223,7 @@ pub(crate) fn render_app_bottom_bar(
         format_args!("TabView(selection: ${}) {{", state_name(state)),
     );
     for (i, tab) in tabs.iter().enumerate() {
-        render_legacy_tab_ref(tab, &prefix, i, depth + 2, out);
+        render_legacy_tab_ref(tab, &prefix, i, depth + 2, custom_bar.is_some(), out);
     }
     indent(out, depth + 1);
     out.push('}');
@@ -224,6 +231,7 @@ pub(crate) fn render_app_bottom_bar(
         ".modifier(NexaAppBottomBarPrimitive(tint: {tint}, adaptiveStyle: false, activatesSearchTab: false))"
     ));
     if let Some(custom_bar) = custom_bar {
+        out.push_str(".modifier(NexaAppBottomBarSafeAreaPrimitive())");
         out.push_str(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom, spacing: 0) {");
         out.push('\n');
         for child in custom_bar {
@@ -372,6 +380,7 @@ fn render_modern_tab_ref(
     prefix: &str,
     index: usize,
     depth: usize,
+    has_custom_bar: bool,
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
@@ -380,8 +389,13 @@ fn render_modern_tab_ref(
     } else {
         ""
     };
+    let content = if has_custom_bar {
+        format!("{prefix}_{index}().toolbarVisibility(.hidden, for: .tabBar).toolbar(.hidden, for: .tabBar)")
+    } else {
+        format!("{prefix}_{index}()")
+    };
     out.push_str(&format!(
-        "Tab(value: Int32({}){}) {{\n{}{prefix}_{index}()\n{}}} label: {{\n{}{}\n{}}}",
+        "Tab(value: Int32({}){}) {{\n{}{content}\n{}}} label: {{\n{}{}\n{}}}",
         tab.index,
         role_part,
         "    ".repeat(depth + 1),
@@ -401,10 +415,16 @@ fn render_legacy_tab_ref(
     prefix: &str,
     index: usize,
     depth: usize,
+    has_custom_bar: bool,
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
-    out.push_str(&format!("{prefix}_{index}()\n"));
+    let content = if has_custom_bar {
+        format!("{prefix}_{index}().toolbar(.hidden, for: .tabBar)\n")
+    } else {
+        format!("{prefix}_{index}()\n")
+    };
+    out.push_str(&content);
     indent(out, depth + 1);
     out.push_str(".tabItem {\n");
     indent(out, depth + 2);
@@ -434,8 +454,8 @@ fn swift_tab_label(tab: &BottomBarTab) -> String {
     };
     tab.icon.as_ref().map_or(text.clone(), |icon| {
         format!(
-            "NexaTabLabelPrimitive(title: {text}, systemImage: {})",
-            swift_string(&icon.sf_symbol_name())
+            "NexaTabLabelPrimitive(title: {text}, icon: {})",
+            system_icons::spec(icon)
         )
     })
 }
@@ -651,6 +671,13 @@ mod tests {
         );
 
         assert!(output.contains("TabView(selection: $nexa_selectedTab)"));
+        assert_eq!(
+            output
+                .as_str()
+                .matches(".modifier(NexaAppBottomBarSafeAreaPrimitive())")
+                .count(),
+            2,
+        );
         assert!(output.contains(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom"));
         assert!(output.contains("Text(\"Custom bar\")"));
         assert!(output.contains("adaptiveStyle: false"));

@@ -1,4 +1,5 @@
 use nexa_codegen::SourceWriter;
+use nexa_ir::adaptive_layout::{LayoutEdge, ScrollOwnerResolution};
 use nexa_ir::{LayoutKind, Module, Node, SystemIcon, ToolbarPlacement, ViewStyle};
 
 use crate::generator::{
@@ -7,7 +8,7 @@ use crate::generator::{
 };
 
 use super::conditional;
-use super::{RenderScope, appearance};
+use super::{RenderScope, adaptive_layout, appearance};
 use crate::generator::components::split_view;
 use crate::generator::components::text;
 
@@ -20,6 +21,62 @@ pub(crate) fn render_node(
 ) {
     let scope = RenderScope { module, features };
     match node {
+        Node::SafeAreaPadding { plan, children } => {
+            let edges = plan
+                .edges
+                .iter()
+                .map(|edge| match edge {
+                    LayoutEdge::Top => "NexaSafeAreaEdge.Top",
+                    LayoutEdge::Bottom => "NexaSafeAreaEdge.Bottom",
+                    LayoutEdge::Leading => "NexaSafeAreaEdge.Leading",
+                    LayoutEdge::Trailing => "NexaSafeAreaEdge.Trailing",
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.line_at(
+                depth,
+                format_args!(
+                    "NexaSafeAreaPaddingPrimitive(edges = setOf({edges}), spacing = {}.dp) {{",
+                    crate::generator::utils::number(plan.spacing)
+                ),
+            );
+            render_children(children, module, features, depth + 1, out);
+            out.line_at(depth, format_args!("}}"));
+        }
+        Node::SafeAreaInset {
+            plan,
+            content,
+            children,
+        } => {
+            let edge = match plan.edge {
+                LayoutEdge::Top => "NexaSafeAreaEdge.Top",
+                LayoutEdge::Bottom => "NexaSafeAreaEdge.Bottom",
+                LayoutEdge::Leading => "NexaSafeAreaEdge.Leading",
+                LayoutEdge::Trailing => "NexaSafeAreaEdge.Trailing",
+            };
+            let accommodates_endpoint = matches!(
+                plan.scroll_owner,
+                ScrollOwnerResolution::Unique(_) | ScrollOwnerResolution::RouteHost
+            );
+            out.line_at(
+                depth,
+                format_args!(
+                    "NexaSafeAreaInsetPrimitive(edge = {edge}, spacing = {}.dp, accommodatesEndpoint = {accommodates_endpoint}, content = {{",
+                    crate::generator::utils::number(plan.spacing)
+                ),
+            );
+            render_children(children, module, features, depth + 1, out);
+            out.line_at(depth, format_args!("}}, attachedContent = {{"));
+            render_children(content, module, features, depth + 1, out);
+            out.line_at(depth, format_args!("}})"));
+        }
+        Node::ScrollHeader {
+            plan,
+            header,
+            children,
+        } => adaptive_layout::render_scroll_header(
+            *plan, header, children, module, features, depth, out,
+        ),
         Node::Appearance { mode, children } => {
             appearance::render_theme_start(mode, depth, out);
             render_children(children, module, features, depth + 2, out);
@@ -97,7 +154,9 @@ pub(crate) fn render_node(
                     })
                     .collect::<Vec<_>>()
                     .join(" "),
-                SystemIcon::SfSymbol(_) | SystemIcon::MaterialSymbol(_) => "Icon".to_owned(),
+                SystemIcon::SfSymbol(_)
+                | SystemIcon::MaterialSymbol(_)
+                | SystemIcon::FontGlyph { .. } => "Icon".to_owned(),
             };
             out.line_at(
                 depth,
@@ -105,7 +164,7 @@ pub(crate) fn render_node(
                     "NexaContentUnavailablePrimitive(title = {}, description = {}, icon = {}, iconDescription = {}, titleColor = {}, descriptionColor = {}, iconTint = {}, background = {})",
                     crate::generator::engine::expressions::text_expression(title),
                     description.as_ref().map(crate::generator::engine::expressions::text_expression).unwrap_or_else(|| "null".to_owned()),
-                    icon.material_reference(),
+                    system_icons::spec(icon),
                     crate::generator::utils::kotlin_string(&icon_description),
                     title_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
                     description_color.as_ref().map(crate::generator::colors::expression_for_color).unwrap_or_else(|| "null".to_owned()),
@@ -114,10 +173,25 @@ pub(crate) fn render_node(
                 ),
             );
         }
-        Node::Spacer => out.line_at(
-            depth,
-            format_args!("Spacer(modifier = Modifier.weight(1f))"),
-        ),
+        Node::Spacer { width, height } => {
+            let modifier = match (width, height) {
+                (Some(width), Some(height)) => format!(
+                    "Modifier.width({}.dp).height({}.dp)",
+                    crate::generator::utils::number(*width),
+                    crate::generator::utils::number(*height)
+                ),
+                (Some(width), None) => format!(
+                    "Modifier.width({}.dp)",
+                    crate::generator::utils::number(*width)
+                ),
+                (None, Some(height)) => format!(
+                    "Modifier.height({}.dp)",
+                    crate::generator::utils::number(*height)
+                ),
+                (None, None) => "Modifier.weight(1f)".to_owned(),
+            };
+            out.line_at(depth, format_args!("Spacer(modifier = {modifier})"));
+        }
         Node::Divider { color, thickness } => out.line_at(
             depth,
             format_args!(
@@ -126,6 +200,132 @@ pub(crate) fn render_node(
                 super::super::engine::utils::number(*thickness)
             ),
         ),
+        Node::Shape {
+            shape,
+            width,
+            height,
+            fill,
+            width_expression,
+            height_expression,
+            animation,
+        } => {
+            let native_shape = match shape {
+                nexa_ir::ButtonShape::Capsule => {
+                    "androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)".to_owned()
+                }
+                nexa_ir::ButtonShape::Circle => {
+                    "androidx.compose.foundation.shape.CircleShape".to_owned()
+                }
+                nexa_ir::ButtonShape::Rounded(radius) => format!(
+                    "androidx.compose.foundation.shape.RoundedCornerShape({}.dp)",
+                    crate::generator::utils::number(*radius)
+                ),
+            };
+            let static_width = format!("{}.dp", crate::generator::utils::number(*width));
+            let static_height = format!("{}.dp", crate::generator::utils::number(*height));
+            let animated_width = match (width_expression, animation) {
+                (Some(expression), Some(animation)) => {
+                    let variable = format!("nexaShapeWidthState{}", out.next_id());
+                    let target = format!(
+                        "({}).dp.coerceAtLeast(0.dp)",
+                        crate::generator::engine::expressions::expression(expression)
+                    );
+                    out.line_at(
+                        depth,
+                        format_args!(
+                            "val {variable} = androidx.compose.animation.core.animateDpAsState(targetValue = {target}, animationSpec = {}, label = \"Nexa shape width\")",
+                            super::controls::kotlin_animation(*animation),
+                        ),
+                    );
+                    Some(variable)
+                }
+                _ => None,
+            };
+            let animated_height = match (height_expression, animation) {
+                (Some(expression), Some(animation)) => {
+                    let variable = format!("nexaShapeHeightState{}", out.next_id());
+                    let target = format!(
+                        "({}).dp.coerceAtLeast(0.dp)",
+                        crate::generator::engine::expressions::expression(expression)
+                    );
+                    out.line_at(
+                        depth,
+                        format_args!(
+                            "val {variable} = androidx.compose.animation.core.animateDpAsState(targetValue = {target}, animationSpec = {}, label = \"Nexa shape height\")",
+                            super::controls::kotlin_animation(*animation),
+                        ),
+                    );
+                    Some(variable)
+                }
+                _ => None,
+            };
+
+            if animated_width.is_some() || animated_height.is_some() {
+                let width = animated_width.map_or_else(
+                    || {
+                        format!(
+                            "({static_width}.roundToPx()).coerceIn(constraints.minWidth, constraints.maxWidth)"
+                        )
+                    },
+                    |state| {
+                        format!(
+                            "({state}.value.roundToPx()).coerceIn(constraints.minWidth, constraints.maxWidth)"
+                        )
+                    },
+                );
+                let height = animated_height.map_or_else(
+                    || {
+                        format!(
+                            "({static_height}.roundToPx()).coerceIn(constraints.minHeight, constraints.maxHeight)"
+                        )
+                    },
+                    |state| {
+                        format!(
+                            "({state}.value.roundToPx()).coerceIn(constraints.minHeight, constraints.maxHeight)"
+                        )
+                    },
+                );
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "androidx.compose.ui.layout.Layout(content = {{}}, modifier = Modifier.background({}, shape = {})) {{ _, constraints ->",
+                        crate::generator::colors::expression(*fill),
+                        native_shape,
+                    ),
+                );
+                out.line_at(depth + 1, format_args!("val widthPx = {width}"));
+                out.line_at(depth + 1, format_args!("val heightPx = {height}"));
+                out.line_at(depth + 1, format_args!("layout(widthPx, heightPx) {{}}"));
+                out.line_at(depth, format_args!("}}"));
+            } else {
+                let width = width_expression.as_ref().map_or_else(
+                    || static_width,
+                    |expression| {
+                        format!(
+                            "({}).dp.coerceAtLeast(0.dp)",
+                            crate::generator::engine::expressions::expression(expression)
+                        )
+                    },
+                );
+                let height = height_expression.as_ref().map_or_else(
+                    || static_height,
+                    |expression| {
+                        format!(
+                            "({}).dp.coerceAtLeast(0.dp)",
+                            crate::generator::engine::expressions::expression(expression)
+                        )
+                    },
+                );
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "Spacer(modifier = Modifier.width({width}).height({height}).background({}, shape = {}))",
+                        crate::generator::colors::expression(*fill),
+                        native_shape,
+                    ),
+                );
+            }
+        }
         Node::Button {
             label,
             accessibility_label,
@@ -157,14 +357,42 @@ pub(crate) fn render_node(
             );
         }
         Node::TextInput { .. } => render_text_input_node(node, false, depth, out),
-        Node::Switch { state, label, .. } => controls::render_switch(state, label, depth, out),
+        Node::Switch {
+            state,
+            label,
+            on_change,
+        } => controls::render_switch(state, label, on_change.as_ref(), depth, out),
         Node::Slider {
             state,
             animated,
             min,
             max,
             step,
-        } => controls::render_slider(state, *animated, *min, *max, *step, depth, out),
+            tint,
+            track_color,
+            thumb_color,
+            track_height,
+            thumb_size,
+            hit_slop,
+            on_change,
+            on_editing_changed,
+        } => controls::render_slider(
+            state,
+            *animated,
+            min,
+            max,
+            *step,
+            tint.as_ref(),
+            track_color.as_ref(),
+            thumb_color.as_ref(),
+            *track_height,
+            *thumb_size,
+            *hit_slop,
+            on_change.as_ref(),
+            on_editing_changed.as_ref(),
+            depth,
+            out,
+        ),
         Node::ProgressBar { progress, style } => {
             controls::render_progress_bar(progress.as_ref(), style.as_deref(), depth, out)
         }
@@ -251,6 +479,13 @@ pub(crate) fn render_node(
             size,
             tint,
         } => system_icons::render(icon, description, *size, tint, depth, out),
+        Node::FontIcon {
+            font_family,
+            glyph,
+            description,
+            size,
+            tint,
+        } => system_icons::render_font(font_family, glyph, description, size, tint, depth, out),
         Node::LinearGradient {
             start_color,
             end_color,
@@ -273,6 +508,7 @@ pub(crate) fn render_node(
         Node::NavigationStack {
             root,
             arguments,
+            show_navigation_bar,
             title_mode,
             title_alignment,
         } => {
@@ -283,6 +519,7 @@ pub(crate) fn render_node(
                 navigation::NavigationTitleOptions {
                     mode: *title_mode,
                     alignment: *title_alignment,
+                    show_native_bar: *show_navigation_bar,
                 },
                 features,
                 depth,
@@ -330,12 +567,18 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
-        Node::KeyboardAware { dismiss, children } => {
-            keyboard::render_keyboard_aware(*dismiss, children, module, features, depth, out)
-        }
+        Node::KeyboardAware {
+            dismiss,
+            behavior,
+            children,
+        } => keyboard::render_keyboard_aware(
+            *dismiss, *behavior, children, module, features, depth, out,
+        ),
         Node::BottomSheet {
             component_ref,
+            content_sized,
             content_padding,
+            corner_radius,
             detents,
             initial_detent,
             show_drag_indicator,
@@ -349,7 +592,9 @@ pub(crate) fn render_node(
         } => bottom_sheet::render_bottom_sheet(
             bottom_sheet::BottomSheetRenderArgs {
                 component_ref,
+                content_sized: *content_sized,
                 content_padding: *content_padding,
+                corner_radius: *corner_radius,
                 detents,
                 initial_detent: *initial_detent,
                 show_drag_indicator: *show_drag_indicator,
@@ -530,10 +775,23 @@ pub(crate) fn render_node_in_row(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    if matches!(node, Node::TextInput { .. }) {
-        render_text_input_node(node, true, depth, out);
-    } else {
-        render_node(node, module, features, depth, out);
+    match node {
+        Node::TextInput { .. } => render_text_input_node(node, true, depth, out),
+        Node::Layout {
+            kind,
+            spacing,
+            style,
+            children,
+        } if style.fill_max_width => layout::render_row_child_layout(
+            *kind,
+            *spacing,
+            style,
+            children,
+            &RenderScope { module, features },
+            depth,
+            out,
+        ),
+        _ => render_node(node, module, features, depth, out),
     }
 }
 
@@ -591,10 +849,15 @@ fn render_text_input_node(node: &Node, weight_in_row: bool, depth: usize, out: &
         focused,
         max_length,
         font,
+        font_size,
+        font_family,
+        text_color,
+        placeholder_color,
         min_lines,
         max_lines,
         searchable,
         actions,
+        on_focus,
         on_change,
         ..
     } = node
@@ -616,12 +879,17 @@ fn render_text_input_node(node: &Node, weight_in_row: bool, depth: usize, out: &
             focused: focused.as_deref(),
             max_length: *max_length,
             font: *font,
+            font_size: *font_size,
+            font_family: font_family.as_deref(),
+            text_color: *text_color,
+            placeholder_color: *placeholder_color,
             min_lines: *min_lines,
             max_lines: *max_lines,
             searchable: *searchable,
             horizontal_padding: None,
             weight_in_row,
             actions,
+            on_focus: on_focus.as_deref(),
             on_change: on_change.as_ref(),
         },
         depth,

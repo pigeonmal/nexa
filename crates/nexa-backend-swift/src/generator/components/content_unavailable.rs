@@ -22,9 +22,9 @@ pub(crate) fn render(
     out.line_at(
         depth,
         format_args!(
-            "NexaContentUnavailablePrimitive(title: {}, symbol: {}, description: {}, titleColor: {}, descriptionColor: {}, iconTint: {}, background: {})",
+            "NexaContentUnavailablePrimitive(title: {}, icon: {}, description: {}, titleColor: {}, descriptionColor: {}, iconTint: {}, background: {})",
             localized_text_view(title, None),
-            crate::generator::utils::swift_string(&icon.sf_symbol_name()),
+            super::system_icons::spec(icon),
             description
                 .map(|value| localized_text_view(value, None))
                 .unwrap_or_else(|| "nil".to_owned()),
@@ -56,7 +56,7 @@ mod tests {
         );
         let swift = out.finish();
         assert!(swift.contains("NexaContentUnavailablePrimitive("));
-        assert!(swift.contains("symbol: \"tray.fill\""));
+        assert!(swift.contains("NexaIconSpec(symbol: \"tray.fill\")"));
     }
 
     #[test]
@@ -71,5 +71,21 @@ mod tests {
             &mut out,
         );
         assert!(out.finish().contains("description: nil"));
+    }
+
+    #[test]
+    fn content_unavailable_renders_a_registered_font_glyph() {
+        let mut out = SourceWriter::new();
+        render(
+            &Expr::String("No songs".to_owned()),
+            &SystemIcon::font_glyph("Mazicon", 61696).expect("valid custom glyph"),
+            None,
+            ColorOverrides::default(),
+            0,
+            &mut out,
+        );
+
+        let swift = out.finish();
+        assert!(swift.contains("NexaIconSpec(glyph: Int32(61696), fontFamily: \"Mazicon\")"));
     }
 }

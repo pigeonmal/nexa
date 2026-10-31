@@ -11,6 +11,9 @@ use nexa_ir::{
     PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId, SectionedListCommon, StatusBarConfig,
     StatusBarStyle, SystemIcon, TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle,
     TextInputFont, TextStyle, ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
+    adaptive_layout::{
+        LayoutEdge, SafeAreaInsetPlan, SafeAreaPaddingPlan, ScrollHeaderBehavior, ScrollHeaderPlan,
+    },
 };
 use nexa_syntax::{ast, catalog};
 
@@ -18,13 +21,14 @@ use super::{
     context::{ScreenSignatures, SemanticContext, TypeRegistries},
     expressions::{
         FunctionSignatures, functions_with_error_handling, infer_expr_type, lower_expr,
-        lower_for_iterable, lower_map_iterable, plugin_error_variant, resolve_value_type,
-        type_name,
+        lower_for_iterable, lower_map_iterable, plugin_error_variant, resolve_struct_type,
+        resolve_value_type, type_name,
     },
     styles::{
         lower_opacity, lower_style, lower_view_effects, number_value, optional_color,
-        optional_dimension, parse_animation, parse_color, parse_color_literal,
+        optional_dimension, optional_tracking, parse_animation, parse_color, parse_color_literal,
     },
+    themes::{ThemeSymbols, validate_font_family},
 };
 use crate::Target;
 
@@ -57,6 +61,46 @@ fn attach_refresh_to_fast_list(
     }
 }
 
+fn parse_shape(value: ast::Expr, subject: &str) -> Result<ButtonShape, CompileError> {
+    match value {
+        ast::Expr::String(value, span) => match value.to_ascii_lowercase().as_str() {
+            "capsule" => Ok(ButtonShape::Capsule),
+            "circle" => Ok(ButtonShape::Circle),
+            other => {
+                if let Some(radius) = other
+                    .strip_prefix("rounded(")
+                    .and_then(|radius| radius.strip_suffix(')'))
+                    .and_then(|radius| radius.parse::<f32>().ok())
+                {
+                    return Ok(ButtonShape::Rounded(radius));
+                }
+                Err(CompileError::new(
+                    span,
+                    format!("unknown {subject} `{other}`"),
+                ))
+            }
+        },
+        ast::Expr::Name(value, span) => match value.as_str() {
+            "Capsule" => Ok(ButtonShape::Capsule),
+            "Circle" => Ok(ButtonShape::Circle),
+            other => Err(CompileError::new(
+                span,
+                format!("unknown {subject} `{other}`"),
+            )),
+        },
+        ast::Expr::Call(name, _, arguments, _span) if name == "Rounded" && arguments.len() == 1 => {
+            Ok(ButtonShape::Rounded(number_value(
+                &arguments[0],
+                "shape radius",
+            )?))
+        }
+        other => Err(CompileError::new(
+            other.span(),
+            format!("{subject} must be capsule, circle, or rounded"),
+        )),
+    }
+}
+
 pub(super) fn lower_nodes(
     nodes: Vec<ast::Node>,
     cx: &SemanticContext,
@@ -75,10 +119,12 @@ pub(super) fn lower_nodes(
             }
             node => {
                 let allow_navigation = cx.allow_navigation_stack
-                    && if let ast::Node::ComponentInvocation(invocation) = &node {
-                        invocation.name == "NavigationStack"
-                    } else {
-                        false
+                    && match &node {
+                        ast::Node::ComponentInvocation(invocation) => {
+                            invocation.name == "NavigationStack"
+                        }
+                        ast::Node::If { .. } | ast::Node::When { .. } => true,
+                        _ => false,
                     };
                 let child_cx = cx.with_navigation(allow_navigation, cx.allow_navigation_back);
                 lowered.push(lower_node(node, &child_cx)?);
@@ -130,6 +176,127 @@ fn take_required_arg(
     }
 }
 
+fn lower_text_reveal(
+    args: &mut BTreeMap<String, ast::Expr>,
+    span: Span,
+    cx: &SemanticContext<'_>,
+) -> Result<nexa_ir::TextReveal, CompileError> {
+    let component = "TextReveal";
+    let segments_source = take_required_arg(args, component, "segments", span)?;
+    let segments_type = infer_expr_type(&segments_source, cx.symbols, cx.functions)
+        .map(|ty| resolve_struct_type(&ty, cx.structs))
+        .ok_or_else(|| {
+            CompileError::new(
+                segments_source.span(),
+                "`segments` must be a typed array of text timing structs",
+            )
+        })?;
+    let Type::Array(segment_type) = &segments_type else {
+        return Err(CompileError::new(
+            segments_source.span(),
+            "`segments` must be an array of structs with text and timing fields",
+        ));
+    };
+    let Type::Struct { fields, .. } = segment_type.as_ref() else {
+        return Err(CompileError::new(
+            segments_source.span(),
+            "`segments` elements must be declared structs with text and timing fields",
+        ));
+    };
+    let field_type = |name: &str| {
+        fields
+            .iter()
+            .find(|(field, _)| field == name)
+            .map(|(_, ty)| ty)
+    };
+    if field_type("text") != Some(&Type::String) {
+        return Err(CompileError::new(
+            segments_source.span(),
+            "`segments` elements require a `text: String` field",
+        ));
+    }
+    for name in ["startTimeSeconds", "endTimeSeconds"] {
+        if !matches!(field_type(name), Some(Type::Numeric(_))) {
+            return Err(CompileError::new(
+                segments_source.span(),
+                format!("`segments` elements require a numeric `{name}` field"),
+            ));
+        }
+    }
+    if let Some(trailing_space) = field_type("hasTrailingSpace")
+        && !(matches!(trailing_space, Type::Bool)
+            || matches!(trailing_space, Type::Optional(inner) if matches!(inner.as_ref(), Type::Bool)))
+    {
+        return Err(CompileError::new(
+            segments_source.span(),
+            "`segments.hasTrailingSpace`, when present, must be Bool or Bool?",
+        ));
+    }
+    let segments = lower_expr(&segments_source, Some(&segments_type), &cx.exprs(false))?;
+
+    let position_source = take_required_arg(args, component, "position", span)?;
+    let position = lower_expr(
+        &position_source,
+        Some(&Type::Numeric(NumericType::Float64)),
+        &cx.exprs(false),
+    )?;
+    let bool_argument = |args: &mut BTreeMap<String, ast::Expr>, name: &str| {
+        let source = take_required_arg(args, component, name, span)?;
+        lower_expr(&source, Some(&Type::Bool), &cx.exprs(false))
+    };
+    let active = bool_argument(args, "active")?;
+    let playing = bool_argument(args, "playing")?;
+    let enabled = bool_argument(args, "enabled")?;
+    let seek_revision_source = take_required_arg(args, component, "seekRevision", span)?;
+    let seek_revision_type = infer_expr_type(&seek_revision_source, cx.symbols, cx.functions)
+        .ok_or_else(|| {
+            CompileError::new(
+                seek_revision_source.span(),
+                "`seekRevision` must be an integer value",
+            )
+        })?;
+    if !matches!(
+        seek_revision_type,
+        Type::Numeric(
+            NumericType::Int8
+                | NumericType::Int16
+                | NumericType::Int32
+                | NumericType::Int64
+                | NumericType::UInt8
+                | NumericType::UInt16
+                | NumericType::UInt32
+                | NumericType::UInt64
+        )
+    ) {
+        return Err(CompileError::new(
+            seek_revision_source.span(),
+            "`seekRevision` must be an integer value",
+        ));
+    }
+    let seek_revision = lower_expr(&seek_revision_source, None, &cx.exprs(false))?;
+    let dim_opacity = lower_opacity(args.remove("revealOpacity"))?.unwrap_or(0.38);
+    let mut lower_timing = |name: &str, default: f32| -> Result<f32, CompileError> {
+        args.remove(name)
+            .map(|value| number_value(&value, name))
+            .transpose()
+            .map(|value| value.unwrap_or(default))
+    };
+
+    Ok(nexa_ir::TextReveal {
+        segments,
+        segment_type: segment_type.as_ref().clone(),
+        position,
+        active,
+        playing,
+        enabled,
+        seek_revision,
+        dim_opacity,
+        lead_time: lower_timing("leadTime", 0.3)?,
+        target_offset: lower_timing("targetOffset", 0.56)?,
+        smoothing_duration: lower_timing("smoothingDuration", 0.25)?,
+    })
+}
+
 fn enum_argument(value: &ast::Expr, context: &str) -> Result<String, CompileError> {
     match value {
         ast::Expr::Name(name, _) | ast::Expr::String(name, _) => Ok(name.clone()),
@@ -138,6 +305,24 @@ fn enum_argument(value: &ast::Expr, context: &str) -> Result<String, CompileErro
             value.span(),
             format!("{context} must be a named enum value or string"),
         )),
+    }
+}
+
+fn validate_icon_size_literal_if_static(size: &ast::Expr) -> Result<(), CompileError> {
+    let ast::Expr::Number(value, span) = size else {
+        return Ok(());
+    };
+    let valid = value
+        .parse::<f32>()
+        .ok()
+        .is_some_and(|value| value.is_finite() && value > 0.0 && value <= 512.0);
+    if valid {
+        Ok(())
+    } else {
+        Err(CompileError::new(
+            *span,
+            "Icon size must be a positive numeric literal no greater than 512",
+        ))
     }
 }
 
@@ -380,6 +565,24 @@ enum ListSourceParts {
 }
 
 pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
+    let shared_modifiers = match &mut node {
+        ast::Node::ComponentInvocation(invocation) => {
+            let mut shared = Vec::new();
+            let mut index = 0;
+            while index < invocation.modifiers.len() {
+                if catalog::SHARED_VIEW_MODIFIERS
+                    .iter()
+                    .any(|entry| entry.modifier.name == invocation.modifiers[index].name)
+                {
+                    shared.push(invocation.modifiers.remove(index));
+                } else {
+                    index += 1;
+                }
+            }
+            shared
+        }
+        _ => Vec::new(),
+    };
     let accessibility = match &mut node {
         ast::Node::ComponentInvocation(invocation) => {
             take_accessibility_options(&mut invocation.arguments, invocation.span, cx)?
@@ -393,6 +596,7 @@ pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<No
         _ => None,
     };
     let mut lowered = lower_node_inner(node, cx)?;
+    lowered = apply_shared_view_modifiers(lowered, shared_modifiers, cx)?;
     match accessibility {
         Some((label, hint, value, role)) => {
             if let Node::Button {
@@ -419,6 +623,238 @@ pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<No
             }
         }
         None => Ok(lowered),
+    }
+}
+
+fn apply_shared_view_modifiers(
+    mut node: Node,
+    modifiers: Vec<ast::DotModifier>,
+    cx: &SemanticContext,
+) -> Result<Node, CompileError> {
+    for mut modifier in modifiers {
+        match modifier.name.as_str() {
+            "safeAreaPadding" => {
+                let edges = modifier
+                    .arguments
+                    .remove("edges")
+                    .map(|value| parse_safe_area_edges(value, "edges"))
+                    .transpose()?
+                    .unwrap_or_else(|| {
+                        vec![
+                            LayoutEdge::Top,
+                            LayoutEdge::Bottom,
+                            LayoutEdge::Leading,
+                            LayoutEdge::Trailing,
+                        ]
+                    });
+                let spacing = modifier
+                    .arguments
+                    .get("spacing")
+                    .map(|value| number_value(value, "spacing"))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                node = Node::SafeAreaPadding {
+                    plan: SafeAreaPaddingPlan { edges, spacing },
+                    children: vec![node],
+                };
+            }
+            "safeAreaInset" => {
+                let edge = modifier
+                    .arguments
+                    .get("edge")
+                    .ok_or_else(|| {
+                        CompileError::new(
+                            modifier.span,
+                            "modifier `.safeAreaInset` requires `edge`",
+                        )
+                    })
+                    .and_then(|value| parse_safe_area_edge(value, "edge"))?;
+                let spacing = modifier
+                    .arguments
+                    .get("spacing")
+                    .map(|value| number_value(value, "spacing"))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                let ast::ModifierBody::Nodes(content) = modifier.body else {
+                    return Err(CompileError::new(
+                        modifier.span,
+                        "modifier `.safeAreaInset` requires a content block",
+                    ));
+                };
+                let content = lower_nodes(content, cx)?;
+                let scroll_owner = if contains_navigation_host(std::slice::from_ref(&node)) {
+                    // A navigation host renders one destination at a time.
+                    // Route-local scroll owners therefore share the attached
+                    // endpoint reservation instead of making it ambiguous.
+                    nexa_ir::adaptive_layout::ScrollOwnerResolution::RouteHost
+                } else {
+                    nexa_ir::walk::resolve_scroll_owner(std::slice::from_ref(&node), edge, None)
+                };
+                node = Node::SafeAreaInset {
+                    plan: SafeAreaInsetPlan {
+                        edge,
+                        spacing,
+                        scroll_owner,
+                    },
+                    content,
+                    children: vec![node],
+                };
+            }
+            "scrollHeader" => {
+                let behavior = lower_scroll_header_behavior(modifier.arguments.remove("behavior"))?;
+                let collapsed_height = modifier
+                    .arguments
+                    .remove("collapsedHeight")
+                    .map(|value| number_value(&value, "collapsedHeight"))
+                    .transpose()?;
+                if collapsed_height.is_some_and(|height| height <= 0.0) {
+                    return Err(CompileError::new(
+                        modifier.span,
+                        "`collapsedHeight` must be greater than zero",
+                    ));
+                }
+                let collapsed_height = match (behavior, collapsed_height) {
+                    (ScrollHeaderBehavior::Collapse, Some(height)) => Some(height),
+                    (ScrollHeaderBehavior::Collapse, None) => Some(56.0),
+                    (_, Some(_)) => {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            "`collapsedHeight` is only valid with `behavior: Collapse`",
+                        ));
+                    }
+                    (_, None) => None,
+                };
+                let compatible = nexa_ir::walk::scroll_owners(std::slice::from_ref(&node))
+                    .into_iter()
+                    .filter(|owner| owner.axes.supports_edge(LayoutEdge::Top))
+                    .collect::<Vec<_>>();
+                if compatible.is_empty() {
+                    return Err(CompileError::new(
+                        modifier.span,
+                        "modifier `.scrollHeader` requires a vertical scroll owner such as `FastList`, `Form`, or `KeyboardAware`",
+                    ));
+                }
+                if compatible.len() > 1 {
+                    return Err(CompileError::new(
+                        modifier.span,
+                        "modifier `.scrollHeader` is ambiguous with multiple vertical scroll owners; attach it directly to one owner",
+                    ));
+                }
+                let ast::ModifierBody::Nodes(header) = modifier.body else {
+                    return Err(CompileError::new(
+                        modifier.span,
+                        "modifier `.scrollHeader` requires a header content block",
+                    ));
+                };
+                node = Node::ScrollHeader {
+                    plan: ScrollHeaderPlan {
+                        behavior,
+                        collapsed_height,
+                    },
+                    header: lower_nodes(header, cx)?,
+                    children: vec![node],
+                };
+            }
+            _ => {
+                return Err(CompileError::new(
+                    modifier.span,
+                    format!(
+                        "shared modifier `.{}` has no semantic lowering",
+                        modifier.name
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(node)
+}
+
+fn contains_navigation_host(nodes: &[Node]) -> bool {
+    if nodes.len() != 1 {
+        return false;
+    }
+    match &nodes[0] {
+        Node::NavigationStack { .. } => true,
+        Node::SafeAreaPadding { children, .. }
+        | Node::Layout { children, .. }
+        | Node::Form { children, .. }
+        | Node::Toolbar { children, .. }
+        | Node::KeyboardAware { children, .. }
+        | Node::SafeAreaInset { children, .. } => contains_navigation_host(children),
+        _ => false,
+    }
+}
+
+fn parse_safe_area_edges(
+    value: ast::Expr,
+    argument: &str,
+) -> Result<Vec<LayoutEdge>, CompileError> {
+    let expression_span = value.span();
+    let ast::Expr::Array(values, _) = value else {
+        return Err(CompileError::new(
+            expression_span,
+            format!("`{argument}` must be an array of Top, Bottom, Leading, or Trailing"),
+        ));
+    };
+    if values.is_empty() {
+        return Err(CompileError::new(
+            expression_span,
+            format!("`{argument}` must include at least one safe-area edge"),
+        ));
+    }
+    let mut edges = Vec::with_capacity(values.len());
+    for value in values {
+        let edge = parse_safe_area_edge(&value, argument)?;
+        if edges.contains(&edge) {
+            return Err(CompileError::new(
+                value.span(),
+                format!("`{argument}` cannot contain the same edge more than once"),
+            ));
+        }
+        edges.push(edge);
+    }
+    Ok(edges)
+}
+
+fn parse_safe_area_edge(value: &ast::Expr, argument: &str) -> Result<LayoutEdge, CompileError> {
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            format!("`{argument}` must be Top, Bottom, Leading, or Trailing"),
+        ));
+    };
+    match name.as_str() {
+        "Top" => Ok(LayoutEdge::Top),
+        "Bottom" => Ok(LayoutEdge::Bottom),
+        "Leading" => Ok(LayoutEdge::Leading),
+        "Trailing" => Ok(LayoutEdge::Trailing),
+        _ => Err(CompileError::new(
+            *span,
+            format!("unknown safe-area edge `{name}`; expected Top, Bottom, Leading, or Trailing"),
+        )),
+    }
+}
+
+fn lower_scroll_header_behavior(
+    value: Option<ast::Expr>,
+) -> Result<ScrollHeaderBehavior, CompileError> {
+    let Some(value) = value else {
+        return Ok(ScrollHeaderBehavior::Pinned);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "scrollHeader behavior must be `Pinned`, `Collapse`, or `HideOnScroll`",
+        ));
+    };
+    match name.as_str() {
+        "Pinned" => Ok(ScrollHeaderBehavior::Pinned),
+        "Collapse" => Ok(ScrollHeaderBehavior::Collapse),
+        "HideOnScroll" => Ok(ScrollHeaderBehavior::HideOnScroll),
+        _ => Err(CompileError::new(
+            span,
+            "scrollHeader behavior must be `Pinned`, `Collapse`, or `HideOnScroll`",
+        )),
     }
 }
 
@@ -546,8 +982,9 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let style = args.remove("style");
             let hidden = args.remove("hidden");
             let background = args.remove("background");
+            let navigation_bar_background = args.remove("navigationBarBackground");
             Ok(Node::StatusBar {
-                config: lower_status_bar(style, hidden, background)?,
+                config: lower_status_bar(style, hidden, background, navigation_bar_background)?,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Appearance" => {
@@ -676,23 +1113,59 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             };
             let mut args = inv.arguments;
             let spacing = args.remove("spacing");
+            let fill_max_width = optional_bool(args.remove("fillMaxWidth"), false, "fillMaxWidth")?;
+            let fill_max_height =
+                optional_bool(args.remove("fillMaxHeight"), false, "fillMaxHeight")?;
+            if fill_max_width && args.contains_key("screenWidthFraction") {
+                return Err(CompileError::new(
+                    args.get("screenWidthFraction")
+                        .map(ast::Expr::span)
+                        .unwrap_or(span),
+                    "`fillMaxWidth` cannot be combined with `screenWidthFraction`",
+                ));
+            }
+            if fill_max_height && args.contains_key("screenHeightFraction") {
+                return Err(CompileError::new(
+                    args.get("screenHeightFraction")
+                        .map(ast::Expr::span)
+                        .unwrap_or(span),
+                    "`fillMaxHeight` cannot be combined with `screenHeightFraction`",
+                ));
+            }
+            if fill_max_width && args.contains_key("width") {
+                return Err(CompileError::new(
+                    args.get("width").map(ast::Expr::span).unwrap_or(span),
+                    "`fillMaxWidth` cannot be combined with fixed `width`",
+                ));
+            }
+            if fill_max_height && args.contains_key("height") {
+                return Err(CompileError::new(
+                    args.get("height").map(ast::Expr::span).unwrap_or(span),
+                    "`fillMaxHeight` cannot be combined with fixed `height`",
+                ));
+            }
             let style = ast::LayoutStyle {
                 alignment: args.remove("alignment"),
                 horizontal_arrangement: args.remove("horizontalArrangement"),
                 padding: args.remove("padding"),
                 width: args.remove("width"),
+                screen_width_fraction: args.remove("screenWidthFraction"),
                 height: args.remove("height"),
+                screen_height_fraction: args.remove("screenHeightFraction"),
                 min_width: args.remove("minWidth"),
                 max_width: args.remove("maxWidth"),
                 min_height: args.remove("minHeight"),
                 max_height: args.remove("maxHeight"),
                 background: args.remove("background"),
                 corner_radius: args.remove("cornerRadius"),
+                corner_radius_bottom: args.remove("cornerRadiusBottom"),
                 border_color: args.remove("borderColor"),
                 border_width: args.remove("borderWidth"),
                 opacity: args.remove("opacity"),
                 scale: args.remove("scale"),
+                scale_y: args.remove("scaleY"),
                 rotation: args.remove("rotation"),
+                offset_y: args.remove("offsetY"),
                 shadow: args.remove("shadow"),
                 blur: args.remove("blur"),
                 clip: args.remove("clip"),
@@ -717,8 +1190,37 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 themes,
             )?
             .unwrap_or(0.0);
-            let style = lower_style(style, themes)?;
+            let mut style = lower_style(style, themes, &cx.exprs(false))?;
+            style.fill_max_width = fill_max_width;
+            style.fill_max_height = fill_max_height;
             let lowered = lower_nodes(children, &child_cx)?;
+            if !stacked
+                && lowered.is_empty()
+                && (style.width.is_some() || style.height.is_some())
+                && style.screen_width_fraction.is_none()
+                && !style.fill_max_width
+                && style.screen_height_fraction.is_none()
+                && !style.fill_max_height
+                && style.padding.is_none()
+                && style.min_width.is_none()
+                && style.max_width.is_none()
+                && style.min_height.is_none()
+                && style.max_height.is_none()
+                && style.background.is_none()
+                && style.corner_radius.is_none()
+                && style.corner_radius_expression.is_none()
+                && style.corner_radius_bottom.is_none()
+                && style.border_color.is_none()
+                && style.border_width.is_none()
+                && style.opacity.is_none()
+                && !style.effects.has_modifiers()
+                && style.animation.is_none()
+            {
+                return Ok(Node::Spacer {
+                    width: Some(style.width.unwrap_or(0.0)),
+                    height: Some(style.height.unwrap_or(0.0)),
+                });
+            }
             Ok(Node::Layout {
                 kind,
                 spacing,
@@ -790,11 +1292,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 &take_required_arg(&mut args, &inv.name, "icon", span)?,
                 "ContentUnavailable icon",
             )?;
-            let icon = SystemIcon::shared(&icon_name).ok_or_else(|| {
+            let icon = cx.resolve_icon(&icon_name).ok_or_else(|| {
                 CompileError::new(
                     span,
                     format!(
-                        "unknown shared system icon `{icon_name}`; ContentUnavailable uses `icon: \"shared_name\"`"
+                        "unknown icon `{icon_name}`; use a Nexa shared icon or an alias from `assets.icons`"
                     ),
                 )
             })?;
@@ -833,16 +1335,24 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 background,
             })
         }
-        ast::Node::ComponentInvocation(inv) if inv.name == "Text" => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "Text" || inv.name == "TextReveal" => {
+            let is_reveal = inv.name == "TextReveal";
             let mut positional = inv.positional;
-            let value = take_positional(&mut positional, inv.span, "Text")?;
+            let component_name = if is_reveal { "TextReveal" } else { "Text" };
+            let value = take_positional(&mut positional, inv.span, component_name)?;
             let mut args = inv.arguments;
-            let comment = take_translator_comment(&mut args, "Text")?;
+            let comment = take_translator_comment(&mut args, component_name)?;
+            let reveal = if is_reveal {
+                Some(lower_text_reveal(&mut args, inv.span, cx)?)
+            } else {
+                None
+            };
             let color = args.remove("color");
             let alignment = lower_text_alignment(args.remove("alignment"))?;
             let font_size = args.remove("fontSize");
             let font_style = lower_text_font_style(args.remove("fontStyle"))?;
             let font_design = lower_text_font_design(args.remove("fontDesign"))?;
+            let font_family = lower_text_font_family(args.remove("fontFamily"), themes)?;
             let font_weight = args.remove("fontWeight");
             let padding = args.remove("padding");
             let line_limit = args.remove("lineLimit");
@@ -871,7 +1381,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             )?;
             let line_limit = lower_line_limit(line_limit)?;
             let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
-            let letter_spacing = optional_dimension(letter_spacing, "letterSpacing", None, themes)?;
+            let letter_spacing = optional_tracking(letter_spacing)?;
             let strikethrough = optional_bool(strikethrough, false, "strikethrough")?;
             let italic = optional_bool(italic, false, "italic")?;
             let underline = optional_bool(underline, false, "underline")?;
@@ -879,13 +1389,16 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let opacity = lower_opacity(opacity)?;
             let effects = lower_view_effects(
                 args.remove("scale"),
+                args.remove("scaleY"),
                 args.remove("rotation"),
+                None,
                 args.remove("shadow"),
                 args.remove("blur"),
                 args.remove("clip"),
                 args.remove("zIndex"),
                 args.remove("glass"),
                 themes,
+                &cx.exprs(false),
             )?;
             Ok(Node::Text {
                 value,
@@ -895,6 +1408,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     font_size,
                     font_style,
                     font_design,
+                    font_family,
                     font_weight,
                     padding,
                     opacity,
@@ -906,10 +1420,16 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     italic,
                     underline,
                     selectable,
+                    reveal: reveal.map(Box::new),
                 },
             })
         }
-        ast::Node::ComponentInvocation(inv) if inv.name == "Spacer" => Ok(Node::Spacer),
+        ast::Node::ComponentInvocation(inv) if inv.name == "Spacer" => {
+            let mut args = inv.arguments;
+            let width = optional_dimension(args.remove("width"), "Spacer width", None, themes)?;
+            let height = optional_dimension(args.remove("height"), "Spacer height", None, themes)?;
+            Ok(Node::Spacer { width, height })
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "Divider" => {
             let span = inv.span;
             let mut args = inv.arguments;
@@ -924,9 +1444,50 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             .ok_or_else(|| CompileError::new(span, "Divider requires a `thickness` value"))?;
             Ok(Node::Divider { color, thickness })
         }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Shape" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let shape = parse_shape(
+                take_required_arg(&mut args, "Shape", "shape", span)?,
+                "shape",
+            )?;
+            let mut lower_size = |name: &str| -> Result<(f32, Option<Expr>), CompileError> {
+                let expression = take_required_arg(&mut args, "Shape", name, span)?;
+                match &expression {
+                    ast::Expr::Number(_, _) => Ok((number_value(&expression, name)?, None)),
+                    ast::Expr::ThemeToken(_, token_span) => Err(CompileError::new(
+                        *token_span,
+                        format!("Shape {name} does not accept a theme token"),
+                    )),
+                    _ => Ok((
+                        0.0,
+                        Some(lower_expr(
+                            &expression,
+                            Some(&Type::Numeric(NumericType::Float64)),
+                            &cx.exprs(false),
+                        )?),
+                    )),
+                }
+            };
+            let (width, width_expression) = lower_size("width")?;
+            let (height, height_expression) = lower_size("height")?;
+            let fill = optional_color(args.remove("fill"), "Shape fill", themes)?
+                .ok_or_else(|| CompileError::new(span, "Shape requires a `fill` value"))?;
+            let animation = args.remove("animation").map(parse_animation).transpose()?;
+            Ok(Node::Shape {
+                shape,
+                width,
+                height,
+                fill,
+                width_expression,
+                height_expression,
+                animation,
+            })
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "Slider" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let mut modifiers = inv.modifiers;
             let value = take_required_arg(&mut args, &inv.name, "value", span)?;
             let state = require_mutable_binding(
                 &value,
@@ -935,52 +1496,138 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 span,
                 "Slider",
             )?;
-            let min = require_f64_literal(
-                &take_required_arg(&mut args, &inv.name, "min", span)?,
-                "Slider min",
+            let min_ast = take_required_arg(&mut args, &inv.name, "min", span)?;
+            let max_ast = take_required_arg(&mut args, &inv.name, "max", span)?;
+            let min_literal = matches!(min_ast, ast::Expr::Number(_, _))
+                .then(|| require_f64_literal(&min_ast, "Slider min"))
+                .transpose()?;
+            let max_literal = matches!(max_ast, ast::Expr::Number(_, _))
+                .then(|| require_f64_literal(&max_ast, "Slider max"))
+                .transpose()?;
+            let min = lower_expr(
+                &min_ast,
+                Some(&Type::Numeric(NumericType::Float64)),
+                &cx.exprs(false),
             )?;
-            let max = require_f64_literal(
-                &take_required_arg(&mut args, &inv.name, "max", span)?,
-                "Slider max",
+            let max = lower_expr(
+                &max_ast,
+                Some(&Type::Numeric(NumericType::Float64)),
+                &cx.exprs(false),
             )?;
             let step = require_f64_literal(
                 &take_required_arg(&mut args, &inv.name, "step", span)?,
                 "Slider step",
             )?;
-            if min >= max {
+            let tint = args
+                .remove("tint")
+                .map(|value| lower_color_expression(value, "Slider tint", cx))
+                .transpose()?;
+            let track_color = args
+                .remove("trackColor")
+                .map(|value| lower_color_expression(value, "Slider trackColor", cx))
+                .transpose()?;
+            let thumb_color = args
+                .remove("thumbColor")
+                .map(|value| lower_color_expression(value, "Slider thumbColor", cx))
+                .transpose()?;
+            let track_height = optional_dimension(
+                args.remove("trackHeight"),
+                "Slider trackHeight",
+                None,
+                cx.themes,
+            )?;
+            let thumb_size = optional_dimension(
+                args.remove("thumbSize"),
+                "Slider thumbSize",
+                None,
+                cx.themes,
+            )?;
+            let hit_slop =
+                optional_dimension(args.remove("hitSlop"), "Slider hitSlop", None, cx.themes)?;
+            if min_literal
+                .zip(max_literal)
+                .is_some_and(|(min, max)| min >= max)
+            {
                 return Err(CompileError::new(span, "Slider min must be less than max"));
             }
-            if step <= 0.0 {
+            if step < 0.0 {
                 return Err(CompileError::new(
                     span,
-                    "Slider step must be greater than zero",
+                    "Slider step cannot be negative; use 0.0 for continuous values",
                 ));
             }
-            let intervals = (max - min) / step;
-            let rounded_intervals = intervals.round();
-            let tolerance = intervals.abs().max(1.0) * 1e-9;
-            if !intervals.is_finite()
-                || rounded_intervals < 1.0
-                || rounded_intervals > i32::MAX as f64
-                || (intervals - rounded_intervals).abs() > tolerance
+            if let Some((min, max)) = min_literal.zip(max_literal)
+                && step > 0.0
             {
-                return Err(CompileError::new(
-                    span,
-                    "Slider range must contain a whole number of steps",
-                ));
+                let intervals = (max - min) / step;
+                let rounded_intervals = intervals.round();
+                let tolerance = intervals.abs().max(1.0) * 1e-9;
+                if !intervals.is_finite()
+                    || rounded_intervals < 1.0
+                    || rounded_intervals > i32::MAX as f64
+                    || (intervals - rounded_intervals).abs() > tolerance
+                {
+                    return Err(CompileError::new(
+                        span,
+                        "Slider range must contain a whole number of steps",
+                    ));
+                }
             }
-            if min.abs() > f32::MAX as f64 || max.abs() > f32::MAX as f64 {
+            if min_literal
+                .into_iter()
+                .chain(max_literal)
+                .any(|value| value.abs() > f32::MAX as f64)
+            {
                 return Err(CompileError::new(
                     span,
                     "Slider min and max must fit the native Android Float range",
                 ));
             }
+            if track_height.is_some_and(|value| value <= 0.0)
+                || thumb_size.is_some_and(|value| value <= 0.0)
+                || hit_slop.is_some_and(|value| value < 0.0)
+            {
+                return Err(CompileError::new(
+                    span,
+                    "Slider trackHeight and thumbSize must be positive, and hitSlop cannot be negative",
+                ));
+            }
+            let on_change = lower_slider_event(
+                take_modifier(&mut modifiers, "onChange"),
+                span,
+                "onChange",
+                Type::Numeric(NumericType::Float64),
+                symbols,
+                functions,
+                native_aliases,
+                cx.type_registries(),
+            )?
+            .map(|(parameter, actions)| nexa_ir::SliderChange { parameter, actions });
+            let on_editing_changed = lower_slider_event(
+                take_modifier(&mut modifiers, "onEditingChanged"),
+                span,
+                "onEditingChanged",
+                Type::Bool,
+                symbols,
+                functions,
+                native_aliases,
+                cx.type_registries(),
+            )?
+            .map(|(parameter, actions)| nexa_ir::SliderEditingChanged { parameter, actions });
             Ok(Node::Slider {
                 state,
                 animated: false,
                 min,
                 max,
                 step,
+                tint,
+                track_color,
+                thumb_color,
+                track_height,
+                thumb_size,
+                hit_slop,
+                on_change,
+                on_editing_changed,
             })
         }
         ast::Node::ComponentInvocation(inv)
@@ -1131,17 +1778,17 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 .remove("icon")
                 .map(|value| {
                     let name = require_string_literal(&value, "Picker icon")?;
-                    SystemIcon::shared(&name).ok_or_else(|| {
+                    cx.resolve_icon(&name).ok_or_else(|| {
                         CompileError::new(
                             value.span(),
-                            format!("unknown shared system icon `{name}` in Picker `icon`"),
+                            format!("unknown icon `{name}` in Picker `icon`; use a Nexa shared icon or an alias from `assets.icons`"),
                         )
                     })
                 })
                 .transpose()?;
             let item_icons = args
                 .remove("itemIcons")
-                .map(lower_picker_item_icons)
+                .map(|icons| lower_picker_item_icons(icons, cx))
                 .transpose()?
                 .unwrap_or_default();
             let state = require_mutable_binding(&selected, &Type::String, symbols, span, "Picker")?;
@@ -1426,10 +2073,10 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let icon = icon
                 .map(|value| {
                     let name = require_string_literal(&value, "Button icon")?;
-                    SystemIcon::shared(&name).ok_or_else(|| {
+                    cx.resolve_icon(&name).ok_or_else(|| {
                         CompileError::new(
                             value.span(),
-                            format!("unknown shared system icon `{name}` in Button `icon`; use the `Icon` component for platform-specific symbols"),
+                            format!("unknown icon `{name}` in Button `icon`; use a Nexa shared icon, an alias from `assets.icons`, or the `Icon` component for platform-specific symbols"),
                         )
                     })
                 })
@@ -1501,43 +2148,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let shape = options
                 .get("shape")
                 .cloned()
-                .map(|v| match v {
-                    ast::Expr::String(s, span) => match s.to_ascii_lowercase().as_str() {
-                        "capsule" => Ok(ButtonShape::Capsule),
-                        "circle" => Ok(ButtonShape::Circle),
-                        other => {
-                            if let Some(radius) = other
-                                .strip_prefix("rounded(")
-                                .and_then(|r| r.strip_suffix(")"))
-                                .and_then(|n| n.parse::<f32>().ok())
-                            {
-                                return Ok(ButtonShape::Rounded(radius));
-                            }
-                            Err(CompileError::new(
-                                span,
-                                format!("unknown button shape `{other}`"),
-                            ))
-                        }
-                    },
-                    ast::Expr::Name(s, span) => match s.as_str() {
-                        "Capsule" => Ok(ButtonShape::Capsule),
-                        "Circle" => Ok(ButtonShape::Circle),
-                        other => Err(CompileError::new(
-                            span,
-                            format!("unknown button shape `{other}`"),
-                        )),
-                    },
-                    ast::Expr::Call(name, _, args, _span)
-                        if name == "Rounded" && args.len() == 1 =>
-                    {
-                        let r = number_value(&args[0], "shape radius")?;
-                        Ok(ButtonShape::Rounded(r))
-                    }
-                    _ => Err(CompileError::new(
-                        v.span(),
-                        "button shape must be capsule, circle, or rounded",
-                    )),
-                })
+                .map(|value| parse_shape(value, "button shape"))
                 .transpose()?;
             let tint = options
                 .get("tint")
@@ -1583,6 +2194,21 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let focused = args.remove("focused");
             let max_length = args.remove("maxLength");
             let font = lower_text_input_font(args.remove("font"))?;
+            let font_size = optional_dimension(
+                args.remove("fontSize"),
+                "TextInput fontSize",
+                Some(ast::ThemeTokenKind::FontSize),
+                themes,
+            )?;
+            let font_family = lower_text_font_family(args.remove("fontFamily"), themes)?;
+            let text_color =
+                optional_color(args.remove("textColor"), "TextInput textColor", themes)?;
+            let placeholder_color = optional_color(
+                args.remove("placeholderColor"),
+                "TextInput placeholderColor",
+                themes,
+            )?;
+            let clearable = optional_bool(args.remove("clearable"), false, "clearable")?;
             let min_lines = lower_positive_integer(args.remove("minLines"), "TextInput minLines")?;
             let max_lines = lower_positive_integer(args.remove("maxLines"), "TextInput maxLines")?;
             let searchable = optional_bool(args.remove("searchable"), false, "searchable")?;
@@ -1624,6 +2250,18 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         )?,
                     })
                 }
+                Some(_) => return Err(child_mismatch(span)),
+                None => None,
+            };
+            let on_focus = match take_modifier(&mut modifiers, "onFocus") {
+                Some(ast::ModifierBody::Actions(actions)) => Some(lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                    cx.type_registries(),
+                )?),
                 Some(_) => return Err(child_mismatch(span)),
                 None => None,
             };
@@ -1751,6 +2389,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     require_mutable_binding(&value, &Type::Bool, symbols, span, "TextInput focus")
                 })
                 .transpose()?;
+            if on_focus.is_some() && focused.is_none() {
+                return Err(CompileError::new(
+                    span,
+                    "TextInput `.onFocus` requires a `focused` state binding",
+                ));
+            }
             let max_length = lower_positive_integer(max_length, "TextInput maxLength")?;
             if min_lines
                 .zip(max_lines)
@@ -1781,6 +2425,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 focused,
                 max_length,
                 font,
+                font_size,
+                font_family,
+                text_color,
+                placeholder_color,
+                clearable,
                 min_lines,
                 max_lines,
                 searchable,
@@ -1792,12 +2441,14 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     native_aliases,
                     cx.type_registries(),
                 )?,
+                on_focus,
                 on_change,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Switch" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let mut modifiers = inv.modifiers;
             let comment = take_translator_comment(&mut args, "Switch")?;
             let value = take_required_arg(&mut args, &inv.name, "value", span)?;
             let label = take_required_arg(&mut args, &inv.name, "label", span)?;
@@ -1806,7 +2457,51 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 lower_expr(&label, Some(&Type::String), &cx.exprs(false))?,
                 comment.clone(),
             );
-            Ok(Node::Switch { state, label })
+            let on_change = match take_modifier(&mut modifiers, "onChange") {
+                Some(ast::ModifierBody::EventActions {
+                    parameters,
+                    actions,
+                }) => {
+                    if parameters.len() != 1 {
+                        return Err(CompileError::new(
+                            span,
+                            ".onChange requires one Bool binding",
+                        ));
+                    }
+                    let Some(parameter) = parameters.into_iter().next() else {
+                        return Err(CompileError::new(
+                            span,
+                            ".onChange requires one Bool binding",
+                        ));
+                    };
+                    if symbols.contains_key(&parameter) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(".onChange binding `{parameter}` shadows an existing value"),
+                        ));
+                    }
+                    let mut callback_symbols = symbols.clone();
+                    callback_symbols.insert(parameter.clone(), (Type::Bool, false));
+                    Some(nexa_ir::SwitchChange {
+                        parameter,
+                        actions: lower_actions_with_aliases(
+                            actions,
+                            &callback_symbols,
+                            functions,
+                            false,
+                            native_aliases,
+                            cx.type_registries(),
+                        )?,
+                    })
+                }
+                Some(_) => return Err(child_mismatch(span)),
+                None => None,
+            };
+            Ok(Node::Switch {
+                state,
+                label,
+                on_change,
+            })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Image" => {
             let span = inv.span;
@@ -1943,6 +2638,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         ast::Node::ComponentInvocation(inv) if inv.name == "Icon" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let font_family_arg = args.remove("fontFamily");
+            let glyph_arg = args.remove("glyph");
             let selectors = [("system", 0), ("sfsymbol", 1), ("materialsymbol", 2)];
             let mut selection = None;
             for (name, kind) in selectors {
@@ -1959,58 +2656,98 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     ));
                 }
             }
-            let icon = match selection {
-                Some((0, name)) => SystemIcon::shared(&name).ok_or_else(|| {
-                    CompileError::new(
-                        span,
-                        format!("unknown shared system icon `{name}`; use `sfsymbol` or `materialsymbol` for a platform-specific name"),
+            if selection.is_some() && (font_family_arg.is_some() || glyph_arg.is_some()) {
+                return Err(CompileError::new(
+                    span,
+                    "Icon accepts either a system symbol or `fontFamily` with `glyph`",
+                ));
+            }
+            let font_family = font_family_arg
+                .map(|value| lower_icon_font_family(value, themes))
+                .transpose()?;
+            let glyph = glyph_arg
+                .map(|value| {
+                    lower_expr(
+                        &value,
+                        Some(&Type::Numeric(NumericType::Int32)),
+                        &cx.exprs(false),
                     )
-                })?,
-                Some((1, name)) => SystemIcon::sf_symbol(name).ok_or_else(|| {
-                    CompileError::new(span, "Icon `sfsymbol` must be a non-empty symbol name")
-                })?,
-                Some((2, name)) => SystemIcon::material_symbol(name).ok_or_else(|| {
-                    CompileError::new(span, "Icon `materialsymbol` must be a non-empty Compose icon name")
-                })?,
-                _ => {
-                    return Err(CompileError::new(
-                        span,
-                        "Icon requires exactly one of `system`, `sfsymbol`, or `materialsymbol`",
-                    ));
-                }
-            };
+                })
+                .transpose()?;
+            if glyph.is_some() != font_family.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "font glyph icons require both `fontFamily` and `glyph`",
+                ));
+            }
             let description_expr = take_required_arg(&mut args, &inv.name, "description", span)?;
             let description = require_string_literal(&description_expr, "Icon description")?;
             let size = take_required_arg(&mut args, &inv.name, "size", span)?;
-            let size = match size {
-                ast::Expr::Number(value, number_span) => value
-                    .parse::<f32>()
-                    .ok()
-                    .filter(|value| value.is_finite() && *value > 0.0 && *value <= 512.0)
-                    .ok_or_else(|| {
-                        CompileError::new(
-                            number_span,
-                            "Icon size must be a positive numeric literal no greater than 512",
-                        )
-                    })?,
-                expr => {
-                    return Err(CompileError::new(
-                        expr.span(),
-                        "Icon size must be a positive numeric literal",
-                    ));
-                }
-            };
             let tint = lower_color_expression(
                 take_required_arg(&mut args, &inv.name, "tint", span)?,
                 "Icon tint",
                 cx,
             )?;
-            Ok(Node::SystemIcon {
-                icon,
-                description,
-                size,
-                tint,
-            })
+            if let (Some(font_family), Some(glyph)) = (font_family, glyph) {
+                validate_icon_size_literal_if_static(&size)?;
+                let size = lower_expr(
+                    &size,
+                    Some(&Type::Numeric(NumericType::Float64)),
+                    &cx.exprs(false),
+                )?;
+                Ok(Node::FontIcon {
+                    font_family,
+                    glyph,
+                    description,
+                    size,
+                    tint,
+                })
+            } else {
+                let size = match size {
+                    ast::Expr::Number(value, number_span) => value
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|value| value.is_finite() && *value > 0.0 && *value <= 512.0)
+                        .ok_or_else(|| {
+                            CompileError::new(
+                                number_span,
+                                "Icon size must be a positive numeric literal no greater than 512",
+                            )
+                        })?,
+                    expr => {
+                        return Err(CompileError::new(
+                            expr.span(),
+                            "system Icon size must be a positive numeric literal",
+                        ));
+                    }
+                };
+                let icon = match selection {
+                    Some((0, name)) => cx.resolve_icon(&name).ok_or_else(|| {
+                        CompileError::new(
+                            span,
+                            format!("unknown icon `{name}`; use a Nexa shared icon, an alias from `assets.icons`, `sfsymbol`, or `materialsymbol` for a platform-specific name"),
+                        )
+                    })?,
+                    Some((1, name)) => SystemIcon::sf_symbol(name).ok_or_else(|| {
+                        CompileError::new(span, "Icon `sfsymbol` must be a non-empty symbol name")
+                    })?,
+                    Some((2, name)) => SystemIcon::material_symbol(name).ok_or_else(|| {
+                        CompileError::new(span, "Icon `materialsymbol` must be a non-empty Compose icon name")
+                    })?,
+                    _ => {
+                        return Err(CompileError::new(
+                            span,
+                            "Icon requires one system symbol or a font glyph with `fontFamily`",
+                        ));
+                    }
+                };
+                Ok(Node::SystemIcon {
+                    icon,
+                    description,
+                    size,
+                    tint,
+                })
+            }
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "LinearGradient" => {
             let span = inv.span;
@@ -2294,6 +3031,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let span = inv.span;
             let mut args = inv.arguments;
             let root = take_required_arg(&mut args, &inv.name, "root", span)?;
+            let show_navigation_bar = optional_bool(
+                args.remove("showNavigationBar"),
+                true,
+                "NavigationStack showNavigationBar",
+            )?;
             let title_mode = match args.remove("titleMode") {
                 Some(ast::Expr::Name(name, _)) if name == "Inline" => {
                     nexa_ir::NavigationTitleMode::Inline
@@ -2331,7 +3073,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             if !allow_navigation_stack {
                 return Err(CompileError::new(
                     span,
-                    "NavigationStack is only allowed as the app's top-level body",
+                    "NavigationStack is only allowed at the app body or at the root of an AppBottomBar tab",
                 ));
             }
             let root = lower_screen_target(
@@ -2346,6 +3088,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             Ok(Node::NavigationStack {
                 root: root.0,
                 arguments: root.1,
+                show_navigation_bar,
                 title_mode,
                 title_alignment,
             })
@@ -2452,6 +3195,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         ast::Node::ComponentInvocation(inv) if inv.name == "KeyboardAware" => {
             let mut args = inv.arguments;
             let dismiss = args.remove("dismiss");
+            let behavior = lower_keyboard_behavior(args.remove("behavior"))?;
             let children = match inv.children {
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(inv.span)),
@@ -2459,6 +3203,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let lowered_children = lower_nodes(children, &child_cx)?;
             Ok(Node::KeyboardAware {
                 dismiss: lower_keyboard_dismiss(dismiss)?,
+                behavior,
                 children: lowered_children,
             })
         }
@@ -2485,9 +3230,35 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     "BottomSheet contentPadding must be a finite non-negative number",
                 ));
             }
-            let detents = bottom_sheet_detents(args.remove("detents"))?;
-            let initial_detent = args
-                .remove("initialDetent")
+            let corner_radius = args
+                .remove("cornerRadius")
+                .map(|value| number_value(&value, "BottomSheet cornerRadius"))
+                .transpose()?;
+            if corner_radius.is_some_and(|radius| !radius.is_finite() || radius < 0.0) {
+                return Err(CompileError::new(
+                    span,
+                    "BottomSheet cornerRadius must be a finite non-negative number",
+                ));
+            }
+            let content_sized = optional_bool(
+                args.remove("contentSized"),
+                false,
+                "BottomSheet contentSized",
+            )?;
+            let detents_argument = args.remove("detents");
+            let initial_detent_argument = args.remove("initialDetent");
+            if content_sized && (detents_argument.is_some() || initial_detent_argument.is_some()) {
+                return Err(CompileError::new(
+                    span,
+                    "BottomSheet contentSized cannot be combined with detents or initialDetent",
+                ));
+            }
+            let detents = if content_sized {
+                Vec::new()
+            } else {
+                bottom_sheet_detents(detents_argument)?
+            };
+            let initial_detent = initial_detent_argument
                 .as_ref()
                 .map(|value| number_value(value, "BottomSheet initialDetent"))
                 .transpose()?;
@@ -2534,10 +3305,13 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
             };
-            let lowered_children = lower_nodes(children, &child_cx)?;
+            let sheet_cx = cx.with_navigation(true, cx.allow_navigation_back);
+            let lowered_children = lower_nodes(children, &sheet_cx)?;
             Ok(Node::BottomSheet {
                 component_ref,
+                content_sized,
                 content_padding,
+                corner_radius,
                 detents,
                 initial_detent,
                 show_drag_indicator: optional_bool(
@@ -2726,6 +3500,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         {
             let span = inv.span;
             let is_pager = inv.name == "PagePager";
+            let tab_cx = cx.with_navigation(!is_pager, cx.allow_navigation_back);
             let mut args = inv.arguments;
             let selected = take_required_arg(&mut args, &inv.name, "selected", span)?;
             let tint = args
@@ -2777,10 +3552,10 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     .as_ref()
                     .map(|icon| {
                         let name = require_string_literal(icon, "Tab icon")?;
-                        SystemIcon::shared(&name).ok_or_else(|| {
+                        cx.resolve_icon(&name).ok_or_else(|| {
                             CompileError::new(
                                 icon.span(),
-                                format!("unknown shared tab icon `{name}`"),
+                                format!("unknown tab icon `{name}`; use a Nexa shared icon or an alias from `assets.icons`"),
                             )
                         })
                     })
@@ -2824,7 +3599,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     .as_ref()
                     .map(|prompt| require_string_literal(prompt, "Tab searchPrompt"))
                     .transpose()?;
-                let children = lower_nodes(tab.children, &child_cx)?;
+                let children = lower_nodes(tab.children, &tab_cx)?;
                 lowered_tabs.push(BottomBarTab {
                     index,
                     label,
@@ -2911,6 +3686,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let mut modifiers = inv.modifiers;
             let on_end_reached = take_modifier_actions(&mut modifiers, span, "onEndReached")?;
             let on_scroll = take_modifier_actions(&mut modifiers, span, "onScroll")?;
+            let on_scroll_begin_drag =
+                take_modifier_actions(&mut modifiers, span, "onScrollBeginDrag")?;
             let on_move = match take_modifier_decl(&mut modifiers, "onMove") {
                 Some(mut modifier) => {
                     let enabled = match modifier.arguments.remove("enabled") {
@@ -3086,6 +3863,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     || item_extent.is_some()
                     || on_end_reached.is_some()
                     || on_scroll.is_some()
+                    || on_scroll_begin_drag.is_some()
                     || sticky_header.is_some())
             {
                 return Err(CompileError::new(
@@ -3192,11 +3970,22 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ));
             }
             if sections_source
-                && (scroll_position.is_some() || on_end_reached.is_some() || on_scroll.is_some())
+                && (scroll_position.is_some()
+                    || on_end_reached.is_some()
+                    || on_scroll.is_some()
+                    || on_scroll_begin_drag.is_some())
             {
                 return Err(CompileError::new(
                     span,
-                    "FastList `sections` does not yet support scrollPosition, onEndReached, or onScroll",
+                    "FastList `sections` does not yet support scrollPosition, onEndReached, onScroll, or onScrollBeginDrag",
+                ));
+            }
+            if on_scroll_begin_drag.is_some()
+                && (!matches!(axis, ListAxis::Vertical) || page_snap || reverse_layout)
+            {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `.onScrollBeginDrag` currently requires a forward vertical list",
                 ));
             }
             let item_extent = optional_dimension(item_extent, "FastList rowHeight", None, themes)?;
@@ -3466,6 +4255,18 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     )
                 })
                 .transpose()?;
+            let on_scroll_begin_drag = on_scroll_begin_drag
+                .map(|actions| {
+                    lower_actions_with_aliases(
+                        actions,
+                        symbols,
+                        functions,
+                        false,
+                        native_aliases,
+                        cx.type_registries(),
+                    )
+                })
+                .transpose()?;
             let sticky_header = sticky_header
                 .map(|header| lower_nodes(header, &child_cx))
                 .transpose()?;
@@ -3506,6 +4307,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             children: lowered_children,
                             on_end_reached,
                             on_scroll,
+                            on_scroll_begin_drag,
                             on_move: None,
                             swipe_actions,
                             sticky_header,
@@ -3535,6 +4337,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             children: lowered_children,
                             on_end_reached,
                             on_scroll,
+                            on_scroll_begin_drag,
                             on_move,
                             swipe_actions,
                             sticky_header,
@@ -3553,6 +4356,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         debug_assert!(
                             on_end_reached.is_none()
                                 && on_scroll.is_none()
+                                && on_scroll_begin_drag.is_none()
                                 && sticky_header.is_none()
                         );
                         ListPlan::Sections {
@@ -3591,9 +4395,10 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             ..
         } => {
             let condition = lower_expr(&condition, Some(&Type::Bool), &cx.exprs(false))?;
-            let lowered_then = lower_nodes(then_body, &child_cx)?;
+            let branch_cx = cx.with_navigation(allow_navigation_stack, allow_navigation_back);
+            let lowered_then = lower_nodes(then_body, &branch_cx)?;
             let lowered_else = else_body
-                .map(|body| lower_nodes(body, &child_cx))
+                .map(|body| lower_nodes(body, &branch_cx))
                 .transpose()?;
             Ok(Node::If {
                 condition,
@@ -3601,6 +4406,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 else_body: lowered_else,
                 transition: transition.map(|transition| match transition {
                     ast::ViewTransition::Fade => IrViewTransition::Fade,
+                    ast::ViewTransition::FadeSlideFromTop => IrViewTransition::FadeSlideFromTop,
                     ast::ViewTransition::SlideFromBottom => IrViewTransition::SlideFromBottom,
                     ast::ViewTransition::SlideFromLeft => IrViewTransition::SlideFromLeft,
                     ast::ViewTransition::SlideFromRight => IrViewTransition::SlideFromRight,
@@ -3630,6 +4436,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ));
             }
             let lowered_value = lower_expr(&value, Some(&value_type), &cx.exprs(false))?;
+            let branch_cx = cx.with_navigation(allow_navigation_stack, allow_navigation_back);
             let mut seen = std::collections::HashSet::with_capacity(cases.len());
             let mut lowered_cases = Vec::with_capacity(cases.len());
             for case in cases {
@@ -3653,7 +4460,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         "when case values must be unique",
                     ));
                 }
-                let body = lower_nodes(case.body, &child_cx)?;
+                let body = lower_nodes(case.body, &branch_cx)?;
                 lowered_cases.push(WhenCase {
                     value: lowered_case,
                     body,
@@ -3666,7 +4473,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ));
             }
             let lowered_else = has_else
-                .then(|| lower_nodes(else_body, &child_cx))
+                .then(|| lower_nodes(else_body, &branch_cx))
                 .transpose()?;
             Ok(Node::When {
                 value: lowered_value,
@@ -3674,6 +4481,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 else_body: lowered_else,
                 transition: transition.map(|transition| match transition {
                     ast::ViewTransition::Fade => IrViewTransition::Fade,
+                    ast::ViewTransition::FadeSlideFromTop => IrViewTransition::FadeSlideFromTop,
                     ast::ViewTransition::SlideFromBottom => IrViewTransition::SlideFromBottom,
                     ast::ViewTransition::SlideFromLeft => IrViewTransition::SlideFromLeft,
                     ast::ViewTransition::SlideFromRight => IrViewTransition::SlideFromRight,
@@ -4003,6 +4811,7 @@ fn lower_status_bar(
     style: Option<ast::Expr>,
     hidden: Option<ast::Expr>,
     background: Option<ast::Expr>,
+    navigation_bar_background: Option<ast::Expr>,
 ) -> Result<StatusBarConfig, CompileError> {
     let style = match style {
         Some(ast::Expr::Name(name, name_span)) => match name.as_str() {
@@ -4038,10 +4847,15 @@ fn lower_status_bar(
         .map(|value| parse_color_literal(value, "StatusBar background"))
         .transpose()?
         .map(nexa_ir::ColorValue::Static);
+    let navigation_bar_background = navigation_bar_background
+        .map(|value| parse_color_literal(value, "StatusBar navigationBarBackground"))
+        .transpose()?
+        .map(nexa_ir::ColorValue::Static);
     Ok(StatusBarConfig {
         style,
         hidden,
         background,
+        navigation_bar_background,
     })
 }
 
@@ -4061,6 +4875,28 @@ fn lower_keyboard_dismiss(value: Option<ast::Expr>) -> Result<KeyboardDismissMod
         _ => Err(CompileError::new(
             span,
             "KeyboardAware dismiss must be `Interactive` or `Never`",
+        )),
+    }
+}
+
+fn lower_keyboard_behavior(
+    value: Option<ast::Expr>,
+) -> Result<nexa_ir::adaptive_layout::KeyboardBehavior, CompileError> {
+    let Some(value) = value else {
+        return Ok(nexa_ir::adaptive_layout::KeyboardBehavior::Stay);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "KeyboardAware behavior must be `Stay` or `Avoid`",
+        ));
+    };
+    match name.as_str() {
+        "Stay" => Ok(nexa_ir::adaptive_layout::KeyboardBehavior::Stay),
+        "Avoid" => Ok(nexa_ir::adaptive_layout::KeyboardBehavior::Avoid),
+        _ => Err(CompileError::new(
+            span,
+            "KeyboardAware behavior must be `Stay` or `Avoid`",
         )),
     }
 }
@@ -4219,6 +5055,38 @@ fn lower_text_font_design(
         }
     };
     Ok(Some(design))
+}
+
+fn lower_text_font_family(
+    value: Option<ast::Expr>,
+    themes: &ThemeSymbols,
+) -> Result<Option<String>, CompileError> {
+    match value {
+        None => Ok(themes.default_font_family().map(str::to_owned)),
+        Some(ast::Expr::String(family, span)) => {
+            validate_font_family(&family, span)?;
+            Ok(Some(family))
+        }
+        Some(ast::Expr::ThemeToken(name, span)) => themes.font_family(&name, span).map(Some),
+        Some(value) => Err(CompileError::new(
+            value.span(),
+            "Text fontFamily must be a static string or a fontFamily theme token",
+        )),
+    }
+}
+
+fn lower_icon_font_family(value: ast::Expr, themes: &ThemeSymbols) -> Result<String, CompileError> {
+    match value {
+        ast::Expr::String(family, span) => {
+            validate_font_family(&family, span)?;
+            Ok(family)
+        }
+        ast::Expr::ThemeToken(name, span) => themes.font_family(&name, span),
+        value => Err(CompileError::new(
+            value.span(),
+            "Icon fontFamily must be a static string or a fontFamily theme token",
+        )),
+    }
 }
 
 fn lower_line_limit(value: Option<ast::Expr>) -> Result<Option<i32>, CompileError> {
@@ -4386,6 +5254,57 @@ pub(super) fn lower_actions_with_aliases(
         0,
         registries,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_slider_event(
+    body: Option<ast::ModifierBody>,
+    span: Span,
+    modifier_name: &str,
+    parameter_type: Type,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    native_aliases: &HashMap<String, String>,
+    registries: TypeRegistries<'_>,
+) -> Result<Option<(String, Vec<Action>)>, CompileError> {
+    match body {
+        Some(ast::ModifierBody::EventActions {
+            parameters,
+            actions,
+        }) => {
+            if parameters.len() != 1 {
+                return Err(CompileError::new(
+                    span,
+                    format!(".{modifier_name} requires one binding"),
+                ));
+            }
+            let Some(parameter) = parameters.into_iter().next() else {
+                return Err(CompileError::new(
+                    span,
+                    format!(".{modifier_name} requires one binding"),
+                ));
+            };
+            if symbols.contains_key(&parameter) {
+                return Err(CompileError::new(
+                    span,
+                    format!(".{modifier_name} binding `{parameter}` shadows an existing value"),
+                ));
+            }
+            let mut callback_symbols = symbols.clone();
+            callback_symbols.insert(parameter.clone(), (parameter_type, false));
+            let actions = lower_actions_with_aliases(
+                actions,
+                &callback_symbols,
+                functions,
+                false,
+                native_aliases,
+                registries,
+            )?;
+            Ok(Some((parameter, actions)))
+        }
+        Some(_) => Err(child_mismatch(span)),
+        None => Ok(None),
+    }
 }
 
 fn lower_actions_with_depth(
@@ -5927,7 +6846,10 @@ fn require_string_literal(expr: &ast::Expr, field: &str) -> Result<String, Compi
     }
 }
 
-fn lower_picker_item_icons(expr: ast::Expr) -> Result<Vec<SystemIcon>, CompileError> {
+fn lower_picker_item_icons(
+    expr: ast::Expr,
+    cx: &SemanticContext<'_>,
+) -> Result<Vec<SystemIcon>, CompileError> {
     let ast::Expr::Array(items, _) = expr else {
         return Err(CompileError::new(
             expr.span(),
@@ -5938,10 +6860,10 @@ fn lower_picker_item_icons(expr: ast::Expr) -> Result<Vec<SystemIcon>, CompileEr
         .iter()
         .map(|item| {
             let name = require_string_literal(item, "Picker `itemIcons` entry")?;
-            SystemIcon::shared(&name).ok_or_else(|| {
+            cx.resolve_icon(&name).ok_or_else(|| {
                 CompileError::new(
                     item.span(),
-                    format!("unknown shared system icon `{name}` in Picker `itemIcons`"),
+                    format!("unknown icon `{name}` in Picker `itemIcons`; use a Nexa shared icon or an alias from `assets.icons`"),
                 )
             })
         })

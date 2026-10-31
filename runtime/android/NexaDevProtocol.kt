@@ -3,6 +3,7 @@ package __NEXA_PACKAGE__
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,6 +16,7 @@ import java.security.SecureRandom
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 internal class NexaDevSocketClient(
     private val serverURL: String,
@@ -183,22 +185,30 @@ internal class NexaDevSocketClient(
                 }
                 val revision = patch.optString(NexaDevKeys.REVISION).takeIf(String::isNotEmpty) ?: return
                 val applied = AtomicBoolean(false)
-                onMainAndWait {
-                    if (store.applyPatch(patch)) {
-                        if (patch.has("translations")) {
-                            store.installTranslations(patch.optJSONObject("translations"))
-                        }
-                        store.publishDiagnostics(emptyList())
-                        applied.set(true)
+                val patchStarted = SystemClock.elapsedRealtimeNanos()
+                if (store.applyPatch(patch)) {
+                    if (patch.has("translations")) {
+                        store.installTranslations(patch.optJSONObject("translations"))
                     }
+                    store.publishDiagnostics(emptyList())
+                    applied.set(true)
                 }
                 if (!applied.get()) {
                     sendFrame(output, 0x1, JSONObject().put(NexaDevKeys.TYPE, NexaDevKeys.MSG_REQUEST_FULL_MODULE).toString())
                     return
                 }
+                if (patch.has("translations")) {
+                    store.installTranslations(patch.optJSONObject("translations"))
+                }
+                store.publishDiagnostics(emptyList())
                 currentRevision = revision
                 acknowledge(output, revision)
-                android.util.Log.i("NexaDevRuntime", "Applied patch $revision")
+                val patchNanos = SystemClock.elapsedRealtimeNanos() - patchStarted
+                val patchMs = patchNanos / 1_000_000.0
+                android.util.Log.i(
+                    "NexaDevRuntime",
+                    "Nexa Android dev runtime applied patch $revision (patch work ${String.format(java.util.Locale.US, "%.2f", patchMs)}ms / ${patchNanos / 1000}µs)",
+                )
             }
             NexaDevKeys.MSG_DIAGNOSTICS -> {
                 val entries = payload.optJSONArray(NexaDevKeys.MSG_DIAGNOSTICS) ?: JSONArray()
@@ -247,10 +257,8 @@ internal class NexaDevSocketClient(
     }
 
     private fun acknowledge(output: BufferedOutputStream, revision: String) {
-        sendFrame(output, 0x1, JSONObject()
-            .put(NexaDevKeys.TYPE, NexaDevKeys.MSG_ACKNOWLEDGE)
-            .put(NexaDevKeys.PAYLOAD, JSONObject().put(NexaDevKeys.REVISION, revision))
-            .toString())
+        val payload = "{\"${NexaDevKeys.TYPE}\":\"${NexaDevKeys.MSG_ACKNOWLEDGE}\",\"${NexaDevKeys.PAYLOAD}\":{\"${NexaDevKeys.REVISION}\":\"$revision\"}}"
+        sendFrame(output, 0x1, payload)
     }
 
     private fun readHttpHeaders(input: BufferedInputStream): String {

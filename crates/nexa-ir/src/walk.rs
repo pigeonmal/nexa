@@ -1,3 +1,7 @@
+use crate::adaptive_layout::{
+    LayoutEdge, ScrollAxis, ScrollOwnerDescriptor, ScrollOwnerId, ScrollOwnerKind,
+    ScrollOwnerResolution,
+};
 use crate::{
     Action, BottomBarTab, ErrorCatchArm, Expr, FastListMove, FastListRefresh, InterpolatedPart,
     ListCommon, ListPlan, NativeComponentEventHandler, NetworkRequest, Node, SectionedListCommon,
@@ -13,11 +17,43 @@ pub fn walk_ir(
     for node in nodes {
         visit_node(node);
         match node {
-            Node::Layout { children, .. }
+            Node::SafeAreaPadding { children, .. }
             | Node::Form { children, .. }
             | Node::Toolbar { children, .. }
             | Node::KeyboardAware { children, .. } => {
                 walk_ir(children, visit_node, visit_expression)
+            }
+            Node::Layout {
+                style, children, ..
+            } => {
+                if let Some(radius) = &style.corner_radius_expression {
+                    walk_expression(radius, visit_expression);
+                }
+                if let Some(scale) = &style.effects.scale_expression {
+                    walk_expression(scale, visit_expression);
+                }
+                if let Some(scale_y) = &style.effects.scale_y_expression {
+                    walk_expression(scale_y, visit_expression);
+                }
+                if let Some(opacity) = &style.effects.opacity_expression {
+                    walk_expression(opacity, visit_expression);
+                }
+                if let Some(offset_y) = &style.effects.offset_y_expression {
+                    walk_expression(offset_y, visit_expression);
+                }
+                walk_ir(children, visit_node, visit_expression);
+            }
+            Node::SafeAreaInset {
+                content, children, ..
+            } => {
+                walk_ir(content, visit_node, visit_expression);
+                walk_ir(children, visit_node, visit_expression);
+            }
+            Node::ScrollHeader {
+                header, children, ..
+            } => {
+                walk_ir(header, visit_node, visit_expression);
+                walk_ir(children, visit_node, visit_expression);
             }
             Node::Dialog {
                 title,
@@ -172,6 +208,9 @@ pub fn walk_ir(
                 if let Some(actions) = plan.on_scroll() {
                     walk_actions(actions, visit_expression);
                 }
+                if let Some(actions) = plan.on_scroll_begin_drag() {
+                    walk_actions(actions, visit_expression);
+                }
                 if let Some(refresh) = plan.refresh() {
                     walk_actions(&refresh.actions, visit_expression);
                 }
@@ -213,7 +252,33 @@ pub fn walk_ir(
                     walk_ir(else_body, visit_node, visit_expression);
                 }
             }
-            Node::Text { value, .. } => walk_expression(value, visit_expression),
+            Node::Text { value, style } => {
+                walk_expression(value, visit_expression);
+                if let Some(reveal) = &style.reveal {
+                    for expression in [
+                        &reveal.segments,
+                        &reveal.position,
+                        &reveal.active,
+                        &reveal.playing,
+                        &reveal.enabled,
+                        &reveal.seek_revision,
+                    ] {
+                        walk_expression(expression, visit_expression);
+                    }
+                }
+                if let Some(scale) = &style.effects.scale_expression {
+                    walk_expression(scale, visit_expression);
+                }
+                if let Some(scale_y) = &style.effects.scale_y_expression {
+                    walk_expression(scale_y, visit_expression);
+                }
+                if let Some(opacity) = &style.effects.opacity_expression {
+                    walk_expression(opacity, visit_expression);
+                }
+                if let Some(offset_y) = &style.effects.offset_y_expression {
+                    walk_expression(offset_y, visit_expression);
+                }
+            }
             Node::ContentUnavailable {
                 title,
                 description,
@@ -425,26 +490,83 @@ pub fn walk_ir(
                 }
             }
             Node::TextInput {
-                actions, on_change, ..
+                actions,
+                on_focus,
+                on_change,
+                ..
             } => {
                 walk_actions(actions, visit_expression);
+                if let Some(actions) = on_focus {
+                    walk_actions(actions, visit_expression);
+                }
                 if let Some(change) = on_change {
                     walk_actions(&change.actions, visit_expression);
                 }
             }
-            Node::Switch { label, .. } => walk_expression(label, visit_expression),
+            Node::Switch {
+                label, on_change, ..
+            } => {
+                walk_expression(label, visit_expression);
+                if let Some(change) = on_change {
+                    walk_actions(&change.actions, visit_expression);
+                }
+            }
+            Node::Slider {
+                min,
+                max,
+                tint,
+                track_color,
+                thumb_color,
+                on_change,
+                on_editing_changed,
+                ..
+            } => {
+                walk_expression(min, visit_expression);
+                walk_expression(max, visit_expression);
+                for color in [tint, track_color, thumb_color].into_iter().flatten() {
+                    if let crate::ColorExpression::Dynamic(expression) = color {
+                        walk_expression(expression, visit_expression);
+                    }
+                }
+                if let Some(change) = on_change {
+                    walk_actions(&change.actions, visit_expression);
+                }
+                if let Some(change) = on_editing_changed {
+                    walk_actions(&change.actions, visit_expression);
+                }
+            }
             Node::Appearance { mode, children } => {
                 walk_expression(mode, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
+            Node::Shape {
+                width_expression,
+                height_expression,
+                ..
+            } => {
+                for expression in [width_expression.as_ref(), height_expression.as_ref()]
+                    .into_iter()
+                    .flatten()
+                {
+                    walk_expression(expression, visit_expression);
+                }
+            }
             Node::Content
-            | Node::Spacer
+            | Node::Spacer { .. }
             | Node::Divider { .. }
             | Node::LinearGradient { .. }
-            | Node::Slider { .. }
             | Node::StatusBar { .. }
             | Node::Direction { .. } => {}
             Node::SystemIcon { tint, .. } => {
+                if let crate::ColorExpression::Dynamic(color) = tint {
+                    walk_expression(color, visit_expression);
+                }
+            }
+            Node::FontIcon {
+                glyph, size, tint, ..
+            } => {
+                walk_expression(glyph, visit_expression);
+                walk_expression(size, visit_expression);
                 if let crate::ColorExpression::Dynamic(color) = tint {
                     walk_expression(color, visit_expression);
                 }
@@ -503,8 +625,23 @@ pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) 
                 | Node::OnActive { actions }
                 | Node::OnInactive { actions }
                 | Node::OnBackground { actions }
-                | Node::Button { actions, .. }
-                | Node::TextInput { actions, .. } => Some(actions.as_slice()),
+                | Node::Button { actions, .. } => Some(actions.as_slice()),
+                Node::TextInput {
+                    actions,
+                    on_focus,
+                    on_change,
+                    ..
+                } => {
+                    if let Some(actions) = on_focus {
+                        visit(actions);
+                        walk_nested_callback_actions(actions, visit);
+                    }
+                    if let Some(change) = on_change {
+                        visit(&change.actions);
+                        walk_nested_callback_actions(&change.actions, visit);
+                    }
+                    Some(actions.as_slice())
+                }
                 Node::Pressable {
                     actions,
                     double_tap_actions,
@@ -533,6 +670,10 @@ pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) 
                         walk_nested_callback_actions(actions, visit);
                     }
                     if let Some(actions) = plan.on_scroll() {
+                        visit(actions);
+                        walk_nested_callback_actions(actions, visit);
+                    }
+                    if let Some(actions) = plan.on_scroll_begin_drag() {
                         visit(actions);
                         walk_nested_callback_actions(actions, visit);
                     }
@@ -795,78 +936,83 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight
+        | Expr::ScreenWidth
+        | Expr::ScreenHeight
+        | Expr::SafeAreaTop
         | Expr::This(_) => {}
     }
 }
 
 /// Returns whether a node tree already contains a native scrolling primitive.
 pub fn contains_scrollable(nodes: &[Node]) -> bool {
-    nodes.iter().any(|node| match node {
-        Node::FastList { .. } | Node::KeyboardAware { .. } | Node::Form { .. } => true,
-        Node::Appearance { children, .. }
-        | Node::Layout { children, .. }
-        | Node::FormSection { children, .. }
-        | Node::Toolbar { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::Link { children, .. }
-        | Node::Accessibility { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::BottomSheet { children, .. }
-        | Node::Dialog { children, .. }
-        | Node::ConfirmationDialog { children, .. }
-        | Node::RefreshControl { children, .. } => contains_scrollable(children),
-        Node::NavigationSplitView {
-            sidebar, detail, ..
-        } => contains_scrollable(sidebar) || contains_scrollable(detail),
-        Node::AppBottomBar {
-            tabs, custom_bar, ..
-        } => {
-            tabs.iter().any(|tab| contains_scrollable(&tab.children))
-                || custom_bar.as_deref().is_some_and(contains_scrollable)
-        }
-        Node::PagePager { pages, .. } => pages.iter().any(|page| contains_scrollable(page)),
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            contains_scrollable(then_body) || else_body.as_deref().is_some_and(contains_scrollable)
-        }
-        Node::When {
-            cases, else_body, ..
-        } => {
-            cases.iter().any(|case| contains_scrollable(&case.body))
-                || else_body.as_deref().is_some_and(contains_scrollable)
-        }
-        Node::StatusBar { .. }
-        | Node::Direction { .. }
-        | Node::Text { .. }
-        | Node::ContentUnavailable { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::Slider { .. }
-        | Node::ProgressBar { .. }
-        | Node::ProgressRing { .. }
-        | Node::SegmentedControl { .. }
-        | Node::Picker { .. }
-        | Node::PickerDate { .. }
-        | Node::Image { .. }
-        | Node::SystemIcon { .. }
-        | Node::LinearGradient { .. }
-        | Node::NavigationStack { .. }
-        | Node::NavigationBack { .. }
-        | Node::ComponentCall { .. }
-        | Node::NativeComponentCall { .. }
-        | Node::Content
-        | Node::Spacer
-        | Node::Divider { .. }
-        | Node::OnAppear { .. }
-        | Node::OnDisappear { .. }
-        | Node::OnActive { .. }
-        | Node::OnInactive { .. }
-        | Node::OnBackground { .. } => false,
-    })
+    scroll_owners(nodes)
+        .iter()
+        .any(|owner| owner.kind != ScrollOwnerKind::PagePager)
+}
+
+/// Finds native scroll owners in deterministic depth-first order. IDs are
+/// local to the supplied subtree and can be used for compile-time selection.
+pub fn scroll_owners(nodes: &[Node]) -> Vec<ScrollOwnerDescriptor> {
+    let mut owners = Vec::new();
+    walk_ir(
+        nodes,
+        &mut |node| {
+            let (kind, axes) = match node {
+                Node::FastList { plan } => {
+                    let axes = match plan.axis() {
+                        crate::ListAxis::Vertical => ScrollAxis::Vertical,
+                        crate::ListAxis::Horizontal => ScrollAxis::Horizontal,
+                        crate::ListAxis::Grid { .. }
+                        | crate::ListAxis::AutoGrid { .. }
+                        | crate::ListAxis::Masonry { .. } => ScrollAxis::Both,
+                    };
+                    (ScrollOwnerKind::FastList, axes)
+                }
+                Node::Form { .. } => (ScrollOwnerKind::Form, ScrollAxis::Vertical),
+                Node::KeyboardAware { children, .. } => {
+                    if !scroll_owners(children).is_empty() {
+                        return;
+                    }
+                    (ScrollOwnerKind::KeyboardAware, ScrollAxis::Vertical)
+                }
+                Node::PagePager { .. } => (ScrollOwnerKind::PagePager, ScrollAxis::Horizontal),
+                _ => return,
+            };
+            owners.push(ScrollOwnerDescriptor {
+                id: ScrollOwnerId(owners.len() as u32),
+                kind,
+                axes,
+            });
+        },
+        &mut |_| {},
+    );
+    owners
+}
+
+/// Resolves the scroll owner relevant to an edge. An explicit ID is validated
+/// against owners that can scroll along that edge; inference succeeds only for
+/// one candidate and never picks an arbitrary nested or sibling owner.
+pub fn resolve_scroll_owner(
+    nodes: &[Node],
+    edge: LayoutEdge,
+    explicit: Option<ScrollOwnerId>,
+) -> ScrollOwnerResolution {
+    let candidates = scroll_owners(nodes)
+        .into_iter()
+        .filter(|owner| owner.axes.supports_edge(edge))
+        .collect::<Vec<_>>();
+    if let Some(id) = explicit {
+        return candidates
+            .into_iter()
+            .find(|owner| owner.id == id)
+            .map(ScrollOwnerResolution::Unique)
+            .unwrap_or(ScrollOwnerResolution::InvalidReference(id));
+    }
+    match candidates.as_slice() {
+        [] => ScrollOwnerResolution::None,
+        [owner] => ScrollOwnerResolution::Unique(*owner),
+        _ => ScrollOwnerResolution::Ambiguous(candidates),
+    }
 }
 
 fn walk_network_request_children(request: &NetworkRequest, visit: &mut impl FnMut(&Expr)) {
@@ -1162,11 +1308,43 @@ pub trait IrFolder: Sized {
 
 pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
     match node {
-        Node::Layout { children, .. }
+        Node::SafeAreaPadding { children, .. }
         | Node::Form { children, .. }
         | Node::Toolbar { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::Dialog { children, .. } => visitor.visit_nodes(children),
+        Node::Layout {
+            style, children, ..
+        } => {
+            if let Some(radius) = &style.corner_radius_expression {
+                visitor.visit_expr(radius);
+            }
+            if let Some(scale) = &style.effects.scale_expression {
+                visitor.visit_expr(scale);
+            }
+            if let Some(scale_y) = &style.effects.scale_y_expression {
+                visitor.visit_expr(scale_y);
+            }
+            if let Some(opacity) = &style.effects.opacity_expression {
+                visitor.visit_expr(opacity);
+            }
+            if let Some(offset_y) = &style.effects.offset_y_expression {
+                visitor.visit_expr(offset_y);
+            }
+            visitor.visit_nodes(children);
+        }
+        Node::SafeAreaInset {
+            content, children, ..
+        } => {
+            visitor.visit_nodes(content);
+            visitor.visit_nodes(children);
+        }
+        Node::ScrollHeader {
+            header, children, ..
+        } => {
+            visitor.visit_nodes(header);
+            visitor.visit_nodes(children);
+        }
         Node::BottomSheet {
             component_ref,
             background_color,
@@ -1305,6 +1483,9 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             if let Some(actions) = plan.on_scroll() {
                 visitor.visit_actions(actions);
             }
+            if let Some(actions) = plan.on_scroll_begin_drag() {
+                visitor.visit_actions(actions);
+            }
             if let Some(on_move) = plan.on_move() {
                 visitor.visit_expr(&on_move.enabled);
                 visitor.visit_actions(&on_move.actions);
@@ -1350,7 +1531,29 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 visitor.visit_nodes(else_body);
             }
         }
-        Node::Text { value, .. } => visitor.visit_expr(value),
+        Node::Text { value, style } => {
+            visitor.visit_expr(value);
+            if let Some(reveal) = &style.reveal {
+                visitor.visit_expr(&reveal.segments);
+                visitor.visit_expr(&reveal.position);
+                visitor.visit_expr(&reveal.active);
+                visitor.visit_expr(&reveal.playing);
+                visitor.visit_expr(&reveal.enabled);
+                visitor.visit_expr(&reveal.seek_revision);
+            }
+            if let Some(scale) = &style.effects.scale_expression {
+                visitor.visit_expr(scale);
+            }
+            if let Some(scale_y) = &style.effects.scale_y_expression {
+                visitor.visit_expr(scale_y);
+            }
+            if let Some(opacity) = &style.effects.opacity_expression {
+                visitor.visit_expr(opacity);
+            }
+            if let Some(offset_y) = &style.effects.offset_y_expression {
+                visitor.visit_expr(offset_y);
+            }
+        }
         Node::ContentUnavailable {
             title,
             description,
@@ -1528,6 +1731,15 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
                 visitor.visit_expr(color);
             }
         }
+        Node::FontIcon {
+            glyph, size, tint, ..
+        } => {
+            visitor.visit_expr(glyph);
+            visitor.visit_expr(size);
+            if let crate::ColorExpression::Dynamic(color) = tint {
+                visitor.visit_expr(color);
+            }
+        }
         Node::ComponentCall {
             arguments,
             component_ref,
@@ -1561,23 +1773,71 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             }
         }
         Node::TextInput {
-            actions, on_change, ..
+            actions,
+            on_focus,
+            on_change,
+            ..
         } => {
             visitor.visit_actions(actions);
+            if let Some(actions) = on_focus {
+                visitor.visit_actions(actions);
+            }
             if let Some(change) = on_change {
                 visitor.visit_actions(&change.actions);
             }
         }
-        Node::Switch { label, .. } => visitor.visit_expr(label),
+        Node::Switch {
+            label, on_change, ..
+        } => {
+            visitor.visit_expr(label);
+            if let Some(change) = on_change {
+                visitor.visit_actions(&change.actions);
+            }
+        }
+        Node::Slider {
+            min,
+            max,
+            tint,
+            track_color,
+            thumb_color,
+            on_change,
+            on_editing_changed,
+            ..
+        } => {
+            visitor.visit_expr(min);
+            visitor.visit_expr(max);
+            for color in [tint, track_color, thumb_color].into_iter().flatten() {
+                if let crate::ColorExpression::Dynamic(expression) = color {
+                    visitor.visit_expr(expression);
+                }
+            }
+            if let Some(change) = on_change {
+                visitor.visit_actions(&change.actions);
+            }
+            if let Some(change) = on_editing_changed {
+                visitor.visit_actions(&change.actions);
+            }
+        }
         Node::Appearance { mode, children } => {
             visitor.visit_expr(mode);
             visitor.visit_nodes(children);
         }
+        Node::Shape {
+            width_expression,
+            height_expression,
+            ..
+        } => {
+            for expression in [width_expression.as_ref(), height_expression.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                visitor.visit_expr(expression);
+            }
+        }
         Node::Content
-        | Node::Spacer
+        | Node::Spacer { .. }
         | Node::Divider { .. }
         | Node::LinearGradient { .. }
-        | Node::Slider { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. } => {}
         Node::NavigationStack { arguments, .. } => {
@@ -1780,6 +2040,9 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight
+        | Expr::ScreenWidth
+        | Expr::ScreenHeight
+        | Expr::SafeAreaTop
         | Expr::This(_) => {}
     }
 }
@@ -1859,6 +2122,28 @@ pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
 
 pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Node> {
     match node {
+        Node::SafeAreaPadding { plan, children } => Some(Node::SafeAreaPadding {
+            plan,
+            children: folder.fold_nodes(children),
+        }),
+        Node::SafeAreaInset {
+            plan,
+            content,
+            children,
+        } => Some(Node::SafeAreaInset {
+            plan,
+            content: folder.fold_nodes(content),
+            children: folder.fold_nodes(children),
+        }),
+        Node::ScrollHeader {
+            plan,
+            header,
+            children,
+        } => Some(Node::ScrollHeader {
+            plan,
+            header: folder.fold_nodes(header),
+            children: folder.fold_nodes(children),
+        }),
         Node::Form {
             show_dividers,
             background,
@@ -1868,9 +2153,52 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             background,
             children: folder.fold_nodes(children),
         }),
-        Node::Switch { state, label } => Some(Node::Switch {
+        Node::Switch {
+            state,
+            label,
+            on_change,
+        } => Some(Node::Switch {
             state,
             label: folder.fold_expr(label),
+            on_change: on_change.map(|mut change| {
+                change.actions = folder.fold_actions(change.actions);
+                change
+            }),
+        }),
+        Node::Slider {
+            state,
+            animated,
+            min,
+            max,
+            step,
+            tint,
+            track_color,
+            thumb_color,
+            track_height,
+            thumb_size,
+            hit_slop,
+            on_change,
+            on_editing_changed,
+        } => Some(Node::Slider {
+            state,
+            animated,
+            min: folder.fold_expr(min),
+            max: folder.fold_expr(max),
+            step,
+            tint: tint.map(|color| fold_color_expression(color, folder)),
+            track_color: track_color.map(|color| fold_color_expression(color, folder)),
+            thumb_color: thumb_color.map(|color| fold_color_expression(color, folder)),
+            track_height,
+            thumb_size,
+            hit_slop,
+            on_change: on_change.map(|mut change| {
+                change.actions = folder.fold_actions(change.actions);
+                change
+            }),
+            on_editing_changed: on_editing_changed.map(|mut change| {
+                change.actions = folder.fold_actions(change.actions);
+                change
+            }),
         }),
         Node::FormSection {
             title,
@@ -1888,14 +2216,35 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::Layout {
             kind,
             spacing,
-            style,
+            mut style,
             children,
-        } => Some(Node::Layout {
-            kind,
-            spacing,
-            style,
-            children: folder.fold_nodes(children),
-        }),
+        } => {
+            style.corner_radius_expression = style
+                .corner_radius_expression
+                .map(|radius| Box::new(folder.fold_expr(*radius)));
+            style.effects.scale_expression = style
+                .effects
+                .scale_expression
+                .map(|scale| Box::new(folder.fold_expr(*scale)));
+            style.effects.scale_y_expression = style
+                .effects
+                .scale_y_expression
+                .map(|scale_y| Box::new(folder.fold_expr(*scale_y)));
+            style.effects.opacity_expression = style
+                .effects
+                .opacity_expression
+                .map(|opacity| Box::new(folder.fold_expr(*opacity)));
+            style.effects.offset_y_expression = style
+                .effects
+                .offset_y_expression
+                .map(|offset_y| Box::new(folder.fold_expr(*offset_y)));
+            Some(Node::Layout {
+                kind,
+                spacing,
+                style,
+                children: folder.fold_nodes(children),
+            })
+        }
         Node::Toolbar {
             placement,
             children,
@@ -1903,13 +2252,20 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             placement,
             children: folder.fold_nodes(children),
         }),
-        Node::KeyboardAware { dismiss, children } => Some(Node::KeyboardAware {
+        Node::KeyboardAware {
             dismiss,
+            behavior,
+            children,
+        } => Some(Node::KeyboardAware {
+            dismiss,
+            behavior,
             children: folder.fold_nodes(children),
         }),
         Node::BottomSheet {
             component_ref,
+            content_sized,
             content_padding,
+            corner_radius,
             detents,
             initial_detent,
             show_drag_indicator,
@@ -1922,7 +2278,9 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             children,
         } => Some(Node::BottomSheet {
             component_ref: folder.fold_expr(component_ref),
+            content_sized,
             content_padding,
+            corner_radius,
             detents,
             initial_detent,
             show_drag_indicator,
@@ -2124,10 +2482,37 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             transition,
             transition_animation,
         }),
-        Node::Text { value, style } => Some(Node::Text {
-            value: folder.fold_expr(value),
-            style,
-        }),
+        Node::Text { value, mut style } => {
+            style.reveal = style.reveal.map(|mut reveal| {
+                reveal.segments = folder.fold_expr(reveal.segments);
+                reveal.position = folder.fold_expr(reveal.position);
+                reveal.active = folder.fold_expr(reveal.active);
+                reveal.playing = folder.fold_expr(reveal.playing);
+                reveal.enabled = folder.fold_expr(reveal.enabled);
+                reveal.seek_revision = folder.fold_expr(reveal.seek_revision);
+                reveal
+            });
+            style.effects.scale_expression = style
+                .effects
+                .scale_expression
+                .map(|scale| Box::new(folder.fold_expr(*scale)));
+            style.effects.scale_y_expression = style
+                .effects
+                .scale_y_expression
+                .map(|scale_y| Box::new(folder.fold_expr(*scale_y)));
+            style.effects.opacity_expression = style
+                .effects
+                .opacity_expression
+                .map(|opacity| Box::new(folder.fold_expr(*opacity)));
+            style.effects.offset_y_expression = style
+                .effects
+                .offset_y_expression
+                .map(|offset_y| Box::new(folder.fold_expr(*offset_y)));
+            Some(Node::Text {
+                value: folder.fold_expr(value),
+                style,
+            })
+        }
         Node::ContentUnavailable {
             title,
             icon,
@@ -2321,10 +2706,16 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             focused,
             max_length,
             font,
+            font_size,
+            font_family,
+            text_color,
+            placeholder_color,
+            clearable,
             min_lines,
             max_lines,
             searchable,
             actions,
+            on_focus,
             on_change,
             comment,
         } => Some(Node::TextInput {
@@ -2341,10 +2732,16 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             focused,
             max_length,
             font,
+            font_size,
+            font_family,
+            text_color,
+            placeholder_color,
+            clearable,
             min_lines,
             max_lines,
             searchable,
             actions: folder.fold_actions(actions),
+            on_focus: on_focus.map(|actions| folder.fold_actions(actions)),
             on_change: on_change.map(|mut change| {
                 change.actions = folder.fold_actions(change.actions);
                 change
@@ -2396,6 +2793,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::NavigationStack {
             root,
             arguments,
+            show_navigation_bar,
             title_mode,
             title_alignment,
         } => Some(Node::NavigationStack {
@@ -2404,6 +2802,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 .into_iter()
                 .map(|arg| folder.fold_expr(arg))
                 .collect(),
+            show_navigation_bar,
             title_mode,
             title_alignment,
         }),
@@ -2437,11 +2836,27 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             fill_max_size,
             shared_element: shared_element.map(|id| folder.fold_expr(id)),
         }),
+        Node::Shape {
+            shape,
+            width,
+            height,
+            fill,
+            width_expression,
+            height_expression,
+            animation,
+        } => Some(Node::Shape {
+            shape,
+            width,
+            height,
+            fill,
+            width_expression: width_expression.map(|expression| folder.fold_expr(expression)),
+            height_expression: height_expression.map(|expression| folder.fold_expr(expression)),
+            animation,
+        }),
         Node::Content
-        | Node::Spacer
+        | Node::Spacer { .. }
         | Node::Divider { .. }
         | Node::LinearGradient { .. }
-        | Node::Slider { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. } => Some(node),
         Node::SystemIcon {
@@ -2453,6 +2868,24 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             icon,
             description,
             size,
+            tint: match tint {
+                crate::ColorExpression::Dynamic(color) => {
+                    crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
+                }
+                other => other,
+            },
+        }),
+        Node::FontIcon {
+            font_family,
+            glyph,
+            description,
+            size,
+            tint,
+        } => Some(Node::FontIcon {
+            font_family,
+            glyph: folder.fold_expr(glyph),
+            description,
+            size: folder.fold_expr(size),
             tint: match tint {
                 crate::ColorExpression::Dynamic(color) => {
                     crate::ColorExpression::Dynamic(Box::new(folder.fold_expr(*color)))
@@ -2937,6 +3370,9 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight
+        | Expr::ScreenWidth
+        | Expr::ScreenHeight
+        | Expr::SafeAreaTop
         | Expr::This(_) => expr,
     }
 }
@@ -3097,8 +3533,137 @@ pub fn fold_network_request<F: IrFolder>(
 
 #[cfg(test)]
 mod tests {
-    use super::{walk_actions, walk_callback_actions, walk_callback_expressions};
+    use super::{
+        contains_scrollable, resolve_scroll_owner, scroll_owners, walk_actions,
+        walk_callback_actions, walk_callback_expressions,
+    };
+    use crate::adaptive_layout::{
+        LayoutEdge, ScrollAxis, ScrollOwnerId, ScrollOwnerKind, ScrollOwnerResolution,
+    };
     use crate::{Action, Expr, NativeComponentEventHandler, Node, NumericType, Type};
+
+    fn form() -> Node {
+        Node::Form {
+            show_dividers: true,
+            background: None,
+            children: Vec::new(),
+        }
+    }
+
+    fn fast_list(axis: crate::ListAxis) -> Node {
+        Node::FastList {
+            plan: Box::new(crate::ListPlan::Count {
+                count: Expr::Number {
+                    raw: "0".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                common: crate::ListCommon {
+                    axis,
+                    show_dividers: true,
+                    reverse_layout: false,
+                    page_snap: false,
+                    item_extent: None,
+                    spacing: 0.0,
+                    scroll_enabled: None,
+                    index: "index".to_owned(),
+                    key: None,
+                    scroll_position: None,
+                    component_ref: None,
+                    children: Vec::new(),
+                    on_end_reached: None,
+                    on_scroll: None,
+                    on_scroll_begin_drag: None,
+                    on_move: None,
+                    swipe_actions: None,
+                    sticky_header: None,
+                    refresh: None,
+                },
+            }),
+        }
+    }
+
+    #[test]
+    fn fast_list_scroll_owner_reports_its_declared_axis() {
+        let owners = scroll_owners(&[
+            fast_list(crate::ListAxis::Vertical),
+            fast_list(crate::ListAxis::Horizontal),
+            fast_list(crate::ListAxis::Grid { columns: 2 }),
+        ]);
+        assert_eq!(owners.len(), 3);
+        assert_eq!(owners[0].axes, ScrollAxis::Vertical);
+        assert_eq!(owners[1].axes, ScrollAxis::Horizontal);
+        assert_eq!(owners[2].axes, ScrollAxis::Both);
+        assert!(contains_scrollable(&[fast_list(
+            crate::ListAxis::Horizontal
+        )]));
+    }
+
+    #[test]
+    fn scroll_owner_analysis_tracks_kind_axis_and_stable_preorder_ids() {
+        let nodes = [
+            form(),
+            Node::PagePager {
+                state: "page".to_owned(),
+                pages: Vec::new(),
+            },
+            Node::KeyboardAware {
+                dismiss: crate::KeyboardDismissMode::Never,
+                behavior: crate::adaptive_layout::KeyboardBehavior::Stay,
+                children: vec![form()],
+            },
+            Node::KeyboardAware {
+                dismiss: crate::KeyboardDismissMode::Never,
+                behavior: crate::adaptive_layout::KeyboardBehavior::Stay,
+                children: Vec::new(),
+            },
+        ];
+        let owners = scroll_owners(&nodes);
+        assert_eq!(owners.len(), 4);
+        assert_eq!(owners[0].id, ScrollOwnerId(0));
+        assert_eq!(owners[0].kind, ScrollOwnerKind::Form);
+        assert_eq!(owners[0].axes, ScrollAxis::Vertical);
+        assert_eq!(owners[1].kind, ScrollOwnerKind::PagePager);
+        assert_eq!(owners[1].axes, ScrollAxis::Horizontal);
+        assert_eq!(owners[2].kind, ScrollOwnerKind::Form);
+        assert_eq!(owners[2].id, ScrollOwnerId(2));
+        assert_eq!(owners[3].kind, ScrollOwnerKind::KeyboardAware);
+        assert_eq!(owners[3].axes, ScrollAxis::Vertical);
+        assert_eq!(owners[3].id, ScrollOwnerId(3));
+    }
+
+    #[test]
+    fn scroll_owner_resolution_is_edge_aware_and_never_guesses() {
+        let vertical = form();
+        let horizontal = Node::PagePager {
+            state: "page".to_owned(),
+            pages: Vec::new(),
+        };
+        let unique_nodes = [vertical.clone(), horizontal.clone()];
+        assert!(matches!(
+            resolve_scroll_owner(&unique_nodes, LayoutEdge::Top, None),
+            ScrollOwnerResolution::Unique(owner) if owner.kind == ScrollOwnerKind::Form
+        ));
+        assert!(matches!(
+            resolve_scroll_owner(&unique_nodes, LayoutEdge::Leading, None),
+            ScrollOwnerResolution::Unique(owner) if owner.kind == ScrollOwnerKind::PagePager
+        ));
+        assert_eq!(
+            resolve_scroll_owner(std::slice::from_ref(&horizontal), LayoutEdge::Top, None),
+            ScrollOwnerResolution::None
+        );
+        assert!(matches!(
+            resolve_scroll_owner(&[vertical.clone(), form()], LayoutEdge::Bottom, None),
+            ScrollOwnerResolution::Ambiguous(owners) if owners.len() == 2
+        ));
+        assert!(matches!(
+            resolve_scroll_owner(&unique_nodes, LayoutEdge::Top, Some(ScrollOwnerId(1))),
+            ScrollOwnerResolution::InvalidReference(ScrollOwnerId(1))
+        ));
+        assert!(matches!(
+            resolve_scroll_owner(&[vertical], LayoutEdge::Bottom, Some(ScrollOwnerId(0))),
+            ScrollOwnerResolution::Unique(owner) if owner.id == ScrollOwnerId(0)
+        ));
+    }
 
     #[test]
     fn native_property_action_walks_receiver_and_assigned_value() {

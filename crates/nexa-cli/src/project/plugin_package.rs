@@ -68,6 +68,8 @@ pub struct PluginArtifacts {
     pub android_firebase_messaging_service: Option<String>,
     pub android_picture_in_picture: bool,
     pub android_media_playback_service: Option<String>,
+    /// Whether native sources require the generated Nexa network engine.
+    pub requires_network: bool,
 }
 
 impl PluginPackage {
@@ -119,6 +121,7 @@ impl PluginPackage {
             android_firebase_messaging_service: decl.android_firebase_messaging_service.clone(),
             android_picture_in_picture: decl.android_picture_in_picture,
             android_media_playback_service: decl.android_media_playback_service.clone(),
+            requires_network: decl.requires_network,
         };
         Self {
             namespace: decl.namespace.clone(),
@@ -180,6 +183,9 @@ impl PluginPackage {
             android_firebase_messaging_service: manifest.android.firebase_messaging_service,
             android_picture_in_picture: manifest.android.picture_in_picture,
             android_media_playback_service: manifest.android.media_playback_service,
+            requires_network: manifest
+                .host_capabilities
+                .contains(&nexa_plugin_idl::manifest::HostCapability::Network),
         };
         Ok(Some(Self {
             namespace: namespace.to_owned(),
@@ -305,6 +311,7 @@ mod tests {
             android_firebase_messaging_service: None,
             android_picture_in_picture: false,
             android_media_playback_service: None,
+            requires_network: false,
         }
     }
 
@@ -344,10 +351,12 @@ mod tests {
     fn from_decl_carries_identity_and_artifacts() {
         let mut declaration = declaration("Video", false);
         declaration.android_picture_in_picture = true;
+        declaration.requires_network = true;
         let package = PluginPackage::from_decl(&declaration);
         assert_eq!(package.namespace, "Video");
         assert_eq!(package.idl_path, "/Video/native.nxid");
         assert!(package.artifacts.android_picture_in_picture);
+        assert!(package.artifacts.requires_network);
         assert_eq!(package.artifacts.ios_sources, vec!["/Video/ios"]);
         assert_eq!(
             package.artifacts.ios_extension_sources,

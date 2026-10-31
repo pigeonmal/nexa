@@ -96,6 +96,10 @@ pub(crate) struct Features {
     pub(crate) uses_pinch: bool,
     pub(crate) uses_column: bool,
     pub(crate) uses_form: bool,
+    pub(crate) uses_safe_area_padding: bool,
+    pub(crate) uses_safe_area_inset: bool,
+    pub(crate) uses_safe_area_endpoint: bool,
+    pub(crate) uses_scroll_header: bool,
     pub(crate) uses_row: bool,
     pub(crate) uses_box: bool,
     pub(crate) uses_alignment: bool,
@@ -106,11 +110,14 @@ pub(crate) struct Features {
     pub(crate) uses_border: bool,
     pub(crate) uses_padding: bool,
     pub(crate) uses_width: bool,
+    pub(crate) uses_fill_max_width: bool,
     pub(crate) uses_height: bool,
+    pub(crate) uses_fill_max_height: bool,
     pub(crate) uses_width_in: bool,
     pub(crate) uses_height_in: bool,
     pub(crate) uses_corner_radius: bool,
     pub(crate) uses_opacity: bool,
+    pub(crate) uses_translation: bool,
     pub(crate) uses_graphics_layer: bool,
     pub(crate) uses_drop_shadow: bool,
     pub(crate) uses_blur: bool,
@@ -310,6 +317,12 @@ impl Features {
 
         let layout = &ui.layout;
         self.uses_form = layout.form;
+        self.uses_safe_area_padding = layout.safe_area_padding;
+        self.uses_safe_area_inset = layout.safe_area_inset;
+        self.uses_scroll_header = layout.scroll_header;
+        // Compose lazy lists need explicit content padding to match SwiftUI's
+        // native safe-area adjustment while leaving their viewport edge-to-edge.
+        self.uses_safe_area_endpoint = layout.safe_area_endpoint || lists.any;
         self.uses_column |= layout.column;
         self.uses_row = layout.row;
         self.uses_box |= layout.box_;
@@ -333,14 +346,18 @@ impl Features {
         self.uses_alignment = style.alignment;
         self.uses_padding |= style.padding;
         self.uses_width |= style.width;
+        self.uses_fill_max_width |= style.fill_max_width;
         self.uses_height |= style.height;
+        self.uses_fill_max_height |= style.fill_max_height;
         self.uses_width_in = style.width_in;
         self.uses_height_in = style.height_in;
         self.uses_background = style.background;
         self.uses_border = style.border;
         self.uses_corner_radius = style.corner_radius;
         self.uses_opacity = style.opacity;
-        self.uses_graphics_layer = style.scale || style.rotation;
+        self.uses_translation = style.translation;
+        self.uses_graphics_layer =
+            style.scale || style.rotation || style.translation || style.opacity;
         self.uses_drop_shadow = style.shadow;
         self.uses_blur = style.blur;
         self.uses_glass = style.glass;
@@ -368,8 +385,13 @@ impl Features {
             || ui.components.values().any(|scope| {
                 scope.adaptive_background || scope.adaptive_border || scope.adaptive_text
             });
-        self.uses_size_class =
-            ui.app.size_class || ui.components.values().any(|scope| scope.size_class);
+        self.uses_size_class = ui.app.size_class
+            || ui.components.values().any(|scope| scope.size_class)
+            || ui.app.screen_geometry
+            || ui.screens.values().any(|scope| scope.screen_geometry)
+            || ui.components.values().any(|scope| scope.screen_geometry)
+            || ui.style.screen_height_fraction
+            || ui.style.screen_width_fraction;
         self.uses_navigation_link = ui.navigation_link;
         self.uses_navigation_back = ui.app.navigation_back
             || ui.app.navigation_actions

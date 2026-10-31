@@ -124,12 +124,12 @@ fn write_statements(ty: &Type, expression: &str, writer: &str) -> Vec<String> {
             let error_type = kotlin_type(error_type);
             vec![
                 format!("when ({expression}) {{"),
-                "    is NexaResult.Success<*> -> {".to_owned(),
+                "    is dev.nexa.core.NexaResult.Success<*> -> {".to_owned(),
                 format!("        {writer}.writeBool(true)"),
                 format!("        val payload = ({expression}.value as {value_type})"),
                 format!("        {value_codec}(payload, {writer})"),
                 "    }".to_owned(),
-                "    is NexaResult.Failure<*> -> {".to_owned(),
+                "    is dev.nexa.core.NexaResult.Failure<*> -> {".to_owned(),
                 format!("        {writer}.writeBool(false)"),
                 format!("        val failure = ({expression}.error as {error_type})"),
                 format!("        {error_codec}(failure, {writer})"),
@@ -304,13 +304,13 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
             lines.extend(read_binding_statements(
                 value_type, reader, "payload", "    ",
             ));
-            lines.push("    return NexaResult.Success(payload)".to_owned());
+            lines.push("    return dev.nexa.core.NexaResult.Success(payload)".to_owned());
             lines.push("}".to_owned());
             lines.push(format!(
                 "val failure = {}({reader}) ?: return null",
                 codec_name(error_type, Direction::Read)
             ));
-            lines.push("return NexaResult.Failure(failure)".to_owned());
+            lines.push("return dev.nexa.core.NexaResult.Failure(failure)".to_owned());
             lines
         }
         Type::Struct { name, fields } => {
@@ -452,12 +452,12 @@ mod tests {
         let write = write_statements(&result, "value", "writer").join("\n");
         let read = read_statements(&result, "reader").join("\n");
 
-        assert!(write.contains("is NexaResult.Success<*>"));
+        assert!(write.contains("is dev.nexa.core.NexaResult.Success<*>"));
         assert!(write.contains("writer.writeBool(true)"));
-        assert!(write.contains("is NexaResult.Failure<*>"));
+        assert!(write.contains("is dev.nexa.core.NexaResult.Failure<*>"));
         assert!(write.contains("writer.writeBool(false)"));
-        assert!(read.contains("return NexaResult.Success(payload)"));
-        assert!(read.contains("return NexaResult.Failure(failure)"));
+        assert!(read.contains("return dev.nexa.core.NexaResult.Success(payload)"));
+        assert!(read.contains("return dev.nexa.core.NexaResult.Failure(failure)"));
     }
 
     #[test]
@@ -518,6 +518,6 @@ mod tests {
         let result_read = read_statements(&result, "reader").join("\n");
         assert!(result_read.contains("val nexaDecoded_payload = nexaReadoptional_string(reader)"));
         assert!(result_read.contains("val payload = nexaDecoded_payload.value as String?"));
-        assert!(result_read.contains("return NexaResult.Success(payload)"));
+        assert!(result_read.contains("return dev.nexa.core.NexaResult.Success(payload)"));
     }
 }

@@ -4,6 +4,101 @@ use nexa_compiler::{IncrementalProjectCompiler, Target};
 use nexa_testkit::TestProject;
 
 #[test]
+fn config_icon_aliases_resolve_in_component_icon_parameters_on_both_targets() {
+    let project = TestProject::new("nexa-project-custom-icon-font");
+    project.write("assets/fonts/Mazicon.ttf", b"test fixture font bytes");
+    project.write_config(
+        r#"config {
+            assets {
+                iconFonts { Mazicon: "assets/fonts/Mazicon.ttf" },
+                icons { mazica_play: ["Mazicon", 61696] }
+            }
+        }"#,
+    );
+    let entry = project.write_app(
+        r##"component PlayButton() {
+            body { Button("Play", icon: "mazica_play") {} }
+        }
+        app Demo {
+            state selected: String = "First"
+            state selectedTab: Int32 = 0
+            body {
+                PlayButton()
+                Picker(items: ["First"], selected: selected, icon: "mazica_play", itemIcons: ["mazica_play"])
+                ContentUnavailable(title: "Empty", icon: "mazica_play")
+                Icon(system: "mazica_play", description: "Play", size: 24, tint: "#FFFFFF")
+                Pressable() { Text("Row") }
+                    .onTap { }
+                    .contextMenu { Button("Play", icon: "mazica_play") {} }
+                AppBottomBar(selected: selectedTab) {
+                    Tab(index: 0, label: "Play", icon: "mazica_play") { Text("Main") }
+                }
+            }
+        }"##,
+    );
+
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = nexa_compiler::compile_file_for_target(&entry, target)
+            .expect("project icon aliases should resolve during semantic lowering");
+        let expected =
+            nexa_ir::SystemIcon::font_glyph("Mazicon", 61696).expect("valid fixture glyph");
+        let play_button = module
+            .components
+            .iter()
+            .find(|component| component.name == "PlayButton")
+            .expect("component lowered");
+        assert!(matches!(
+            play_button.body.as_slice(),
+            [nexa_ir::Node::Button { icon: Some(icon), .. }] if *icon == expected
+        ));
+        assert!(module.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::Picker {
+                icon: Some(icon),
+                item_icons,
+                ..
+            } if *icon == expected && item_icons.as_slice() == std::slice::from_ref(&expected)
+        )));
+        assert!(module.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::ContentUnavailable { icon, .. } if *icon == expected
+        )));
+        assert!(module.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::SystemIcon { icon, .. } if *icon == expected
+        )));
+        assert!(module.body.iter().any(|node| matches!(
+            node,
+            nexa_ir::Node::Pressable { context_menu, .. }
+                if matches!(context_menu.as_slice(), [nexa_ir::Node::Button { icon: Some(icon), .. }] if *icon == expected)
+        )));
+        assert!(matches!(
+            module.body.iter().find(|node| matches!(node, nexa_ir::Node::AppBottomBar { .. })),
+            Some(nexa_ir::Node::AppBottomBar { tabs, .. })
+                if matches!(tabs.as_slice(), [tab] if tab.icon.as_ref() == Some(&expected))
+        ));
+        match target {
+            Target::Swift => {
+                let generated = nexa_backend_swift::SwiftBackend.generate_units(&module);
+                assert!(generated.units.iter().any(|unit| {
+                    unit.contents
+                        .contains("NexaIconSpec(glyph: Int32(61696), fontFamily: \"Mazicon\")")
+                }));
+            }
+            Target::Kotlin => {
+                let generated =
+                    nexa_codegen::Backend::generate(&nexa_backend_kotlin::KotlinBackend, &module);
+                assert!(
+                    generated
+                        .contains("NexaIconSpec(glyph = 61696, fontResource = R.font.mazicon)")
+                );
+            }
+            Target::All => unreachable!("test compiles one target at a time"),
+        }
+    }
+}
+
+#[test]
 fn imported_file_scope_values_are_shared_with_persistence_functions_on_both_targets() {
     let project = TestProject::new("nexa-imported-file-scope-values");
     let entry = project.join("App.nx");

@@ -13,16 +13,33 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.facts.capabilities.uses_json_api, "Foundation");
 }
 
-pub(crate) fn render(types: &[Type], enums: &[EnumDecl], out: &mut SourceWriter) {
+pub(crate) fn render(
+    types: &[Type],
+    enums: &[EnumDecl],
+    uses_storage_api: bool,
+    out: &mut SourceWriter,
+) {
     out.push_str(RUNTIME);
     out.push('\n');
+    // Storage's typed `get` API uses this error type even when the source app
+    // never calls `Json.parse` directly. The semantic compiler adds the
+    // built-in enum for explicit parse calls; storage-only apps need the
+    // backend-owned fallback here.
+    if !enums
+        .iter()
+        .any(|declaration| declaration.name == "JsonError")
+    {
+        out.push_str(
+            "enum NexaJsonError: Error {\n    case invalidJson\n    case typeMismatch\n    case missingField\n    case invalidValue\n}\n\n",
+        );
+    }
     for ty in types {
         render_type_codec(ty, enums, out);
     }
-    render_api(out);
+    render_api(uses_storage_api, out);
 }
 
-fn render_api(out: &mut SourceWriter) {
+fn render_api(uses_storage_api: bool, out: &mut SourceWriter) {
     out.push_str(
         r#"func nexaJsonParse<Codec: NexaJsonValueCodec>(
     _ raw: String,
@@ -65,6 +82,20 @@ func nexaJsonStringify<Codec: NexaJsonValueCodec>(
 }
 "#,
     );
+    if uses_storage_api {
+        out.push_str(
+            r#"
+func nexaStorageGetJson<Codec: NexaJsonValueCodec>(
+    _ key: String,
+    using codec: Codec.Type
+) -> Codec.Value? {
+    guard let raw = NexaStorage.getJson(key) else { return nil }
+    guard case .success(let value) = nexaJsonParse(raw, using: codec) else { return nil }
+    return value
+}
+"#,
+        );
+    }
 }
 
 fn render_type_codec(ty: &Type, enums: &[EnumDecl], out: &mut SourceWriter) {
@@ -217,13 +248,6 @@ fn is_float32(numeric: nexa_ir::NumericType) -> bool {
 }
 
 const RUNTIME: &str = r#"// Statically typed JSON codec primitives.
-
-enum NexaJsonError: Error {
-    case invalidValue
-    case missingField
-    case typeMismatch
-    case invalidJson
-}
 
 protocol NexaJsonValueCodec {
     associatedtype Value
@@ -550,14 +574,51 @@ mod tests {
     #[test]
     fn runtime_uses_typed_results_and_handles_non_finite_float_values() {
         let mut output = SourceWriter::new();
-        render(&[], &[], &mut output);
+        render(&[], &[], false, &mut output);
         let generated = output.finish();
         assert!(generated.contains("enum NexaJsonError: Error {"));
-        assert!(generated.contains("case missingField"));
-        assert!(generated.contains("case typeMismatch"));
+        assert!(generated.contains("return .failure(.missingField)"));
+        assert!(generated.contains("return .failure(.typeMismatch)"));
         assert!(generated.contains("Result<Codec.Value, NexaJsonError>"));
         assert!(generated.contains("positiveInfinity: \"Infinity\""));
         assert!(generated.contains("static func encodeJSON(_ value: Double"));
         assert!(generated.contains("NexaJsonWriter"));
+    }
+
+    #[test]
+    fn built_in_json_error_is_not_duplicated_when_explicit_parse_uses_it() {
+        let mut output = SourceWriter::new();
+        render(
+            &[],
+            &[EnumDecl {
+                name: "JsonError".to_owned(),
+                cases: vec![
+                    "invalidJson".to_owned(),
+                    "typeMismatch".to_owned(),
+                    "missingField".to_owned(),
+                    "invalidValue".to_owned(),
+                ],
+            }],
+            false,
+            &mut output,
+        );
+        assert_eq!(
+            output
+                .finish()
+                .matches("enum NexaJsonError: Error {")
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn storage_codec_helper_is_emitted_only_when_storage_is_used() {
+        let mut without_storage = SourceWriter::new();
+        render(&[], &[], false, &mut without_storage);
+        assert!(!without_storage.finish().contains("NexaStorage.getJson"));
+
+        let mut with_storage = SourceWriter::new();
+        render(&[], &[], true, &mut with_storage);
+        assert!(with_storage.finish().contains("NexaStorage.getJson"));
     }
 }

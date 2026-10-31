@@ -85,6 +85,8 @@ public enum NexaDevKeys {
     public static let componentRef = "component_ref"
     public static let arguments = "arguments"
     public static let children = "children"
+    public static let plan = "plan"
+    public static let content = "content"
 
     // Pressable fields
     public static let dragParameters = "drag_parameters"
@@ -131,6 +133,7 @@ public enum NexaDevNodeKind {
     public static let contentUnavailable = "ContentUnavailable"
     public static let spacer = "Spacer"
     public static let divider = "Divider"
+    public static let shape = "Shape"
     public static let button = "Button"
     public static let pressable = "Pressable"
     public static let textInput = "TextInput"
@@ -148,6 +151,9 @@ public enum NexaDevNodeKind {
     public static let link = "Link"
     public static let accessibility = "Accessibility"
     public static let keyboardAware = "KeyboardAware"
+    public static let safeAreaPadding = "SafeAreaPadding"
+    public static let safeAreaInset = "SafeAreaInset"
+    public static let scrollHeader = "ScrollHeader"
     public static let appBottomBar = "AppBottomBar"
     public static let pagePager = "PagePager"
     public static let bottomSheet = "BottomSheet"

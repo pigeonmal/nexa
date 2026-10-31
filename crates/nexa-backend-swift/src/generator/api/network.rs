@@ -270,6 +270,11 @@ private final class NexaURLSessionDelegate: NSObject, URLSessionTaskDelegate {
 }
 
 public enum NexaNetwork {
+    /// Shared URLSession for native networking plugins in this app.
+    public static var sharedURLSession: URLSession {
+        NexaURLSessionSupport.sharedSession
+    }
+
     private static func urlRequestCachePolicy(_ value: String) -> URLRequest.CachePolicy {
         switch value {
         case "Reload": return .reloadIgnoringLocalCacheData
@@ -795,6 +800,27 @@ mod tests {
         assert!(output.contains("public static func isOnline() -> Bool"));
         assert!(output.contains("public static func onStatusChange("));
         assert!(!output.contains("public static func fetch("));
+    }
+
+    #[test]
+    fn native_plugins_can_reuse_the_generated_urlsession() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+
+        assert!(output.contains("public static var sharedURLSession: URLSession"));
+        assert!(output.contains("NexaURLSessionSupport.sharedSession"));
+
+        let mut without_network = SourceWriter::new();
+        render(
+            &mut without_network,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+        assert!(!without_network.contains("sharedURLSession"));
     }
 
     #[test]

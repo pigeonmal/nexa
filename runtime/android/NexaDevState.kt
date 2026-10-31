@@ -39,6 +39,18 @@ internal class NexaDevLocatedRuntimeException(
 
 private data class NexaDevSourceLocation(val file: String, val line: Int, val column: Int)
 
+private val NEXA_DEV_PRESENTATION_PATCH_FIELDS = setOf(
+    "text", "label", "placeholder", "icon", "icon_spec", "source", "tint",
+    "color", "background", "border_color", "border_width", "corner_radius",
+    "padding", "padding_horizontal", "padding_vertical", "width", "height",
+    "min_width", "max_width", "min_height", "max_height", "opacity", "alignment",
+    "horizontal_arrangement", "vertical_arrangement", "font_size", "font_weight",
+    "font_family", "font_style", "font_design", "line_limit", "line_height",
+    "letter_spacing", "strikethrough", "italic", "underline", "text_alignment",
+    "fill_max_width", "screen_width_fraction", "scale", "scale_y", "rotation",
+    "offset_y", "accessibility_label", "style",
+)
+
 private fun sourceLocation(fields: JSONObject): NexaDevSourceLocation? {
     val file = fields.optString("source_file").takeIf(String::isNotBlank) ?: return null
     val span = fields.optJSONObject("source_span") ?: return null
@@ -142,6 +154,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal val activeFunctions = mutableSetOf<String>()
     var module by mutableStateOf<JSONObject?>(null)
         private set
+    private var currentModule: JSONObject? = null
     var appLifecycleEpoch by mutableIntStateOf(0)
         private set
     var diagnostics by mutableStateOf<List<NexaDevDiagnostic>>(emptyList())
@@ -152,8 +165,65 @@ internal class NexaDevStateStore(internal val context: Context) {
     @Volatile var runtimeTraceEnabled = false
     var navigationEpoch by mutableIntStateOf(0)
         private set
+    @Volatile var currentNavController: androidx.navigation.NavHostController? = null
+    private val activeNavControllers = java.util.concurrent.CopyOnWriteArrayList<androidx.navigation.NavHostController>()
+
+    fun registerNavController(controller: androidx.navigation.NavHostController) {
+        if (!activeNavControllers.contains(controller)) {
+            activeNavControllers.add(controller)
+        }
+        currentNavController = controller
+    }
+
+    fun unregisterNavController(controller: androidx.navigation.NavHostController) {
+        activeNavControllers.remove(controller)
+        if (currentNavController === controller) {
+            currentNavController = activeNavControllers.lastOrNull()
+        }
+    }
+
+    fun popNavigation(explicitController: androidx.navigation.NavHostController? = null): Boolean {
+        if (explicitController != null) {
+            try {
+                if (explicitController.previousBackStackEntry != null) {
+                    return explicitController.popBackStack()
+                }
+            } catch (_: Throwable) {}
+        }
+        for (controller in activeNavControllers.asReversed()) {
+            try {
+                if (controller.previousBackStackEntry != null) {
+                    return controller.popBackStack()
+                }
+            } catch (_: Throwable) {}
+        }
+        val current = currentNavController
+        if (current != null && current !== explicitController) {
+            try {
+                if (current.previousBackStackEntry != null) {
+                    return current.popBackStack()
+                }
+            } catch (_: Throwable) {}
+        }
+        return false
+    }
+
+    var languageOverride by mutableStateOf<String?>(
+        context.getSharedPreferences("dev.nexa.locale.v1", Context.MODE_PRIVATE).getString("override", null)
+    )
+        private set
     var moduleRevision by mutableIntStateOf(0)
         internal set
+
+    fun updateLanguageOverride(code: String?) {
+        val preferences = context.getSharedPreferences("dev.nexa.locale.v1", Context.MODE_PRIVATE)
+        preferences.edit().apply {
+            if (code == null) remove("override") else putString("override", code)
+        }.apply()
+        languageOverride = code
+        navigationEpoch++
+        moduleRevision++
+    }
     private var navigationRoot: String? = null
     private var navigationScreensSignature: String? = null
     internal val nativeEventSubscriptions = mutableListOf<NexaDevNativeEventSubscription>()
@@ -171,7 +241,10 @@ internal class NexaDevStateStore(internal val context: Context) {
     }
 
     fun installTranslations(translations: JSONObject?) {
-        hotTranslations = translations?.let { JSONObject(it.toString()) } ?: JSONObject()
+        // The protocol decoder owns this immutable patch tree for the lifetime
+        // of the installed translations. Retain it directly instead of
+        // stringifying and reparsing the complete translation catalog.
+        hotTranslations = translations ?: JSONObject()
         moduleRevision += 1
     }
 
@@ -182,7 +255,10 @@ internal class NexaDevStateStore(internal val context: Context) {
         locals: Map<String, Any> = emptyMap(),
         scope: String = "app",
     ): String {
-        val locale = Locale.getDefault()
+        val override = languageOverride
+        val locale = override
+            ?.let(Locale::forLanguageTag)
+            ?: Locale.getDefault()
         val language = locale.toLanguageTag().replace('_', '-')
         val baseLanguage = locale.language
         val localized = hotTranslations.optJSONObject(language)?.opt(key)
@@ -349,14 +425,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             .toString()
     }
 
-    fun install(next: JSONObject) {
-        val isHotReplacement = hasInstalledModule
-        if (isHotReplacement) {
-            clearNativeTasks()
-            animationSpecs.clear()
-        }
-        val screens = next.optJSONArray("screens") ?: JSONArray()
-        val states = next.optJSONArray("states") ?: JSONArray()
+    private fun installFunctionRegistry(next: JSONObject) {
         val nextFunctions = next.optJSONArray("functions") ?: JSONArray()
         val installedFunctions = LinkedHashMap<String, JSONObject>(nextFunctions.length())
         for (index in 0 until nextFunctions.length()) {
@@ -364,9 +433,9 @@ internal class NexaDevStateStore(internal val context: Context) {
             val name = function.optString("name").takeIf(String::isNotEmpty) ?: continue
             installedFunctions[name] = function
         }
-        val nextComponents = next.optJSONArray("components") ?: JSONArray()
-        for (index in 0 until nextComponents.length()) {
-            val component = nextComponents.optJSONObject(index) ?: continue
+        val components = next.optJSONArray("components") ?: JSONArray()
+        for (index in 0 until components.length()) {
+            val component = components.optJSONObject(index) ?: continue
             val methods = component.optJSONArray(NexaDevKeys.REF_METHODS) ?: continue
             for (methodIndex in 0 until methods.length()) {
                 val method = methods.optJSONObject(methodIndex) ?: continue
@@ -381,6 +450,18 @@ internal class NexaDevStateStore(internal val context: Context) {
             installedClassTypes[classType.optString("name")] = classType
         }
         classTypes = installedClassTypes
+    }
+
+    fun install(next: JSONObject) {
+        val isHotReplacement = hasInstalledModule
+        if (isHotReplacement) {
+            clearNativeTasks()
+            animationSpecs.clear()
+        }
+        val screens = next.optJSONArray("screens") ?: JSONArray()
+        val states = next.optJSONArray("states") ?: JSONArray()
+        installFunctionRegistry(next)
+        val nextComponents = next.optJSONArray("components") ?: JSONArray()
         val nextStructs = next.optJSONArray("structs") ?: JSONArray()
         val installedStructs = LinkedHashMap<String, JSONArray>(nextStructs.length())
         for (index in 0 until nextStructs.length()) {
@@ -501,6 +582,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             navigationScreensSignature = currentScreensSignature
             navigationEpoch++
         }
+        currentModule = next
         module = next
         if (isHotReplacement) refreshNativeEventSubscriptions(next)
         moduleRevision++
@@ -516,7 +598,7 @@ internal class NexaDevStateStore(internal val context: Context) {
         clearNativeEventSubscriptions()
         animationSpecs.clear()
         activeScreenParameters.clear()
-        val current = module ?: return
+        val current = currentModule ?: module ?: return
         val states = current.optJSONArray("states") ?: JSONArray()
         val screens = current.optJSONArray("screens") ?: JSONArray()
         values.clear()
@@ -550,18 +632,148 @@ internal class NexaDevStateStore(internal val context: Context) {
     }
 
     fun applyPatch(patch: JSONObject): Boolean {
-        val root = module ?: return false
+        val root = currentModule ?: module ?: return false
         val operations = patch.optJSONArray("operations") ?: return false
-        // Copy only objects and arrays along edited paths. Serializing and
-        // reparsing the full module for every text/style edit made reload time
-        // proportional to the size of the whole app rather than the patch.
-        val updated = shallowCopy(root) as? JSONObject ?: return false
+        val presentationOnly = isPresentationPatch(operations)
+        val functionBodiesOnly = !presentationOnly && isFunctionBodyPatch(operations)
+        android.util.Log.i(
+            "NexaDevRuntime",
+            "Patch ops=${operations.length()} presentation=$presentationOnly functionBodies=$functionBodiesOnly translations=${patch.has("translations")} firstPath=${operations.optJSONObject(0)?.optString("path")}",
+        )
+
+        // Validate the full patch before mutating. The server emits trusted
+        // patches, but preflight also keeps a malformed patch from partially
+        // altering the last-good module.
         for (index in 0 until operations.length()) {
             val operation = operations.optJSONObject(index) ?: return false
-            if (!applyOperation(updated, operation)) return false
+            if (!validateOperation(root, operation)) return false
         }
+        for (index in 0 until operations.length()) {
+            val operation = operations.optJSONObject(index) ?: return false
+            if (!applyOperation(root, operation)) return false
+        }
+        val screenIndices = if (!presentationOnly && !functionBodiesOnly) isScreenScopedPatch(operations) else null
+        when {
+            presentationOnly -> {
+                val updated = shallowCopy(root) as? JSONObject ?: return false
+                currentModule = updated
+                module = updated
+                diagnostics = emptyList()
+                return true
+            }
+            functionBodiesOnly -> {
+                if (!installPatchedFunctions(root, operations)) {
+                    installFunctionRegistry(root)
+                }
+                currentModule = root
+                diagnostics = emptyList()
+                return true
+            }
+            screenIndices != null -> {
+                installPatchedScreens(root, screenIndices)
+                val updated = shallowCopy(root) as? JSONObject ?: return false
+                currentModule = updated
+                module = updated
+                diagnostics = emptyList()
+                return true
+            }
+        }
+        val updated = shallowCopy(root) as? JSONObject ?: return false
         install(updated)
         return true
+    }
+
+    private fun isPresentationPatch(operations: JSONArray): Boolean {
+        for (index in 0 until operations.length()) {
+            val path = operations.optJSONObject(index)?.optString("path") ?: return false
+            val segments = path.removePrefix("/").split('/')
+                .map { it.replace("~1", "/").replace("~0", "~") }
+            val bodyIndex = when {
+                segments.firstOrNull() == "body" -> 0
+                segments.firstOrNull() == "screens" && segments.getOrNull(2) == "body" -> 2
+                segments.firstOrNull() == "components" && segments.getOrNull(2) == "body" -> 2
+                else -> return false
+            }
+            if (segments.size < bodyIndex + 4 || segments.last() !in NEXA_DEV_PRESENTATION_PATCH_FIELDS) return false
+        }
+        return true
+    }
+
+    /** Update only changed function entries for body-only hot reloads. */
+    private fun installPatchedFunctions(next: JSONObject, operations: JSONArray): Boolean {
+        val declarations = next.optJSONArray("functions") ?: return false
+        for (index in 0 until operations.length()) {
+            val path = operations.optJSONObject(index)?.optString("path") ?: return false
+            val segments = path.removePrefix("/").split('/')
+            if (segments.size < 3 || segments[0] != "functions"
+                || (segments[2] != "body" && segments[2] != "body_actions")
+            ) {
+                return false
+            }
+            val declarationIndex = segments[1].toIntOrNull() ?: return false
+            val declaration = declarations.optJSONObject(declarationIndex) ?: return false
+            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: return false
+            functions[name] = declaration
+        }
+        return true
+    }
+
+    private fun isFunctionBodyPatch(operations: JSONArray): Boolean {
+        if (operations.length() == 0) return false
+        for (index in 0 until operations.length()) {
+            val path = operations.optJSONObject(index)?.optString("path") ?: return false
+            val segments = path.removePrefix("/").split('/')
+            if (segments.size < 3 || segments[0] != "functions"
+                || (segments[2] != "body" && segments[2] != "body_actions")
+            ) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun isScreenScopedPatch(operations: JSONArray): Set<Int>? {
+        if (operations.length() == 0) return null
+        val indices = mutableSetOf<Int>()
+        for (index in 0 until operations.length()) {
+            val path = operations.optJSONObject(index)?.optString("path") ?: return null
+            val segments = path.removePrefix("/").split('/')
+            if (segments.size < 2 || segments[0] != "screens") return null
+            val screenIndex = segments[1].toIntOrNull() ?: return null
+            indices.add(screenIndex)
+        }
+        return indices
+    }
+
+    private fun installPatchedScreens(next: JSONObject, screenIndices: Set<Int>) {
+        val screens = next.optJSONArray("screens") ?: return
+        for (screenIndex in screenIndices) {
+            val screen = screens.optJSONObject(screenIndex) ?: continue
+            val screenName = screen.optString("name").takeIf(String::isNotEmpty) ?: continue
+            val scope = "screen/$screenName"
+            val screenStates = screen.optJSONArray("states") ?: JSONArray()
+            val currentScreenKeys = mutableSetOf<String>()
+            for (stateIndex in 0 until screenStates.length()) {
+                val declaration = screenStates.optJSONObject(stateIndex) ?: continue
+                val name = declaration.optString("name")
+                val identity = "$scope/state/$name"
+                currentScreenKeys.add(identity)
+                val typeSignature = stateShapeSignature(declaration.opt("ty"), enumCases)
+                val previousType = typeSignatures[identity]
+                val previousValue = values[identity]
+                if (previousType != typeSignature || previousValue == null) {
+                    typeSignatures[identity] = typeSignature
+                    if (declaration.has("initial")) {
+                        values[identity] = evaluate(declaration.get("initial"), emptyMap(), scope)
+                    }
+                }
+            }
+            val obsoleteKeys = values.keys.filter { it.startsWith("$scope/state/") && it !in currentScreenKeys }
+            for (key in obsoleteKeys) {
+                values.remove(key)
+                typeSignatures.remove(key)
+            }
+        }
     }
 
     private fun shallowCopy(value: Any): Any? = when (value) {
@@ -583,6 +795,40 @@ internal class NexaDevStateStore(internal val context: Context) {
         val kind = operation.optString("op")
         val value = operation.opt("value")
         return updateContainer(root, path, 0, kind, value)
+    }
+
+    private fun validateOperation(container: Any, operation: JSONObject): Boolean {
+        val path = operation.optString("path")
+        val kind = operation.optString("op")
+        if (kind != "set" && kind != "remove") return false
+        return validateContainer(container, path, 0, kind)
+    }
+
+    private fun validateContainer(container: Any, path: String, pathOffset: Int, kind: String): Boolean {
+        var segmentStart = pathOffset
+        while (segmentStart < path.length && path[segmentStart] == '/') segmentStart++
+        if (segmentStart >= path.length) return false
+        val segmentEnd = path.indexOf('/', segmentStart).let { if (it < 0) path.length else it }
+        val rawSegment = path.substring(segmentStart, segmentEnd)
+        val key = if ('~' in rawSegment) rawSegment.replace("~1", "/").replace("~0", "~") else rawSegment
+        var nextOffset = segmentEnd
+        while (nextOffset < path.length && path[nextOffset] == '/') nextOffset++
+        val isLeaf = nextOffset >= path.length
+        return when (container) {
+            is JSONObject -> if (isLeaf) true else {
+                val child = container.opt(key) ?: return false
+                validateContainer(child, path, nextOffset, kind)
+            }
+            is JSONArray -> {
+                val arrayIndex = key.toIntOrNull() ?: return false
+                if (arrayIndex !in 0 until container.length()) return false
+                if (isLeaf) kind == "set" else {
+                    val child = container.opt(arrayIndex) ?: return false
+                    validateContainer(child, path, nextOffset, kind)
+                }
+            }
+            else -> false
+        }
     }
 
     private fun updateContainer(
@@ -615,9 +861,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                 return true
             }
             val child = container.opt(key) ?: return false
-            val childCopy = shallowCopy(child) ?: return false
-            container.put(key, childCopy)
-            return updateContainer(childCopy, path, nextOffset, kind, value)
+            return updateContainer(child, path, nextOffset, kind, value)
         }
         if (container is JSONArray) {
             val arrayIndex = key.toIntOrNull() ?: return false
@@ -630,9 +874,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                 return false
             }
             val child = container.opt(arrayIndex) ?: return false
-            val childCopy = shallowCopy(child) ?: return false
-            container.put(arrayIndex, childCopy)
-            return updateContainer(childCopy, path, nextOffset, kind, value)
+            return updateContainer(child, path, nextOffset, kind, value)
         }
         return false
     }
@@ -798,6 +1040,9 @@ internal class NexaDevStateStore(internal val context: Context) {
         val expression = when (raw) {
             is JSONObject -> raw
             is String -> return when (raw) {
+                "ScreenWidth" -> locals["__nexa_screen_width"] ?: 0.0
+                "ScreenHeight" -> locals["__nexa_screen_height"] ?: 0.0
+                "SafeAreaTop" -> locals["__nexa_safe_area_top"] ?: 0.0
                 "IsRegularWidth", "IsRegularHeight" -> true
                 "IsCompactWidth", "IsCompactHeight" -> false
                 else -> raw
@@ -907,7 +1152,12 @@ internal class NexaDevStateStore(internal val context: Context) {
             }
             "State", "AnimatedState" -> {
                 val name = (payload as? JSONArray)?.optString(0) ?: payload?.toString() ?: ""
-                locals[name] ?: moduleValues[name] ?: state(name, scope)
+                val presented = if (kind == "AnimatedState") {
+                    locals["__nexa_presented_animated:$name"]
+                } else {
+                    null
+                }
+                presented ?: locals[name] ?: moduleValues[name] ?: state(name, scope)
             }
             "This" -> locals["this"] ?: JSONObject.NULL
             "Interpolation" -> {
@@ -1069,6 +1319,22 @@ internal class NexaDevStateStore(internal val context: Context) {
                     "ResultIsSuccess" -> return (base as? Map<*, *>)?.containsKey("Ok") == true
                     "ResultValue" -> return (base as? Map<*, *>)?.get("Ok") ?: JSONObject.NULL
                     "ResultError" -> return (base as? Map<*, *>)?.get("Err") ?: JSONObject.NULL
+                    "NetworkBody" -> return (base as? Map<*, *>)?.get("body") ?: (base as? Map<*, *>)?.get("text") ?: JSONObject.NULL
+                    "NetworkStatusCode" -> return (base as? Map<*, *>)?.get("statusCode") ?: 0
+                    "StringTrimmed" -> return (base as? String)?.trim() ?: JSONObject.NULL
+                    "CollectionCount" -> return when (base) {
+                        is Collection<*> -> base.size
+                        is Map<*, *> -> base.size
+                        is JSONObject -> base.length()
+                        else -> JSONObject.NULL
+                    }
+                    "CollectionIsEmpty" -> return when (base) {
+                        is Collection<*> -> base.isEmpty()
+                        is Map<*, *> -> base.isEmpty()
+                        is JSONObject -> base.length() == 0
+                        else -> JSONObject.NULL
+                    }
+                    "SignalValue" -> return base ?: JSONObject.NULL
                 }
                 if (kind?.has("ClassStaticField") == true) {
                     val owner = fields.optJSONObject("base_type")?.optJSONObject("Class")?.optString("name").orEmpty()
@@ -1257,6 +1523,12 @@ internal class NexaDevStateStore(internal val context: Context) {
                         else JSONObject.NULL
                     }
                     "LocalizedDate" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedDate) ?: JSONObject.NULL
+                    "LocalizedLongDate" -> {
+                        val timestamp = (arguments.getOrNull(0) as? Number)?.toLong()
+                        val locale = arguments.getOrNull(1) as? String
+                        if (timestamp != null && locale != null) nexaDevLocalizedLongDate(timestamp, locale)
+                        else JSONObject.NULL
+                    }
                     "LocalizedTime" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedTime) ?: JSONObject.NULL
                     "LocalizedDateTime" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedDateTime) ?: JSONObject.NULL
                     "Format" -> {
@@ -1265,6 +1537,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                         if (timestamp != null && pattern != null) nexaDevFormatDate(timestamp, pattern)
                         else JSONObject.NULL
                     }
+                    "FormatDuration" -> (first as? Number)?.toDouble()?.let(::nexaDevFormatDuration) ?: JSONObject.NULL
                     else -> JSONObject.NULL
                 }
             }
@@ -1362,6 +1635,22 @@ internal class NexaDevStateStore(internal val context: Context) {
                     "ResultIsSuccess" -> return (base as? Map<*, *>)?.containsKey("Ok") == true
                     "ResultValue" -> return (base as? Map<*, *>)?.get("Ok") ?: JSONObject.NULL
                     "ResultError" -> return (base as? Map<*, *>)?.get("Err") ?: JSONObject.NULL
+                    "NetworkBody" -> return (base as? Map<*, *>)?.get("body") ?: (base as? Map<*, *>)?.get("text") ?: JSONObject.NULL
+                    "NetworkStatusCode" -> return (base as? Map<*, *>)?.get("statusCode") ?: 0
+                    "StringTrimmed" -> return (base as? String)?.trim() ?: JSONObject.NULL
+                    "CollectionCount" -> return when (base) {
+                        is Collection<*> -> base.size
+                        is Map<*, *> -> base.size
+                        is JSONObject -> base.length()
+                        else -> JSONObject.NULL
+                    }
+                    "CollectionIsEmpty" -> return when (base) {
+                        is Collection<*> -> base.isEmpty()
+                        is Map<*, *> -> base.isEmpty()
+                        is JSONObject -> base.length() == 0
+                        else -> JSONObject.NULL
+                    }
+                    "SignalValue" -> return base ?: JSONObject.NULL
                 }
                 if (kind?.has("ClassStaticField") == true) {
                     val owner = fields.optJSONObject("base_type")?.optJSONObject("Class")?.optString("name").orEmpty()
@@ -2054,6 +2343,12 @@ private fun NexaDevStateStore.evaluateTimeCall(
             else JSONObject.NULL
         }
         "LocalizedDate" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedDate) ?: JSONObject.NULL
+        "LocalizedLongDate" -> {
+            val timestamp = (arguments.opt(0) as? Number)?.toLong()
+            val locale = arguments.opt(1) as? String
+            if (timestamp != null && locale != null) nexaDevLocalizedLongDate(timestamp, locale)
+            else JSONObject.NULL
+        }
         "LocalizedTime" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedTime) ?: JSONObject.NULL
         "LocalizedDateTime" -> (first as? Number)?.toLong()?.let(::nexaDevLocalizedDateTime) ?: JSONObject.NULL
         "Format" -> {
@@ -2062,6 +2357,7 @@ private fun NexaDevStateStore.evaluateTimeCall(
             if (timestamp != null && pattern != null) nexaDevFormatDate(timestamp, pattern)
             else JSONObject.NULL
         }
+        "FormatDuration" -> (first as? Number)?.toDouble()?.let(::nexaDevFormatDuration) ?: JSONObject.NULL
         else -> JSONObject.NULL
     }
 }
@@ -2084,6 +2380,22 @@ private fun nexaDevAddCalendarDays(milliseconds: Long, days: Int): Long =
 private fun nexaDevLocalizedDate(milliseconds: Long): String =
     java.text.DateFormat.getDateInstance(java.text.DateFormat.SHORT).format(java.util.Date(milliseconds))
 
+private val nexaDevLongDateFormatters = ThreadLocal.withInitial { HashMap<String, java.text.DateFormat>() }
+
+private fun nexaDevLocalizedLongDate(milliseconds: Long, languageCode: String): String {
+    val locale = java.util.Locale.forLanguageTag(languageCode.replace('_', '-'))
+    val timeZone = java.util.TimeZone.getDefault()
+    val key = "${locale.toLanguageTag()}|${timeZone.id}"
+    val formatters = nexaDevLongDateFormatters.get()!!
+    val formatter = formatters[key] ?: java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG, locale).apply {
+        this.timeZone = timeZone
+    }.also {
+        if (formatters.size >= 16) formatters.clear()
+        formatters[key] = it
+    }
+    return formatter.format(java.util.Date(milliseconds))
+}
+
 private fun nexaDevLocalizedTime(milliseconds: Long): String =
     java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(milliseconds))
 
@@ -2092,6 +2404,13 @@ private fun nexaDevLocalizedDateTime(milliseconds: Long): String =
         java.text.DateFormat.SHORT,
         java.text.DateFormat.SHORT,
     ).format(java.util.Date(milliseconds))
+
+private fun nexaDevFormatDuration(seconds: Double): String {
+    val wholeSeconds = if (seconds.isFinite() && seconds > 0.0) kotlin.math.floor(seconds).toLong() else 0L
+    val minutes = wholeSeconds / 60L
+    val remainder = wholeSeconds % 60L
+    return "${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}"
+}
 
 /** Mirrors generated `Time.format` and keeps formatter allocation out of hot-reload renders. */
 private val nexaDevDateFormatters = ThreadLocal.withInitial { HashMap<String, java.text.SimpleDateFormat>() }

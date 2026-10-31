@@ -2456,6 +2456,7 @@ mod tests {
                 android_firebase_messaging_service: None,
                 android_picture_in_picture: false,
                 android_media_playback_service: None,
+                requires_network: false,
             },
         };
         fs::write(package.join("native.nxid"), "namespace demo {}").expect("idl written");
@@ -2510,6 +2511,7 @@ mod tests {
                 android_firebase_messaging_service: None,
                 android_picture_in_picture: false,
                 android_media_playback_service: None,
+                requires_network: false,
             },
         };
 

@@ -100,7 +100,9 @@ private fun nexaDevStringMap(value: Any?): Map<String, String> {
     val source = value as? Map<*, *> ?: return emptyMap()
     val result = LinkedHashMap<String, String>(source.size)
     for ((key, item) in source) {
-        if (key is String && item is String) result[key] = item
+        if (key != null && item != null && item != JSONObject.NULL) {
+            result[key.toString()] = item.toString()
+        }
     }
     return result
 }
@@ -325,24 +327,44 @@ private fun NexaDevStateStore.invokeSharedNative(
             )
         } else NexaDevSharedNativeResult.Unhandled
         "Locale" -> {
-            val locale = java.util.Locale.getDefault()
+            val preferences = context.getSharedPreferences("dev.nexa.locale.v1", android.content.Context.MODE_PRIVATE)
+            val overrideCode = preferences.getString("override", null)
+            val locale = overrideCode?.let(java.util.Locale::forLanguageTag)
+                ?: java.util.Locale.getDefault()
             when (name) {
                 "currentLanguageCode" -> NexaDevSharedNativeResult.Handled(locale.language)
-                "preferredLanguageCodes" -> NexaDevSharedNativeResult.Handled(
-                    if (android.os.Build.VERSION.SDK_INT >= 24) {
+                "preferredLanguageCodes" -> {
+                    val system = if (android.os.Build.VERSION.SDK_INT >= 24) {
                         android.os.LocaleList.getDefault().let { locales ->
                             (0 until locales.size()).map { locales[it].toLanguageTag() }
                         }
-                    } else listOf(locale.toLanguageTag()),
-                )
+                    } else listOf(locale.toLanguageTag())
+                    val selected = overrideCode
+                    NexaDevSharedNativeResult.Handled(
+                        if (selected == null) system else listOf(selected) + system.filter {
+                            java.util.Locale.forLanguageTag(it).language != locale.language
+                        },
+                    )
+                }
+                "setLanguageOverride" -> {
+                    val raw = options["languageCode"] as? String
+                    val normalized = raw?.trim()?.replace('_', '-')
+                        ?.takeIf(String::isNotEmpty)
+                        ?.let(java.util.Locale::forLanguageTag)
+                        ?.takeIf { it.language.isNotEmpty() && it.language != "und" }
+                        ?.toLanguageTag()
+                    updateLanguageOverride(normalized)
+                    NexaDevSharedNativeResult.Handled(JSONObject.NULL)
+                }
                 "displayName" -> NexaDevSharedNativeResult.Handled(
                     java.util.Locale.forLanguageTag(stringOption("languageCode"))
-                        .getDisplayLanguage(locale).takeIf { it.isNotEmpty() } ?: "",
+                        .getDisplayLanguage(locale).takeIf(String::isNotEmpty) ?: "",
                 )
                 else -> NexaDevSharedNativeResult.Unhandled
             }
         }
         "Crypto" -> when (name) {
+            "sha1" -> NexaDevSharedNativeResult.Handled(nexaCryptoSha1(stringOption("text")))
             "sha256" -> NexaDevSharedNativeResult.Handled(nexaCryptoSha256(stringOption("text")))
             "sha512" -> NexaDevSharedNativeResult.Handled(nexaCryptoSha512(stringOption("text")))
             "hmacSha256" -> NexaDevSharedNativeResult.Handled(
@@ -471,6 +493,21 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
     if (namespace == "__NexaNetworkResponse" && (name == "getHeader" || name == "getHeaders" || name == "getCookie") && !call.isNull("receiver")) {
         val response = evaluateAsync(call.opt("receiver"), locals, scope)
         return nexaDevNetworkResponseMethod(response, name, options["name"] as? String ?: "")
+    }
+    if (namespace == "__NexaString" && !call.isNull("receiver")) {
+        val receiver = evaluateAsync(call.opt("receiver"), locals, scope) as? String ?: ""
+        val argument = options["arg0"] as? String ?: ""
+        return when (name) {
+            "trim" -> receiver.trim()
+            "toLowercase" -> receiver.lowercase()
+            "toUppercase" -> receiver.uppercase()
+            "normalizeNFKD" -> java.text.Normalizer.normalize(receiver, java.text.Normalizer.Form.NFKD)
+            "split" -> receiver.split(argument)
+            "contains" -> receiver.contains(argument)
+            "startsWith" -> receiver.startsWith(argument)
+            "endsWith" -> receiver.endsWith(argument)
+            else -> JSONObject.NULL
+        }
     }
     if (namespace.startsWith("__NexaUserClass:")) {
         val receiver = if (call.isNull("receiver")) null else evaluateAsync(call.opt("receiver"), locals, scope)
@@ -708,6 +745,21 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
     if (namespace == "__NexaNetworkResponse" && (name == "getHeader" || name == "getHeaders" || name == "getCookie") && !call.isNull("receiver")) {
         val response = evaluate(call.opt("receiver"), locals, scope)
         return nexaDevNetworkResponseMethod(response, name, options["name"] as? String ?: "")
+    }
+    if (namespace == "__NexaString" && !call.isNull("receiver")) {
+        val receiver = evaluate(call.opt("receiver"), locals, scope) as? String ?: ""
+        val argument = options["arg0"] as? String ?: ""
+        return when (name) {
+            "trim" -> receiver.trim()
+            "toLowercase" -> receiver.lowercase()
+            "toUppercase" -> receiver.uppercase()
+            "normalizeNFKD" -> java.text.Normalizer.normalize(receiver, java.text.Normalizer.Form.NFKD)
+            "split" -> receiver.split(argument)
+            "contains" -> receiver.contains(argument)
+            "startsWith" -> receiver.startsWith(argument)
+            "endsWith" -> receiver.endsWith(argument)
+            else -> JSONObject.NULL
+        }
     }
     if (namespace == "Regex") {
         if (!call.isNull("receiver")) {

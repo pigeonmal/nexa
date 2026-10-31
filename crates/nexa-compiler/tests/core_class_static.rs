@@ -32,11 +32,14 @@ class AppRepository(val prefix: String) {
 
 app StaticClassExample {
     let repository = AppRepository("Hello, ")
+    let prefixes: Array<String> = ["Hello, "]
+    let greetings: Array<String> = prefixes.map { prefix -> AppConfig.welcome(prefix) }
 
     body {
         Text(AppConfig.appName)
         Text(AppConfig.welcome("Hello, "))
         Text(AppConfig.welcome(prefix: "Hello, "))
+        Text(greetings.first() ?? "")
         OnAppear async {
             Log.info(message: await AppConfig.asyncWelcome("Hello, "))
             Log.info(message: await repository.load("Nexa"))
@@ -130,6 +133,14 @@ app StaticClassExample {
             }
             Target::All => unreachable!("test targets are concrete platforms"),
         }
+        assert!(
+            native.matches("NexaAppConfig.nexa_fn_welcome(").count() >= 3,
+            "class static calls should remain native inside collection closures: {native}"
+        );
+        assert!(
+            !native.contains("AppConfigPlugin"),
+            "app class static calls must not be generated as plugin calls: {native}"
+        );
         assert!(!native.contains("nexa_AppConfig::appName"), "{native}");
     }
 }

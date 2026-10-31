@@ -9,7 +9,7 @@ use nexa_ir::{NumericType, Type};
 use nexa_syntax::ast;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ApiType {
+pub enum ApiType {
     Void,
     String,
     Bool,
@@ -79,7 +79,7 @@ impl ApiType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ApiDefault {
+pub enum ApiDefault {
     None,
     Null,
     String(&'static str),
@@ -116,7 +116,7 @@ impl ApiDefault {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ApiEffect {
+pub enum ApiEffect {
     Pure,
     Environment,
     Ui,
@@ -151,23 +151,23 @@ impl ApiEffect {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CoreApiArgument {
-    pub(crate) name: &'static str,
-    pub(crate) ty: ApiType,
-    pub(crate) default: ApiDefault,
-    pub(crate) allowed_values: &'static [&'static str],
+pub struct CoreApiArgument {
+    pub name: &'static str,
+    pub ty: ApiType,
+    pub default: ApiDefault,
+    pub allowed_values: &'static [&'static str],
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CoreApiDefinition {
-    pub(crate) qualified_name: &'static str,
-    pub(crate) receiver: Option<ApiType>,
-    pub(crate) result: ApiType,
-    pub(crate) asynchronous: bool,
-    pub(crate) throwing: bool,
-    pub(crate) effect: ApiEffect,
-    pub(crate) summary: &'static str,
-    pub(crate) arguments: &'static [CoreApiArgument],
+pub struct CoreApiDefinition {
+    pub qualified_name: &'static str,
+    pub receiver: Option<ApiType>,
+    pub result: ApiType,
+    pub asynchronous: bool,
+    pub throwing: bool,
+    pub effect: ApiEffect,
+    pub summary: &'static str,
+    pub arguments: &'static [CoreApiArgument],
 }
 
 const NO_VALUES: &[&str] = &[];
@@ -276,6 +276,11 @@ const SPECIAL_API_ROWS: &[(&str, &str, &str)] = &[
         "Localizes source text or a source-text interpolation.",
     ),
     (
+        "Locale.setLanguageOverride",
+        "`(languageCode: String?) -> Void`",
+        "Persists an app language override; null returns localization to the device language.",
+    ),
+    (
         "Navigation.push",
         "`(ScreenName(arguments...)) -> Void`",
         "Pushes a declared screen using its statically checked route parameters.",
@@ -328,7 +333,7 @@ const SPECIAL_API_ROWS: &[(&str, &str, &str)] = &[
 ];
 
 /// Every fixed-signature core API or built-in method accepted by semantic lowering.
-pub(crate) const CORE_APIS: &[CoreApiDefinition] = &[
+pub const CORE_APIS: &[CoreApiDefinition] = &[
     method!(
         NetworkResponse,
         "NetworkResponse.getHeader",
@@ -670,6 +675,15 @@ pub(crate) const CORE_APIS: &[CoreApiDefinition] = &[
         [arg!("timestamp", Int64)]
     ),
     api!(
+        "Time.localizedLongDate",
+        String,
+        false,
+        false,
+        Environment,
+        "Formats a long date using the specified app language and the device calendar and time zone.",
+        [arg!("timestamp", Int64), arg!("locale", String)]
+    ),
+    api!(
         "Time.localizedTime",
         String,
         false,
@@ -697,6 +711,15 @@ pub(crate) const CORE_APIS: &[CoreApiDefinition] = &[
         [arg!("timestamp", Int64), arg!("pattern", String)]
     ),
     api!(
+        "Time.formatDuration",
+        String,
+        false,
+        false,
+        Pure,
+        "Formats a non-negative duration as zero-padded minutes and seconds (mm:ss).",
+        [arg!("seconds", Float64)]
+    ),
+    api!(
         "AppIcon.set",
         Bool,
         true,
@@ -720,8 +743,17 @@ pub(crate) const CORE_APIS: &[CoreApiDefinition] = &[
         false,
         false,
         Environment,
-        "Returns the current language code.",
+        "Returns the selected app language code, or the current device language when no override is set.",
         []
+    ),
+    api!(
+        "Locale.setLanguageOverride",
+        Void,
+        false,
+        false,
+        PersistentStorage,
+        "Persists a language override for localized text and returns to the device language when null is supplied.",
+        [arg!("languageCode", OptionalString)]
     ),
     api!(
         "Locale.preferredLanguageCodes",
@@ -729,8 +761,17 @@ pub(crate) const CORE_APIS: &[CoreApiDefinition] = &[
         false,
         false,
         Environment,
-        "Returns the device's preferred language codes.",
+        "Returns the selected app language first, followed by the device's other preferred language codes.",
         []
+    ),
+    api!(
+        "Crypto.sha1",
+        String,
+        false,
+        false,
+        Crypto,
+        "Returns a SHA-1 digest encoded as lowercase hexadecimal for protocol compatibility.",
+        [arg!("text", String)]
     ),
     api!(
         "Crypto.sha256",

@@ -62,6 +62,7 @@ mod tests {
                 blue: 247,
                 alpha: 255,
             })),
+            navigation_bar_background: None,
         };
         let mut output = SourceWriter::new();
 

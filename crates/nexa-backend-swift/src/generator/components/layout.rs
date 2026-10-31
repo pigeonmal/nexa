@@ -382,30 +382,46 @@ fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle, frame_a
             &format!("background({})", colors::expression(color)),
         );
     }
-    if let Some(radius) = style.corner_radius {
+    if style.corner_radius.is_some()
+        || style.corner_radius_expression.is_some()
+        || style.corner_radius_bottom.is_some()
+    {
         append_modifier(
             out,
             depth,
-            &format!(
-                "clipShape(RoundedRectangle(cornerRadius: {}))",
-                number(radius)
-            ),
+            &format!("clipShape({})", swift_corner_shape(style)),
         );
     }
     if let (Some(color), Some(width)) = (style.border_color, style.border_width) {
-        let radius = style.corner_radius.unwrap_or(0.0);
         append_modifier(
             out,
             depth,
             &format!(
-                "overlay(RoundedRectangle(cornerRadius: {}).stroke({}, lineWidth: {}))",
-                number(radius),
+                "overlay({}.stroke({}, lineWidth: {}))",
+                swift_corner_shape(style),
                 colors::expression(color),
                 number(width)
             ),
         );
     }
     append_visual_effects(out, depth, style.opacity, &style.effects);
+}
+
+fn swift_corner_shape(style: &ViewStyle) -> String {
+    let top = style
+        .corner_radius_expression
+        .as_ref()
+        .map(|expression| crate::generator::engine::expressions::expression(expression))
+        .or_else(|| style.corner_radius.map(number))
+        .unwrap_or_else(|| "0".to_owned());
+    if let Some(bottom) = style.corner_radius_bottom {
+        return format!(
+            "UnevenRoundedRectangle(cornerRadii: RectangleCornerRadii(topLeading: {top}, bottomLeading: {}, bottomTrailing: {}, topTrailing: {top}))",
+            number(bottom),
+            number(bottom),
+        );
+    }
+    format!("RoundedRectangle(cornerRadius: {top})")
 }
 
 fn swift_tween(duration: f64, easing: AnimationEasing, delay: f64) -> String {
@@ -438,18 +454,26 @@ pub(crate) fn append_size_modifiers(
     style: &ViewStyle,
     frame_alignment: &str,
 ) {
-    let mut bounds = Vec::with_capacity(4);
+    let mut bounds = Vec::with_capacity(6);
     if let Some(min_width) = style.min_width {
         bounds.push(format!("minWidth: {}", number(min_width)));
+    } else if style.fill_max_width {
+        bounds.push("minWidth: 0".to_owned());
     }
     if let Some(max_width) = style.max_width {
         bounds.push(format!("maxWidth: {}", number(max_width)));
+    } else if style.fill_max_width {
+        bounds.push("maxWidth: .infinity".to_owned());
     }
     if let Some(min_height) = style.min_height {
         bounds.push(format!("minHeight: {}", number(min_height)));
+    } else if style.fill_max_height {
+        bounds.push("minHeight: 0".to_owned());
     }
     if let Some(max_height) = style.max_height {
         bounds.push(format!("maxHeight: {}", number(max_height)));
+    } else if style.fill_max_height {
+        bounds.push("maxHeight: .infinity".to_owned());
     }
     if !bounds.is_empty() {
         append_modifier(
@@ -458,33 +482,31 @@ pub(crate) fn append_size_modifiers(
             &format!("frame({}, alignment: {frame_alignment})", bounds.join(", ")),
         );
     }
-    if let (Some(width), Some(height)) = (style.width, style.height) {
+    let responsive_width = style
+        .screen_width_fraction
+        .map(|fraction| format!("UIScreen.main.bounds.width * {}", number(fraction)));
+    let responsive_height = style
+        .screen_height_fraction
+        .map(|fraction| format!("UIScreen.main.bounds.height * {}", number(fraction)));
+    let frame_width = style.width.map(number).or(responsive_width);
+    let frame_height = style.height.map(number).or(responsive_height);
+    if let (Some(width), Some(height)) = (frame_width.as_deref(), frame_height.as_deref()) {
         append_modifier(
             out,
             depth,
-            &format!(
-                "frame(width: {}, height: {}, alignment: {frame_alignment})",
-                number(width),
-                number(height)
-            ),
+            &format!("frame(width: {width}, height: {height}, alignment: {frame_alignment})"),
         );
-    } else if let Some(width) = style.width {
+    } else if let Some(width) = frame_width.as_deref() {
         append_modifier(
             out,
             depth,
-            &format!(
-                "frame(width: {}, alignment: {frame_alignment})",
-                number(width)
-            ),
+            &format!("frame(width: {width}, alignment: {frame_alignment})"),
         );
-    } else if let Some(height) = style.height {
+    } else if let Some(height) = frame_height.as_deref() {
         append_modifier(
             out,
             depth,
-            &format!(
-                "frame(height: {}, alignment: {frame_alignment})",
-                number(height)
-            ),
+            &format!("frame(height: {height}, alignment: {frame_alignment})"),
         );
     }
 }
@@ -502,8 +524,62 @@ pub(crate) fn append_visual_effects(
             &format!("compositingGroup().opacity({})", number(opacity)),
         );
     }
-    if let Some(scale) = effects.scale {
+    if let Some(opacity) = &effects.opacity_expression {
+        append_modifier(
+            out,
+            depth,
+            &format!(
+                "compositingGroup().opacity(min(1.0, max(0.0, {})))",
+                crate::generator::engine::expressions::expression(opacity)
+            ),
+        );
+    }
+    if effects.scale_y.is_some() || effects.scale_y_expression.is_some() {
+        let scale_x = effects
+            .scale_expression
+            .as_ref()
+            .map(|expression| crate::generator::engine::expressions::expression(expression))
+            .or_else(|| effects.scale.map(number))
+            .unwrap_or_else(|| "1".to_owned());
+        let scale_y = effects
+            .scale_y_expression
+            .as_ref()
+            .map(|expression| crate::generator::engine::expressions::expression(expression))
+            .or_else(|| effects.scale_y.map(number))
+            .or_else(|| {
+                effects
+                    .scale_expression
+                    .as_ref()
+                    .map(|expression| crate::generator::engine::expressions::expression(expression))
+            })
+            .or_else(|| effects.scale.map(number))
+            .unwrap_or_else(|| "1".to_owned());
+        append_modifier(
+            out,
+            depth,
+            &format!("scaleEffect(x: {scale_x}, y: {scale_y})"),
+        );
+    } else if let Some(scale) = &effects.scale_expression {
+        append_modifier(
+            out,
+            depth,
+            &format!(
+                "scaleEffect({})",
+                crate::generator::engine::expressions::expression(scale)
+            ),
+        );
+    } else if let Some(scale) = effects.scale {
         append_modifier(out, depth, &format!("scaleEffect({})", number(scale)));
+    }
+    if let Some(offset_y) = &effects.offset_y_expression {
+        append_modifier(
+            out,
+            depth,
+            &format!(
+                "offset(y: {})",
+                crate::generator::engine::expressions::expression(offset_y)
+            ),
+        );
     }
     if let Some(rotation) = effects.rotation {
         append_modifier(
@@ -706,6 +782,40 @@ mod tests {
     }
 
     #[test]
+    fn vertical_scale_overrides_only_the_vertical_transform_axis() {
+        let effects = nexa_ir::ViewEffects {
+            scale: Some(0.8),
+            scale_y: Some(0.4),
+            ..nexa_ir::ViewEffects::default()
+        };
+        let mut output = SourceWriter::new();
+
+        append_visual_effects(&mut output, 0, None, &effects);
+
+        assert!(output.finish().contains("scaleEffect(x: 0.8, y: 0.4)"));
+    }
+
+    #[test]
+    fn animated_vertical_scale_reads_float_state_in_swiftui() {
+        let effects = nexa_ir::ViewEffects {
+            scale_y_expression: Some(Box::new(nexa_ir::Expr::AnimatedState(
+                "squash".to_owned(),
+                nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64),
+            ))),
+            ..nexa_ir::ViewEffects::default()
+        };
+        let mut output = SourceWriter::new();
+
+        append_visual_effects(&mut output, 0, None, &effects);
+
+        let generated = output.finish();
+        assert!(
+            generated.contains("scaleEffect(x: 1, y: nexa_squash)"),
+            "{generated}"
+        );
+    }
+
+    #[test]
     fn layout_attaches_toolbar_to_the_container_instead_of_an_empty_child() {
         let module = Module {
             app_name: "ToolbarLayout".to_owned(),
@@ -803,7 +913,9 @@ mod tests {
                     name: "BottomSheet".to_owned(),
                     identity: "sheet-ref".to_owned(),
                 },
+                content_sized: false,
                 content_padding: 0.0,
+                corner_radius: None,
                 detents: Vec::new(),
                 initial_detent: None,
                 show_drag_indicator: true,

@@ -181,7 +181,35 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_switch, "androidx.compose.ui.Modifier");
     imports.add(features.uses_switch, "androidx.compose.ui.unit.sp");
     imports.add(features.uses_switch, "androidx.compose.ui.graphics.Color");
-    imports.add(features.uses_slider, "androidx.compose.material3.Slider");
+    imports.add(
+        features.uses_slider,
+        "androidx.compose.foundation.layout.fillMaxSize",
+    );
+    imports.add(
+        features.uses_slider,
+        "androidx.compose.foundation.gestures.awaitEachGesture",
+    );
+    imports.add(
+        features.uses_slider,
+        "androidx.compose.foundation.gestures.awaitFirstDown",
+    );
+    imports.add(
+        features.uses_slider,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_slider,
+        "androidx.compose.foundation.layout.height",
+    );
+    imports.add(
+        features.uses_slider,
+        "androidx.compose.ui.input.pointer.pointerInput",
+    );
+    imports.add(
+        features.uses_slider,
+        "androidx.compose.ui.graphics.drawscope.clipPath",
+    );
+    imports.add(features.uses_slider, "androidx.compose.ui.unit.dp");
     imports.add(
         features.uses_picker,
         "androidx.compose.foundation.layout.Row",
@@ -356,7 +384,7 @@ pub(crate) fn render_button(
             ),
         },
     );
-    let icon = icon.map_or_else(|| "null".to_owned(), SystemIcon::material_reference);
+    let icon = icon.map_or_else(|| "null".to_owned(), super::system_icons::spec);
     let tint = tint.map_or_else(
         || "null".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -413,6 +441,7 @@ fn is_empty_button_label(label: &Expr) -> bool {
 pub(crate) fn render_switch(
     state: &str,
     label: &nexa_ir::Expr,
+    on_change: Option<&nexa_ir::SwitchChange>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -420,10 +449,16 @@ pub(crate) fn render_switch(
     out.line_at(depth, format_args!("NexaSwitchPrimitive("));
     out.line_at(depth + 1, format_args!("label = {label},"));
     out.line_at(depth + 1, format_args!("checked = {},", state_name(state)));
-    out.line_at(
-        depth + 1,
-        format_args!("onCheckedChange = {{ {} = it }},", state_name(state)),
-    );
+    out.line_at(depth + 1, format_args!("onCheckedChange = {{ value ->"));
+    out.line_at(depth + 2, format_args!("{} = value", state_name(state)));
+    if let Some(change) = on_change {
+        out.line_at(
+            depth + 2,
+            format_args!("val {} = value", state_name(&change.parameter)),
+        );
+        render_actions(&change.actions, depth + 2, out);
+    }
+    out.line_at(depth + 1, format_args!("}},"));
     out.line_at(
         depth + 1,
         format_args!(
@@ -449,43 +484,100 @@ pub(crate) fn render_switch(
     out.line_at(depth, format_args!(")"));
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_slider(
     state: &str,
     animated: bool,
-    min: f64,
-    max: f64,
+    min: &Expr,
+    max: &Expr,
     step: f64,
+    tint: Option<&nexa_ir::ColorExpression>,
+    track_color: Option<&nexa_ir::ColorExpression>,
+    thumb_color: Option<&nexa_ir::ColorExpression>,
+    track_height: Option<f32>,
+    thumb_size: Option<f32>,
+    hit_slop: Option<f32>,
+    on_change: Option<&nexa_ir::SliderChange>,
+    on_editing_changed: Option<&nexa_ir::SliderEditingChanged>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let intervals = if step > 0.0 {
-        ((max - min) / step).round() as i32
-    } else {
-        0
-    };
+    let min_value = expression(min);
+    let max_value = expression(max);
     let on_value_change = if step > 0.0 {
         // Material3 Slider stores its value as Float. Convert stepped values back to
         // the declared Nexa Float64 range so binary Float error does not leak into
         // observable state (for example, 0.9 becoming 0.8999999761581421).
-        format!("({min:?} + kotlin.math.round((it.toDouble() - {min:?}) / {step:?}) * {step:?})")
+        format!(
+            "({min_value} + kotlin.math.round((next.toDouble() - {min_value}) / {step:?}) * {step:?})"
+        )
     } else {
-        "it.toDouble()".to_owned()
+        "next.toDouble()".to_owned()
     };
     let value = if animated {
         format!("{}Animated", state_name(state))
     } else {
         state_name(state)
     };
+    let color = |value: Option<&nexa_ir::ColorExpression>| {
+        value.map_or_else(
+            || "null".to_owned(),
+            crate::generator::colors::expression_for_color,
+        )
+    };
+    let optional_float =
+        |value: Option<f32>| value.map_or_else(|| "null".to_owned(), |number| format!("{number}f"));
+    out.line_at(depth, format_args!("NexaSliderPrimitive("));
+    out.line_at(depth + 1, format_args!("value = {value}.toFloat(),"));
+    out.line_at(depth + 1, format_args!("onValueChange = {{ next ->"));
+    out.line_at(depth + 2, format_args!("val nextValue = {on_value_change}"));
+    out.line_at(depth + 2, format_args!("{} = nextValue", state_name(state)));
+    if let Some(change) = on_change {
+        out.line_at(
+            depth + 2,
+            format_args!("val {} = nextValue", state_name(&change.parameter)),
+        );
+        render_actions(&change.actions, depth + 2, out);
+    }
+    out.line_at(depth + 1, format_args!("}},"));
     out.line_at(
-        depth,
+        depth + 1,
         format_args!(
-            "NexaSliderPrimitive(value = {value}.toFloat(), onValueChange = {{ {} = {on_value_change} }}, valueRange = {}f..{}f, steps = {})",
-            state_name(state),
-            min as f32,
-            max as f32,
-            intervals.saturating_sub(1).max(0),
+            "minValue = ({min_value}).toFloat(), maxValue = ({max_value}).toFloat(), step = {}f,",
+            step as f32,
         ),
     );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "tint = {}, trackColor = {}, thumbColor = {},",
+            color(tint),
+            color(track_color),
+            color(thumb_color)
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "trackHeight = {}, thumbSize = {}, hitSlop = {},",
+            optional_float(track_height),
+            optional_float(thumb_size),
+            optional_float(hit_slop)
+        ),
+    );
+    out.line_at(depth + 1, format_args!("onEditingChanged = "));
+    if let Some(change) = on_editing_changed {
+        out.line_at(depth + 1, format_args!("{{ editing ->"));
+        out.line_at(
+            depth + 2,
+            format_args!("val {} = editing", state_name(&change.parameter)),
+        );
+        render_actions(&change.actions, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}},"));
+    } else {
+        out.line_at(depth + 1, format_args!("null,"));
+    }
+    out.line_at(depth, format_args!(")"));
 }
 
 pub(crate) fn render_progress_bar(
@@ -652,7 +744,7 @@ pub(crate) fn render_picker(
     out: &mut SourceWriter,
 ) {
     let selected = state_name(state);
-    let icon = icon.map_or_else(|| "null".to_owned(), SystemIcon::material_reference);
+    let icon = icon.map_or_else(|| "null".to_owned(), super::system_icons::spec);
     let item_icons = if item_icons.is_empty() {
         "emptyList()".to_owned()
     } else {
@@ -660,7 +752,7 @@ pub(crate) fn render_picker(
             "listOf({})",
             item_icons
                 .iter()
-                .map(SystemIcon::material_reference)
+                .map(super::system_icons::spec)
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -1295,8 +1387,8 @@ fn render_context_menu(nodes: &[Node], item_count: usize, depth: usize, out: &mu
             out.line_at(
                 depth + 1,
                 format_args!(
-                    "leadingIcon = {{ Icon(imageVector = {}, contentDescription = null) }},",
-                    icon.material_reference()
+                    "leadingIcon = {{ NexaIconContent(icon = {}, description = \"\", size = 24.dp) }},",
+                    super::system_icons::spec(icon)
                 ),
             );
         }
@@ -1786,6 +1878,13 @@ mod tests {
         render_slider, render_switch,
     };
 
+    fn float_expr(raw: &str) -> Expr {
+        Expr::Number {
+            raw: raw.to_owned(),
+            ty: NumericType::Float64,
+        }
+    }
+
     #[test]
     fn picker_calls_the_shared_native_component_primitive() {
         let mut output = SourceWriter::new();
@@ -1805,7 +1904,7 @@ mod tests {
         assert!(
             output.contains("NexaPickerPrimitive(items = listOf(\"Low\"), itemIcons = emptyList()")
         );
-        assert!(output.contains("icon = Icons.Filled.Flag"));
+        assert!(output.contains("icon = NexaIconSpec(vector = Icons.Filled.Flag)"));
         assert!(
             output
                 .contains("label = null, tint = null, fillMaxWidth = true) { nexa_priority = it }")
@@ -1838,9 +1937,7 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains(
-            "itemIcons = listOf(Icons.Outlined.CalendarMonth, Icons.Filled.Flag, Icons.Filled.Edit)"
-        ));
+        assert!(output.contains("itemIcons = listOf(NexaIconSpec(vector = Icons.Outlined.CalendarMonth), NexaIconSpec(vector = Icons.Filled.Flag), NexaIconSpec(vector = Icons.Filled.Edit))"));
     }
 
     #[test]
@@ -1865,7 +1962,7 @@ mod tests {
         );
 
         assert!(output.contains("nexaColorFromHex(nexa_priorityTint)"));
-        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), itemIcons = emptyList(), selected = nexa_priority, icon = Icons.Filled.Flag, label = null, tint = nexaColorFromHex(nexa_priorityTint), fillMaxWidth = true)"));
+        assert!(output.contains("NexaPickerPrimitive(items = listOf(\"None\"), itemIcons = emptyList(), selected = nexa_priority, icon = NexaIconSpec(vector = Icons.Filled.Flag), label = null, tint = nexaColorFromHex(nexa_priorityTint), fillMaxWidth = true)"));
     }
 
     #[test]
@@ -1980,7 +2077,7 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("icon = Icons.Filled.Add"));
+        assert!(output.contains("icon = NexaIconSpec(vector = Icons.Filled.Add)"));
         assert!(output.contains("iconOnlyCircle = true"));
         assert!(output.contains("shape = androidx.compose.foundation.shape.CircleShape"));
     }
@@ -2041,7 +2138,7 @@ mod tests {
         let label = Expr::String("Open Links In App".to_owned());
         let mut output = SourceWriter::new();
 
-        render_switch("openLinksInApp", &label, 0, &mut output);
+        render_switch("openLinksInApp", &label, None, 0, &mut output);
 
         assert!(output.contains("NexaSwitchPrimitive("));
         assert!(output.contains("label = \"Open Links In App\""));
@@ -2093,30 +2190,84 @@ mod tests {
     #[test]
     fn renders_slider_as_a_compose_float_binding_with_static_steps() {
         let mut output = SourceWriter::new();
-        render_slider("volume", false, 0.0, 1.0, 0.1, 0, &mut output);
+        let min = float_expr("0.0");
+        let max = float_expr("1.0");
+        render_slider(
+            "volume",
+            false,
+            &min,
+            &max,
+            0.1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0,
+            &mut output,
+        );
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(value = nexa_volume.toFloat(), onValueChange = { nexa_volume = (0.0 + kotlin.math.round((it.toDouble() - 0.0) / 0.1) * 0.1) }, valueRange = 0f..1f, steps = 9)\n"
+            "NexaSliderPrimitive(\n    value = nexa_volume.toFloat(),\n    onValueChange = { next ->\n        val nextValue = (0.0 + kotlin.math.round((next.toDouble() - 0.0) / 0.1) * 0.1)\n        nexa_volume = nextValue\n    },\n    minValue = (0.0).toFloat(), maxValue = (1.0).toFloat(), step = 0.1f,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
         );
     }
 
     #[test]
     fn rounds_stepped_slider_values_back_to_the_declared_double_range() {
         let mut output = SourceWriter::new();
-        render_slider("zoom", false, -1.0, 1.0, 0.25, 0, &mut output);
+        let min = float_expr("-1.0");
+        let max = float_expr("1.0");
+        render_slider(
+            "zoom",
+            false,
+            &min,
+            &max,
+            0.25,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0,
+            &mut output,
+        );
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(value = nexa_zoom.toFloat(), onValueChange = { nexa_zoom = (-1.0 + kotlin.math.round((it.toDouble() - -1.0) / 0.25) * 0.25) }, valueRange = -1f..1f, steps = 7)\n"
+            "NexaSliderPrimitive(\n    value = nexa_zoom.toFloat(),\n    onValueChange = { next ->\n        val nextValue = (-1.0 + kotlin.math.round((next.toDouble() - -1.0) / 0.25) * 0.25)\n        nexa_zoom = nextValue\n    },\n    minValue = (-1.0).toFloat(), maxValue = (1.0).toFloat(), step = 0.25f,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
         );
     }
 
     #[test]
     fn leaves_continuous_slider_values_unquantized() {
         let mut output = SourceWriter::new();
-        render_slider("progress", false, 0.0, 1.0, 0.0, 0, &mut output);
+        let min = float_expr("0.0");
+        let max = float_expr("1.0");
+        render_slider(
+            "progress",
+            false,
+            &min,
+            &max,
+            0.0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0,
+            &mut output,
+        );
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(value = nexa_progress.toFloat(), onValueChange = { nexa_progress = it.toDouble() }, valueRange = 0f..1f, steps = 0)\n"
+            "NexaSliderPrimitive(\n    value = nexa_progress.toFloat(),\n    onValueChange = { next ->\n        val nextValue = next.toDouble()\n        nexa_progress = nextValue\n    },\n    minValue = (0.0).toFloat(), maxValue = (1.0).toFloat(), step = 0f,\n    tint = null, trackColor = null, thumbColor = null,\n    trackHeight = null, thumbSize = null, hitSlop = null,\n    onEditingChanged = \n    null,\n)\n"
         );
     }
 

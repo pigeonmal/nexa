@@ -4,7 +4,7 @@ use nexa_plugin_compiler_api::PluginCompilerExtension;
 
 use crate::semantic;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Target {
     Swift,
     Kotlin,

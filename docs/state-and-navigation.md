@@ -54,6 +54,8 @@ app Storefront {
 
 The root and destination names, route argument count, and argument types are checked by the compiler. Screen route arguments are declared in the screen signature and passed positionally in `NavigationLink(destination: ScreenName(value))`.
 
+Each `NavigationStack` owns a route path and root identity. Multiple stacks in separate tabs keep independent histories, and `Navigation.push` / `Navigation.back()` act on the nearest stack that contains the calling screen. Android stores destination state on its `NavBackStackEntry`, so popping a child reveals the previous screen with its state intact. iOS stores typed route values in the stack path and uses the native interactive pop gesture, including when the navigation bar is hidden. SwiftUI navigation does not use the type-erased `NavigationPath`.
+
 ## State scope
 
 | Declaration | Typical use | Native lifetime |
@@ -92,7 +94,22 @@ app ShopTabs {
 
 On iOS this maps to SwiftUI `TabView`. Android uses Material 3 adaptive navigation, switching between a bottom bar and wider navigation layouts where supported. The exact tab options are listed in the [syntax audit](syntax-audit.md#tabs).
 
-The native bar is the default. To draw a custom bar, add one trailing `TabBar` block. It is an ordinary Nexa layout: you create every icon, label, pressable, and active-state style yourself. `Tab` metadata does not create or populate items in this custom layout. Keep the selected-tab state at app scope so it survives route changes and can be shared by screens:
+### Recommended custom bottom toolbar
+
+When the product design needs a branded bottom toolbar, use `AppBottomBar` with one trailing `TabBar` block. This is Nexa's recommended custom-tab pattern: `Tab` declares each destination and its navigation state, while `TabBar` owns the visible toolbar. Build its icons, labels, press targets, active states, mini-player, and other persistent controls with ordinary Nexa components. A `Column` can stack a mini-player or secondary action row above the tab controls.
+
+When porting an existing custom tab shell, keep the responsibilities mapped like this:
+
+| Existing tab-shell responsibility | Nexa implementation |
+|---|---|
+| Tab destination and retained navigation stack | One `Tab` child per destination, declaring its index, label, icon, and destination body. |
+| Selected tab / navigation index | One app-scoped mutable state passed to `AppBottomBar(selected:)` and updated by custom tab presses. |
+| Branded tab visuals and hit targets | The trailing `TabBar` block, composed from `Row`, `Column`, `Pressable`, `Icon`, `Text`, or app components. |
+| Persistent controls above the tabs, such as a mini-player | Place them in the same `TabBar` block, usually above the tab-control row in a `Column`. |
+
+Use `Toolbar` for native navigation-bar actions at the top of a destination. It does not replace `TabBar`: a custom bottom toolbar belongs in `AppBottomBar` so Nexa keeps destination routing and the app's tab presentation together.
+
+The custom `TabBar` is a presentation slot; `Tab` metadata does not create or populate its visible controls. Bind each custom tab press to the same app-scoped selected-tab state passed to `AppBottomBar`, so navigation and the custom active state stay synchronized across destinations:
 
 ```nx
 app BrandedTabs {

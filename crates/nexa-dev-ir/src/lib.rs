@@ -5,12 +5,13 @@
 //! connected native development renderer can replace the complete module and
 //! preserve compatible values across later revisions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
-use nexa_ir::{Module, Node};
+use nexa_ir::walk::IrFolder;
+use nexa_ir::{Action, Expr, Function, Module, Node, State, walk};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 65;
+pub const DEV_IR_FORMAT_VERSION: u16 = 77;
 
 /// Template token for native DevRuntime schemas. Native hosts receive this
 /// value from the same constant used to encode and validate Dev IR modules.
@@ -32,6 +33,15 @@ pub struct DevModule {
     pub identities: Vec<StableIdentity>,
     #[serde(default)]
     pub translations: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    /// Compiler proof used to avoid deep comparisons of unchanged entries.
+    #[serde(skip)]
+    pub change_hint: Option<DevModuleChangeHint>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DevModuleChangeHint {
+    pub unchanged_function_indices: Vec<usize>,
+    pub unchanged_screen_indices: Vec<usize>,
 }
 
 /// A set of path-level edits to a DevModule's typed `Module` JSON.
@@ -109,6 +119,154 @@ pub fn diff_with_module_values(
         translations: (previous.translations != next.translations)
             .then(|| next.translations.clone()),
     })
+}
+
+/// Diff a new typed module against a cached JSON view of the previous module.
+/// The typed equality checks avoid serializing unchanged module sections; only
+/// changed declaration entries are converted to JSON for patch generation.
+pub fn diff_module_with_values(
+    previous: &DevModule,
+    previous_fields: &serde_json::Value,
+    next: &DevModule,
+) -> Option<DevModulePatch> {
+    if previous.protocol_version != next.protocol_version
+        || next.protocol_version != DEV_IR_FORMAT_VERSION
+        || previous.revision == next.revision
+        || !previous_fields.is_object()
+    {
+        return None;
+    }
+
+    let mut operations = Vec::new();
+    macro_rules! diff_vec {
+        ($field:ident) => {
+            diff_slice(
+                &previous.module.$field,
+                &next.module.$field,
+                previous_fields.get(stringify!($field))?,
+                stringify!($field),
+                None,
+                &mut operations,
+            )?;
+        };
+    }
+    macro_rules! diff_hint_vec {
+        ($field:ident, $hint:ident) => {
+            diff_slice(
+                &previous.module.$field,
+                &next.module.$field,
+                previous_fields.get(stringify!($field))?,
+                stringify!($field),
+                next.change_hint.as_ref().map(|hint| hint.$hint.as_slice()),
+                &mut operations,
+            )?;
+        };
+    }
+    macro_rules! diff_value {
+        ($field:ident) => {
+            diff_field(
+                &previous.module.$field,
+                &next.module.$field,
+                previous_fields.get(stringify!($field))?,
+                stringify!($field),
+                &mut operations,
+            )?;
+        };
+    }
+
+    diff_value!(app_name);
+    diff_vec!(plugins);
+    diff_vec!(plugin_assets);
+    diff_vec!(enums);
+    diff_vec!(structs);
+    diff_hint_vec!(functions, unchanged_function_indices);
+    diff_vec!(background_tasks);
+    diff_vec!(states);
+    diff_vec!(globals);
+    diff_hint_vec!(screens, unchanged_screen_indices);
+    diff_vec!(widgets);
+    diff_vec!(components);
+    diff_vec!(body);
+    diff_value!(status_bar);
+    diff_value!(direction);
+    diff_value!(on_appear);
+    diff_value!(on_appear_async);
+    diff_value!(on_disappear);
+    diff_value!(on_active);
+    diff_value!(on_inactive);
+    diff_value!(on_background);
+
+    Some(DevModulePatch {
+        protocol_version: next.protocol_version,
+        base_revision: previous.revision.clone(),
+        revision: next.revision.clone(),
+        operations,
+        identities: (previous.identities != next.identities).then(|| next.identities.clone()),
+        translations: (previous.translations != next.translations)
+            .then(|| next.translations.clone()),
+    })
+}
+
+fn diff_field<T: PartialEq + Serialize>(
+    previous: &T,
+    next: &T,
+    previous_json: &serde_json::Value,
+    field: &str,
+    operations: &mut Vec<JsonPatchOperation>,
+) -> Option<()> {
+    if previous == next {
+        return Some(());
+    }
+    let next_json = serde_json::to_value(next).ok()?;
+    diff_json(previous_json, &next_json, &format!("/{field}"), operations);
+    Some(())
+}
+
+fn diff_slice<T: PartialEq + Serialize>(
+    previous: &[T],
+    next: &[T],
+    previous_json: &serde_json::Value,
+    field: &str,
+    known_unchanged_indices: Option<&[usize]>,
+    operations: &mut Vec<JsonPatchOperation>,
+) -> Option<()> {
+    if known_unchanged_indices.is_none() && previous == next {
+        return Some(());
+    }
+    let previous_array = previous_json.as_array()?;
+    let path = format!("/{field}");
+    if previous.len() != next.len() || previous_array.len() != previous.len() {
+        let next_json = serde_json::to_value(next).ok()?;
+        diff_json(previous_json, &next_json, &path, operations);
+        return Some(());
+    }
+    if known_unchanged_indices.is_some_and(|indices| {
+        indices.len() == previous.len()
+            && indices
+                .iter()
+                .copied()
+                .enumerate()
+                .all(|(expected, actual)| expected == actual)
+    }) {
+        return Some(());
+    }
+    for (index, (previous_item, next_item)) in previous.iter().zip(next).enumerate() {
+        if known_unchanged_indices.is_some_and(|indices| indices.binary_search(&index).is_ok()) {
+            continue;
+        }
+        if previous_item == next_item {
+            continue;
+        }
+        let previous_item_json = previous_array.get(index)?;
+        let next_item_json = serde_json::to_value(next_item).ok()?;
+        diff_json(
+            previous_item_json,
+            &next_item_json,
+            &format!("{path}/{index}"),
+            operations,
+        );
+    }
+    Some(())
 }
 
 fn diff_json(
@@ -195,6 +353,27 @@ pub fn lower_with_translations(
     revision: impl Into<String>,
     translations: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
 ) -> DevModule {
+    lower_owned_with_translations(module.clone(), revision, translations)
+}
+
+/// Lower an owned typed module into Dev IR, avoiding a deep clone when the
+/// caller is done with the compiler IR after building the reload payload.
+pub fn lower_owned_with_translations(
+    module: Module,
+    revision: impl Into<String>,
+    translations: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+) -> DevModule {
+    lower_owned_with_change_hint(module, revision, translations, None)
+}
+
+/// Lower an owned module and attach unchanged-entry hints from the incremental
+/// compiler for the paired DevRuntime session.
+pub fn lower_owned_with_change_hint(
+    mut module: Module,
+    revision: impl Into<String>,
+    translations: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    change_hint: Option<DevModuleChangeHint>,
+) -> DevModule {
     let mut identities = Vec::new();
     for state in &module.states {
         identities.push(StableIdentity {
@@ -242,12 +421,140 @@ pub fn lower_with_translations(
         );
     }
 
+    // Runtime diagnostics consume only line and column. Absolute byte offsets
+    // make a one-character edit near the top of a file rewrite every later
+    // expression in the Dev IR patch, turning a tiny edit into thousands of
+    // JSON operations. Keep stable source coordinates while removing offsets
+    // that are meaningful only inside the compiler process.
+    strip_source_offsets(&mut module, change_hint.as_ref());
+
     DevModule {
         protocol_version: DEV_IR_FORMAT_VERSION,
         revision: revision.into(),
-        module: module.clone(),
+        module,
         identities,
         translations,
+        change_hint,
+    }
+}
+
+struct DevSourceOffsetStripper;
+
+impl IrFolder for DevSourceOffsetStripper {
+    fn fold_expr(&mut self, expression: Expr) -> Expr {
+        match expression {
+            Expr::Located {
+                source_file,
+                mut source_span,
+                expression,
+            } => {
+                source_span.start = 0;
+                source_span.end = 0;
+                Expr::Located {
+                    source_file,
+                    source_span,
+                    expression: Box::new(self.fold_expr(*expression)),
+                }
+            }
+            other => walk::fold_expr_children(other, self),
+        }
+    }
+}
+
+fn strip_source_offsets(module: &mut Module, change_hint: Option<&DevModuleChangeHint>) {
+    let mut folder = DevSourceOffsetStripper;
+
+    let unchanged_funcs: Option<HashSet<usize>> = change_hint.map(|hint| {
+        hint.unchanged_function_indices.iter().copied().collect()
+    });
+    let unchanged_screens: Option<HashSet<usize>> = change_hint.map(|hint| {
+        hint.unchanged_screen_indices.iter().copied().collect()
+    });
+
+    for (index, function) in module.functions.iter_mut().enumerate() {
+        if let Some(unchanged) = &unchanged_funcs
+            && unchanged.contains(&index)
+        {
+            continue;
+        }
+        strip_function(function, &mut folder);
+    }
+    if change_hint.is_none() {
+        for task in &mut module.background_tasks {
+            task.actions = folder.fold_actions(std::mem::take(&mut task.actions));
+        }
+        strip_states(&mut module.states, &mut folder);
+        strip_states(&mut module.globals, &mut folder);
+    }
+    for (index, screen) in module.screens.iter_mut().enumerate() {
+        if let Some(unchanged) = &unchanged_screens
+            && unchanged.contains(&index)
+        {
+            continue;
+        }
+        strip_states(&mut screen.states, &mut folder);
+        screen.body = folder.fold_nodes(std::mem::take(&mut screen.body));
+        strip_optional_actions(&mut screen.on_appear, &mut folder);
+        strip_optional_actions(&mut screen.on_disappear, &mut folder);
+    }
+    if change_hint.is_none() {
+        for widget in &mut module.widgets {
+            if let Some(configuration) = &mut widget.configuration {
+                configuration.default = folder.fold_expr(std::mem::replace(
+                    &mut configuration.default,
+                    Expr::Bool(false),
+                ));
+            }
+            widget.entry_provider = folder.fold_expr(std::mem::replace(
+                &mut widget.entry_provider,
+                Expr::Bool(false),
+            ));
+            if let Some(placeholder) = &mut widget.placeholder_provider {
+                *placeholder = folder.fold_expr(std::mem::replace(placeholder, Expr::Bool(false)));
+            }
+            widget.body = folder.fold_nodes(std::mem::take(&mut widget.body));
+        }
+        for component in &mut module.components {
+            strip_states(&mut component.states, &mut folder);
+            component.body = folder.fold_nodes(std::mem::take(&mut component.body));
+            for method in &mut component.ref_methods {
+                strip_function(method, &mut folder);
+            }
+            strip_optional_actions(&mut component.on_appear, &mut folder);
+            strip_optional_actions(&mut component.on_disappear, &mut folder);
+        }
+        module.body = folder.fold_nodes(std::mem::take(&mut module.body));
+        strip_optional_actions(&mut module.on_appear, &mut folder);
+        strip_optional_actions(&mut module.on_disappear, &mut folder);
+        strip_optional_actions(&mut module.on_active, &mut folder);
+        strip_optional_actions(&mut module.on_inactive, &mut folder);
+        strip_optional_actions(&mut module.on_background, &mut folder);
+    }
+}
+
+fn strip_function(function: &mut Function, folder: &mut DevSourceOffsetStripper) {
+    for local in function
+        .class_initializers
+        .iter_mut()
+        .chain(function.locals.iter_mut())
+    {
+        local.initial = folder.fold_expr(std::mem::replace(&mut local.initial, Expr::Bool(false)));
+    }
+    function.body = folder.fold_expr(std::mem::replace(&mut function.body, Expr::Bool(false)));
+    if let Some(actions) = &mut function.body_actions {
+        *actions = folder.fold_actions(std::mem::take(actions));
+    }
+}
+
+fn strip_states(states: &mut [State], folder: &mut DevSourceOffsetStripper) {
+    for state in states {
+        state.initial = folder.fold_expr(std::mem::replace(&mut state.initial, Expr::Bool(false)));
+    }
+}
+
+fn strip_optional_actions(actions: &mut Option<Vec<Action>>, folder: &mut DevSourceOffsetStripper) {
+    if let Some(actions) = actions {
+        *actions = folder.fold_actions(std::mem::take(actions));
     }
 }
 
@@ -277,6 +584,9 @@ fn collect_nodes(identities: &mut Vec<StableIdentity>, parent: &str, nodes: &[No
 
 fn node_kind(node: &Node) -> &'static str {
     match node {
+        Node::SafeAreaPadding { .. } => "SafeAreaPadding",
+        Node::SafeAreaInset { .. } => "SafeAreaInset",
+        Node::ScrollHeader { .. } => "ScrollHeader",
         Node::StatusBar { .. } => "StatusBar",
         Node::Direction { .. } => "Direction",
         Node::Appearance { .. } => "Appearance",
@@ -306,6 +616,7 @@ fn node_kind(node: &Node) -> &'static str {
         Node::PickerDate { .. } => "PickerDate",
         Node::Image { .. } => "Image",
         Node::SystemIcon { .. } => "SystemIcon",
+        Node::FontIcon { .. } => "FontIcon",
         Node::LinearGradient { .. } => "LinearGradient",
         Node::Pressable { .. } => "Pressable",
         Node::NavigationStack { .. } => "NavigationStack",
@@ -325,8 +636,9 @@ fn node_kind(node: &Node) -> &'static str {
         Node::If { .. } => "If",
         Node::When { .. } => "When",
         Node::Content => "Content",
-        Node::Spacer => "Spacer",
+        Node::Spacer { .. } => "Spacer",
         Node::Divider { .. } => "Divider",
+        Node::Shape { .. } => "Shape",
         Node::ComponentCall { .. } => "ComponentCall",
         Node::NativeComponentCall { .. } => "NativeComponentCall",
     }
@@ -334,7 +646,8 @@ fn node_kind(node: &Node) -> &'static str {
 
 fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
     match node {
-        Node::Appearance { children, .. }
+        Node::SafeAreaPadding { children, .. }
+        | Node::Appearance { children, .. }
         | Node::Layout { children, .. }
         | Node::Form { children, .. }
         | Node::FormSection { children, .. }
@@ -347,6 +660,15 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
         | Node::Dialog { children, .. }
         | Node::ConfirmationDialog { children, .. }
         | Node::RefreshControl { children, .. } => vec![("body".to_owned(), children)],
+        Node::SafeAreaInset {
+            content, children, ..
+        } => vec![
+            ("safeAreaContent".to_owned(), content),
+            ("body".to_owned(), children),
+        ],
+        Node::ScrollHeader {
+            header, children, ..
+        } => vec![("header".to_owned(), header), ("body".to_owned(), children)],
         Node::NavigationSplitView {
             sidebar, detail, ..
         } => vec![

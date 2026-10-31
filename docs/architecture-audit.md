@@ -23,6 +23,35 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v494` | Adds a shared typed fade-and-upward-slide transition for conditional content on SwiftUI and Compose, including both DevRuntimes. |
+| `build-v493` | Measures iOS roots against full-window geometry, keeps visual safe insets separate, moves animated offsets into `graphicsLayer`, and lowers empty fixed layouts to spacers. |
+| `build-v492` | Captures Compose composition-local geometry before animated graphics-layer callbacks. |
+| `build-v491` | Extends toolbar-free iOS navigation roots edge-to-edge and observes animated content size directly per view. |
+| `build-v490` | Scopes iOS DevRuntime navigation paths and screen state by navigation stack and route. |
+| `build-v489` | Retains Compose mutable state holders on Android navigation entries and delegates screen locals to those holders. |
+| `build-v488` | Exposes Android route-owned mutable state holders for Compose delegation without copying state values. |
+| `build-v487` | Uses the native iOS pop gesture only for hidden navigation bars and respects leading-edge direction in RTL layouts. |
+| `build-v486` | Correctly separates each Android destination's route-state holder type from its route-state instance. |
+| `build-v485` | Keeps Android screen state with its navigation back-stack entry so popping a destination restores the previous screen's full state. |
+| `build-v484` | Keeps Cronet fixed-length network and multipart uploads from using the chunked-upload final marker, restoring Android POST requests such as music search. |
+| `build-v483` | Aligns the hidden-bar SwiftUI edge-swipe pop duration with Compose's 350 ms navigation transition. |
+| `build-v482` | Adds a stack-scoped left-edge swipe that removes one typed SwiftUI route when the native navigation bar is hidden. |
+| `build-v481` | Mounts the iOS hidden-bar back gesture bridge inside the navigation stack's root view so it can reach its native navigation controller. |
+| `build-v480` | Stores SwiftUI navigation routes in typed arrays and restores the native interactive back gesture when the navigation bar is hidden. |
+| `build-v479` | Reads iOS safe insets directly from SwiftUI geometry and simplifies Android nested inset tracking; regenerates stale native safe-area helpers. |
+| `build-v478` | Adds independently animated vertical scale values to native transforms on AOT and DevRuntime targets. |
+| `build-v477` | Supports animated numeric state expressions in native scale transforms on AOT and DevRuntime targets. |
+| `build-v476` | Animates square determinate progress bars with a 250 ms linear fill and draws Android square tracks without Material's rounded indicator caps. |
+| `build-v475` | Matches Slider track and thumb geometry to the full-width control, preserves hit slop without increasing layout height, and honors iOS Reduce Motion. |
+| `build-v474` | Adds styled continuous Slider ranges with typed change/edit callbacks across AOT and DevRuntime, plus cross-platform duration formatting. |
+| `build-v473` | Adds an optional shared BottomSheet top-corner radius across IR, SwiftUI, Compose, and both DevRuntimes. |
+| `build-v472` | Adds intrinsic content-sized bottom sheets across SwiftUI, Compose, and DevRuntime while retaining fractional detents as the default. |
+| `build-v471` | Gives Android Row children with `fillMaxWidth` the remaining row width in AOT and DevRuntime, matching SwiftUI's flexible child sizing. |
+| `build-v470` | Applies edge-to-edge layout to the SwiftUI navigation container, keeping destination screens full width while fixing toolbar-free root top spacing. |
+| `build-v469` | Lets toolbar-free SwiftUI navigation roots extend to the edge-to-edge app bounds while preserving safe navigation chrome on pushed destinations. |
+| `build-v468` | Hides unused root navigation bars in SwiftUI stacks and keeps destination bars visible, avoiding blank top chrome in root content. |
+| `build-v467` | Makes language override changes invalidate the root locale environment in generated SwiftUI and Compose applications. |
+| `build-v466` | Adds the Android Compose `pointerInput` dependency to generated BottomSheet drag handling so apps using sheets compile from a fresh or cached native project. |
 | `build-v465` | Regenerates native output after FastList ref argument ordering and DevRuntime built-in dispatch changes. |
 | `build-v464` | Rejects failed Android DevRuntime patches before advancing the revision and requests a full module. |
 | `build-v463` | Preserves compatible reusable-component state across hot reload and reinitializes values whose struct or enum schema changed. |

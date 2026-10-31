@@ -34,12 +34,33 @@ pub(super) fn root_readme(app_name: &str, targets: &[&str]) -> String {
     readme
 }
 
+#[allow(dead_code)] // Kept as a simple wrapper for template-focused callers and tests.
 pub(super) fn ios_info_plist_with_orientation(
     app_name: &str,
     config: &ProjectConfig,
     plugins: &[PluginPackage],
     dev_runtime: bool,
     supports_screen_orientation: bool,
+    background_task_identifiers: &[String],
+) -> Result<String, String> {
+    ios_info_plist_with_orientation_and_fonts(
+        app_name,
+        config,
+        plugins,
+        dev_runtime,
+        supports_screen_orientation,
+        &[],
+        background_task_identifiers,
+    )
+}
+
+pub(super) fn ios_info_plist_with_orientation_and_fonts(
+    app_name: &str,
+    config: &ProjectConfig,
+    plugins: &[PluginPackage],
+    dev_runtime: bool,
+    supports_screen_orientation: bool,
+    font_files: &[String],
     background_task_identifiers: &[String],
 ) -> Result<String, String> {
     let mut usage_descriptions = std::collections::BTreeMap::<String, String>::new();
@@ -158,8 +179,17 @@ pub(super) fn ios_info_plist_with_orientation(
         _ => "",
     };
     let interface_orientations = format!("{phone_orientations}{ipad_orientations}");
+    let registered_fonts = if font_files.is_empty() {
+        String::new()
+    } else {
+        let entries = font_files
+            .iter()
+            .map(|font| format!("<string>{}</string>", xml_escape(font)))
+            .collect::<String>();
+        format!("<key>UIAppFonts</key><array>{entries}</array>")
+    };
     Ok(format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{interface_orientations}{dev_network}{url_types}{background_modes}{background_identifiers}{app_group_identifier}{entries}</dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{interface_orientations}{dev_network}{url_types}{registered_fonts}{background_modes}{background_identifiers}{app_group_identifier}{entries}</dict></plist>\n",
         xml_escape(&config.display_name),
         xml_escape(&config.ios_bundle_identifier),
         xml_escape(&config.version),
@@ -633,6 +663,7 @@ pub(super) fn ios_project_file_with_localization_config(
     ios_project_file_with_localization_config_and_widgets(
         app_name,
         has_assets,
+        false,
         has_plugin_resources,
         has_localization_catalog,
         has_privacy_manifest,
@@ -651,6 +682,7 @@ pub(super) fn ios_project_file_with_localization_config(
 pub(super) fn ios_project_file_with_localization_config_and_widgets(
     app_name: &str,
     has_assets: bool,
+    has_fonts: bool,
     has_plugin_resources: bool,
     has_localization_catalog: bool,
     has_privacy_manifest: bool,
@@ -820,6 +852,8 @@ pub(super) fn ios_project_file_with_localization_config_and_widgets(
     };
     let asset_reference_id = alloc.id("file:assets")?;
     let asset_build_id = alloc.id("build:assets")?;
+    let font_reference_id = has_fonts.then(|| alloc.id("file:fonts")).transpose()?;
+    let font_build_id = has_fonts.then(|| alloc.id("build:fonts")).transpose()?;
     let resources_reference_id = alloc.id("file:plugin-resources")?;
     let resources_build_id = alloc.id("build:plugin-resources")?;
     let localization_reference_id = if has_localization_catalog {
@@ -884,6 +918,9 @@ pub(super) fn ios_project_file_with_localization_config_and_widgets(
     if has_assets {
         app_children.push(asset_reference_id.clone());
     }
+    if let Some(font_reference_id) = &font_reference_id {
+        app_children.push(font_reference_id.clone());
+    }
     app_children.extend(generated_file_ids.clone());
     app_children.extend(plugin_file_ids.clone());
     app_children.extend(xcframework_reference_ids.clone());
@@ -920,6 +957,9 @@ pub(super) fn ios_project_file_with_localization_config_and_widgets(
     let mut resource_files = Vec::new();
     if has_assets {
         resource_files.push(asset_build_id.clone());
+    }
+    if let Some(font_build_id) = &font_build_id {
+        resource_files.push(font_build_id.clone());
     }
     if has_icon_composer {
         resource_files.push(icon_build_id.clone());
@@ -1281,6 +1321,13 @@ pub(super) fn ios_project_file_with_localization_config_and_widgets(
             ),
         )?;
         pbx.insert(asset_build_id, build_file_object(&asset_reference_id))?;
+    }
+    if let (Some(reference_id), Some(build_id)) = (&font_reference_id, &font_build_id) {
+        pbx.insert(
+            reference_id.clone(),
+            file_reference_object("folder", "Fonts", "\"<group>\"", None),
+        )?;
+        pbx.insert(build_id.clone(), build_file_object(reference_id))?;
     }
     if has_plugin_resources {
         pbx.insert(
@@ -1756,25 +1803,36 @@ pub(super) fn android_manifest(
     plugins: &[PluginPackage],
 ) -> Result<String, String> {
     android_manifest_with_widgets(
-        _app_name,
         package,
-        remote,
-        network_connectivity,
+        AndroidManifestOptions {
+            remote,
+            network_connectivity,
+            large_heap: false,
+        },
         config,
         plugins,
         &[],
     )
 }
 
+pub(super) struct AndroidManifestOptions {
+    pub(super) remote: bool,
+    pub(super) network_connectivity: bool,
+    pub(super) large_heap: bool,
+}
+
 pub(super) fn android_manifest_with_widgets(
-    _app_name: &str,
     package: &str,
-    remote: bool,
-    network_connectivity: bool,
+    options: AndroidManifestOptions,
     config: &ProjectConfig,
     plugins: &[PluginPackage],
     widgets: &[Widget],
 ) -> Result<String, String> {
+    let large_heap_attribute = if options.large_heap {
+        " android:largeHeap=\"true\""
+    } else {
+        ""
+    };
     let application_metadata = merged_android_application_metadata(plugins)?;
     let application_metadata_xml = application_metadata
         .iter()
@@ -1787,10 +1845,10 @@ pub(super) fn android_manifest_with_widgets(
         })
         .collect::<String>();
     let mut permissions = std::collections::BTreeSet::new();
-    if remote {
+    if options.remote {
         permissions.insert("android.permission.INTERNET".to_owned());
     }
-    if network_connectivity {
+    if options.network_connectivity {
         permissions.insert("android.permission.ACCESS_NETWORK_STATE".to_owned());
     }
     for (permission, _) in config.permissions() {
@@ -1962,7 +2020,7 @@ pub(super) fn android_manifest_with_widgets(
         })
         .collect::<String>();
     Ok(format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <meta-data android:name=\"dev.nexa.orientationPolicy\" android:value=\"{}\" />\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"{orientation_policy}\"{config_changes}{picture_in_picture_attributes} android:windowSoftInputMode=\"adjustResize\">\n{launcher_filter}{deep_link_filters}        </activity>\n{icon_aliases}{widget_declarations}{media_playback_service_declarations}{firebase_messaging_service_declarations}{application_metadata_xml}    </application>\n</manifest>\n",
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\"{large_heap_attribute}>\n        <meta-data android:name=\"dev.nexa.orientationPolicy\" android:value=\"{}\" />\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"{orientation_policy}\"{config_changes}{picture_in_picture_attributes} android:windowSoftInputMode=\"adjustNothing\">\n{launcher_filter}{deep_link_filters}        </activity>\n{icon_aliases}{widget_declarations}{media_playback_service_declarations}{firebase_messaging_service_declarations}{application_metadata_xml}    </application>\n</manifest>\n",
         xml_escape(&config.display_name),
         xml_escape(&config.orientation),
     ))
@@ -2197,11 +2255,16 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
         "1.5.0-alpha25"
     };
     let mut dependencies = format!(
-        "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3:{material3_version}\")\n",
+        "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.foundation:foundation\")\n    implementation(\"androidx.compose.material3:material3:{material3_version}\")\n",
     );
     if dev_runtime {
         dependencies.push_str(
-            "    implementation(\"androidx.compose.foundation:foundation\")\n    implementation(\"androidx.compose.runtime:runtime\")\n    implementation(\"androidx.core:core\")\n    implementation(\"androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0\")\n",
+            "    implementation(\"androidx.compose.runtime:runtime\")\n    implementation(\"androidx.core:core\")\n",
+        );
+    }
+    if dev_runtime || features.uses_navigation {
+        dependencies.push_str(
+            "    implementation(\"androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0\")\n",
         );
     }
     if dev_runtime || features.uses_bottom_bar {

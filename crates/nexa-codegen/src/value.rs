@@ -237,11 +237,11 @@ impl CodecCollector {
         for state in &module.states {
             self.visit_expr(&state.initial);
         }
+        for global in &module.globals {
+            self.visit_expr(&global.initial);
+        }
         for function in &module.functions {
-            for local in &function.locals {
-                self.visit_expr(&local.initial);
-            }
-            self.visit_expr(&function.body);
+            self.function(function);
         }
         for actions in [
             &module.on_appear,
@@ -265,13 +265,33 @@ impl CodecCollector {
             for state in &component.states {
                 self.visit_expr(&state.initial);
             }
+            for method in &component.ref_methods {
+                self.function(method);
+            }
+        }
+    }
+
+    fn function(&mut self, function: &nexa_ir::Function) {
+        for initializer in &function.class_initializers {
+            self.visit_expr(&initializer.initial);
+        }
+        for local in &function.locals {
+            self.visit_expr(&local.initial);
+        }
+        self.visit_expr(&function.body);
+        if let Some(actions) = &function.body_actions {
+            self.action_slice(actions);
         }
     }
 
     fn actions(&mut self, actions: &Option<Vec<nexa_ir::Action>>) {
         if let Some(actions) = actions {
-            nexa_ir::walk::walk_actions(actions, &mut |expr| self.visit_expr(expr));
+            self.action_slice(actions);
         }
+    }
+
+    fn action_slice(&mut self, actions: &[nexa_ir::Action]) {
+        nexa_ir::walk::walk_actions(actions, &mut |expr| self.visit_expr(expr));
     }
 
     fn nodes(&mut self, nodes: &[nexa_ir::Node]) {
@@ -792,7 +812,7 @@ public fun nexaCompareBytes(left: ByteArray, right: ByteArray): Int {
 
 #[cfg(test)]
 mod tests {
-    use nexa_ir::{Action, Expr, NumericType, PluginCodec, Type};
+    use nexa_ir::{Action, Expr, Function, NumericType, PluginCodec, Type};
 
     use super::{Direction, codec_name, collect};
 
@@ -949,5 +969,49 @@ mod tests {
         let mut module = module_with_lifecycle_call();
         module.on_appear = None;
         assert!(collect(&module).is_empty());
+    }
+
+    #[test]
+    fn json_codecs_in_function_statement_bodies_are_collected() {
+        let response = Type::Struct {
+            name: "SearchResponse".to_owned(),
+            fields: vec![("items".to_owned(), Type::Array(Box::new(Type::String)))],
+        };
+        let mut module = module_with_lifecycle_call();
+        module.on_appear = None;
+        module.functions.push(Function {
+            name: "decodeSearchResponse".to_owned(),
+            receiver: None,
+            class_initializers: Vec::new(),
+            is_async: true,
+            is_throwing: false,
+            failure_type: None,
+            parameters: Vec::new(),
+            locals: Vec::new(),
+            return_type: Type::String,
+            body: Expr::String(String::new()),
+            body_actions: Some(vec![Action::Expression(Expr::NativeCall {
+                receiver: None,
+                namespace: "Json".to_owned(),
+                name: "parse".to_owned(),
+                arguments: vec![("raw".to_owned(), Expr::String("{}".to_owned()))],
+                codecs: vec![PluginCodec {
+                    ty: response.clone(),
+                    decodes: true,
+                    row_mapper: false,
+                }],
+                return_type: Type::Result(
+                    Box::new(response.clone()),
+                    Box::new(Type::Enum("JsonError".to_owned())),
+                ),
+                source_span: None,
+                is_async: false,
+                is_throwing: false,
+            })]),
+        });
+
+        let json_types = super::collect_json_types(&module);
+        assert!(json_types.contains(&response));
+        assert!(json_types.contains(&Type::Array(Box::new(Type::String))));
     }
 }

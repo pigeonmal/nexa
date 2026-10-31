@@ -7,6 +7,7 @@
 
 use std::fs;
 
+use nexa_codegen::Backend;
 use nexa_ir::{Expr, NumericType, TimeMethod, Type};
 use nexa_testkit::TestProject;
 
@@ -192,6 +193,7 @@ fn localized_date_and_time_formatters_are_typed_string_calls() {
         "    state timestamp: Int64 = Time.now()\n",
         r#"        Column {
             Text(Time.localizedDate(timestamp: timestamp))
+            Text(Time.localizedLongDate(timestamp: timestamp, locale: "fr"))
             Text(Time.localizedTime(timestamp: timestamp))
             Text(Time.localizedDateTime(timestamp: timestamp))
         }
@@ -202,6 +204,7 @@ fn localized_date_and_time_formatters_are_typed_string_calls() {
     let calls = clock_calls(&module);
     for method in [
         TimeMethod::LocalizedDate,
+        TimeMethod::LocalizedLongDate,
         TimeMethod::LocalizedTime,
         TimeMethod::LocalizedDateTime,
     ] {
@@ -220,6 +223,14 @@ fn localized_date_and_time_formatters_are_typed_string_calls() {
     )
     .expect_err("localized formatters require epoch milliseconds");
     assert!(invalid.contains("Int64"));
+
+    let invalid_locale = compile_with(
+        "nexa-localized-long-date-invalid-locale",
+        "    state timestamp: Int64 = Time.now()\n    state locale: Bool = true\n",
+        "        Column { Text(Time.localizedLongDate(timestamp: timestamp, locale: locale)) }\n",
+    )
+    .expect_err("localized long date requires a locale identifier");
+    assert!(invalid_locale.contains("String"));
 }
 
 #[test]
@@ -237,6 +248,30 @@ fn explicit_date_patterns_are_typed_calls_with_positional_arguments() {
     assert!(clock_calls(&module).iter().any(|(method, ty, is_async)| {
         *method == TimeMethod::Format && *ty == Type::String && !is_async
     }));
+}
+
+#[test]
+fn duration_formatting_is_a_pure_cross_platform_string_call() {
+    let module = compile_with(
+        "nexa-duration-format",
+        "    state playbackPosition: Float64 = 65.9\n",
+        "        Column { Text(Time.formatDuration(seconds: playbackPosition)) }\n",
+    )
+    .expect("duration formatting should accept a Float64 number of seconds");
+
+    assert!(clock_calls(&module).iter().any(|(method, ty, is_async)| {
+        *method == TimeMethod::FormatDuration && *ty == Type::String && !is_async
+    }));
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(
+        swift.contains("nexaFormatDuration(nexa_playbackPosition)"),
+        "{swift}"
+    );
+    assert!(
+        kotlin.contains("nexaFormatDuration(nexa_playbackPosition)"),
+        "{kotlin}"
+    );
 }
 
 #[test]

@@ -385,12 +385,15 @@ enum HeadlessControl {
     Switch {
         label: String,
         state: String,
+        on_change: Option<nexa_ir::SwitchChange>,
     },
     Slider {
         state: String,
         min: f64,
         max: f64,
         step: f64,
+        on_change: Option<nexa_ir::SliderChange>,
+        on_editing_changed: Option<nexa_ir::SliderEditingChanged>,
     },
     Selection {
         state: String,
@@ -522,7 +525,10 @@ impl<'a> HeadlessRuntime<'a> {
                 matches!(control, HeadlessControl::Switch { label: candidate, .. } if candidate == label)
             })
             .ok_or_else(|| format!("no visible Switch labeled `{label}`"))?;
-        let HeadlessControl::Switch { state, .. } = control else {
+        let HeadlessControl::Switch {
+            state, on_change, ..
+        } = control
+        else {
             return Err("headless Switch selection changed unexpectedly".to_owned());
         };
         let value = self
@@ -534,7 +540,27 @@ impl<'a> HeadlessRuntime<'a> {
         let Value::Bool(value) = value else {
             return Err(format!("Switch state `{state}` is not Boolean"));
         };
-        self.set_instance_state(&instance, &state, Value::Bool(!value))
+        let next_value = !value;
+        let component = self
+            .instances
+            .get_mut(&instance)
+            .ok_or_else(|| "headless Switch instance disappeared during toggle".to_owned())?;
+        component.environment.insert(state, Value::Bool(next_value));
+        if let Some(change) = on_change {
+            component
+                .environment
+                .insert(change.parameter.clone(), Value::Bool(next_value));
+            let result = run_actions(
+                &change.actions,
+                &mut component.environment,
+                self.functions,
+                0,
+            );
+            component.environment.remove(&change.parameter);
+            result
+        } else {
+            Ok(())
+        }
     }
 
     fn slide(&mut self, state: &str, value: f64) -> Result<(), String> {
@@ -549,18 +575,62 @@ impl<'a> HeadlessRuntime<'a> {
                 matches!(control, HeadlessControl::Slider { state: candidate, .. } if candidate == state)
             })
             .ok_or_else(|| format!("no visible Slider bound to state `{state}`"))?;
-        let HeadlessControl::Slider { min, max, step, .. } = control else {
+        let HeadlessControl::Slider {
+            min,
+            max,
+            step,
+            on_change,
+            on_editing_changed,
+            ..
+        } = control
+        else {
             return Err("headless Slider selection changed unexpectedly".to_owned());
         };
         if value < min || value > max {
             return Err(format!("slider value {value} is outside {min}..{max}"));
         }
-        if !step.is_finite() || step <= 0.0 || min > max {
+        if !step.is_finite() || step < 0.0 || min >= max {
             return Err("Slider has an invalid range or step".to_owned());
         }
-        let steps = ((value - min) / step).round();
-        let stepped = (min + steps * step).clamp(min, max);
-        self.set_instance_state(&instance, state, Value::Float(stepped))
+        let value = if step > 0.0 {
+            let steps = ((value - min) / step).round();
+            (min + steps * step).clamp(min, max)
+        } else {
+            value
+        };
+        self.set_instance_state(&instance, state, Value::Float(value))?;
+        let Some(component) = self.instances.get_mut(&instance) else {
+            return Err("headless Slider instance disappeared during change".to_owned());
+        };
+        if let Some(change) = on_change {
+            component
+                .environment
+                .insert(change.parameter.clone(), Value::Float(value));
+            let result = run_actions(
+                &change.actions,
+                &mut component.environment,
+                self.functions,
+                0,
+            );
+            component.environment.remove(&change.parameter);
+            result?;
+        }
+        if let Some(change) = on_editing_changed {
+            for editing in [true, false] {
+                component
+                    .environment
+                    .insert(change.parameter.clone(), Value::Bool(editing));
+                let result = run_actions(
+                    &change.actions,
+                    &mut component.environment,
+                    self.functions,
+                    0,
+                );
+                component.environment.remove(&change.parameter);
+                result?;
+            }
+        }
+        Ok(())
     }
 
     fn select(&mut self, state: &str, value: &str) -> Result<(), String> {
@@ -834,7 +904,11 @@ impl<'a> HeadlessRuntime<'a> {
                         },
                     ));
                 }
-                Node::Switch { state, label, .. } => {
+                Node::Switch {
+                    state,
+                    label,
+                    on_change,
+                } => {
                     if !matches!(environment.get(state), Some(Value::Bool(_))) {
                         return Err(format!("Switch state `{state}` is not a Boolean"));
                     }
@@ -845,6 +919,7 @@ impl<'a> HeadlessRuntime<'a> {
                         HeadlessControl::Switch {
                             label: label.clone(),
                             state: state.clone(),
+                            on_change: on_change.clone(),
                         },
                     ));
                 }
@@ -853,18 +928,30 @@ impl<'a> HeadlessRuntime<'a> {
                     min,
                     max,
                     step,
+                    on_change,
+                    on_editing_changed,
                     ..
                 } => {
                     if !matches!(environment.get(state), Some(Value::Float(_))) {
                         return Err(format!("Slider state `{state}` is not a Float64"));
                     }
+                    let min = match eval_expr(min, environment, self.functions, 0)? {
+                        Value::Float(value) => value,
+                        _ => return Err("Slider min is not a Float64".to_owned()),
+                    };
+                    let max = match eval_expr(max, environment, self.functions, 0)? {
+                        Value::Float(value) => value,
+                        _ => return Err("Slider max is not a Float64".to_owned()),
+                    };
                     snapshot.controls.push((
                         instance_path.to_owned(),
                         HeadlessControl::Slider {
                             state: state.clone(),
-                            min: *min,
-                            max: *max,
+                            min,
+                            max,
                             step: *step,
+                            on_change: on_change.clone(),
+                            on_editing_changed: on_editing_changed.clone(),
                         },
                     ));
                 }
@@ -1058,9 +1145,30 @@ impl<'a> HeadlessRuntime<'a> {
                     snapshot,
                     depth + 1,
                 )?,
+                Node::ScrollHeader {
+                    header, children, ..
+                } => {
+                    self.render_nodes(
+                        header,
+                        environment,
+                        instance_path,
+                        content,
+                        snapshot,
+                        depth + 1,
+                    )?;
+                    self.render_nodes(
+                        children,
+                        environment,
+                        instance_path,
+                        content,
+                        snapshot,
+                        depth + 1,
+                    )?;
+                }
                 Node::Image { .. }
-                | Node::Spacer
+                | Node::Spacer { .. }
                 | Node::Divider { .. }
+                | Node::Shape { .. }
                 | Node::ProgressBar { .. }
                 | Node::ProgressRing { .. } => {}
                 Node::NativeComponentCall {
@@ -1117,6 +1225,7 @@ fn node_name(node: &Node) -> &'static str {
         Node::PickerDate { .. } => "PickerDate",
         Node::Image { .. } => "Image",
         Node::SystemIcon { .. } => "Icon",
+        Node::FontIcon { .. } => "Icon",
         Node::LinearGradient { .. } => "LinearGradient",
         Node::Pressable { .. } => "Pressable",
         Node::NavigationStack { .. } => "NavigationStack",
@@ -1145,10 +1254,14 @@ fn node_name(node: &Node) -> &'static str {
         Node::OnInactive { .. } => "OnInactive",
         Node::OnBackground { .. } => "OnBackground",
         Node::Layout { .. }
+        | Node::SafeAreaPadding { .. }
+        | Node::SafeAreaInset { .. }
+        | Node::ScrollHeader { .. }
         | Node::Text { .. }
         | Node::ContentUnavailable { .. }
-        | Node::Spacer
+        | Node::Spacer { .. }
         | Node::Divider { .. }
+        | Node::Shape { .. }
         | Node::Button { .. }
         | Node::If { .. }
         | Node::When { .. }

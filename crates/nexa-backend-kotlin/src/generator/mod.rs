@@ -73,6 +73,7 @@ fn project_features_from_analysis(
         uses_compose_animation: features.uses_conditional_transition
             || features.uses_shared_elements
             || features.uses_segmented_control
+            || features.uses_animation
             || state::module_uses_scoped_animation(module),
         uses_compose_graphics: features.uses_color
             || features.uses_asset
@@ -119,6 +120,17 @@ pub(super) fn generate_units_with_project_features(
     (generated, project_features)
 }
 
+pub(super) fn generate_units_with_network_and_project_features(
+    module: &Module,
+) -> (GeneratedSources, crate::KotlinProjectFeatures) {
+    let mut features = features::Features::analyze(module);
+    features.uses_network_api = true;
+    features.uses_native_library = true;
+    let project_features = project_features_from_analysis(module, &features);
+    let generated = generate_units(module, &features);
+    (generated, project_features)
+}
+
 pub(super) fn generate_for_dev_units_with_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::KotlinProjectFeatures) {
@@ -137,6 +149,9 @@ pub(super) fn generate_for_dev_units_with_project_features(
     // added by hot reload do not need a host rebuild. Keep those primitives'
     // imports and Gradle feature requirements in sync with the emitted source.
     features.uses_keyboard_aware = true;
+    features.uses_safe_area_padding = true;
+    features.uses_safe_area_inset = true;
+    features.uses_safe_area_endpoint = true;
     features.uses_page_pager = true;
     features.uses_picker = true;
     features.uses_progress_bar = true;
@@ -279,7 +294,427 @@ private fun <K, V> nexaSnapshotEntries(values: androidx.compose.runtime.snapshot
 /// interpreted DevRuntime. Keep rendering defaults here so both render paths
 /// use the same Compose components and layout behavior.
 const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = concat!(
-    r#"// nexa-codegen: NexaAppearancePrimitive
+    r#"// nexa-codegen: NexaSafeAreaEdge
+internal enum class NexaSafeAreaEdge { Top, Bottom, Leading, Trailing }
+internal val NexaVisualSafeAreaEdges = setOf(
+    NexaSafeAreaEdge.Top,
+    NexaSafeAreaEdge.Bottom,
+    NexaSafeAreaEdge.Leading,
+    NexaSafeAreaEdge.Trailing,
+)
+
+// nexa-codegen: NexaSafeAreaInsets
+internal data class NexaSafeAreaInsets(
+    val top: androidx.compose.ui.unit.Dp = 0.dp,
+    val bottom: androidx.compose.ui.unit.Dp = 0.dp,
+    val start: androidx.compose.ui.unit.Dp = 0.dp,
+    val end: androidx.compose.ui.unit.Dp = 0.dp,
+) {
+    fun get(edge: NexaSafeAreaEdge): androidx.compose.ui.unit.Dp = when (edge) {
+        NexaSafeAreaEdge.Top -> top
+        NexaSafeAreaEdge.Bottom -> bottom
+        NexaSafeAreaEdge.Leading -> start
+        NexaSafeAreaEdge.Trailing -> end
+    }
+
+    fun offset(
+        edge: NexaSafeAreaEdge,
+        amount: androidx.compose.ui.unit.Dp,
+    ): NexaSafeAreaInsets = when (edge) {
+        NexaSafeAreaEdge.Top -> copy(top = top + amount)
+        NexaSafeAreaEdge.Bottom -> copy(bottom = bottom + amount)
+        NexaSafeAreaEdge.Leading -> copy(start = start + amount)
+        NexaSafeAreaEdge.Trailing -> copy(end = end + amount)
+    }
+
+    operator fun plus(other: NexaSafeAreaInsets) = NexaSafeAreaInsets(
+        top = top + other.top,
+        bottom = bottom + other.bottom,
+        start = start + other.start,
+        end = end + other.end,
+    )
+}
+
+// nexa-codegen: NexaSafeAreaContext
+internal data class NexaSafeAreaContext(
+    val consumed: NexaSafeAreaInsets = NexaSafeAreaInsets(),
+    val occupied: NexaSafeAreaInsets = NexaSafeAreaInsets(),
+    val endpoint: NexaSafeAreaInsets = NexaSafeAreaInsets(),
+)
+
+// nexa-codegen: LocalNexaSafeAreaContext
+internal val LocalNexaSafeAreaContext =
+    androidx.compose.runtime.staticCompositionLocalOf { NexaSafeAreaContext() }
+
+// nexa-codegen: nexaSafeAreaDynamicInsets
+@androidx.compose.runtime.Composable
+internal fun nexaSafeAreaDynamicInsets(): NexaSafeAreaInsets {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+    // Safe drawing excludes IME and gesture regions. KeyboardAware and gesture
+    // handling own those separately.
+    val raw = nexaSafeAreaWindowInsets(NexaVisualSafeAreaEdges)
+    val consumed = LocalNexaSafeAreaContext.current.consumed
+    fun remaining(pixels: Int, alreadyConsumed: androidx.compose.ui.unit.Dp) =
+        (with(density) { pixels.toDp() } - alreadyConsumed).coerceAtLeast(0.dp)
+    return NexaSafeAreaInsets(
+        top = remaining(raw.getTop(density), consumed.top),
+        bottom = remaining(raw.getBottom(density), consumed.bottom),
+        start = remaining(raw.getLeft(density, direction), consumed.start),
+        end = remaining(raw.getRight(density, direction), consumed.end),
+    )
+}
+
+// nexa-codegen: nexaSafeAreaWindowInsets
+// Keep the same visual inset sources for every safe-area primitive. `union`
+// takes the maximum on overlapping edges; it never double-counts a cutout and
+// a system bar. IME and gesture insets intentionally stay separate.
+@androidx.compose.runtime.Composable
+internal fun nexaSafeAreaWindowInsets(
+    edges: Set<NexaSafeAreaEdge>,
+): androidx.compose.foundation.layout.WindowInsets {
+    val systemBars = androidx.compose.foundation.layout.WindowInsets.systemBars
+    val displayCutout = androidx.compose.foundation.layout.WindowInsets.displayCutout
+    val waterfall = androidx.compose.foundation.layout.WindowInsets.waterfall
+    val visual = androidx.compose.runtime.remember(systemBars, displayCutout, waterfall) {
+        systemBars
+            .union(displayCutout)
+            .union(waterfall)
+    }
+    return androidx.compose.runtime.remember(edges, visual) {
+        var selected = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)
+        if (NexaSafeAreaEdge.Top in edges) {
+            selected = selected.union(visual.only(androidx.compose.foundation.layout.WindowInsetsSides.Top))
+        }
+        if (NexaSafeAreaEdge.Bottom in edges) {
+            selected = selected.union(visual.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom))
+        }
+        if (NexaSafeAreaEdge.Leading in edges) {
+            selected = selected.union(visual.only(androidx.compose.foundation.layout.WindowInsetsSides.Start))
+        }
+        if (NexaSafeAreaEdge.Trailing in edges) {
+            selected = selected.union(visual.only(androidx.compose.foundation.layout.WindowInsetsSides.End))
+        }
+        selected
+    }
+}
+
+// nexa-codegen: NexaSafeAreaPaddingPrimitive
+@androidx.compose.runtime.Composable
+internal fun NexaSafeAreaPaddingPrimitive(
+    edges: Set<NexaSafeAreaEdge>,
+    spacing: androidx.compose.ui.unit.Dp,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val parent = LocalNexaSafeAreaContext.current
+    val remaining = nexaSafeAreaDynamicInsets()
+    val selectedSafe = NexaSafeAreaInsets(
+        top = if (NexaSafeAreaEdge.Top in edges) remaining.top else 0.dp,
+        bottom = if (NexaSafeAreaEdge.Bottom in edges) remaining.bottom else 0.dp,
+        start = if (NexaSafeAreaEdge.Leading in edges) remaining.start else 0.dp,
+        end = if (NexaSafeAreaEdge.Trailing in edges) remaining.end else 0.dp,
+    )
+    val safeWindowInsets = nexaSafeAreaWindowInsets(edges)
+    val spacingPadding = androidx.compose.foundation.layout.PaddingValues(
+        top = if (NexaSafeAreaEdge.Top in edges) spacing else 0.dp,
+        bottom = if (NexaSafeAreaEdge.Bottom in edges) spacing else 0.dp,
+        start = if (NexaSafeAreaEdge.Leading in edges) spacing else 0.dp,
+        end = if (NexaSafeAreaEdge.Trailing in edges) spacing else 0.dp,
+    )
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalNexaSafeAreaContext provides parent.copy(consumed = parent.consumed + selectedSafe),
+    ) {
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier
+                .windowInsetsPadding(safeWindowInsets)
+                .padding(spacingPadding)
+        ) { content() }
+    }
+}
+
+// nexa-codegen: NexaSafeAreaInsetPrimitive
+@androidx.compose.runtime.Composable
+internal fun NexaSafeAreaInsetPrimitive(
+    edge: NexaSafeAreaEdge,
+    spacing: androidx.compose.ui.unit.Dp,
+    accommodatesEndpoint: Boolean,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+    attachedContent: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val parent = LocalNexaSafeAreaContext.current
+    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val visualWindowInsets = nexaSafeAreaWindowInsets(NexaVisualSafeAreaEdges)
+    val attachedSpacing = if (accommodatesEndpoint) 0.dp else spacing
+    val edgeWindowInsets = nexaSafeAreaWindowInsets(setOf(edge))
+    val vertical = edge == NexaSafeAreaEdge.Top || edge == NexaSafeAreaEdge.Bottom
+    val crossEdges = if (vertical) {
+        setOf(NexaSafeAreaEdge.Leading, NexaSafeAreaEdge.Trailing)
+    } else {
+        setOf(NexaSafeAreaEdge.Top, NexaSafeAreaEdge.Bottom)
+    }
+    val crossWindowInsets = nexaSafeAreaWindowInsets(crossEdges)
+    val occupiedBeforeAttachment = parent.occupied.get(edge)
+    val attachmentSlot = 0
+    val contentSlot = 1
+
+    androidx.compose.ui.layout.SubcomposeLayout(
+        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+    ) { constraints ->
+        val safeInsets = NexaSafeAreaInsets(
+            top = (with(this) { visualWindowInsets.getTop(this).toDp() } - parent.consumed.top).coerceAtLeast(0.dp),
+            bottom = (with(this) { visualWindowInsets.getBottom(this).toDp() } - parent.consumed.bottom).coerceAtLeast(0.dp),
+            start = (with(this) { visualWindowInsets.getLeft(this, direction).toDp() } - parent.consumed.start).coerceAtLeast(0.dp),
+            end = (with(this) { visualWindowInsets.getRight(this, direction).toDp() } - parent.consumed.end).coerceAtLeast(0.dp),
+        )
+        val safe = safeInsets.get(edge)
+        val crossSafe = NexaSafeAreaInsets(
+            top = if (NexaSafeAreaEdge.Top in crossEdges) safeInsets.top else 0.dp,
+            bottom = if (NexaSafeAreaEdge.Bottom in crossEdges) safeInsets.bottom else 0.dp,
+            start = if (NexaSafeAreaEdge.Leading in crossEdges) safeInsets.start else 0.dp,
+            end = if (NexaSafeAreaEdge.Trailing in crossEdges) safeInsets.end else 0.dp,
+        )
+        val attachmentOffset = with(this) {
+            (occupiedBeforeAttachment + safe + attachedSpacing).roundToPx()
+        }
+        val safeContextForAttachment = parent.copy(
+            consumed = parent.consumed.offset(edge, safe) + crossSafe,
+            endpoint = NexaSafeAreaInsets(),
+        )
+        val maxWidth = constraints.maxWidth
+        val maxHeight = constraints.maxHeight
+        val attachmentConstraints = androidx.compose.ui.unit.Constraints(
+            maxWidth = (if (vertical) maxWidth else maxWidth - attachmentOffset).coerceAtLeast(0),
+            maxHeight = (if (vertical) maxHeight - attachmentOffset else maxHeight).coerceAtLeast(0),
+        )
+        val attachment = subcompose(attachmentSlot) {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .windowInsetsPadding(crossWindowInsets)
+                    .consumeWindowInsets(edgeWindowInsets),
+            ) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalNexaSafeAreaContext provides safeContextForAttachment,
+                    content = attachedContent,
+                )
+            }
+        }.single().measure(attachmentConstraints)
+
+        val attachmentSize = with(this) {
+            (if (vertical) attachment.height else attachment.width).toDp()
+        }
+        val occupied = safe + spacing + attachmentSize
+        val next = parent.copy(
+            consumed = parent.consumed.offset(edge, safe),
+            occupied = parent.occupied.offset(edge, occupied),
+            endpoint = parent.endpoint.offset(
+                edge,
+                if (accommodatesEndpoint) occupied else 0.dp,
+            ),
+        )
+        val width = if (constraints.hasBoundedWidth) maxWidth else maxOf(constraints.minWidth, attachment.width)
+        val height = if (constraints.hasBoundedHeight) maxHeight else maxOf(constraints.minHeight, attachment.height)
+        val body = subcompose(contentSlot) {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxSize()
+                    .consumeWindowInsets(edgeWindowInsets),
+            ) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalNexaSafeAreaContext provides next,
+                    content = content,
+                )
+            }
+        }.single().measure(androidx.compose.ui.unit.Constraints.fixed(width, height))
+
+        layout(width, height) {
+            body.place(0, 0)
+            val x = when (edge) {
+                NexaSafeAreaEdge.Leading -> attachmentOffset
+                NexaSafeAreaEdge.Trailing -> width - attachmentOffset - attachment.width
+                else -> (width - attachment.width) / 2
+            }
+            val y = when (edge) {
+                NexaSafeAreaEdge.Top -> attachmentOffset
+                NexaSafeAreaEdge.Bottom -> height - attachmentOffset - attachment.height
+                else -> (height - attachment.height) / 2
+            }
+            attachment.placeRelative(x, y)
+        }
+    }
+}
+
+// nexa-codegen: nexaSafeAreaScrollViewportModifier
+@androidx.compose.runtime.Composable
+internal fun nexaSafeAreaScrollViewportModifier(
+    axis: String,
+): androidx.compose.ui.Modifier {
+    val endpoint = LocalNexaSafeAreaContext.current.endpoint
+    val vertical = axis == "Vertical" || axis == "Both"
+    val horizontal = axis == "Horizontal" || axis == "Both"
+    return androidx.compose.ui.Modifier.padding(
+        androidx.compose.foundation.layout.PaddingValues(
+            start = if (horizontal) endpoint.start else 0.dp,
+            top = if (vertical) endpoint.top else 0.dp,
+            end = if (horizontal) endpoint.end else 0.dp,
+            bottom = if (vertical) endpoint.bottom else 0.dp,
+        ),
+    )
+}
+
+// nexa-codegen: nexaSafeAreaContentPadding
+@androidx.compose.runtime.Composable
+internal fun nexaSafeAreaContentPadding(
+    axis: String,
+    includeVisualSafeInsets: Boolean = true,
+): androidx.compose.foundation.layout.PaddingValues {
+    val remaining = if (includeVisualSafeInsets) nexaSafeAreaDynamicInsets() else NexaSafeAreaInsets()
+    val vertical = axis == "Vertical" || axis == "Both"
+    val horizontal = axis == "Horizontal" || axis == "Both"
+    return androidx.compose.foundation.layout.PaddingValues(
+        start = if (horizontal) remaining.start else 0.dp,
+        top = if (vertical) remaining.top else 0.dp,
+        end = if (horizontal) remaining.end else 0.dp,
+        bottom = if (vertical) remaining.bottom else 0.dp,
+    )
+}
+
+// nexa-codegen: NexaAdaptiveScrollHeaderPrimitive
+private class NexaAdaptiveScrollHeaderState {
+    val collapseOffset = androidx.compose.runtime.mutableFloatStateOf(0f)
+    val isHidden = androidx.compose.runtime.mutableStateOf(false)
+    val expandedHeight = androidx.compose.runtime.mutableIntStateOf(0)
+    val hasInteracted = androidx.compose.runtime.mutableStateOf(false)
+    var accumulatedMovement = 0f
+
+    fun onVerticalScroll(behavior: String, delta: Float) {
+        when (behavior) {
+            "Collapse" -> collapseOffset.floatValue =
+                (collapseOffset.floatValue - delta).coerceAtLeast(0f)
+            "HideOnScroll" -> {
+                if (delta == 0f) return
+                if (accumulatedMovement * delta < 0f) accumulatedMovement = delta
+                else accumulatedMovement += delta
+                if (kotlin.math.abs(accumulatedMovement) >= 8f) {
+                    // A negative nested-scroll delta means the user is moving
+                    // down the content, so the header hides.
+                    hasInteracted.value = true
+                    isHidden.value = accumulatedMovement < 0f
+                    accumulatedMovement = 0f
+                }
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun NexaAdaptiveScrollHeaderContent(
+    behavior: String,
+    collapsedHeight: androidx.compose.ui.unit.Dp,
+    state: NexaAdaptiveScrollHeaderState,
+    header: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val expandedHeight = with(density) { state.expandedHeight.intValue.toDp() }
+    val collapseOffset = with(density) { state.collapseOffset.floatValue.toDp() }
+    val collapsed = minOf(collapsedHeight, expandedHeight.takeIf { it > 0.dp } ?: collapsedHeight)
+    val collapseProgress = (collapseOffset / 120.dp).coerceIn(0f, 1f)
+    val collapseHeight = expandedHeight - (expandedHeight - collapsed) * collapseProgress
+    val hiddenTarget = if (state.isHidden.value) 0.dp else expandedHeight
+    val animatedHiddenHeight = androidx.compose.animation.core.animateDpAsState(
+        targetValue = hiddenTarget,
+        animationSpec = if (state.hasInteracted.value) {
+            androidx.compose.animation.core.tween(durationMillis = 180)
+        } else {
+            androidx.compose.animation.core.snap()
+        },
+    ).value
+    val desiredHeight = when (behavior) {
+        "Collapse" -> collapseHeight
+        "HideOnScroll" -> animatedHiddenHeight
+        else -> expandedHeight
+    }
+
+    androidx.compose.ui.layout.Layout(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxWidth()
+            .clipToBounds()
+            .then(
+                if (behavior == "HideOnScroll" && state.isHidden.value) {
+                    androidx.compose.ui.Modifier.clearAndSetSemantics { }
+                } else {
+                    androidx.compose.ui.Modifier
+                },
+            ),
+        content = {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.onSizeChanged { size ->
+                    if (state.expandedHeight.intValue != size.height) {
+                        state.expandedHeight.intValue = size.height
+                    }
+                },
+            ) {
+                header()
+            }
+        },
+    ) { measurables, constraints ->
+        val placeable = measurables.single().measure(constraints.copy(minHeight = 0))
+        val desiredLayoutHeight = if (behavior == "Pinned") {
+            placeable.height
+        } else {
+            with(density) { desiredHeight.roundToPx() }.coerceIn(0, constraints.maxHeight)
+        }
+        val height = desiredLayoutHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(placeable.width, height) {
+            placeable.placeRelative(0, 0)
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+internal fun NexaAdaptiveScrollHeaderPrimitive(
+    behavior: String,
+    collapsedHeight: androidx.compose.ui.unit.Dp,
+    header: @androidx.compose.runtime.Composable () -> Unit,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val state = androidx.compose.runtime.remember { NexaAdaptiveScrollHeaderState() }
+    val connection = androidx.compose.runtime.remember(state, behavior) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+            ): androidx.compose.ui.geometry.Offset {
+                state.onVerticalScroll(behavior, consumed.y)
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
+    val scrollModifier = if (behavior == "Pinned") {
+        androidx.compose.ui.Modifier
+    } else {
+        androidx.compose.ui.Modifier.nestedScroll(connection)
+    }
+    androidx.compose.foundation.layout.Column(
+        modifier = scrollModifier.fillMaxSize(),
+    ) {
+        NexaAdaptiveScrollHeaderContent(
+            behavior = behavior,
+            collapsedHeight = collapsedHeight,
+            state = state,
+            header = header,
+        )
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+            content()
+        }
+    }
+}
+
+// nexa-codegen: NexaAppearancePrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaAppearancePrimitive(
     mode: String,
@@ -433,7 +868,7 @@ internal fun NexaRefreshControlPrimitive(
 @androidx.compose.runtime.Composable
 internal fun NexaButtonPrimitive(
     label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    icon: NexaIconSpec?,
     style: String?,
     size: String?,
     shape: androidx.compose.ui.graphics.Shape?,
@@ -488,7 +923,7 @@ internal fun NexaButtonPrimitive(
             )
         } else {
             if (icon != null) {
-                androidx.compose.material3.Icon(imageVector = icon, contentDescription = null, modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat())))
+                NexaIconContent(icon = icon, description = "", size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()))
             }
             if (icon != null && label.isNotEmpty()) {
                 androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(__NEXA_ICON_LABEL_SPACING__.toFloat())))
@@ -565,24 +1000,32 @@ internal fun NexaButtonPrimitive(
 // nexa-codegen: NexaStatusBarBackgroundPrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaStatusBarBackgroundPrimitive(
-    background: androidx.compose.ui.graphics.Color,
+    statusBarBackground: androidx.compose.ui.graphics.Color?,
+    navigationBarBackground: androidx.compose.ui.graphics.Color?,
     content: @androidx.compose.runtime.Composable () -> Unit,
 ) {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val statusBarHeight = androidx.compose.foundation.layout.WindowInsets.statusBars
-        .getTop(density)
-        .let { with(density) { it.toDp() } }
     androidx.compose.foundation.layout.Box(
         modifier = androidx.compose.ui.Modifier.fillMaxSize(),
     ) {
         content()
-        androidx.compose.foundation.layout.Box(
-            modifier = androidx.compose.ui.Modifier
-                .align(androidx.compose.ui.Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(statusBarHeight)
-                .background(background),
-        )
+        statusBarBackground?.let { background ->
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .align(androidx.compose.ui.Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .windowInsetsTopHeight(androidx.compose.foundation.layout.WindowInsets.statusBars)
+                    .background(background),
+            )
+        }
+        navigationBarBackground?.let { background ->
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .align(androidx.compose.ui.Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .windowInsetsBottomHeight(androidx.compose.foundation.layout.WindowInsets.navigationBars)
+                    .background(background),
+            )
+        }
     }
 }
 
@@ -595,6 +1038,19 @@ private fun nexaBottomSheetBackgroundColor(
     } else {
         androidx.compose.ui.graphics.Color.White
     }
+
+@androidx.compose.runtime.Composable
+@OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
+private fun nexaBottomSheetShape(
+    cornerRadius: androidx.compose.ui.unit.Dp?,
+): androidx.compose.ui.graphics.Shape = cornerRadius?.let {
+    androidx.compose.runtime.remember(it) {
+        androidx.compose.foundation.shape.RoundedCornerShape(topStart = it, topEnd = it)
+    }
+} ?: androidx.compose.material3.BottomSheetDefaults.ExpandedShape
 
 // nexa-codegen: NexaBottomSheetContentPrimitive
 @androidx.compose.runtime.Composable
@@ -638,7 +1094,9 @@ private fun androidx.compose.ui.Modifier.nexaBottomSheetDragHandleModifier(): an
 )
 internal fun NexaBottomSheetPrimitive(
     componentRef: NexaBottomSheetRef,
+    contentSized: Boolean,
     contentPadding: androidx.compose.ui.unit.Dp,
+    cornerRadius: androidx.compose.ui.unit.Dp?,
     detents: List<Float>,
     initialDetent: Float,
     showDragIndicator: Boolean,
@@ -687,7 +1145,9 @@ internal fun NexaBottomSheetPrimitive(
     if (allowsBackgroundInteraction) {
         NexaNonModalBottomSheetPrimitive(
             isPresented = isPresented.value,
+            contentSized = contentSized,
             contentPadding = contentPadding,
+            cornerRadius = cornerRadius,
             detents = detents,
             initialDetent = initialDetent,
             showDragIndicator = showDragIndicator,
@@ -708,9 +1168,14 @@ internal fun NexaBottomSheetPrimitive(
             else -> null
         }
     }
-    if (nativeValues.size == detents.size) {
-        val enabledValues = setOf(androidx.compose.material3.SheetValue.Hidden) + nativeValues
-        val nativeInitialDetent = if (initialDetent == 1f) {
+    if (contentSized || nativeValues.size == detents.size) {
+        val enabledValues = setOf(androidx.compose.material3.SheetValue.Hidden) +
+            if (contentSized) {
+                setOf(androidx.compose.material3.SheetValue.Expanded)
+            } else {
+                nativeValues
+            }
+        val nativeInitialDetent = if (contentSized || initialDetent == 1f) {
             androidx.compose.material3.SheetValue.Expanded
         } else {
             androidx.compose.material3.SheetValue.PartiallyExpanded
@@ -759,6 +1224,7 @@ internal fun NexaBottomSheetPrimitive(
             onDismissRequest = onDismissRequest,
             sheetState = sheetState,
             containerColor = nexaBottomSheetBackgroundColor(backgroundColor),
+            shape = nexaBottomSheetShape(cornerRadius),
             scrimColor = scrimColor ?: androidx.compose.material3.BottomSheetDefaults.ScrimColor,
             dragHandle = if (showDragIndicator) {
                 {
@@ -775,10 +1241,18 @@ internal fun NexaBottomSheetPrimitive(
             ),
         ) {
             androidx.compose.foundation.layout.Column(
-                modifier = androidx.compose.ui.Modifier.fillMaxWidth().fillMaxHeight(),
+                modifier = if (contentSized) {
+                    androidx.compose.ui.Modifier.fillMaxWidth()
+                } else {
+                    androidx.compose.ui.Modifier.fillMaxWidth().fillMaxHeight()
+                },
             ) {
                 NexaBottomSheetContentPrimitive(
-                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().weight(1f),
+                    modifier = if (contentSized) {
+                        androidx.compose.ui.Modifier.fillMaxWidth()
+                    } else {
+                        androidx.compose.ui.Modifier.fillMaxWidth().weight(1f)
+                    },
                     contentPadding = contentPadding,
                     content = content,
                 )
@@ -789,6 +1263,7 @@ internal fun NexaBottomSheetPrimitive(
 
     NexaCustomBottomSheetPrimitive(
         isPresented = isPresented.value,
+        cornerRadius = cornerRadius,
         contentPadding = contentPadding,
         detents = detents,
         initialDetent = initialDetent,
@@ -811,7 +1286,9 @@ internal fun NexaBottomSheetPrimitive(
 )
 private fun NexaNonModalBottomSheetPrimitive(
     isPresented: Boolean,
+    contentSized: Boolean,
     contentPadding: androidx.compose.ui.unit.Dp,
+    cornerRadius: androidx.compose.ui.unit.Dp?,
     detents: List<Float>,
     initialDetent: Float,
     showDragIndicator: Boolean,
@@ -827,15 +1304,24 @@ private fun NexaNonModalBottomSheetPrimitive(
     val sortedDetents = androidx.compose.runtime.remember(detents) {
         detents.distinct().sorted()
     }
-    val minDetent = sortedDetents.firstOrNull() ?: 0.5f
-    val maxDetent = sortedDetents.lastOrNull() ?: 1f
+    val measuredContentHeightPx = androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableIntStateOf(0)
+    }
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val availableHeight = configuration.screenHeightDp.dp
     val availableWidth = configuration.screenWidthDp.dp
     val availableHeightPx = with(density) { availableHeight.toPx() }.coerceAtLeast(1f)
+    val contentDetent = if (contentSized) {
+        (measuredContentHeightPx.intValue / availableHeightPx).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val effectiveDetents = if (contentSized) listOf(contentDetent) else sortedDetents
+    val minDetent = effectiveDetents.firstOrNull() ?: 0.5f
+    val maxDetent = effectiveDetents.lastOrNull() ?: 1f
     val dismissOnBack = allowsDismissal && shouldDismissOnBackPress
-    val initialHeight = initialDetent.coerceIn(
+    val initialHeight = (if (contentSized) contentDetent else initialDetent).coerceIn(
         if (allowsDismissal) 0f else minDetent,
         maxDetent,
     )
@@ -850,7 +1336,7 @@ private fun NexaNonModalBottomSheetPrimitive(
     val currentOnExitAnimationFinished by androidx.compose.runtime.rememberUpdatedState(
         onExitAnimationFinished,
     )
-    androidx.compose.runtime.LaunchedEffect(isPresented, sheetHeight) {
+    androidx.compose.runtime.LaunchedEffect(isPresented, sheetHeight, contentDetent) {
         if (isPresented) {
             val target = initialHeight.coerceIn(
                 if (allowsDismissal) 0f else minDetent,
@@ -896,8 +1382,34 @@ private fun NexaNonModalBottomSheetPrimitive(
         androidx.compose.material3.Surface(
             modifier = androidx.compose.ui.Modifier
                 .width(availableWidth)
-                .height(availableHeight * sheetHeight.value)
-                .pointerInput(sheetHeight, sortedDetents, availableHeightPx, allowsDismissal) {
+                .then(
+                    if (contentSized) {
+                        androidx.compose.ui.Modifier.heightIn(max = availableHeight)
+                    } else {
+                        androidx.compose.ui.Modifier.height(availableHeight * sheetHeight.value)
+                    },
+                )
+                .onSizeChanged { size ->
+                    if (contentSized && measuredContentHeightPx.intValue != size.height) {
+                        measuredContentHeightPx.intValue = size.height
+                    }
+                }
+                .offset {
+                    val presentationProgress = if (contentSized && maxDetent > 0f) {
+                        sheetHeight.value / maxDetent
+                    } else {
+                        sheetHeight.value
+                    }
+                    androidx.compose.ui.unit.IntOffset(
+                        0,
+                        if (contentSized) {
+                            (measuredContentHeightPx.intValue * (1f - presentationProgress)).toInt()
+                        } else {
+                            0
+                        },
+                    )
+                }
+                .pointerInput(sheetHeight, effectiveDetents, availableHeightPx, allowsDismissal) {
                     detectVerticalDragGestures(
                         onVerticalDrag = { _, dragAmount ->
                             coroutineScope.launch {
@@ -911,9 +1423,9 @@ private fun NexaNonModalBottomSheetPrimitive(
                         onDragEnd = {
                             coroutineScope.launch {
                                 val anchors = if (allowsDismissal) {
-                                    listOf(0f) + sortedDetents
+                                    listOf(0f) + effectiveDetents
                                 } else {
-                                    sortedDetents
+                                    effectiveDetents
                                 }
                                 val target = anchors.minByOrNull {
                                     kotlin.math.abs(it - sheetHeight.value)
@@ -930,7 +1442,7 @@ private fun NexaNonModalBottomSheetPrimitive(
                         },
                         onDragCancel = {
                             coroutineScope.launch {
-                                val target = sortedDetents.minByOrNull {
+                                val target = effectiveDetents.minByOrNull {
                                     kotlin.math.abs(it - sheetHeight.value)
                                 } ?: minDetent
                                 sheetHeight.animateTo(
@@ -941,7 +1453,7 @@ private fun NexaNonModalBottomSheetPrimitive(
                         },
                     )
                 },
-            shape = androidx.compose.material3.BottomSheetDefaults.ExpandedShape,
+            shape = nexaBottomSheetShape(cornerRadius),
             color = resolvedBackgroundColor,
             contentColor = androidx.compose.material3.contentColorFor(
                 resolvedBackgroundColor,
@@ -949,7 +1461,11 @@ private fun NexaNonModalBottomSheetPrimitive(
             tonalElevation = 0.dp,
         ) {
             androidx.compose.foundation.layout.Column(
-                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                modifier = if (contentSized) {
+                    androidx.compose.ui.Modifier.fillMaxWidth()
+                } else {
+                    androidx.compose.ui.Modifier.fillMaxSize()
+                },
             ) {
                 if (showDragIndicator) {
                     androidx.compose.material3.BottomSheetDefaults.DragHandle(
@@ -959,9 +1475,11 @@ private fun NexaNonModalBottomSheetPrimitive(
                     )
                 }
                 NexaBottomSheetContentPrimitive(
-                    modifier = androidx.compose.ui.Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                    modifier = if (contentSized) {
+                        androidx.compose.ui.Modifier.fillMaxWidth()
+                    } else {
+                        androidx.compose.ui.Modifier.fillMaxWidth().weight(1f)
+                    },
                     contentPadding = contentPadding,
                     content = content,
                 )
@@ -979,6 +1497,7 @@ private fun NexaNonModalBottomSheetPrimitive(
 private fun NexaCustomBottomSheetPrimitive(
     isPresented: Boolean,
     contentPadding: androidx.compose.ui.unit.Dp,
+    cornerRadius: androidx.compose.ui.unit.Dp?,
     detents: List<Float>,
     initialDetent: Float,
     showDragIndicator: Boolean,
@@ -1099,7 +1618,7 @@ private fun NexaCustomBottomSheetPrimitive(
                         orientation = androidx.compose.foundation.gestures.Orientation.Vertical,
                         enabled = allowsDismissal,
                     ),
-                shape = androidx.compose.material3.BottomSheetDefaults.ExpandedShape,
+                shape = nexaBottomSheetShape(cornerRadius),
                 color = resolvedBackgroundColor,
                 contentColor = androidx.compose.material3.contentColorFor(
                     resolvedBackgroundColor,
@@ -1478,8 +1997,47 @@ internal fun NexaDialogActionDividerPrimitive() {
 )
 internal fun NexaKeyboardAwareColumnPrimitive(
     interactiveDismiss: Boolean,
+    avoidIme: Boolean,
     content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
+    val modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme)
+        .then(nexaSafeAreaScrollViewportModifier("Vertical"))
+        .verticalScroll(androidx.compose.foundation.rememberScrollState())
+        .padding(bottom = nexaSafeAreaContentPadding("Vertical").calculateBottomPadding())
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier,
+        content = content,
+    )
+}
+
+// nexa-codegen: NexaKeyboardAwareOwnerPrimitive
+@androidx.compose.runtime.Composable
+@kotlin.OptIn(
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+)
+internal fun NexaKeyboardAwareOwnerPrimitive(
+    interactiveDismiss: Boolean,
+    avoidIme: Boolean,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    androidx.compose.foundation.layout.Box(
+        modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme),
+    ) {
+        content()
+    }
+}
+
+// nexa-codegen: nexaKeyboardAwareModifier
+@androidx.compose.runtime.Composable
+@kotlin.OptIn(
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+)
+private fun nexaKeyboardAwareModifier(
+    interactiveDismiss: Boolean,
+    avoidIme: Boolean,
+): androidx.compose.ui.Modifier {
     val imeVisible = androidx.compose.runtime.rememberUpdatedState(
         androidx.compose.foundation.layout.WindowInsets.isImeVisible,
     )
@@ -1512,15 +2070,13 @@ internal fun NexaKeyboardAwareColumnPrimitive(
                 focusManager.clearFocus()
             }
         }
-    }.imePadding()
+    }
+    if (avoidIme) modifier = modifier.imePadding()
     // imeNestedScroll is only meaningful while the IME is already visible.
     // Keeping it attached to every hidden-IME scroll can issue a show request
     // on Android when the scroll reaches its edge, even if no field is focused.
     if (interactiveDismiss && imeVisible.value) modifier = modifier.imeNestedScroll()
-    androidx.compose.foundation.layout.Column(
-        modifier = modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
-        content = content,
-    )
+    return modifier
 }
 
 // nexa-codegen: NexaTextInputPrimitive
@@ -1534,6 +2090,8 @@ internal fun NexaTextInputPrimitive(
     searchable: Boolean = false,
     searchIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     textStyle: androidx.compose.ui.text.TextStyle = androidx.compose.material3.LocalTextStyle.current,
+    textColor: androidx.compose.ui.graphics.Color? = null,
+    placeholderColor: androidx.compose.ui.graphics.Color? = null,
     minLines: Int = 1,
     maxLines: Int = Int.MAX_VALUE,
     singleLine: Boolean = true,
@@ -1582,7 +2140,7 @@ internal fun NexaTextInputPrimitive(
                     onValueChange = onValueChange,
                     modifier = inputFocusModifier.fillMaxWidth(),
                     textStyle = textStyle.copy(
-                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                        color = textColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                     ),
                     minLines = minLines,
                     maxLines = maxLines,
@@ -1605,7 +2163,7 @@ internal fun NexaTextInputPrimitive(
                                 androidx.compose.material3.Text(
                                     placeholder,
                                     style = textStyle.copy(
-                                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = placeholderColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                                     ),
                                     maxLines = 1,
                                 )
@@ -1622,7 +2180,7 @@ internal fun NexaTextInputPrimitive(
             onValueChange = onValueChange,
             modifier = modifier.then(inputFocusModifier),
             textStyle = textStyle.copy(
-                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                color = textColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
             ),
             minLines = minLines,
             maxLines = maxLines,
@@ -1645,7 +2203,7 @@ internal fun NexaTextInputPrimitive(
                         androidx.compose.material3.Text(
                             placeholder,
                             style = textStyle.copy(
-                                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = placeholderColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                             ),
                             maxLines = 1,
                         )
@@ -1706,16 +2264,145 @@ internal fun NexaSwitchPrimitive(
 internal fun NexaSliderPrimitive(
     value: Float,
     onValueChange: (Float) -> Unit,
-    valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int,
+    minValue: Float,
+    maxValue: Float,
+    step: Float,
+    tint: androidx.compose.ui.graphics.Color? = null,
+    trackColor: androidx.compose.ui.graphics.Color? = null,
+    thumbColor: androidx.compose.ui.graphics.Color? = null,
+    trackHeight: Float? = null,
+    thumbSize: Float? = null,
+    hitSlop: Float? = null,
+    onEditingChanged: ((Boolean) -> Unit)? = null,
 ) {
-    androidx.compose.material3.Slider(
-        value = value,
-        onValueChange = onValueChange,
-        valueRange = valueRange,
-        // Keep Nexa's stepped value updates without Material's platform-only tick marks.
-        steps = 0,
-    )
+    val thumbDp = (thumbSize ?: 14f).coerceAtLeast(1f)
+    val trackDp = (trackHeight ?: 4f).coerceAtLeast(1f)
+    val hitSlopDp = (hitSlop ?: 0f).coerceAtLeast(0f)
+    val rangeIsValid = minValue.isFinite() && maxValue.isFinite() && maxValue > minValue
+    val lowerBound = if (minValue.isFinite()) minValue else 0f
+    val upperBound = if (maxValue.isFinite() && maxValue > lowerBound) maxValue else lowerBound + 1f
+    val editing = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val animatedValue = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = value,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = if (editing.value) 0 else 250,
+            easing = androidx.compose.animation.core.LinearEasing,
+        ),
+        label = "Nexa slider value",
+    ).value
+    val inactive = trackColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
+    val active = tint ?: androidx.compose.material3.MaterialTheme.colorScheme.primary
+    val thumb = thumbColor ?: androidx.compose.ui.graphics.Color.White
+    val trackClipPath = androidx.compose.runtime.remember { androidx.compose.ui.graphics.Path() }
+    androidx.compose.ui.layout.Layout(
+        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+        content = {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxWidth()
+                    .height((thumbDp + hitSlopDp * 2f).dp)
+                    .pointerInput(lowerBound, upperBound, step, rangeIsValid) {
+                        if (rangeIsValid) awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val width = size.width.toFloat().coerceAtLeast(1f)
+                            fun update(position: Float) {
+                                val fraction = (position / width).coerceIn(0f, 1f)
+                                val raw = lowerBound + fraction * (upperBound - lowerBound)
+                                val quantized = if (step > 0f) {
+                                    lowerBound + kotlin.math.round((raw - lowerBound) / step) * step
+                                } else raw
+                                onValueChange(quantized.coerceIn(lowerBound, upperBound))
+                            }
+                            var dragging = false
+                            var verticalScroll = false
+                            var lastX = down.position.x
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) {
+                                    break
+                                }
+                                lastX = change.position.x
+                                val horizontal = kotlin.math.abs(change.position.x - down.position.x)
+                                val vertical = kotlin.math.abs(change.position.y - down.position.y)
+                                if (!dragging && horizontal > viewConfiguration.touchSlop && horizontal > vertical) {
+                                    dragging = true
+                                    editing.value = true
+                                    onEditingChanged?.invoke(true)
+                                } else if (!dragging && vertical > viewConfiguration.touchSlop) {
+                                    verticalScroll = true
+                                    break
+                                }
+                                if (dragging) {
+                                    update(lastX)
+                                    change.consume()
+                                }
+                            }
+                            if (dragging) {
+                                update(lastX)
+                                editing.value = false
+                                onEditingChanged?.invoke(false)
+                            } else if (!verticalScroll) {
+                                update(down.position.x)
+                                down.consume()
+                            }
+                        }
+                    },
+                contentAlignment = androidx.compose.ui.Alignment.CenterStart,
+            ) {
+                androidx.compose.foundation.Canvas(androidx.compose.ui.Modifier.fillMaxSize()) {
+                    val thumbPx = thumbDp.dp.toPx()
+                    val trackPx = trackDp.dp.toPx()
+                    val fraction = if (upperBound > lowerBound) {
+                        ((animatedValue - lowerBound) / (upperBound - lowerBound)).coerceIn(0f, 1f)
+                    } else 0f
+                    val centerY = size.height / 2f
+                    val trackTop = centerY - trackPx / 2f
+                    val corner = androidx.compose.ui.geometry.CornerRadius(trackPx / 2f)
+                    drawRoundRect(
+                        color = inactive,
+                        topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
+                        size = androidx.compose.ui.geometry.Size(size.width, trackPx),
+                        cornerRadius = corner,
+                    )
+                    trackClipPath.reset()
+                    trackClipPath.addRoundRect(
+                        androidx.compose.ui.geometry.RoundRect(
+                            androidx.compose.ui.geometry.Rect(
+                                0f,
+                                trackTop,
+                                size.width,
+                                trackTop + trackPx,
+                            ),
+                            corner,
+                        ),
+                    )
+                    clipPath(trackClipPath) {
+                        drawRect(
+                            color = active,
+                            topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
+                            size = androidx.compose.ui.geometry.Size(size.width * fraction, trackPx),
+                        )
+                    }
+                    drawCircle(
+                        color = thumb,
+                        radius = thumbPx / 2f,
+                        center = androidx.compose.ui.geometry.Offset(size.width * fraction, centerY),
+                    )
+                }
+            }
+        },
+    ) { measurables, constraints ->
+        val visualHeight = thumbDp.dp.roundToPx().coerceAtMost(constraints.maxHeight)
+        val slopPx = hitSlopDp.dp.roundToPx().coerceAtMost((constraints.maxHeight - visualHeight) / 2)
+        val hitHeight = visualHeight + slopPx * 2
+        val placeable = measurables.first().measure(
+            androidx.compose.ui.unit.Constraints.fixed(constraints.maxWidth, hitHeight),
+        )
+        layout(placeable.width, visualHeight) {
+            placeable.placeRelative(0, -slopPx)
+        }
+    }
 }
 
 // nexa-codegen: NexaProgressBarPrimitive
@@ -1747,6 +2434,25 @@ internal fun NexaProgressBarPrimitive(
         ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
     if (normalizedProgress == null) {
         __NEXA_ANDROID_WAVE_INDETERMINATE_INDICATOR__
+    } else if (__NEXA_ANDROID_SQUARE_PROGRESS_CANVAS_CONDITION__) {
+        val animatedProgress = androidx.compose.animation.core.animateFloatAsState(
+            targetValue = normalizedProgress,
+            animationSpec = androidx.compose.animation.core.tween(
+                durationMillis = 250,
+                easing = androidx.compose.animation.core.LinearEasing,
+            ),
+            label = "progressBar",
+        )
+        androidx.compose.foundation.Canvas(modifier = modifier) {
+            drawRect(color = indicatorTrackColor)
+            val fillWidth = size.width * animatedProgress.value
+            if (fillWidth > 0f) {
+                drawRect(
+                    color = indicatorColor,
+                    size = androidx.compose.ui.geometry.Size(fillWidth, size.height),
+                )
+            }
+        }
     } else {
         __NEXA_ANDROID_WAVE_DETERMINATE_INDICATOR__
     }
@@ -1951,6 +2657,92 @@ internal fun NexaSystemIconPrimitive(
     )
 }
 
+// nexa-codegen: NexaFontIconPrimitive
+@androidx.compose.runtime.Composable
+internal fun NexaFontIconPrimitive(
+    glyph: Int,
+    description: String,
+    size: androidx.compose.ui.unit.Dp,
+    tint: androidx.compose.ui.graphics.Color,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    fontResource: Int? = null,
+    fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
+) {
+    val resolvedFontFamily = fontFamily ?: androidx.compose.runtime.remember(fontResource) {
+        fontResource?.let { resource ->
+            androidx.compose.ui.text.font.FontFamily(
+                androidx.compose.ui.text.font.Font(resource),
+            )
+        } ?: androidx.compose.ui.text.font.FontFamily.Default
+    }
+    val accessibilityModifier = if (description.isEmpty()) {
+        androidx.compose.ui.Modifier.clearAndSetSemantics { }
+    } else {
+        androidx.compose.ui.Modifier.semantics { contentDescription = description }
+    }
+    val glyphText = androidx.compose.runtime.remember(glyph) {
+        if (java.lang.Character.isValidCodePoint(glyph)) {
+            String(java.lang.Character.toChars(glyph))
+        } else {
+            "�"
+        }
+    }
+    androidx.compose.material3.Text(
+        text = glyphText,
+        modifier = modifier.then(accessibilityModifier),
+        color = tint,
+        // Match fixed-size SwiftUI icon glyphs without applying text scaling.
+        fontSize = (size.value / androidx.compose.ui.platform.LocalDensity.current.fontScale).sp,
+        fontFamily = resolvedFontFamily,
+        maxLines = 1,
+        softWrap = false,
+    )
+}
+
+// nexa-codegen: NexaIconSpec
+internal data class NexaIconSpec(
+    val vector: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    val glyph: Int? = null,
+    val fontResource: Int? = null,
+    val fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
+)
+
+// nexa-codegen: NexaIconContent
+@androidx.compose.runtime.Composable
+internal fun NexaIconContent(
+    icon: NexaIconSpec,
+    description: String,
+    size: androidx.compose.ui.unit.Dp,
+    tint: androidx.compose.ui.graphics.Color? = null,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+) {
+    val resolvedTint = tint ?: androidx.compose.material3.LocalContentColor.current
+    val glyph = icon.glyph
+    val fontResource = icon.fontResource
+    val fontFamily = icon.fontFamily
+    if (glyph != null && (fontResource != null || fontFamily != null)) {
+        NexaFontIconPrimitive(
+            glyph = glyph,
+            fontResource = fontResource,
+            fontFamily = fontFamily,
+            description = description,
+            size = size,
+            tint = resolvedTint,
+            modifier = modifier,
+        )
+    } else {
+        icon.vector?.let { vector ->
+            NexaSystemIconPrimitive(
+                image = vector,
+                description = description,
+                size = size,
+                tint = resolvedTint,
+                modifier = modifier,
+            )
+        }
+    }
+}
+
 // nexa-codegen: NexaLinearGradientPrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaLinearGradientPrimitive(
@@ -1979,7 +2771,7 @@ internal fun NexaLinearGradientPrimitive(
 internal fun NexaContentUnavailablePrimitive(
     title: String,
     description: String?,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: NexaIconSpec,
     iconDescription: String,
     titleColor: androidx.compose.ui.graphics.Color? = null,
     descriptionColor: androidx.compose.ui.graphics.Color? = null,
@@ -1994,10 +2786,10 @@ internal fun NexaContentUnavailablePrimitive(
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
     ) {
-        androidx.compose.material3.Icon(
-            imageVector = icon,
-            contentDescription = iconDescription,
-            modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(58f)),
+        NexaIconContent(
+            icon = icon,
+            description = iconDescription,
+            size = androidx.compose.ui.unit.Dp(58f),
             tint = iconTint ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
         )
         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(androidx.compose.ui.unit.Dp(16f)))
@@ -2179,9 +2971,11 @@ internal fun NexaFormPrimitive(
     val scrollState = androidx.compose.foundation.rememberScrollState()
     androidx.compose.foundation.layout.Column(
         modifier = androidx.compose.ui.Modifier
+            .then(nexaSafeAreaScrollViewportModifier("Vertical"))
             .fillMaxSize()
             .background(background ?: androidx.compose.ui.graphics.Color.Transparent)
-            .verticalScroll(scrollState, enabled = scrollState.maxValue > 0),
+            .verticalScroll(scrollState, enabled = scrollState.maxValue > 0)
+            .padding(bottom = nexaSafeAreaContentPadding("Vertical").calculateBottomPadding()),
     ) {
         androidx.compose.foundation.layout.Spacer(
             modifier = androidx.compose.ui.Modifier.height(LocalNexaFormContentTopInset.current),
@@ -2284,9 +3078,9 @@ internal val LocalNexaDialogActionButtons = androidx.compose.runtime.composition
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 internal fun NexaPickerPrimitive(
     items: List<String>,
-    itemIcons: List<androidx.compose.ui.graphics.vector.ImageVector?>,
+    itemIcons: List<NexaIconSpec?>,
     selected: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    icon: NexaIconSpec?,
     label: String?,
     tint: androidx.compose.ui.graphics.Color?,
     identity: String? = null,
@@ -2315,11 +3109,11 @@ internal fun NexaPickerPrimitive(
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         if (label != null && icon != null) {
-            androidx.compose.material3.Icon(
-                imageVector = icon,
-                contentDescription = null,
+            NexaIconContent(
+                icon = icon,
+                description = "",
+                size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()),
                 tint = resolvedTint,
-                modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat())),
             )
             androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(__NEXA_ICON_LABEL_SPACING__.toFloat())))
         }
@@ -2341,8 +3135,8 @@ internal fun NexaPickerPrimitive(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             ) {
                 if (icon != null && label == null) {
-                    NexaSystemIconPrimitive(
-                        image = icon,
+                    NexaIconContent(
+                        icon = icon,
                         description = selected,
                         size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()),
                         tint = tint ?: if (androidx.compose.material3.MaterialTheme.colorScheme.background == androidx.compose.ui.graphics.Color.Black) {
@@ -2406,9 +3200,10 @@ internal fun NexaPickerPrimitive(
                                 ).shape,
                                 leadingIcon = itemIcons.getOrNull(index)?.let { optionIcon ->
                                     {
-                                        androidx.compose.material3.Icon(
-                                            imageVector = optionIcon,
-                                            contentDescription = null,
+                                        NexaIconContent(
+                                            icon = optionIcon,
+                                            description = "",
+                                            size = androidx.compose.ui.unit.Dp(__NEXA_DEFAULT_MATERIAL_ICON_SIZE__.toFloat()),
                                             tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
@@ -2746,7 +3541,26 @@ internal fun NexaAppBottomBarPrimitive(
             content = content,
         )
     } else {
-        content()
+        // The custom bar owns the navigation-bar inset. Its route content is
+        // laid out above that inset, so nested Nexa safe-area consumers must
+        // not reserve the same bottom space a second time.
+        val parentSafeArea = LocalNexaSafeAreaContext.current
+        val remainingSafeBottom = nexaSafeAreaDynamicInsets().bottom
+        val navigationBarBottom = with(androidx.compose.ui.platform.LocalDensity.current) {
+            androidx.compose.foundation.layout.WindowInsets.navigationBars
+                .getBottom(this)
+                .toDp()
+        }
+        val consumedNavigationBar = navigationBarBottom.coerceAtMost(remainingSafeBottom)
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalNexaSafeAreaContext provides parentSafeArea.copy(
+                consumed = parentSafeArea.consumed.offset(
+                    NexaSafeAreaEdge.Bottom,
+                    consumedNavigationBar,
+                ),
+            ),
+            content = content,
+        )
     }
 }
 
@@ -2963,6 +3777,11 @@ fn shared_component_primitives_with_wave(
     } else {
         ""
     };
+    let square_progress_canvas_condition = if uses_android_wave {
+        "cornerRadius == 0f && !androidWave"
+    } else {
+        "cornerRadius == 0f"
+    };
     let wave_indeterminate_indicator = if uses_android_wave {
         r##"if (androidWave) {
         androidx.compose.material3.LinearWavyProgressIndicator(
@@ -3092,6 +3911,10 @@ fn shared_component_primitives_with_wave(
         .replace(
             "__NEXA_ANDROID_WAVE_DETERMINATE_INDICATOR__",
             wave_determinate_indicator,
+        )
+        .replace(
+            "__NEXA_ANDROID_SQUARE_PROGRESS_CANVAS_CONDITION__",
+            square_progress_canvas_condition,
         )
         .replace("__NEXA_ANDROID_WAVE_RING_PARAMETER__", wave_ring_parameter)
         .replace("__NEXA_ANDROID_WAVE_RING_INDICATOR__", wave_ring_indicator)
@@ -3284,6 +4107,16 @@ fn shared_component_primitives_with_wave(
         source.replace(token, value)
     });
     source.push_str(include_str!("components/date_picker.kt"));
+    let text_reveal = include_str!("components/text_reveal.kt")
+        .replace(
+            "__NEXA_DEFAULT_BODY_FONT_SIZE__",
+            &nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE.to_string(),
+        )
+        .replace(
+            "__NEXA_DEFAULT_LINE_HEIGHT_MULTIPLIER__",
+            &nexa_codegen::design_system::DEFAULT_LINE_HEIGHT_MULTIPLIER.to_string(),
+        );
+    source.push_str(&text_reveal);
     source
 }
 
@@ -3333,7 +4166,9 @@ fn generate_with_analysis(
         include_all_shared_primitives,
         uses_plugins: !module.plugins.is_empty(),
         has_navigation: !module.screens.is_empty(),
-        has_direction: module.direction.is_some(),
+        has_direction: module.direction.is_some()
+            || features.facts.capabilities.uses_locale_api
+            || features.facts.capabilities.uses_localized_strings,
         has_on_appear: module.on_appear.is_some()
             || module
                 .screens
@@ -3638,6 +4473,7 @@ public class NexaBottomSheetRef {
                 || features.facts.capabilities.uses_secure_storage_api
                 || features.facts.capabilities.uses_screen_orientation_api
                 || features.facts.capabilities.uses_storage_api
+                || features.facts.capabilities.uses_locale_api
                 || features.facts.capabilities.uses_localized_strings
                 || !module.plugins.is_empty()
                 || !module.background_tasks.is_empty()
@@ -3709,20 +4545,29 @@ public class NexaBottomSheetRef {
             if !module.states.is_empty() {
                 out.push('\n');
             }
+            if !module.screens.is_empty() {
+                components::navigation::render_screen_functions(module, features, 1, out);
+                out.push('\n');
+            }
+            let mut body_base_depth = 1;
             if features.uses_shared_elements {
                 out.push_str("    NexaSharedTransitionContent {\n");
+                body_base_depth += 1;
             }
-            let body_base_depth = if features.uses_shared_elements { 2 } else { 1 };
-            let wrap_app_status_bar_background = if module.screens.is_empty() {
-                components::status_bar::render_background_start(
-                    module.status_bar,
-                    body_base_depth,
-                    out,
-                )
-            } else {
-                false
-            };
-            let body_depth = components::direction::start(module.direction, body_base_depth, out);
+            let follows_locale = features.facts.capabilities.uses_locale_api
+                || features.facts.capabilities.uses_localized_strings;
+            if follows_locale {
+                out.indent(body_base_depth);
+                out.push_str("NexaLocale.provide {\n");
+                body_base_depth += 1;
+            }
+            let wrap_app_status_bar_background = components::status_bar::render_background_start(
+                module.status_bar,
+                body_base_depth,
+                out,
+            );
+            let body_depth =
+                components::direction::start(module.direction, follows_locale, body_base_depth, out);
             components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, out);
             components::lifecycle::render_on_disappear(
                 module.on_disappear.as_deref(),
@@ -3748,9 +4593,14 @@ public class NexaBottomSheetRef {
                     out,
                 );
             }
-            components::direction::end(module.direction, body_base_depth, out);
+            components::direction::end(module.direction, follows_locale, body_base_depth, out);
             if wrap_app_status_bar_background {
                 components::status_bar::render_background_end(body_base_depth, out);
+            }
+            if follows_locale {
+                out.push('\n');
+                out.indent(body_base_depth - 1);
+                out.push('}');
             }
             if features.uses_shared_elements {
                 out.push_str("\n    }");
@@ -3779,6 +4629,7 @@ public class NexaBottomSheetRef {
         || features.facts.capabilities.uses_haptics_api
         || features.facts.capabilities.uses_secure_storage_api
         || features.facts.capabilities.uses_storage_api
+        || features.facts.capabilities.uses_locale_api
         || features.facts.capabilities.uses_localized_strings
         || features.facts.capabilities.uses_clipboard_api
         || features.facts.capabilities.uses_screen_orientation_api
@@ -3791,6 +4642,8 @@ public class NexaBottomSheetRef {
                 out,
                 features.uses_permission_request,
                 features.facts.capabilities.uses_app_icon_api,
+                features.facts.capabilities.uses_locale_api
+                    || features.facts.capabilities.uses_localized_strings,
             );
         });
     }
@@ -3878,7 +4731,8 @@ public class NexaBottomSheetRef {
 mod tests {
     use super::{
         NEXA_APP_BOTTOM_BAR_PRIMITIVE, NEXA_NATIVE_LIST_PRIMITIVES,
-        NEXA_SHARED_COMPONENT_PRIMITIVES, generate, generate_units_with_project_features,
+        NEXA_SHARED_COMPONENT_PRIMITIVES, generate,
+        generate_units_with_network_and_project_features, generate_units_with_project_features,
         shared_component_primitives, shared_component_primitives_with_wave,
     };
     use nexa_ir::{
@@ -3910,6 +4764,44 @@ mod tests {
     }
 
     #[test]
+    fn native_plugin_network_requirement_emits_shared_cronet_runtime() {
+        let module = Module {
+            app_name: "PluginNetworkApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: Vec::new(),
+            globals: Vec::new(),
+            screens: Vec::new(),
+            widgets: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let (sources, features) = generate_units_with_network_and_project_features(&module);
+        let network = sources
+            .units
+            .iter()
+            .find(|unit| unit.name.contains("native_library"))
+            .expect("plugin host requirement should emit the network runtime");
+        assert!(features.uses_network);
+        assert!(features.uses_coroutines);
+        assert!(network.contents.contains("object NexaCronetRuntime"));
+        assert!(network.contents.contains("object NexaNetwork"));
+    }
+
+    #[test]
     fn app_bottom_bar_tint_is_scoped_to_navigation_items() {
         assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("selectedIconColor = tint"));
         assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("selectedTextColor = tint"));
@@ -3921,13 +4813,25 @@ mod tests {
     }
 
     #[test]
+    fn custom_app_bottom_bar_consumes_reserved_navigation_inset_for_tab_content() {
+        assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("WindowInsets.navigationBars"));
+        assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("nexaSafeAreaDynamicInsets().bottom"));
+        assert!(
+            NEXA_APP_BOTTOM_BAR_PRIMITIVE
+                .contains("LocalNexaSafeAreaContext provides parentSafeArea.copy(")
+        );
+        assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("content = content"));
+    }
+
+    #[test]
     fn keyboard_aware_scroll_does_not_refocus_a_field_during_a_drag() {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaKeyboardAwareColumnPrimitive("));
+        assert!(primitives.contains("internal fun NexaKeyboardAwareOwnerPrimitive("));
         let keyboard_aware = primitives
-            .split("internal fun NexaKeyboardAwareColumnPrimitive(")
+            .split("private fun nexaKeyboardAwareModifier(")
             .nth(1)
-            .expect("keyboard-aware primitive is emitted");
+            .expect("shared keyboard-aware modifier is emitted");
         let keyboard_snapshot = keyboard_aware
             .find("val keyboardWasVisible = imeVisible.value")
             .expect("capture keyboard visibility before waiting for the gesture");
@@ -3939,6 +4843,7 @@ mod tests {
         assert!(primitives.contains(
             "if (interactiveDismiss && imeVisible.value) modifier = modifier.imeNestedScroll()"
         ));
+        assert!(primitives.contains("if (avoidIme) modifier = modifier.imePadding()"));
         assert!(primitives.contains("focusManager.clearFocus()"));
     }
 
@@ -3989,6 +4894,7 @@ mod tests {
                         }],
                         on_end_reached: None,
                         on_scroll: None,
+                        on_scroll_begin_drag: None,
                         on_move: None,
                         swipe_actions: None,
                         sticky_header: None,
@@ -4014,7 +4920,7 @@ mod tests {
         let kotlin = generate(&module);
         assert!(kotlin.contains("val nexaListState0 = rememberLazyListState()"));
         assert!(kotlin.contains(
-            "LazyRow(modifier = Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary), state = nexaListState0, userScrollEnabled = (nexaListState0.canScrollForward || nexaListState0.canScrollBackward))"
+            "LazyRow(modifier = nexaSafeAreaScrollViewportModifier(\"Horizontal\").then(Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary)), state = nexaListState0, userScrollEnabled = (nexaListState0.canScrollForward || nexaListState0.canScrollBackward), contentPadding = nexaSafeAreaContentPadding(\"Horizontal\", includeVisualSafeInsets = true))"
         ));
         assert!(kotlin.contains("object NexaHorizontalListScrollBoundary"));
         assert!(
@@ -4194,6 +5100,7 @@ mod tests {
                         }],
                         on_end_reached: None,
                         on_scroll: None,
+                        on_scroll_begin_drag: None,
                         on_move: None,
                         swipe_actions: None,
                         sticky_header: None,
@@ -4578,6 +5485,10 @@ mod tests {
         assert!(progress_bar.contains("modifier.progressSemantics()"));
         assert!(progress_bar.contains("modifier.progressSemantics(normalizedProgress)"));
         assert!(progress_bar.contains("progress = { normalizedProgress }"));
+        assert!(progress_bar.contains("cornerRadius == 0f"));
+        assert!(progress_bar.contains("durationMillis = 250"));
+        assert!(progress_bar.contains("easing = androidx.compose.animation.core.LinearEasing"));
+        assert!(progress_bar.contains("androidx.compose.foundation.Canvas(modifier = modifier)"));
         assert!(progress_bar.contains(
             "val indicatorColor = tint ?: androidx.compose.material3.MaterialTheme.colorScheme.primary"
         ));
@@ -4619,7 +5530,10 @@ mod tests {
 
         assert!(!regular.contains("LinearWavyProgressIndicator"));
         assert!(!regular.contains("androidWave: Boolean"));
+        assert!(regular.contains("else if (cornerRadius == 0f)"));
         assert!(wavy.contains("androidWave: Boolean = false"));
+        assert!(wavy.contains("else if (cornerRadius == 0f && !androidWave)"));
+        assert!(!wavy.contains("__NEXA_ANDROID_SQUARE_PROGRESS_CANVAS_CONDITION__"));
         assert!(wavy.contains("if (androidWave) {"));
         assert!(wavy.contains("androidx.compose.material3.LinearWavyProgressIndicator("));
         assert!(wavy.contains("androidx.compose.material3.CircularWavyProgressIndicator("));
@@ -4642,12 +5556,9 @@ mod tests {
         let primitives = shared_component_primitives();
         assert!(primitives.contains("internal fun NexaPickerPrimitive("));
         assert!(primitives.contains("DropdownMenuItem("));
-        assert!(
-            primitives
-                .contains("itemIcons: List<androidx.compose.ui.graphics.vector.ImageVector?>")
-        );
+        assert!(primitives.contains("itemIcons: List<NexaIconSpec?>"));
         assert!(primitives.contains("leadingIcon = itemIcons.getOrNull(index)?.let"));
-        assert!(primitives.contains("imageVector = optionIcon"));
+        assert!(primitives.contains("icon = optionIcon"));
         assert!(primitives.contains("MaterialExpressiveTheme("));
         assert!(primitives.contains(
             "shape = androidx.compose.material3.MenuDefaults.standaloneGroupShape,\n                    containerColor = androidx.compose.material3.MenuDefaults.groupStandardContainerColor,\n                    tonalElevation = 0.dp,\n                    shadowElevation = 8.dp,"
@@ -4702,6 +5613,10 @@ mod tests {
         );
         assert!(primitives.contains("if (value.isEmpty() && placeholder.isNotEmpty())"));
         assert!(!primitives.contains("leadingIcon = if (searchable"));
+        assert!(primitives.contains(
+            "textColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurface"
+        ));
+        assert!(primitives.contains("placeholderColor ?: androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant"));
     }
 
     #[test]
@@ -4814,6 +5729,7 @@ mod tests {
             .unwrap_or_default();
 
         assert!(bottom_sheet.contains("internal fun NexaBottomSheetPrimitive("));
+        assert!(bottom_sheet.contains("shape = nexaBottomSheetShape(cornerRadius)"));
         assert!(primitives.contains("private fun nexaBottomSheetBackgroundColor("));
         assert!(primitives.contains("): androidx.compose.ui.graphics.Color = backgroundColor"));
         assert!(primitives.contains("androidx.compose.foundation.isSystemInDarkTheme()"));
@@ -4851,10 +5767,9 @@ mod tests {
             .split("// nexa-codegen: NexaProgressBarPrimitive")
             .next()
             .unwrap_or_default();
-        assert!(slider.contains("steps = 0"));
-        assert!(slider.contains(
-            "Keep Nexa's stepped value updates without Material's platform-only tick marks."
-        ));
+        assert!(slider.contains("awaitEachGesture"));
+        assert!(slider.contains("drawCircle("));
+        assert!(slider.contains("onEditingChanged?.invoke(false)"));
         assert!(bottom_sheet.contains("NexaCustomBottomSheetPrimitive("));
         assert!(bottom_sheet.contains("ModalBottomSheet("));
         assert!(bottom_sheet.contains("nativeValues.size == detents.size"));
@@ -4894,6 +5809,7 @@ mod tests {
         assert!(non_modal_sheet.contains("androidx.compose.animation.core.Animatable(0f)"));
         assert!(non_modal_sheet.contains("if (isPresented)"));
         assert!(non_modal_sheet.contains("val target = initialHeight.coerceIn("));
+        assert!(non_modal_sheet.contains("sheetHeight.value / maxDetent"));
         assert!(non_modal_sheet.contains("sheetHeight.animateTo("));
         for (animation, completion) in [
             (
@@ -5167,7 +6083,8 @@ mod tests {
                         },
                         Node::ContentUnavailable {
                             title: Expr::String("No reminders".to_owned()),
-                            icon: SystemIcon::shared("calendar").expect("shared calendar icon"),
+                            icon: SystemIcon::font_glyph("Mazicon", 61696)
+                                .expect("custom font glyph"),
                             description: None,
                             title_color: None,
                             description_color: None,
@@ -5202,7 +6119,10 @@ mod tests {
         assert!(kotlin.contains("description: String?"));
         assert!(kotlin.contains("iconDescription = \"Inbox\""));
         assert!(kotlin.contains("iconDescription = \"Search\""));
-        assert!(kotlin.contains("contentDescription = iconDescription"));
+        assert!(kotlin.contains("internal fun NexaIconContent("));
+        assert!(kotlin.contains("androidx.compose.runtime.remember(glyph)"));
+        assert!(kotlin.contains("LocalDensity.current.fontScale).sp"));
+        assert!(kotlin.contains("contentDescription = description.takeIf(String::isNotEmpty)"));
         let empty_state_primitive = kotlin
             .split("internal fun NexaContentUnavailablePrimitive(")
             .nth(1)
@@ -5218,10 +6138,9 @@ mod tests {
             3,
             "each ContentUnavailable child should receive a share of its parent Column"
         );
-        assert!(kotlin.contains(
-            "modifier = androidx.compose.ui.Modifier.size(androidx.compose.ui.unit.Dp(58f))"
-        ));
-        assert!(kotlin.contains("Icons.Filled.Inbox"));
+        assert!(kotlin.contains("size = androidx.compose.ui.unit.Dp(58f)"));
+        assert!(kotlin.contains("NexaIconSpec(vector = Icons.Filled.Inbox)"));
+        assert!(kotlin.contains("NexaIconSpec(glyph = 61696, fontResource = R.font.mazicon)"));
         assert!(kotlin.contains(
             "NexaProgressBarPrimitive(progress = 0.45.toFloat(), tint = null, trackColor = null, thickness = null, cornerRadius = null)"
         ));
@@ -5282,6 +6201,7 @@ mod tests {
                             }],
                             on_end_reached: None,
                             on_scroll: None,
+                            on_scroll_begin_drag: None,
                             on_move: None,
                             swipe_actions: None,
                             sticky_header: None,
@@ -5297,7 +6217,9 @@ mod tests {
                         name: "BottomSheet".to_owned(),
                         identity: "comments-sheet".to_owned(),
                     },
+                    content_sized: false,
                     content_padding: 0.0,
+                    corner_radius: None,
                     detents: vec![0.5, 1.0],
                     initial_detent: None,
                     show_drag_indicator: true,
@@ -5387,6 +6309,7 @@ mod tests {
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
                 arguments: Vec::new(),
+                show_navigation_bar: true,
                 title_mode: nexa_ir::NavigationTitleMode::Inline,
                 title_alignment: nexa_ir::NavigationTitleAlignment::Leading,
             }],
@@ -5450,7 +6373,20 @@ mod tests {
                     id: ScreenId(1),
                     name: "Task Details".to_owned(),
                     parameters: Vec::new(),
-                    states: Vec::new(),
+                    states: vec![
+                        State {
+                            name: "searchQuery".to_owned(),
+                            ty: Type::String,
+                            initial: Expr::String(String::new()),
+                            mutable: true,
+                        },
+                        State {
+                            name: "searchSuggestions".to_owned(),
+                            ty: Type::Array(Box::new(Type::String)),
+                            initial: Expr::Array(Vec::new()),
+                            mutable: true,
+                        },
+                    ],
                     body: vec![
                         Node::Layout {
                             kind: LayoutKind::Column,
@@ -5504,6 +6440,7 @@ mod tests {
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
                 arguments: Vec::new(),
+                show_navigation_bar: true,
                 title_mode: nexa_ir::NavigationTitleMode::Inline,
                 title_alignment: nexa_ir::NavigationTitleAlignment::Automatic,
             }],
@@ -5550,23 +6487,32 @@ mod tests {
             .next()
             .expect("root destination ends before the pushed destination");
         let destination = kotlin
-            .split("composable(route = \"nexa_screen_1\")")
+            .split("fun nexaScreen1(")
             .nth(1)
-            .expect("pushed destination exists");
+            .expect("pushed destination composable exists");
 
         assert!(!root.contains("Scaffold("));
         assert!(destination.contains("NexaNavigationScreenPrimitive("));
         assert!(destination.contains("title = \"Task Details\""));
-        assert!(destination.contains("inline = true"));
-        assert!(destination.contains("leadingTitle = false"));
+        assert!(destination.contains("inline = nexaTitleInline"));
+        assert!(destination.contains("leadingTitle = nexaLeadingTitle"));
         assert!(destination.contains("hasTrailingActions = true"));
         assert!(destination.contains("firstSection = true"));
         assert!(destination.contains(
             "onBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() }"
         ));
+        assert!(kotlin.contains("class NexaRouteState1("));
+        assert!(kotlin.contains("nexaBackStackEntry.viewModelStore.get(\"nexa-route-state-1\")"));
+        assert!(kotlin.contains("var nexa_searchQuery by nexaRouteState1.nexa_searchQuery"));
+        assert!(
+            kotlin.contains("val nexa_searchSuggestions = nexaRouteState1.nexa_searchSuggestions")
+        );
+        assert!(kotlin.contains(
+            "mutableStateListOf<String>().also { it.addAll(nexaInitialnexa_searchSuggestions) }"
+        ));
         assert!(destination.contains("actions = {"));
         assert!(destination.contains("Button("));
-        assert!(destination.contains("NexaAppearancePrimitive(mode = nexa_appearanceMode) {"));
+        assert!(kotlin.contains("NexaAppearancePrimitive(mode = nexa_appearanceMode) {"));
         assert!(kotlin.contains("internal fun NexaNavigationScreenPrimitive("));
         assert!(kotlin.contains("LargeFlexibleTopAppBar("));
         assert!(kotlin.contains("CenterAlignedTopAppBar("));
@@ -5597,7 +6543,7 @@ mod tests {
             .split("composable(route = \"nexa_screen_1\")")
             .nth(1)
             .expect("large-title destination exists");
-        assert!(large_destination.contains("inline = false"));
+        assert!(large_destination.contains("nexaTitleInline = false"));
 
         let mut centered_module = module.clone();
         let Node::NavigationStack {
@@ -5612,7 +6558,7 @@ mod tests {
             .split("composable(route = \"nexa_screen_1\")")
             .nth(1)
             .expect("centered-title destination exists");
-        assert!(centered_destination.contains("leadingTitle = false"));
+        assert!(centered_destination.contains("nexaLeadingTitle = false"));
 
         let mut leading_module = module.clone();
         let Node::NavigationStack {
@@ -5622,7 +6568,7 @@ mod tests {
             panic!("test module should have a navigation stack");
         };
         *title_alignment = nexa_ir::NavigationTitleAlignment::Leading;
-        assert!(generate(&leading_module).contains("leadingTitle = true"));
+        assert!(generate(&leading_module).contains("nexaLeadingTitle = true"));
 
         let mut no_trailing_actions_module = module.clone();
         let Node::Layout { children, .. } = &mut no_trailing_actions_module.screens[1].body[0]
@@ -5644,7 +6590,61 @@ mod tests {
             .split("composable(route = \"nexa_screen_1\")")
             .nth(1)
             .expect("pushed destination exists");
-        assert!(no_toolbar_destination.contains("leadingTitle = false"));
+        assert!(no_toolbar_destination.contains("nexaLeadingTitle = false"));
+    }
+
+    #[test]
+    fn nested_navigation_stacks_reuse_finite_screen_composables() {
+        let stack = || Node::NavigationStack {
+            root: ScreenId(0),
+            arguments: Vec::new(),
+            show_navigation_bar: true,
+            title_mode: nexa_ir::NavigationTitleMode::Inline,
+            title_alignment: nexa_ir::NavigationTitleAlignment::Automatic,
+        };
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "NestedNavigation".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: Vec::new(),
+            screens: vec![Screen {
+                id: ScreenId(0),
+                name: "Home".to_owned(),
+                parameters: Vec::new(),
+                states: Vec::new(),
+                body: vec![stack()],
+                status_bar: None,
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            components: Vec::new(),
+            body: vec![stack()],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert_eq!(kotlin.matches("fun nexaScreen0(").count(), 1);
+        assert_eq!(
+            kotlin
+                .matches("composable(route = \"nexa_screen_0\")")
+                .count(),
+            2
+        );
+        assert_eq!(kotlin.matches("nexaScreen0(").count(), 3);
     }
 
     #[test]
@@ -6261,6 +7261,7 @@ mod tests {
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
                 arguments: Vec::new(),
+                show_navigation_bar: true,
                 title_mode: nexa_ir::NavigationTitleMode::Inline,
                 title_alignment: nexa_ir::NavigationTitleAlignment::Leading,
             }],
@@ -6279,25 +7280,27 @@ mod tests {
         assert!(project_features.uses_saveable_state);
         let state_name = nexa_codegen::names::state_name("player");
         let app_state_name = nexa_codegen::names::state_name("appPlayer");
-        let route_start = kotlin
-            .find("composable(route = \"nexa_screen_0\")")
-            .expect("screen body must be emitted inside its navigation entry");
+        let screen_function = kotlin
+            .find("fun nexaScreen0(")
+            .expect("screen body must be emitted in a reusable composable");
         let screen_player = kotlin
             .find(&format!(
-                "val {state_name}: VideoPlayer = remember {{ VideoPlayer() }}"
+                "val {state_name}: VideoPlayer = nexaRouteState0.{state_name}"
             ))
-            .expect("screen native object must be remembered");
+            .expect("screen native object must be held by its navigation entry");
         let screen_count = kotlin
             .find("var nexa_screenCount by rememberSaveable { mutableIntStateOf(1) }")
-            .expect("screen-local scalar state must survive activity recreation");
+            .or_else(|| kotlin.find("var nexa_screenCount by nexaRouteState0.nexa_screenCount"))
+            .expect("screen-local scalar state must survive route changes");
         let app_state = kotlin
             .find("var nexa_sharedCount by rememberSaveable { mutableIntStateOf(7) }")
             .expect("app scalar state must survive activity recreation above navigation");
         let nav_host = kotlin.find("NavHost(").expect("navigation host exists");
-        assert!(route_start < screen_player && screen_player < screen_count);
-        assert!(screen_count > nav_host);
+        assert!(screen_function < screen_player && screen_player < screen_count);
+        assert!(screen_count < nav_host);
         assert!(app_state < nav_host);
-        assert!(!kotlin[..route_start].contains("nexa_screenCount"));
+        assert!(kotlin.contains("class NexaRouteState0("));
+        assert!(kotlin.contains("nexaBackStackEntry.viewModelStore.get(\"nexa-route-state-0\")"));
         assert!(kotlin.contains(&format!(
             "val {app_state_name}: VideoPlayer = remember {{ VideoPlayer() }}"
         )));
@@ -6454,6 +7457,7 @@ mod tests {
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
                 arguments: Vec::new(),
+                show_navigation_bar: true,
                 title_mode: nexa_ir::NavigationTitleMode::Inline,
                 title_alignment: nexa_ir::NavigationTitleAlignment::Leading,
             }],
@@ -6474,15 +7478,16 @@ mod tests {
             2,
             "unexpected Compose scope placements:\n{kotlin}"
         );
-        let screen_route = kotlin
-            .split_once("composable(route = \"nexa_screen_0\") {")
-            .expect("busy screen route was generated")
-            .1;
+        let screen_function = kotlin
+            .find("fun nexaScreen0(")
+            .expect("busy screen composable was generated");
+        let screen_scope = kotlin
+            .find(scope_declaration)
+            .expect("screen scope is declared");
+        let nav_host = kotlin.find("NavHost(").expect("navigation host exists");
         assert!(
-            screen_route
-                .lines()
-                .take(4)
-                .any(|line| line.contains(scope_declaration))
+            screen_function < screen_scope && screen_scope < nav_host,
+            "screen task scope must be declared in its reusable composable"
         );
         let busy_panel = kotlin
             .split_once("NexaBusyPanelComponent() {")
@@ -6628,7 +7633,7 @@ mod tests {
             kotlin.contains("public typealias NexaResult<T, E> = dev.nexa.core.NexaResult<T, E>")
         );
         assert!(kotlin.contains("NexaResult<Int, NexaAppError>"));
-        assert!(kotlin.contains("NexaResult.Success(42)"));
+        assert!(kotlin.contains("dev.nexa.core.NexaResult.Success(42)"));
         assert!(kotlin.contains("nexa_fn_fetchCode().getOrThrow()"));
     }
 
@@ -6686,6 +7691,7 @@ mod tests {
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
                 arguments: Vec::new(),
+                show_navigation_bar: true,
                 title_mode: nexa_ir::NavigationTitleMode::Inline,
                 title_alignment: nexa_ir::NavigationTitleAlignment::Leading,
             }],
@@ -6706,7 +7712,7 @@ mod tests {
             "screen-local Result state must pull in the shared runtime alias"
         );
         assert!(kotlin.contains(&format!(
-            "val {state_name}: NexaResult<Int, NexaAppError> = NexaResult.Success(0)"
+            "val {state_name}: NexaResult<Int, NexaAppError> = dev.nexa.core.NexaResult.Success(0)"
         )));
     }
 

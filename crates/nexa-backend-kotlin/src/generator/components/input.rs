@@ -1,11 +1,15 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
-    Action, AutofillType, Capitalization, KeyboardType, ReturnKeyType, SystemIcon, TextInputChange,
-    TextInputFont,
+    Action, AutofillType, Capitalization, ColorValue, KeyboardType, ReturnKeyType, SystemIcon,
+    TextInputChange, TextInputFont,
 };
 
-use crate::generator::{controls::render_actions, utils::indent};
+use crate::generator::{
+    colors,
+    controls::render_actions,
+    utils::{indent, number},
+};
 
 use crate::generator::engine::features::Features;
 use crate::generator::engine::imports::ImportSet;
@@ -23,18 +27,24 @@ pub(crate) struct TextInputProps<'a> {
     pub(crate) focused: Option<&'a str>,
     pub(crate) max_length: Option<i32>,
     pub(crate) font: Option<TextInputFont>,
+    pub(crate) font_size: Option<f32>,
+    pub(crate) font_family: Option<&'a str>,
+    pub(crate) text_color: Option<ColorValue>,
+    pub(crate) placeholder_color: Option<ColorValue>,
     pub(crate) min_lines: Option<i32>,
     pub(crate) max_lines: Option<i32>,
     pub(crate) searchable: bool,
     pub(crate) horizontal_padding: Option<u32>,
     pub(crate) weight_in_row: bool,
     pub(crate) actions: &'a [Action],
+    pub(crate) on_focus: Option<&'a [Action]>,
     pub(crate) on_change: Option<&'a TextInputChange>,
 }
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(true, "androidx.compose.foundation.layout.fillMaxWidth");
     imports.add(true, "androidx.compose.foundation.layout.size");
+    imports.add(features.uses_text_input, "androidx.compose.ui.unit.sp");
     imports.add(
         features.uses_text_input,
         "androidx.compose.ui.res.stringResource",
@@ -133,12 +143,17 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         focused,
         max_length,
         font,
+        font_size,
+        font_family,
+        text_color,
+        placeholder_color,
         min_lines,
         max_lines,
         searchable,
         horizontal_padding,
         weight_in_row,
         actions,
+        on_focus,
         on_change,
     } = props;
     let effective_return_key = return_key.or_else(|| {
@@ -240,7 +255,7 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         }
         out.push_str(",\n");
     }
-    if focused.is_some() || autofill.is_some() {
+    if focused.is_some() || autofill.is_some() || on_focus.is_some() {
         indent(out, depth + 1);
         out.push_str("focusModifier = Modifier");
         if let Some(focused) = focused {
@@ -257,6 +272,18 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
                 state_name(focused)
             ));
         }
+        if let Some(actions) = on_focus {
+            out.push('\n');
+            indent(out, depth + 2);
+            out.push_str(".onFocusChanged { focusState ->\n");
+            indent(out, depth + 3);
+            out.push_str("if (focusState.isFocused) {\n");
+            render_actions(actions, depth + 4, out);
+            indent(out, depth + 3);
+            out.push_str("}\n");
+            indent(out, depth + 2);
+            out.push('}');
+        }
         if let Some(autofill) = autofill {
             out.push('\n');
             indent(out, depth + 2);
@@ -267,18 +294,54 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         }
         out.push_str(",\n");
     }
-    if let Some(font) = font {
-        let style = match font {
-            TextInputFont::Body => {
-                "androidx.compose.material3.MaterialTheme.typography.bodyLarge".to_owned()
-            }
-            TextInputFont::Title3 => format!(
-                "androidx.compose.material3.MaterialTheme.typography.titleMedium.copy(fontSize = {}.sp)",
-                nexa_codegen::design_system::TEXT_INPUT_TITLE3_FONT_SIZE
+    let base_style = match font {
+        Some(TextInputFont::Body) => {
+            "androidx.compose.material3.MaterialTheme.typography.bodyLarge".to_owned()
+        }
+        Some(TextInputFont::Title3) => format!(
+            "androidx.compose.material3.MaterialTheme.typography.titleMedium.copy(fontSize = {}.sp)",
+            nexa_codegen::design_system::TEXT_INPUT_TITLE3_FONT_SIZE
+        ),
+        None => "androidx.compose.material3.LocalTextStyle.current".to_owned(),
+    };
+    let style_overrides = [
+        font_size.map(|size| format!("fontSize = {}.sp", number(size))),
+        font_family.map(|family| {
+            let face = nexa_codegen::names::font_face_name(family, nexa_ir::FontWeight::Normal);
+            let resource_name = nexa_codegen::names::font_resource_name(&face);
+            format!(
+                "fontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.{resource_name}, weight = androidx.compose.ui.text.font.FontWeight.Normal))"
+            )
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !style_overrides.is_empty() {
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "textStyle = {base_style}.copy({}),",
+                style_overrides.join(", ")
             ),
-        };
-        out.line_at(depth + 1, format_args!("textStyle = {style},"));
+        );
+    } else if font.is_some() {
+        out.line_at(depth + 1, format_args!("textStyle = {base_style},"));
     }
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "textColor = {},",
+            text_color.map_or_else(|| "null".to_owned(), colors::expression)
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "placeholderColor = {},",
+            placeholder_color.map_or_else(|| "null".to_owned(), colors::expression)
+        ),
+    );
     if let Some(min_lines) = min_lines {
         out.line_at(depth + 1, format_args!("minLines = {min_lines},"));
     }
@@ -386,9 +449,60 @@ pub(crate) fn kotlin_return_key(return_key: ReturnKeyType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Action, Expr, KeyboardType, ReturnKeyType};
+    use nexa_ir::{Action, Color, ColorValue, Expr, KeyboardType, ReturnKeyType};
 
     use super::{TextInputProps, render_text_input};
+
+    #[test]
+    fn custom_input_style_reaches_compose_with_registered_font_and_colors() {
+        let mut output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "query",
+                placeholder: "Search songs",
+                keyboard: KeyboardType::Text,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: Some(ReturnKeyType::Search),
+                autocorrect: Some(false),
+                capitalization: None,
+                focused: None,
+                max_length: Some(50),
+                font: None,
+                font_size: Some(16.38),
+                font_family: Some("Gilroy-Regular"),
+                text_color: Some(ColorValue::Static(Color {
+                    red: 255,
+                    green: 255,
+                    blue: 255,
+                    alpha: 255,
+                })),
+                placeholder_color: Some(ColorValue::Static(Color {
+                    red: 159,
+                    green: 159,
+                    blue: 159,
+                    alpha: 255,
+                })),
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                weight_in_row: false,
+                actions: &[],
+                on_focus: None,
+                on_change: None,
+            },
+            0,
+            &mut output,
+        );
+
+        let source = output.as_str();
+        assert!(source.contains("fontSize = 16.38.sp"));
+        assert!(source.contains("R.font.gilroy_regular"));
+        assert!(source.contains("textColor = Color(0xFFFFFFFF)"));
+        assert!(source.contains("placeholderColor = Color(0xFF9F9F9F)"));
+    }
 
     #[test]
     fn searchable_input_emits_a_native_search_affordance_and_dismisses_on_search() {
@@ -407,12 +521,17 @@ mod tests {
                 focused: None,
                 max_length: None,
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
                 min_lines: None,
                 max_lines: None,
                 searchable: true,
                 horizontal_padding: None,
                 weight_in_row: false,
                 actions: &[],
+                on_focus: None,
                 on_change: None,
             },
             0,
@@ -436,6 +555,50 @@ mod tests {
     }
 
     #[test]
+    fn focus_actions_run_only_when_a_tracked_text_input_gains_focus() {
+        let focus_actions = [Action::Assign {
+            name: "didFocus".to_owned(),
+            value: Expr::Bool(true),
+        }];
+        let mut output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "query",
+                placeholder: "Search",
+                keyboard: KeyboardType::Text,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: None,
+                autocorrect: None,
+                capitalization: None,
+                focused: Some("focused"),
+                max_length: None,
+                font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                weight_in_row: false,
+                actions: &[],
+                on_focus: Some(&focus_actions),
+                on_change: None,
+            },
+            0,
+            &mut output,
+        );
+
+        let source = output.as_str();
+        assert!(source.contains(".onFocusChanged { nexa_focused = it.isFocused }"));
+        assert!(source.contains("if (focusState.isFocused) {"));
+        assert!(source.contains("nexa_didFocus = true"));
+    }
+
+    #[test]
     fn done_submission_hides_the_android_keyboard_but_next_keeps_it_open() {
         let action = [Action::Expression(Expr::Bool(true))];
         let mut done_output = SourceWriter::new();
@@ -453,12 +616,17 @@ mod tests {
                 focused: None,
                 max_length: None,
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
                 min_lines: None,
                 max_lines: None,
                 searchable: false,
                 horizontal_padding: None,
                 weight_in_row: false,
                 actions: &action,
+                on_focus: None,
                 on_change: None,
             },
             0,
@@ -488,12 +656,17 @@ mod tests {
                 focused: None,
                 max_length: None,
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
                 min_lines: None,
                 max_lines: None,
                 searchable: false,
                 horizontal_padding: None,
                 weight_in_row: false,
                 actions: &action,
+                on_focus: None,
                 on_change: None,
             },
             0,

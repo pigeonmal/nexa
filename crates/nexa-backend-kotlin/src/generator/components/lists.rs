@@ -223,6 +223,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "kotlinx.coroutines.flow.distinctUntilChanged",
     );
     imports.add(
+        features.uses_list_scroll_events,
+        "androidx.compose.foundation.interaction.collectIsDraggedAsState",
+    );
+    imports.add(
         features.uses_list_end_reached
             || features.uses_linear_list_end_reached
             || features.uses_list_scroll_position,
@@ -336,6 +340,7 @@ struct FlatPieces<'a> {
     swipe_actions: Option<&'a [Node]>,
     on_end_reached: Option<&'a [Action]>,
     on_scroll: Option<&'a [Action]>,
+    on_scroll_begin_drag: Option<&'a [Action]>,
     on_move: Option<&'a FastListMove>,
     scroll_position: Option<&'a str>,
     reverse_layout: bool,
@@ -382,6 +387,14 @@ fn scroll_enabled_expression(state: &str, enabled: Option<&Expr>, refresh_enable
     enabled.map_or(scroll_range.clone(), |value| {
         format!("{scroll_range} && {}", expression(value))
     })
+}
+
+fn safe_area_axis(axis: ListAxis) -> &'static str {
+    match axis {
+        ListAxis::Vertical => "Vertical",
+        ListAxis::Horizontal => "Horizontal",
+        ListAxis::Grid { .. } | ListAxis::AutoGrid { .. } | ListAxis::Masonry { .. } => "Both",
+    }
 }
 
 pub(crate) fn render_virtualized_list(
@@ -442,6 +455,7 @@ pub(crate) fn render_virtualized_list(
             swipe_actions: common.swipe_actions.as_deref(),
             on_end_reached: common.on_end_reached.as_deref(),
             on_scroll: common.on_scroll.as_deref(),
+            on_scroll_begin_drag: common.on_scroll_begin_drag.as_deref(),
             on_move: common.on_move.as_ref(),
             scroll_position: common.scroll_position.as_deref(),
             reverse_layout: common.reverse_layout,
@@ -480,6 +494,7 @@ pub(crate) fn render_virtualized_list(
                 swipe_actions: common.swipe_actions.as_deref(),
                 on_end_reached: common.on_end_reached.as_deref(),
                 on_scroll: common.on_scroll.as_deref(),
+                on_scroll_begin_drag: common.on_scroll_begin_drag.as_deref(),
                 on_move: common.on_move.as_ref(),
                 scroll_position: common.scroll_position.as_deref(),
                 reverse_layout: common.reverse_layout,
@@ -500,6 +515,7 @@ pub(crate) fn render_virtualized_list(
         || pieces.page_snap
         || pieces.on_end_reached.is_some()
         || pieces.on_scroll.is_some()
+        || pieces.on_scroll_begin_drag.is_some()
         || pieces.on_move.is_some()
         || pieces.scroll_position.is_some()
         || pieces.component_ref.is_some();
@@ -563,12 +579,22 @@ pub(crate) fn render_virtualized_list(
         FlatCount::Items { collection, .. } => format!("{collection}.size"),
     };
     let spacing = format_float(pieces.spacing);
+    let endpoint_padding = features.uses_safe_area_endpoint.then(|| {
+        format!(
+            "contentPadding = nexaSafeAreaContentPadding(\"{}\", includeVisualSafeInsets = {})",
+            safe_area_axis(pieces.axis),
+            !pieces.reverse_layout,
+        )
+    });
+    let scroll_viewport_modifier = format!(
+        "nexaSafeAreaScrollViewportModifier(\"{}\")",
+        safe_area_axis(pieces.axis),
+    );
     let container = if pieces.axis == ListAxis::Horizontal {
         let scroll_state = list_state.as_deref().unwrap_or_default();
-        let mut arguments = vec![
-            "modifier = Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary)"
-                .to_owned(),
-        ];
+        let mut arguments = vec![format!(
+            "modifier = {scroll_viewport_modifier}.then(Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary))"
+        )];
         if pieces.spacing > 0.0 {
             arguments.push(format!(
                 "horizontalArrangement = Arrangement.spacedBy({spacing}.dp)"
@@ -583,6 +609,9 @@ pub(crate) fn render_virtualized_list(
                 pieces.refresh.is_some(),
             )
         ));
+        if let Some(padding) = &endpoint_padding {
+            arguments.push(padding.clone());
+        }
         format!("LazyRow({})", arguments.join(", "))
     } else {
         let modifier = if pieces.uses_platform_list {
@@ -590,7 +619,9 @@ pub(crate) fn render_virtualized_list(
         } else {
             "Modifier.fillMaxWidth()"
         };
-        let mut arguments = vec![format!("modifier = {modifier}")];
+        let mut arguments = vec![format!(
+            "modifier = {scroll_viewport_modifier}.then({modifier})"
+        )];
         if pieces.spacing > 0.0 {
             arguments.push(format!(
                 "verticalArrangement = Arrangement.spacedBy({spacing}.dp)"
@@ -606,6 +637,9 @@ pub(crate) fn render_virtualized_list(
                 pieces.refresh.is_some(),
             )
         ));
+        if let Some(padding) = &endpoint_padding {
+            arguments.push(padding.clone());
+        }
         if pieces.reverse_layout {
             arguments.push("reverseLayout = true".to_owned());
         }
@@ -812,6 +846,13 @@ fn render_page_snap_list(
     out.line_at(
         list_depth + 1,
         format_args!(
+            "modifier = nexaSafeAreaScrollViewportModifier(\"{}\").fillMaxSize(),",
+            safe_area_axis(pieces.axis),
+        ),
+    );
+    out.line_at(
+        list_depth + 1,
+        format_args!(
             "userScrollEnabled = {},",
             scroll_enabled_expression(list_state, pieces.scroll_enabled, pieces.refresh.is_some(),)
         ),
@@ -826,6 +867,15 @@ fn render_page_snap_list(
         out.line_at(
             list_depth + 1,
             format_args!("key = {{ pagePosition -> {key} }},"),
+        );
+    }
+    if features.uses_safe_area_endpoint {
+        out.line_at(
+            list_depth + 1,
+            format_args!(
+                "contentPadding = nexaSafeAreaContentPadding(\"{}\", includeVisualSafeInsets = false),",
+                safe_area_axis(pieces.axis),
+            ),
         );
     }
     indent(out, list_depth);
@@ -926,8 +976,8 @@ fn render_sectioned_list(
     indent(out, list_depth);
     out.push_str(&format!("LazyColumn(state = {list_state}, "));
     out.push_str(&format!(
-        "modifier = {}, ",
-        sectioned_list_modifier(uses_platform_list)
+        "modifier = nexaSafeAreaScrollViewportModifier(\"Vertical\").then({}), ",
+        sectioned_list_modifier(uses_platform_list),
     ));
     if spacing > 0.0 {
         out.push_str(&format!(
@@ -939,6 +989,9 @@ fn render_sectioned_list(
         "userScrollEnabled = {}",
         scroll_enabled_expression(&list_state, scroll_enabled, refresh.is_some())
     ));
+    if scope.features.uses_safe_area_endpoint {
+        out.push_str(", contentPadding = nexaSafeAreaContentPadding(\"Vertical\", includeVisualSafeInsets = true)");
+    }
     out.push_str(") {\n");
     out.line_at(
         list_depth + 1,
@@ -1121,6 +1174,14 @@ fn render_grid_list(
     let state_parameter = format!("state = {list_state}, ");
     let scroll_state = list_state.as_str();
     let spacing = format_float(pieces.spacing);
+    let endpoint_padding = if features.uses_safe_area_endpoint {
+        format!(
+            "contentPadding = nexaSafeAreaContentPadding(\"{}\", includeVisualSafeInsets = true), ",
+            safe_area_axis(axis),
+        )
+    } else {
+        String::new()
+    };
     let list_depth = render_refresh_open(pieces.refresh, depth, out);
     let grid_cells = match axis {
         ListAxis::Grid { columns } => format!("GridCells.Fixed({columns})"),
@@ -1152,7 +1213,8 @@ fn render_grid_list(
     out.line_at(
         list_depth,
         format_args!(
-            "{list_name}({state_parameter}userScrollEnabled = {}, columns = {grid_cells}{spacing_arguments}) {{",
+            "{list_name}({state_parameter}modifier = nexaSafeAreaScrollViewportModifier(\"{}\").fillMaxWidth(), {endpoint_padding}userScrollEnabled = {}, columns = {grid_cells}{spacing_arguments}) {{",
+            safe_area_axis(axis),
             scroll_enabled_expression(
                 scroll_state,
                 pieces.scroll_enabled,
@@ -1408,6 +1470,20 @@ fn render_list_observers(
         depth,
         format_args!("val {list_state} = {state_initializer}"),
     );
+    if let Some(actions) = pieces.on_scroll_begin_drag {
+        let is_dragged = format!("nexaListIsDragged{list_state}");
+        out.line_at(
+            depth,
+            format_args!(
+                "val {is_dragged} = {list_state}.interactionSource.collectIsDraggedAsState()"
+            ),
+        );
+        out.line_at(depth, format_args!("LaunchedEffect({is_dragged}.value) {{"));
+        out.line_at(depth + 1, format_args!("if ({is_dragged}.value) {{"));
+        render_actions(actions, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(depth, format_args!("}}"));
+    }
     if let Some(task_scope) = list_task_scope.as_deref() {
         out.line_at(
             depth,
@@ -2479,6 +2555,7 @@ mod tests {
             swipe_actions: None,
             on_end_reached: Some(&end_actions),
             on_scroll: None,
+            on_scroll_begin_drag: None,
             on_move: None,
             reverse_layout: false,
             page_snap: false,
@@ -2545,6 +2622,7 @@ mod tests {
                 swipe_actions: None,
                 on_end_reached: Some(&end_actions),
                 on_scroll: None,
+                on_scroll_begin_drag: None,
                 on_move: None,
                 reverse_layout: false,
                 page_snap: false,

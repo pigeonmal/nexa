@@ -194,6 +194,7 @@ app ScrollCallbacks {
         }
     }
 }
+
 "#,
     )
     .expect("test source should be written");
@@ -514,5 +515,78 @@ app ScrollCallbacks {
     assert!(
         kotlin.contains("(firstVisiblePosition - 1).coerceAtLeast(0)"),
         "the generated scrollPosition should remove the sticky-header slot after choosing an unobscured item\n{kotlin}"
+    );
+}
+
+#[test]
+fn fast_list_begin_drag_reports_only_user_drags_on_both_targets() {
+    let project = TestProject::new("nexa-fast-list-begin-drag");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"
+app FastListBeginDrag {
+    state dragCount: Int32 = 0
+    body {
+        FastList(count: 8) { index in
+            Text("Timed lyric row \(index)")
+        }.onScrollBeginDrag {
+            dragCount = dragCount + 1
+        }
+    }
+}
+"#,
+    )
+    .expect("test source should be written");
+
+    let swift_module = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .expect("vertical FastList drag callbacks should compile for Swift")
+        .module;
+    let swift = nexa_backend_swift::SwiftBackend.generate(&swift_module);
+    assert!(swift.contains("onScrollBeginDrag: {"), "{swift}");
+    assert!(swift.contains("onScrollBeginDrag?()"), "{swift}");
+    assert!(
+        swift.contains("func scrollViewWillBeginDragging"),
+        "{swift}"
+    );
+
+    let kotlin_module = compile_file_with_warnings_for_target(&entry, Target::Kotlin)
+        .expect("vertical FastList drag callbacks should compile for Kotlin")
+        .module;
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&kotlin_module);
+    assert!(
+        kotlin.contains("import androidx.compose.foundation.interaction.collectIsDraggedAsState"),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("interactionSource.collectIsDraggedAsState()"),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("LaunchedEffect(nexaListIsDragged"),
+        "{kotlin}"
+    );
+    let list_state = kotlin
+        .find("val nexaListState0 = rememberLazyListState()")
+        .expect("the vertical FastList state should be declared");
+    let drag_observer = kotlin
+        .find("nexaListState0.interactionSource.collectIsDraggedAsState()")
+        .expect("the drag observer should use the declared list state");
+    assert!(
+        list_state < drag_observer,
+        "AOT must declare the Compose list state before collecting drag interactions\n{kotlin}"
+    );
+
+    let android_dev_runtime = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+    assert!(
+        android_dev_runtime.contains("listState.interactionSource.collectIsDraggedAsState()")
+            && android_dev_runtime.contains("store.perform(onScrollBeginDrag, scope, locals)"),
+        "Android DevRuntime should emit the same user-drag action from the list interaction source"
+    );
+    let ios_dev_runtime = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+    assert!(
+        ios_dev_runtime.contains("onScrollBeginDrag?()")
+            && ios_dev_runtime.contains("didReportScrollBeginDrag"),
+        "iOS DevRuntime should emit one drag-start event per user gesture"
     );
 }

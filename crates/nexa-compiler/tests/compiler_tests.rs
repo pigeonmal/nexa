@@ -102,6 +102,59 @@ fn string_trimmed_is_a_typed_member_property() {
 }
 
 #[test]
+fn switch_change_action_is_typed_and_generated_for_both_native_targets() {
+    let module = compile(
+        r#"
+        app PlaybackPreferences {
+            state skipSilence: Bool = false
+            state savedPreference: Bool = false
+
+            body {
+                Switch(value: skipSilence, label: "Skip silence").onChange { enabled ->
+                    savedPreference = enabled
+                }
+            }
+        }
+        "#,
+    )
+    .expect("Switch onChange should receive a typed Bool value");
+
+    let Node::Switch {
+        on_change: Some(change),
+        ..
+    } = &module.body[0]
+    else {
+        panic!("Switch should retain its typed change action");
+    };
+    assert_eq!(change.parameter, "enabled");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("onChange: { nexa_enabled in"), "{swift}");
+    assert!(
+        swift.contains("nexa_savedPreference = nexa_enabled"),
+        "{swift}"
+    );
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("val nexa_enabled = value"), "{kotlin}");
+    assert!(
+        kotlin.contains("nexa_savedPreference = nexa_enabled"),
+        "{kotlin}"
+    );
+
+    let invalid = compile(
+        r#"
+        app InvalidSwitchChange {
+            state enabled: Bool = false
+            body { Switch(value: enabled, label: "Enabled").onChange { next -> enabled = 1 } }
+        }
+        "#,
+    )
+    .expect_err("Switch change values must be Bool");
+    assert!(invalid.to_string().contains("Bool"), "{invalid}");
+}
+
+#[test]
 fn network_request_headers_and_response_helpers_are_typed() {
     let module = compile(
         r##"
@@ -1103,6 +1156,109 @@ fn in_memory_compile_merges_top_level_screens_into_the_app() {
 }
 
 #[test]
+fn app_root_navigation_stacks_can_be_selected_by_top_level_control_flow() {
+    let module = compile(
+        r#"
+        app ConditionalNavigationRoot {
+            state authenticated: Bool = false
+            screen Welcome { Text("Welcome") }
+            screen Library { Text("Library") }
+
+            body {
+                if authenticated {
+                    NavigationStack(root: Library)
+                } else {
+                    NavigationStack(root: Welcome)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("each top-level app branch should be able to choose its own navigation root");
+
+    let Some(Node::If {
+        then_body,
+        else_body: Some(else_body),
+        ..
+    }) = module.body.first()
+    else {
+        panic!("expected conditional app root");
+    };
+    assert!(matches!(
+        then_body.first(),
+        Some(Node::NavigationStack { .. })
+    ));
+    assert!(matches!(
+        else_body.first(),
+        Some(Node::NavigationStack { .. })
+    ));
+
+    let nested = compile(
+        r#"
+        app NestedConditionalNavigationRoot {
+            state authenticated: Bool = false
+            screen Welcome { Text("Welcome") }
+            screen Library { Text("Library") }
+
+            body {
+                Column {
+                    if authenticated {
+                        NavigationStack(root: Library)
+                    } else {
+                        NavigationStack(root: Welcome)
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("navigation stacks inside visual layouts must remain invalid");
+    assert!(nested.message.contains("app body"), "{nested}");
+}
+
+#[test]
+fn app_bottom_bar_tabs_can_own_navigation_roots() {
+    let module = compile(
+        r#"
+        app TabNavigationRoots {
+            state selectedTab: Int32 = 0
+
+            screen Home { Text("Home") }
+            screen Library { Text("Library") }
+            screen MainTabs {
+                AppBottomBar(selected: selectedTab) {
+                    Tab(index: 0, label: "Home", icon: "home") {
+                        NavigationStack(root: Home)
+                    }
+                    Tab(index: 1, label: "Library", icon: "music_library") {
+                        NavigationStack(root: Library)
+                    }
+                }
+            }
+
+            body { NavigationStack(root: MainTabs) }
+        }
+        "#,
+    )
+    .expect("each native app tab should own an independent navigation root");
+
+    let main_tabs = module
+        .screens
+        .iter()
+        .find(|screen| screen.name == "MainTabs")
+        .expect("the app should retain its tab shell screen");
+    assert!(matches!(
+        main_tabs.body.first(),
+        Some(Node::AppBottomBar { tabs, .. })
+            if tabs.len() == 2
+                && tabs.iter().all(|tab| matches!(
+                    tab.children.as_slice(),
+                    [Node::NavigationStack { .. }]
+                ))
+    ));
+}
+
+#[test]
 fn navigation_push_and_back_lower_to_typed_screen_actions() {
     let module = compile(
         r#"
@@ -2056,6 +2212,40 @@ fn reusable_component_ref_methods_support_async_and_typed_plugin_failures() {
 }
 
 #[test]
+fn custom_navigation_headers_can_disable_the_native_navigation_bar_on_both_targets() {
+    let module = compile(
+        r#"
+        app CustomNavigationHeader {
+            screen Home { Text("Home") }
+            screen Details { Text("Custom header content") }
+            body { NavigationStack(root: Home, showNavigationBar: false) }
+        }
+        "#,
+    )
+    .expect("custom-header navigation should type-check");
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::NavigationStack {
+            show_navigation_bar: false,
+            ..
+        })
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    let swift_host = swift
+        .split("struct NexaScreen0: View")
+        .next()
+        .expect("navigation host is emitted before screens");
+    assert!(swift_host.contains(".toolbar(.hidden, for: .navigationBar)"));
+    assert!(!swift_host.contains("NexaNavigationScreenPrimitive(title: \"Details\""));
+    assert!(swift_host.contains(".ignoresSafeArea(.container, edges: .all)"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("nexaShowNavigationBar = false"));
+    assert!(kotlin.contains("if (nexaIsRoot || !nexaShowNavigationBar)"));
+}
+
+#[test]
 fn navigation_title_defaults_and_explicit_title_modes_and_alignment_compile() {
     let inline = compile(
         r#"
@@ -2321,6 +2511,104 @@ fn text_input_keyboard_ergonomics_lower_to_typed_native_options() {
             })] if namespace == "Keyboard" && name == "dismiss")
     ));
     assert!(nexa_ir::capabilities::analyze(&module).uses_keyboard_api);
+}
+
+#[test]
+fn text_input_static_style_lowers_to_typed_native_properties() {
+    let module = compile(
+        r##"
+        app SearchFieldStyle {
+            state query: String = ""
+            body {
+                TextInput(
+                    value: query,
+                    placeholder: "Search songs",
+                    fontSize: 16.38,
+                    fontFamily: "Gilroy-Regular",
+                    textColor: "#FFFFFF",
+                    placeholderColor: "#9F9F9F",
+                    clearable: true,
+                )
+            }
+        }
+        "##,
+    )
+    .expect("static text input styles should compile");
+
+    let Node::TextInput {
+        font_size,
+        font_family,
+        text_color,
+        placeholder_color,
+        clearable,
+        ..
+    } = &module.body[0]
+    else {
+        panic!("expected a lowered TextInput");
+    };
+    assert_eq!(*font_size, Some(16.38));
+    assert_eq!(font_family.as_deref(), Some("Gilroy-Regular"));
+    assert_eq!(
+        *text_color,
+        Some(nexa_ir::ColorValue::Static(nexa_ir::Color {
+            red: 255,
+            green: 255,
+            blue: 255,
+            alpha: 255,
+        }))
+    );
+    assert_eq!(
+        *placeholder_color,
+        Some(nexa_ir::ColorValue::Static(nexa_ir::Color {
+            red: 159,
+            green: 159,
+            blue: 159,
+            alpha: 255,
+        }))
+    );
+    assert!(*clearable);
+}
+
+#[test]
+fn text_input_focus_action_lowers_to_a_typed_native_callback() {
+    let module = compile(
+        r#"
+        app SearchFieldFocus {
+            state query: String = ""
+            state focused: Bool = false
+            state didFocus: Bool = false
+            body {
+                TextInput(value: query, placeholder: "Search", focused: focused)
+                    .onFocus { didFocus = true }
+            }
+        }
+        "#,
+    )
+    .expect("a focus callback with a tracked focus binding should compile");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::TextInput {
+            focused: Some(focused),
+            on_focus: Some(actions),
+            ..
+        } if focused == "focused"
+            && matches!(actions.as_slice(), [Action::Assign { name, value: Expr::Bool(true) }] if name == "didFocus")
+    ));
+
+    let missing_focus_binding = r#"
+        app SearchFieldFocus {
+            state query: String = ""
+            state didFocus: Bool = false
+            body { TextInput(value: query, placeholder: "Search").onFocus { didFocus = true } }
+        }
+    "#;
+    assert!(
+        compile(missing_focus_binding)
+            .expect_err("focus callbacks need a cross-platform focus binding")
+            .message
+            .contains("requires a `focused` state binding")
+    );
 }
 
 #[test]
@@ -2736,13 +3024,14 @@ fn crypto_calls_lower_to_typed_core_calls() {
     let module = compile(
         r#"
         app CryptoExample {
+            let sha1: String = Crypto.sha1(text: "nexa")
             let sha256: String = Crypto.sha256(text: "nexa")
             let sha512: String = Crypto.sha512(text: "nexa")
             let signature: String = Crypto.hmacSha256(key: "secret", message: "payload")
             let random: String = Crypto.randomBytes(count: 16)
 
             body {
-                Text(sha256)
+                Text(sha1 + sha256 + sha512 + signature + random)
             }
         }
         "#,
@@ -2755,25 +3044,29 @@ fn crypto_calls_lower_to_typed_core_calls() {
         .map(|state| &state.initial)
         .collect::<Vec<_>>();
     for (expression, (expected_name, expected_arguments)) in calls.iter().zip([
+        ("sha1", &["text"][..]),
         ("sha256", &["text"][..]),
         ("sha512", &["text"][..]),
         ("hmacSha256", &["key", "message"][..]),
         ("randomBytes", &["count"][..]),
     ]) {
-        assert!(matches!(
-            expression,
-            Expr::NativeCall {
-                namespace,
-                name: actual_name,
-                arguments,
-                return_type: Type::String,
-                is_async: false,
-                is_throwing: false,
-                ..
-            } if namespace == "Crypto"
-                && actual_name == expected_name
-                && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == expected_arguments
-        ));
+        assert!(
+            matches!(
+                expression,
+                Expr::NativeCall {
+                    namespace,
+                    name: actual_name,
+                    arguments,
+                    return_type: Type::String,
+                    is_async: false,
+                    is_throwing: false,
+                    ..
+                } if namespace == "Crypto"
+                    && actual_name == expected_name
+                    && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == expected_arguments
+            ),
+            "expected Crypto.{expected_name} with {expected_arguments:?}, got {expression:?}"
+        );
     }
     assert!(nexa_ir::capabilities::analyze(&module).uses_crypto_api);
 }
@@ -3093,6 +3386,47 @@ fn icon_component_supports_shared_and_platform_specific_symbols() {
 }
 
 #[test]
+fn font_icon_accepts_typed_runtime_size_on_both_native_backends() {
+    let module = compile(
+        r##"
+        app MaziconGlyph {
+            state iconSize: Float64 = 20.0
+            body {
+                Icon(
+                    fontFamily: "Mazicon",
+                    glyph: 61696,
+                    description: "Activity",
+                    size: iconSize,
+                    tint: "#FFFFFF"
+                )
+            }
+        }
+        "##,
+    )
+    .expect("font glyph size should accept a typed runtime expression");
+
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::FontIcon {
+            size: Expr::State(name, Type::Numeric(NumericType::Float64)),
+            ..
+        }) if name == "iconSize"
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(
+        swift.contains("CGFloat(max(1.0, min(512.0, nexa_iconSize)))"),
+        "{swift}"
+    );
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(
+        kotlin.contains("(nexa_iconSize).toFloat().coerceIn(1f, 512f).dp"),
+        "{kotlin}"
+    );
+}
+
+#[test]
 fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
     let module = compile(
         r##"
@@ -3217,7 +3551,7 @@ fn content_unavailable_lowers_localized_text_and_a_shared_icon() {
     assert!(
         invalid_icon
             .to_string()
-            .contains("unknown shared system icon")
+            .contains("unknown icon `not_a_shared_icon`")
     );
 }
 
@@ -3359,6 +3693,7 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
             body {
                 BottomSheet(
                     ref: sheetRef,
+                    cornerRadius: 29.25,
                     contentPadding: 20,
                     detents: [1.0],
                     initialDetent: 1.0,
@@ -3378,6 +3713,7 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
         [Node::BottomSheet {
             detents,
             content_padding,
+            corner_radius: Some(29.25),
             initial_detent: Some(1.0),
             show_drag_indicator: false,
             allows_dismissal: false,
@@ -3392,6 +3728,7 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
     let swift = nexa_backend_swift::SwiftBackend.generate(&configured_sheet);
     assert!(swift.contains("detents: [.fraction(1)]"));
     assert!(swift.contains("contentPadding: 20"));
+    assert!(swift.contains("cornerRadius: 29.25"));
     assert!(swift.contains("initialDetent: .fraction(1)"));
     assert!(swift.contains("showDragIndicator: false"));
     assert!(swift.contains("allowsDismissal: false"));
@@ -3401,6 +3738,7 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&configured_sheet);
     assert!(kotlin.contains("detents = listOf(1f)"));
     assert!(kotlin.contains("contentPadding = 20f.dp"));
+    assert!(kotlin.contains("cornerRadius = 29.25f.dp"));
     assert!(kotlin.contains("showDragIndicator = false"));
     assert!(kotlin.contains("allowsDismissal = false"));
     assert!(kotlin.contains("allowsBackgroundInteraction = true"));
@@ -3409,18 +3747,124 @@ fn bottom_sheet_lowers_shared_native_detents_and_optional_surface_configuration(
 }
 
 #[test]
+fn bottom_sheet_refs_can_be_passed_to_reusable_components() {
+    let module = compile(
+        r#"
+        component PlayerSheetControls(sheetRef: ComponentRef<BottomSheet>) {
+            body {
+                Button("Close player") { sheetRef.dismiss() }
+            }
+        }
+        app PlayerSheetReference {
+            let sheetRef = ComponentRef<BottomSheet>()
+            body {
+                BottomSheet(ref: sheetRef, detents: [1.0]) { Text("Now playing") }
+                PlayerSheetControls(sheetRef: sheetRef)
+            }
+        }
+        "#,
+    )
+    .expect("a typed BottomSheet reference should be reusable as a component parameter");
+
+    let [
+        Node::BottomSheet { .. },
+        Node::ComponentCall {
+            name, arguments, ..
+        },
+    ] = module.body.as_slice()
+    else {
+        panic!(
+            "expected the sheet and controls component, got: {:#?}",
+            module.body
+        );
+    };
+    assert_eq!(name, "PlayerSheetControls");
+    assert!(matches!(
+        arguments.as_slice(),
+        [(argument, Expr::State(state_name, Type::ComponentRef { name, .. }))]
+            if argument == "sheetRef" && state_name == "sheetRef" && name == "BottomSheet"
+    ));
+}
+
+#[test]
+fn bottom_sheet_can_host_a_nested_navigation_stack() {
+    let module = compile(
+        r#"
+        screen Player { Text("Now playing") }
+        screen Home {
+            let sheetRef = ComponentRef<BottomSheet>()
+            Button("Open player") { sheetRef.present() }
+            BottomSheet(ref: sheetRef, detents: [1.0]) {
+                NavigationStack(root: Player, showNavigationBar: false)
+            }
+        }
+        app PlayerSheetNavigation {
+            body { NavigationStack(root: Home, showNavigationBar: false) }
+        }
+        "#,
+    )
+    .expect("a modal sheet may own a nested navigation stack");
+
+    assert!(matches!(
+        module.body.as_slice(),
+        [Node::NavigationStack { .. }]
+    ));
+}
+
+#[test]
 fn bottom_sheet_rejects_empty_duplicate_and_unconfigured_initial_detents() {
     for source in [
         r#"app Empty { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: []) { Text("x") } } }"#,
         r#"app NegativePadding { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, contentPadding: -1) { Text("x") } } }"#,
+        r#"app NegativeCorner { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, cornerRadius: -1) { Text("x") } } }"#,
         r#"app Duplicate { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [0.5, 0.5]) { Text("x") } } }"#,
         r#"app Missing { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, detents: [0.5], initialDetent: 1.0) { Text("x") } } }"#,
+        r#"app MixedSizing { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, contentSized: true, detents: [0.5]) { Text("x") } } }"#,
+        r#"app MixedInitial { let sheetRef = ComponentRef<BottomSheet>() body { BottomSheet(ref: sheetRef, contentSized: true, initialDetent: 0.5) { Text("x") } } }"#,
     ] {
         assert!(
             compile(source).is_err(),
             "invalid detent configuration must fail"
         );
     }
+}
+
+#[test]
+fn bottom_sheet_content_sizing_lowers_to_intrinsic_native_sheets() {
+    let module = compile(
+        r#"
+        app ContentSizedSheet {
+            let sheetRef = ComponentRef<BottomSheet>()
+            body {
+                BottomSheet(ref: sheetRef, contentSized: true) {
+                    Text("Actions")
+                }
+            }
+        }
+        "#,
+    )
+    .expect("content-sized BottomSheet should lower without fractional detents");
+
+    assert!(matches!(
+        module.body.as_slice(),
+        [Node::BottomSheet {
+            content_sized: true,
+            detents,
+            initial_detent: None,
+            ..
+        }] if detents.is_empty()
+    ));
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("contentSized: true"));
+    assert!(swift.contains(".presentationDetents(\n                        contentSized ? [.height(measuredContentHeight)] : detents"));
+    assert!(swift.contains("fixedSize(horizontal: false, vertical: true)"));
+
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(kotlin.contains("contentSized = true"));
+    assert!(kotlin.contains("detents = listOf()"));
+    assert!(kotlin.contains("if (contentSized || nativeValues.size == detents.size)"));
+    assert!(kotlin.contains("Modifier.fillMaxWidth().weight(1f)"));
 }
 
 #[test]
@@ -3545,7 +3989,6 @@ fn bottom_sheet_header_save_and_close_actions_compile_for_both_platforms() {
         "#,
     )
     .expect("buttons in a custom BottomSheet header should compile");
-
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
     assert!(swift.contains("Label(\"Save\", systemImage: \"square.and.arrow.down\")"));
     assert!(swift.contains("Spacer(minLength: 0)"));
@@ -3554,8 +3997,8 @@ fn bottom_sheet_header_save_and_close_actions_compile_for_both_platforms() {
     assert!(swift.contains("nexa_sheetRef.dismiss()"));
 
     let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
-    assert!(kotlin.contains("icon = Icons.Filled.Save,"));
-    assert!(kotlin.contains("icon = Icons.Filled.Close,"));
+    assert!(kotlin.contains("icon = NexaIconSpec(vector = Icons.Filled.Save),"));
+    assert!(kotlin.contains("icon = NexaIconSpec(vector = Icons.Filled.Close),"));
     assert!(kotlin.contains("nexa_saved = true"));
     assert!(kotlin.contains("nexa_sheetRef.dismiss()"));
 }
@@ -3666,6 +4109,36 @@ fn compiler_warnings_have_stable_codes_by_warning_kind() {
         warning.code == WarningCode::UNUSED_DECLARATION
             && warning.message.contains("unused state `unusedState`")
     }));
+}
+
+#[test]
+fn top_level_helpers_called_from_reachable_class_static_functions_are_reachable() {
+    let compilation = compile_with_warnings_for_target(
+        r#"
+        fn formatSearchTitle(value: String) -> String {
+            return "Search: " + value
+        }
+
+        class SearchText {
+            static fn title(value: String) -> String {
+                return formatSearchTitle(value)
+            }
+        }
+
+        app StaticFunctionReachability {
+            body { Text(SearchText.title("Songs")) }
+        }
+        "#,
+        Target::Swift,
+    )
+    .expect("reachable static functions should keep their top-level helpers");
+
+    assert!(
+        compilation.warnings.iter().all(|warning| !warning
+            .message
+            .contains("unused function `formatSearchTitle`")),
+        "a top-level helper called by a reachable class static function must not be reported unused"
+    );
 }
 
 #[test]
@@ -4212,6 +4685,53 @@ fn text_style_arguments_lower_to_native_text_style_fields() {
 }
 
 #[test]
+fn text_font_family_uses_theme_default_and_static_overrides() {
+    let module = compile(
+        r#"
+        app TextFontFamilies {
+            theme {
+                fontFamily Default: "Gilroy-Regular"
+                fontFamily Mazicon: "Mazicon"
+            }
+            body {
+                Text("Title")
+                Text("Icon", fontFamily: Theme.Mazicon)
+                Text("Override", fontFamily: "NotoSans")
+            }
+        }
+        "#,
+    )
+    .expect("font family theme tokens should lower to static font names");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::Text { style, .. } if style.font_family.as_deref() == Some("Gilroy-Regular")
+    ));
+    assert!(matches!(
+        &module.body[1],
+        Node::Text { style, .. } if style.font_family.as_deref() == Some("Mazicon")
+    ));
+    assert!(matches!(
+        &module.body[2],
+        Node::Text { style, .. } if style.font_family.as_deref() == Some("NotoSans")
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidFontFamily {
+            body { Text("Dynamic", fontFamily: userFont) }
+        }
+        "#,
+    )
+    .expect_err("font family names must be statically known");
+    assert!(
+        invalid
+            .to_string()
+            .contains("fontFamily must be a static string")
+    );
+}
+
+#[test]
 fn semantic_text_font_roles_lower_and_validate() {
     let module = compile(
         r#"
@@ -4272,6 +4792,7 @@ fn visual_style_arguments_lower_to_validated_static_effects() {
                 Column(
                     opacity: 0.8,
                     scale: 1.1,
+                scaleY: 0.7,
                     rotation: -6,
                     shadow: Shadow(4, 1, -2, "#00000080"),
                     blur: 2,
@@ -4294,6 +4815,7 @@ fn visual_style_arguments_lower_to_validated_static_effects() {
     };
     assert_eq!(style.opacity, Some(0.8));
     assert_eq!(style.effects.scale, Some(1.1));
+    assert_eq!(style.effects.scale_y, Some(0.7));
     assert_eq!(style.effects.rotation, Some(-6.0));
     assert_eq!(style.effects.blur, Some(2.0));
     assert_eq!(style.effects.clip_rounded, Some(12.0));
@@ -4312,6 +4834,82 @@ fn visual_style_arguments_lower_to_validated_static_effects() {
     };
     assert_eq!(style.effects.scale, Some(0.95));
     assert_eq!(style.effects.clip_rounded, Some(5.0));
+}
+
+#[test]
+fn view_scale_accepts_animated_numeric_state() {
+    let module = compile(
+        r#"
+        app AnimatedScale {
+            state zoom: Float64 = 1.0
+
+            body {
+                Column(scale: zoom) {
+                    Text("Bookmark")
+                }
+                Button("Pulse") {
+                    withAnimation(Tween(duration: 0.07, easing: Linear)) {
+                        zoom = 0.5
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("a Float64 state should be accepted as a native scale transform");
+
+    let Node::Layout { style, .. } = &module.body[0] else {
+        panic!("expected the animated scale layout");
+    };
+    assert!(matches!(
+        style.effects.scale_expression.as_deref(),
+        Some(nexa_ir::Expr::AnimatedState(name, nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64)))
+            if name == "zoom"
+    ));
+    assert_eq!(style.effects.scale, None);
+}
+
+#[test]
+fn vertical_view_scale_accepts_animated_numeric_state() {
+    let module = compile(
+        r#"
+        app AnimatedVerticalScale {
+            state squash: Float64 = 1.0
+
+            body {
+                Row(scaleY: squash) {
+                    Text("Shuffle", scaleY: squash)
+                }
+                Button("Squash") {
+                    withAnimation(Tween(duration: 0.13, easing: Linear)) {
+                        squash = 0.0
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("a Float64 state should be accepted as a vertical transform");
+
+    let Node::Layout {
+        style, children, ..
+    } = &module.body[0]
+    else {
+        panic!("expected the animated vertical-scale layout");
+    };
+    assert!(matches!(
+        style.effects.scale_y_expression.as_deref(),
+        Some(nexa_ir::Expr::AnimatedState(name, nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64)))
+            if name == "squash"
+    ));
+    let Node::Text { style, .. } = &children[0] else {
+        panic!("expected animated vertical-scale text");
+    };
+    assert!(matches!(
+        style.effects.scale_y_expression.as_deref(),
+        Some(nexa_ir::Expr::AnimatedState(name, nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64)))
+            if name == "squash"
+    ));
 }
 
 #[test]
@@ -5304,7 +5902,10 @@ fn slider_lowers_a_mutable_float64_binding_and_static_range() {
         Node::Slider {
             state, min, max, step, ..
         }
-            if state == "volume" && *min == 0.0 && *max == 1.0 && *step == 0.1
+            if state == "volume"
+                && matches!(min, Expr::Number { raw, .. } if raw == "0.0")
+                && matches!(max, Expr::Number { raw, .. } if raw == "1.0")
+                && *step == 0.1
     ));
 
     let negative_range = compile(
@@ -5320,7 +5921,9 @@ fn slider_lowers_a_mutable_float64_binding_and_static_range() {
     .expect("negative numeric range endpoints should be accepted");
     assert!(matches!(
         &negative_range.body[0],
-        Node::Slider { min, max, .. } if *min == -1.0 && *max == 1.0
+        Node::Slider { min, max, .. }
+            if matches!(min, Expr::Number { raw, .. } if raw == "-1.0")
+                && matches!(max, Expr::Number { raw, .. } if raw == "1.0")
     ));
 
     let invalid = compile(
@@ -5334,6 +5937,59 @@ fn slider_lowers_a_mutable_float64_binding_and_static_range() {
         "#,
     );
     assert!(invalid.is_err(), "the range must divide evenly into steps");
+}
+
+#[test]
+fn slider_accepts_a_dynamic_range_and_typed_user_events() {
+    let module = compile(
+        r#"
+        app PlayerSeekBar {
+            state position: Float64 = 12.0
+            state duration: Float64 = 185.0
+            state isSeeking: Bool = false
+
+            body {
+                Slider(value: position, min: 0.0, max: duration, step: 0.0)
+                    .onChange { seconds -> position = seconds }
+                    .onEditingChanged { editing -> isSeeking = editing }
+            }
+        }
+        "#,
+    )
+    .expect("a dynamic playback range and both slider events should compile");
+
+    let Node::Slider {
+        min,
+        max,
+        step,
+        on_change,
+        on_editing_changed,
+        ..
+    } = &module.body[0]
+    else {
+        panic!("expected Slider IR");
+    };
+    assert!(matches!(min, Expr::Number { raw, .. } if raw == "0.0"));
+    assert!(matches!(max, Expr::State(name, _) if name == "duration"));
+    assert_eq!(*step, 0.0);
+    assert_eq!(
+        on_change.as_ref().map(|change| change.parameter.as_str()),
+        Some("seconds")
+    );
+    assert_eq!(
+        on_editing_changed
+            .as_ref()
+            .map(|change| change.parameter.as_str()),
+        Some("editing")
+    );
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    let kotlin = nexa_backend_kotlin::KotlinBackend.generate(&module);
+    assert!(swift.contains("maxValue: nexa_duration"), "{swift}");
+    assert!(
+        kotlin.contains("maxValue = (nexa_duration).toFloat()"),
+        "{kotlin}"
+    );
 }
 
 #[test]

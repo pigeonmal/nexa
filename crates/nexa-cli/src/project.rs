@@ -7,10 +7,11 @@
 //! evolve without adding a runtime or coupling build files to the IR.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
 };
 
 use nexa_backend_kotlin::KotlinBackend;
@@ -601,6 +602,7 @@ pub(crate) fn compile_dev_modules_with_compiler(
         value => return Err(format!("unknown platform `{value}`")),
     };
     let project_root = entry.parent().unwrap_or_else(|| Path::new("."));
+    let compile_started = Instant::now();
     let compilations = compiler
         .compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
             entry,
@@ -608,16 +610,20 @@ pub(crate) fn compile_dev_modules_with_compiler(
             plugin_roots,
         )
         .map_err(|error| error.to_string())?;
+    let compile_elapsed = compile_started.elapsed();
+    let localization_started = Instant::now();
     let translation_modules = compilations
         .iter()
         .map(|compilation| &compilation.module)
         .collect::<Vec<_>>();
     let translations = localization::synchronize_modules(project_root, &translation_modules)?;
     let dev_translations = translations.dev_translations();
+    let localization_elapsed = localization_started.elapsed();
     // Dev revisions guard patch application; stable state identity is carried
     // separately. Do not content-hash source and plugin trees on every edit.
     let generation = NEXT_DEV_MODULE_REVISION.fetch_add(1, Ordering::Relaxed);
-    targets
+    let dev_ir_started = Instant::now();
+    let prepared = targets
         .iter()
         .copied()
         .zip(compilations)
@@ -636,16 +642,96 @@ pub(crate) fn compile_dev_modules_with_compiler(
                 Target::All => unreachable!("dev compiler targets are concrete"),
             };
             let revision = format!("{cache_target}-{generation}");
-            Ok((
-                platform,
-                nexa_dev_ir::lower_with_translations(
-                    &compilation.module,
-                    revision,
-                    dev_translations.clone(),
-                ),
-            ))
+            let change_hint = compiler.last_dev_change_hint(target).map(|hint| {
+                nexa_dev_ir::DevModuleChangeHint {
+                    unchanged_function_indices: hint.unchanged_function_indices,
+                    unchanged_screen_indices: hint.unchanged_screen_indices,
+                }
+            });
+            (platform, compilation, revision, change_hint)
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let result = if prepared.len() == 1 {
+        let (platform, compilation, revision, change_hint) =
+            prepared.into_iter().next().ok_or("missing Dev IR target")?;
+        Ok(vec![lower_dev_compilation(
+            platform,
+            compilation,
+            revision,
+            dev_translations,
+            change_hint,
+        )])
+    } else {
+        std::thread::scope(|scope| {
+            let mut workers = Vec::with_capacity(prepared.len());
+            let mut first_error = None;
+            for (platform, compilation, revision, change_hint) in prepared {
+                let translations = dev_translations.clone();
+                let worker_name = format!("nexa-dev-ir-{platform:?}");
+                let worker = std::thread::Builder::new()
+                    .name(worker_name.clone())
+                    .stack_size(16 * 1024 * 1024)
+                    .spawn_scoped(scope, move || {
+                        lower_dev_compilation(
+                            platform,
+                            compilation,
+                            revision,
+                            translations,
+                            change_hint,
+                        )
+                    });
+                match worker {
+                    Ok(worker) => workers.push(worker),
+                    Err(error) => {
+                        first_error = Some(format!(
+                            "cannot start {worker_name} lowering worker: {error}"
+                        ));
+                        break;
+                    }
+                }
+            }
+            let mut modules = Vec::with_capacity(workers.len());
+            for worker in workers {
+                match worker.join() {
+                    Ok(module) => modules.push(module),
+                    Err(_) if first_error.is_none() => {
+                        first_error = Some("Nexa Dev IR lowering worker panicked".to_owned());
+                    }
+                    Err(_) => {}
+                }
+            }
+            match first_error {
+                Some(error) => Err(error),
+                None => Ok(modules),
+            }
+        })
+    };
+    let dev_ir_elapsed = dev_ir_started.elapsed();
+    println!(
+        "Nexa dev compile phases: compiler {} ms, localization {} ms, Dev IR {} ms",
+        compile_elapsed.as_millis(),
+        localization_elapsed.as_millis(),
+        dev_ir_elapsed.as_millis(),
+    );
+    result
+}
+
+fn lower_dev_compilation(
+    platform: nexa_dev_protocol::TargetPlatform,
+    compilation: nexa_compiler::Compilation,
+    revision: String,
+    translations: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    change_hint: Option<nexa_dev_ir::DevModuleChangeHint>,
+) -> (nexa_dev_protocol::TargetPlatform, nexa_dev_ir::DevModule) {
+    (
+        platform,
+        nexa_dev_ir::lower_owned_with_change_hint(
+            compilation.module,
+            revision,
+            translations,
+            change_hint,
+        ),
+    )
 }
 
 fn source_manifest(root: &Path, app_name: &str, targets: &[&str]) -> Result<String, String> {
@@ -1160,6 +1246,8 @@ struct PreparedIos {
     supports_screen_orientation: bool,
     /// Whether the app bundle carries images, icons, or a splash screen.
     has_assets: bool,
+    /// Registered custom font files copied into the app bundle.
+    font_files: Vec<String>,
     /// Swift files staged from plugin packages, relative to the app directory.
     plugin_sources: Vec<String>,
     /// C++ sources staged for the bridging header.
@@ -1222,6 +1310,7 @@ fn prepare_ios(
     copy_config_icons(root, app_name, config)?;
     let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
     let has_project_images = assets::copy_ios_project_images(source_root, root, app_name)?;
+    let font_files = assets::copy_ios_project_fonts(source_root, root, app_name)?;
     let has_assets = plugins::copy_plugin_assets(root, app_name, module)?
         || has_project_images
         || ios_icon
@@ -1247,6 +1336,7 @@ fn prepare_ios(
         privacy_manifest,
         supports_screen_orientation,
         has_assets,
+        font_files,
         plugin_sources,
         cpp_sources,
         xcframeworks: xcframeworks.clone(),
@@ -1387,6 +1477,7 @@ fn ios_plan(
             templates::ios_project_file_with_localization_config_and_widgets(
                 app_name,
                 prepared.has_assets,
+                !prepared.font_files.is_empty(),
                 prepared.resources.present,
                 prepared.localization_catalog.is_some(),
                 prepared.privacy_manifest.is_some(),
@@ -1405,12 +1496,13 @@ fn ios_plan(
         )
         .with_file(
             format!("{directory}/Info.plist"),
-            templates::ios_info_plist_with_orientation(
+            templates::ios_info_plist_with_orientation_and_fonts(
                 app_name,
                 config,
                 plugins,
                 dev_runtime,
                 dev_runtime || prepared.supports_screen_orientation,
+                &prepared.font_files,
                 &module
                     .background_tasks
                     .iter()
@@ -1546,8 +1638,13 @@ fn generate_android(
     };
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
+    let plugin_requires_network = plugins
+        .iter()
+        .any(|plugin| plugin.artifacts.requires_network);
     let (mut sources, mut project_features) = if dev_session.is_some() {
         KotlinBackend.generate_for_dev_units_with_project_features(module)
+    } else if plugin_requires_network {
+        KotlinBackend.generate_units_with_network_and_project_features(module)
     } else {
         KotlinBackend.generate_units_with_project_features(module)
     };
@@ -1609,6 +1706,7 @@ fn generate_android(
     copy_config_icons(root, app_name, config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
     assets::copy_android_project_images(source_root, root)?;
+    assets::copy_android_project_fonts(source_root, root, dev_session.is_some())?;
     assets::copy_android_localizations(source_root, root, module)?;
     // Every generated file needs the package declaration, and plugin bindings
     // add an import between the package line and the generator's own imports.
@@ -1658,6 +1756,12 @@ fn generate_android(
         value_codec_files.push((
             format!("{core_package_path}/NexaValue.kt"),
             nexa_codegen::value::kotlin_runtime_source(),
+        ));
+    }
+    if project_features.uses_network {
+        value_codec_files.push((
+            format!("{core_package_path}/NexaNetwork.kt"),
+            kotlin_network_plugin_bridge_source(&package),
         ));
     }
 
@@ -1731,7 +1835,82 @@ fn generate_android(
                 .join("NexaValue.kt"),
         );
     }
+    if !project_features.uses_network {
+        let _ = fs::remove_file(
+            root.join("android/app/src/main/java")
+                .join(&core_package_path)
+                .join("NexaNetwork.kt"),
+        );
+    }
     writers::remove_stale_units(&source_dir, &keep, plan.platform().unit_extension())
+}
+
+fn kotlin_network_plugin_bridge_source(app_package: &str) -> String {
+    format!(
+        r#"package dev.nexa.core
+
+public typealias NexaNetworkResponse = {app_package}.NexaNetworkResponse
+
+/** Stable plugin-facing access to the app's generated Nexa network client. */
+public object NexaNetwork {{
+    public fun cronetEngine(context: android.content.Context): org.chromium.net.CronetEngine =
+        {app_package}.NexaNetwork.cronetEngine(context)
+
+    public fun cronetExecutor(): java.util.concurrent.Executor =
+        {app_package}.NexaNetwork.cronetExecutor()
+
+    public suspend fun fetch(
+        context: android.content.Context,
+        url: String,
+        method: String = "GET",
+        body: ByteArray? = null,
+        headers: Map<String, String> = emptyMap(),
+        timeoutMillis: Long = 30_000L,
+        cachePolicy: String = "Default",
+        followRedirects: Boolean = true,
+        maxResponseBytes: Long = 64L * 1024L * 1024L,
+        certificatePins: Set<String> = emptySet(),
+    ): NexaNetworkResponse = {app_package}.NexaNetwork.fetch(
+        context,
+        url,
+        method,
+        body,
+        headers,
+        timeoutMillis,
+        cachePolicy,
+        followRedirects,
+        maxResponseBytes,
+        certificatePins,
+    )
+
+    public suspend fun download(
+        context: android.content.Context,
+        url: String,
+        destinationPath: String,
+        method: String = "GET",
+        body: ByteArray? = null,
+        headers: Map<String, String> = emptyMap(),
+        timeoutMillis: Long = 30_000L,
+        cachePolicy: String = "Default",
+        followRedirects: Boolean = true,
+        maxResponseBytes: Long = 64L * 1024L * 1024L,
+        certificatePins: Set<String> = emptySet(),
+    ): Boolean = {app_package}.NexaNetwork.download(
+        context,
+        url,
+        destinationPath,
+        method,
+        body,
+        headers,
+        timeoutMillis,
+        cachePolicy,
+        followRedirects,
+        maxResponseBytes,
+        certificatePins,
+    )
+}}
+"#
+    )
 }
 
 pub(crate) fn validate_ios_background_task_minimum(
@@ -1901,21 +2080,13 @@ fn android_plan(
     let dark_colors = nexa_codegen::design_system::kotlin_color_scheme(true);
     let light_colors = nexa_codegen::design_system::kotlin_color_scheme(false);
     let default_colors = format!("if (isSystemInDarkTheme()) {dark_colors} else {light_colors}");
-    let (activity_surface, activity_safe_insets, activity_inset_imports) = if project_features
-        .uses_bottom_bar
-    {
-        (
-            "Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent)",
-            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))",
-            "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
-        )
+    let activity_surface = if project_features.uses_bottom_bar {
+        "Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent)"
     } else {
-        (
-            "Surface(modifier = Modifier.fillMaxSize())",
-            "Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))",
-            "import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.WindowInsetsSides\nimport androidx.compose.foundation.layout.only\nimport androidx.compose.foundation.layout.safeDrawing\nimport androidx.compose.foundation.layout.windowInsetsPadding\n",
-        )
+        "Surface(modifier = Modifier.fillMaxSize())"
     };
+    let activity_safe_insets = "Modifier.fillMaxSize()";
+    let activity_inset_imports = "";
     let activity_content = if install_play_services_cronet {
         format!(
             "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{\n                MaterialTheme(\n                    colorScheme = {default_colors},\n                ) {{\n                    {activity_surface} {{\n                        Box(modifier = {activity_safe_insets}) {{\n                            {compose_root}\n                        }}\n                    }}\n                }}\n            }}\n        }}\n"
@@ -1945,10 +2116,13 @@ fn android_plan(
         .with_file(
             "android/app/src/main/AndroidManifest.xml",
             templates::android_manifest_with_widgets(
-                app_name,
                 package,
-                project_features.uses_network,
-                dev_session.is_some() || project_features.uses_network_connectivity,
+                templates::AndroidManifestOptions {
+                    remote: project_features.uses_network,
+                    network_connectivity: dev_session.is_some()
+                        || project_features.uses_network_connectivity,
+                    large_heap: dev_session.is_some(),
+                },
                 config,
                 plugins,
                 &module.widgets,
@@ -2241,8 +2415,16 @@ fn ios_source_units(
     String,
 > {
     let plugin_value_runtime = !dev_runtime && plugin_packages_require_value_runtime(plugins)?;
+    let plugin_requires_network = plugins
+        .iter()
+        .any(|plugin| plugin.artifacts.requires_network);
     let (mut sources, project_features) = if dev_runtime {
         SwiftBackend.generate_for_dev_units_with_project_features(module)
+    } else if plugin_requires_network && plugin_value_runtime {
+        SwiftBackend
+            .generate_units_with_plugin_value_runtime_and_network_and_project_features(module)
+    } else if plugin_requires_network {
+        SwiftBackend.generate_units_with_network_and_project_features(module)
     } else if plugin_value_runtime {
         SwiftBackend.generate_units_with_plugin_value_runtime_and_project_features(module)
     } else {
@@ -2557,8 +2739,23 @@ mod tests {
 
     use super::{
         KotlinBackend, ProjectPlan, SHARED_ICONS, SwiftBackend, dev_runtime_source,
-        generate_splash, plugin_package, plugins, writers,
+        generate_splash, kotlin_network_plugin_bridge_source, plugin_package, plugins, writers,
     };
+
+    #[test]
+    fn android_plugin_network_bridge_reuses_the_configured_app_client() {
+        let source = kotlin_network_plugin_bridge_source("com.mazica.android");
+
+        assert!(source.contains("package dev.nexa.core"));
+        assert!(
+            source
+                .contains("typealias NexaNetworkResponse = com.mazica.android.NexaNetworkResponse")
+        );
+        assert!(source.contains("com.mazica.android.NexaNetwork.cronetEngine(context)"));
+        assert!(source.contains("com.mazica.android.NexaNetwork.cronetExecutor()"));
+        assert!(source.contains("com.mazica.android.NexaNetwork.fetch("));
+        assert!(source.contains("com.mazica.android.NexaNetwork.download("));
+    }
 
     #[test]
     fn native_dev_runtime_schemas_use_canonical_rust_versions() {
@@ -2611,6 +2808,7 @@ mod tests {
             gradle
                 .contains("implementation(\"androidx.compose.material3:material3:1.5.0-alpha25\")")
         );
+        assert!(gradle.contains("implementation(\"androidx.compose.foundation:foundation\")"));
     }
 
     #[test]
@@ -2773,7 +2971,7 @@ mod tests {
         assert!(!kotlin.contains("nexaDevFormButtonRowMinHeight"));
         assert!(!kotlin.contains("nexaDevFormMultilineRowMinHeight"));
         assert!(kotlin.contains("private const val nexaDevDefaultMaterialIconSize = 24"));
-        assert!(kotlin.contains("NexaSystemIconPrimitive("));
+        assert!(kotlin.contains("NexaIconContent("));
         assert!(kotlin.contains("private const val nexaDevMaterialIconSizeScale = 1.2"));
         assert!(
             kotlin.contains("(fields.optDouble(\"size\", 24.0) * nexaDevMaterialIconSizeScale).dp")
@@ -2809,7 +3007,7 @@ mod tests {
         assert!(kotlin_generated.contains("internal fun NexaStatusBarBackgroundPrimitive("));
         assert!(
             kotlin_runtime
-                .contains("NexaStatusBarBackgroundPrimitive(statusBarBackground, renderApp)")
+                .contains("NexaStatusBarBackgroundPrimitive(statusBarBackground, navigationBarBackground, renderApp)")
         );
         assert!(!kotlin_overlay.contains("statusBarColor"));
     }
@@ -2876,6 +3074,20 @@ mod tests {
         }
         assert!(kotlin.contains("import androidx.compose.material.icons.rounded.AccountCircle"));
         assert!(kotlin.contains("\"rounded:account_circle\" -> Icons.Rounded.AccountCircle"));
+    }
+
+    #[test]
+    fn android_dev_runtime_resolves_registered_fonts_from_native_resources() {
+        let runtime = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+
+        assert!(runtime.contains("getIdentifier(resourceName, \"font\", context.packageName)"));
+        assert!(runtime.contains("Font(resourceId, weight = weight)"));
+        assert!(
+            runtime.contains("Font(path = path, assetManager = context.assets, weight = weight)")
+        );
+        assert!(runtime.contains(
+            "\"Text\", \"Spacer\", \"Divider\", \"SystemIcon\", \"FontIcon\", \"LinearGradient\""
+        ));
     }
 
     /// Builds a plugin package that vendors one XCFramework.
@@ -3078,7 +3290,7 @@ mod tests {
         ] {
             let resource = nexa_codegen::names::localization_resource_name(source_text);
             assert!(
-                kotlin.contains(&format!("stringResource(R.string.{resource})")),
+                kotlin.contains(&format!("NexaLocale.string(R.string.{resource})")),
                 "missing localized Kotlin output for {source_text}"
             );
         }

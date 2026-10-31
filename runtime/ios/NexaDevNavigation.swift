@@ -6,6 +6,26 @@ struct NexaDevRoute: Hashable {
     let token: String
 }
 
+struct NexaDevNavigationStackIdentityKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+struct NexaDevNavigationPathKey: EnvironmentKey {
+    static let defaultValue: Binding<[NexaDevRoute]>? = nil
+}
+
+extension EnvironmentValues {
+    var nexaDevNavigationStackIdentity: String? {
+        get { self[NexaDevNavigationStackIdentityKey.self] }
+        set { self[NexaDevNavigationStackIdentityKey.self] = newValue }
+    }
+
+    var nexaDevNavigationPath: Binding<[NexaDevRoute]>? {
+        get { self[NexaDevNavigationPathKey.self] }
+        set { self[NexaDevNavigationPathKey.self] = newValue }
+    }
+}
+
 @MainActor
 extension NexaDevStateStore {
     func navigationRoute(screen: String, values: [String: Any], signature: String) -> NexaDevRoute {

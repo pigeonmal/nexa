@@ -5,7 +5,9 @@ use crate::generator::{components::render_children, features::Features};
 
 pub(crate) struct BottomSheetRenderArgs<'a> {
     pub(crate) component_ref: &'a Expr,
+    pub(crate) content_sized: bool,
     pub(crate) content_padding: f32,
+    pub(crate) corner_radius: Option<f32>,
     pub(crate) detents: &'a [f32],
     pub(crate) initial_detent: Option<f32>,
     pub(crate) show_drag_indicator: bool,
@@ -24,7 +26,9 @@ pub(crate) struct BottomSheetRenderArgs<'a> {
 pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut SourceWriter) {
     let BottomSheetRenderArgs {
         component_ref,
+        content_sized,
         content_padding,
+        corner_radius,
         detents,
         initial_detent,
         show_drag_indicator,
@@ -39,7 +43,9 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
         features,
         depth,
     } = args;
-    let detents = if detents.is_empty() {
+    let detents = if content_sized {
+        &[][..]
+    } else if detents.is_empty() {
         &[0.5][..]
     } else {
         detents
@@ -49,7 +55,11 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
         .map(|detent| format!(".fraction({detent})"))
         .collect::<Vec<_>>()
         .join(", ");
-    let initial_detent = initial_detent.unwrap_or(detents[0]);
+    let initial_detent = if content_sized {
+        ".height(1)".to_owned()
+    } else {
+        format!(".fraction({})", initial_detent.unwrap_or(detents[0]),)
+    };
     let background_color = background_color.map_or_else(
         || "nil".to_owned(),
         crate::generator::colors::expression_for_color,
@@ -66,15 +76,20 @@ pub(crate) fn render_bottom_sheet(args: BottomSheetRenderArgs<'_>, out: &mut Sou
             crate::generator::engine::expressions::expression(component_ref)
         ),
     );
+    out.line_at(depth + 1, format_args!("contentSized: {content_sized},"));
     out.line_at(
         depth + 1,
         format_args!("contentPadding: {content_padding},"),
     );
-    out.line_at(depth + 1, format_args!("detents: [{detent_values}],"));
     out.line_at(
         depth + 1,
-        format_args!("initialDetent: .fraction({initial_detent}),"),
+        format_args!(
+            "cornerRadius: {},",
+            corner_radius.map_or_else(|| "nil".to_owned(), |radius| radius.to_string())
+        ),
     );
+    out.line_at(depth + 1, format_args!("detents: [{detent_values}],"));
+    out.line_at(depth + 1, format_args!("initialDetent: {initial_detent},"));
     out.line_at(
         depth + 1,
         format_args!("showDragIndicator: {show_drag_indicator},"),
@@ -146,7 +161,9 @@ mod tests {
                     name: "BottomSheet".to_owned(),
                     identity: "sheet-ref".to_owned(),
                 },
+                content_sized: false,
                 content_padding: 0.0,
+                corner_radius: None,
                 detents: &[0.5, 1.0],
                 initial_detent: Some(0.5),
                 show_drag_indicator: true,

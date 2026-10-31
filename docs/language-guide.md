@@ -379,7 +379,22 @@ app CartQuantities {
 
 Map mutations require mutable state. Keys must be hashable scalar values; map state compiles to Swift dictionaries on iOS and snapshot state maps on Android.
 
-### 3.4 Regular expressions
+### 3.4 String methods
+
+String values support the `trimmed` property and the `trim()`, `toLowercase()`, `toUppercase()`, `normalizeNFKD()`, `split(delimiter)`, `contains(value)`, `startsWith(prefix)`, and `endsWith(suffix)` methods. Cleanup and normalization methods return `String`; `split` returns `Array<String>`; the final three return `Bool`.
+
+`normalizeNFKD()` applies Unicode compatibility decomposition without removing combining marks. On Swift it uses Foundation's compatibility decomposition; on Kotlin it uses `java.text.Normalizer.Form.NFKD`.
+
+```nexa
+fn normalizedTrackTitle(title: String) -> String {
+    let decomposed = title.normalizeNFKD()
+    let unaccented = Regex.replace(pattern: "[\\u0300-\\u036f]", text: decomposed, replacement: "")
+    let lowercase = unaccented.toLowercase().trim()
+    return Regex.replace(pattern: "[^\\p{Letter}\\p{Number}]+", text: lowercase, replacement: " ").trim()
+}
+```
+
+### 3.5 Regular expressions
 
 Create a reusable expression with `Regex(pattern:)` or the `/pattern/flags` literal form. Portable flags are `i` for case-insensitive matching, `m` for line anchors, and `s` for dot matching newlines. `matches` requires the whole input to match; `find` and `findAll` return typed match values. Captured groups omit the full match and retain `null` for an unmatched optional group.
 
@@ -423,7 +438,7 @@ app OrderReferenceSearch {
 
 Use common regular-expression syntax supported by Foundation's `NSRegularExpression` and Kotlin's `Regex`. The portable flags map to each native engine's inline options; platform-specific extensions can still behave differently.
 
-### 3.5 `Pair<A, B>` and `Triple<A, B, C>`
+### 3.6 `Pair<A, B>` and `Triple<A, B, C>`
 
 Fixed-size, strongly typed tuples:
 
@@ -602,6 +617,44 @@ error variants come from the plugin's `.nxid` contract. See
 
 Nexa maps these typed APIs to platform services. Calls that can fail are marked as throwing in the compiler and must be handled with `try`/`catch` or propagated from an async function.
 
+### Responsive layout sizing
+
+`Column`, `Row`, and `Stack` accept `screenWidthFraction: Float64` and `screenHeightFraction: Float64` from `0` through `1`. The native view uses those fractions of the current screen dimensions (points on iOS, `dp` on Android). Do not combine `screenWidthFraction` with `width` or `fillMaxWidth`, or `screenHeightFraction` with `height` or `fillMaxHeight`. `Layout.screenWidth` and `Layout.screenHeight` read the current app viewport in logical points or `dp`; `SafeArea.top` reads the remaining visual top inset in the same units. These values can drive animated style expressions. `Layout.isRegularWidth`, `Layout.isCompactWidth`, `Layout.isRegularHeight`, and `Layout.isCompactHeight` return `Bool` size-class checks.
+
+This search overlay uses the viewport height and top inset to keep its collapsed shape aligned below the status area while it animates:
+
+```nexa
+app SearchOverlay {
+    state progress: Float64 = 1.0
+    body {
+        Column(
+            fillMaxWidth: true,
+            fillMaxHeight: true,
+            cornerRadius: (1.0 - progress) * 35.1,
+            scaleY: (70.2 + progress * (Layout.screenHeight - 70.2)) / Layout.screenHeight,
+            offsetY: (1.0 - progress) * (SafeArea.top - (Layout.screenHeight - 70.2) / 2.0)
+        ) {
+            Text("Search results")
+        }
+    }
+}
+```
+
+```nexa
+app ArtistHero {
+    body {
+        Stack(screenHeightFraction: 0.5, background: "#171717") {
+            Image(
+                url: "https://cdn.example.com/artists/artist-842/header.jpg",
+                description: "Artist header artwork",
+                scale: Fill,
+                fillMaxSize: true
+            )
+        }
+    }
+}
+```
+
 ### 6.1 `Storage` (Lightweight Key-Value)
 
 `Storage` has direct getters and setters for common scalar values, plus `Storage.get<T>` and `Storage.set<T>` for any type supported by Nexa's generated JSON codecs, including structs and collections. `get<T>` returns `null` when the key is missing or the stored JSON cannot be decoded. A key stores one value type at a time; writing another type replaces its saved value. `Storage.delete` removes the key; `Storage.clear` removes every preference managed by Nexa.
@@ -653,13 +706,18 @@ app ShareInvite {
 app OrderSummary {
     let placedAt: Int64 = Time.now()
     let formattedDate: String = Time.format(timestamp: placedAt, pattern: "yyyy-MM-dd")
+    let announcementAt: Int64 = Time.iso8601ToMillis(text: "2026-09-06T00:00:00Z") ?? placedAt
+    let announcementDate: String = Time.localizedLongDate(timestamp: announcementAt, locale: Locale.currentLanguageCode())
+    let trackLength: String = Time.formatDuration(seconds: 202.75)
     let total: String = Number.formatCurrency(amount: 1234.50, currencyCode: "USD")
 
     body {
         Column {
             Text("Order placed: \(formattedDate)")
+            Text("Track length: \(trackLength)")
             Text("Total: \(total)")
             Text("Local date: \(Time.localizedDate(timestamp: placedAt))")
+            Text("Announcement date: \(announcementDate)")
         }
     }
 }
@@ -669,7 +727,9 @@ Time APIs use milliseconds for Unix timestamps. `Time.now()` is wall-clock time 
 
 `Time.iso8601()` always formats UTC as `yyyy-MM-ddTHH:mm:ss.SSSZ`. `Time.iso8601ToMillis()` accepts that format or the same format without the fractional part; it requires `Z`, rejects numeric offsets, and returns `null` for invalid dates.
 
-`Time.startOfDay()`, `Time.addCalendarDays()`, localized date helpers, and `Time.format()` use the device's current calendar and time zone. Calendar days are not fixed 24-hour periods, so a day across a daylight-saving change can be 23 or 25 hours. `Time.format()` uses ICU date patterns such as `yyyy-MM-dd`; `MM` is the month and `mm` is the minute.
+`Time.startOfDay()`, `Time.addCalendarDays()`, and `Time.format()` use the device's current calendar and time zone. `Time.localizedLongDate(timestamp:locale:)` uses the supplied app language with the device calendar and time zone. Calendar days are not fixed 24-hour periods, so a day across a daylight-saving change can be 23 or 25 hours. `Time.format()` uses ICU date patterns such as `yyyy-MM-dd`; `MM` is the month and `mm` is the minute.
+
+`Time.formatDuration(seconds:)` returns a fixed `mm:ss` string without locale-sensitive date formatting. It floors fractional seconds, pads single-digit minutes and seconds with zeroes, and returns `00:00` for zero, negative, or non-finite values.
 
 The complete set of built-in method names and argument spellings is generated from the parser catalog in the [syntax audit](syntax-audit.md#vocabulary).
 
@@ -898,13 +958,17 @@ All callable built-in APIs below execute at runtime. Compile-time values come fr
 | `Time.startOfDay` | `(timestamp: Int64) -> Int64` | reads device environment — Returns the start of day in the device's current calendar and time zone, in milliseconds. |
 | `Time.addCalendarDays` | `(timestamp: Int64, days: Int32) -> Int64` | reads device environment — Adds calendar days in the device's current calendar and time zone; daylight-saving changes can make the elapsed duration differ from 24 hours. |
 | `Time.localizedDate` | `(timestamp: Int64) -> String` | reads device environment — Formats a date using the device's current locale, calendar, and time zone. |
+| `Time.localizedLongDate` | `(timestamp: Int64, locale: String) -> String` | reads device environment — Formats a long date using the specified app language and the device calendar and time zone. |
 | `Time.localizedTime` | `(timestamp: Int64) -> String` | reads device environment — Formats a time using the device's current locale, calendar, and time zone. |
 | `Time.localizedDateTime` | `(timestamp: Int64) -> String` | reads device environment — Formats a date and time using the device's current locale, calendar, and time zone. |
 | `Time.format` | `(timestamp: Int64, pattern: String) -> String` | reads device environment — Formats a timestamp using the device's current locale, calendar, and time zone with an ICU date pattern. |
+| `Time.formatDuration` | `(seconds: Float64) -> String` | pure computation — Formats a non-negative duration as zero-padded minutes and seconds (mm:ss). |
 | `AppIcon.set` | `async (name: String?) -> Bool` | UI side effect — Sets an alternate app icon, or restores the default with null. |
 | `Number.formatCurrency` | `(amount: Float64, currencyCode: String) -> String` | reads device environment — Formats currency for the current locale. |
-| `Locale.currentLanguageCode` | `() -> String` | reads device environment — Returns the current language code. |
-| `Locale.preferredLanguageCodes` | `() -> Array<String>` | reads device environment — Returns the device's preferred language codes. |
+| `Locale.currentLanguageCode` | `() -> String` | reads device environment — Returns the selected app language code, or the current device language when no override is set. |
+| `Locale.setLanguageOverride` | `(languageCode: String?) -> Void` | persistent app storage — Persists a language override for localized text and returns to the device language when null is supplied. |
+| `Locale.preferredLanguageCodes` | `() -> Array<String>` | reads device environment — Returns the selected app language first, followed by the device's other preferred language codes. |
+| `Crypto.sha1` | `(text: String) -> String` | cryptographic operation — Returns a SHA-1 digest encoded as lowercase hexadecimal for protocol compatibility. |
 | `Crypto.sha256` | `(text: String) -> String` | cryptographic operation — Returns a SHA-256 digest encoded as lowercase hexadecimal. |
 | `Crypto.sha512` | `(text: String) -> String` | cryptographic operation — Returns a SHA-512 digest encoded as lowercase hexadecimal. |
 | `Crypto.hmacSha256` | `(key: String, message: String) -> String` | cryptographic operation — Returns an HMAC-SHA-256 digest as lowercase hexadecimal. |
@@ -944,6 +1008,7 @@ All callable built-in APIs below execute at runtime. Compile-time values come fr
 | `Storage.set<T>` | `(key: String, value: T) -> Void` | Saves a typed JSON value using Nexa's generated codec for T. |
 | `Locale.displayName` | `(languageCode: String) -> String?` | Returns the localized language name when available. |
 | `Locale.localized` | `(sourceText: String) -> String` | Localizes source text or a source-text interpolation. |
+| `Locale.setLanguageOverride` | `(languageCode: String?) -> Void` | Persists an app language override; null returns localization to the device language. |
 | `Navigation.push` | `(ScreenName(arguments...)) -> Void` | Pushes a declared screen using its statically checked route parameters. |
 | `Navigation.back` | `() -> Void` | Pops one route; does nothing at the navigation root. |
 | `ComponentRef<T>` | `ComponentRef<T>() -> ComponentRef<T>` | Creates an identity-stable handle for a built-in or native plugin component, or a reusable `.nx` component that declares ref methods. |

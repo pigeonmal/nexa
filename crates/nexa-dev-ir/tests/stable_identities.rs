@@ -4,6 +4,7 @@ use nexa_dev_ir::{IdentityKind, lower};
 use nexa_ir::{
     Action, Component, ComponentParameter, DirectionConfig, DirectionStyle, Expr, Module, Node,
     NumericType, State, TextStyle, Type, ViewTransition,
+    adaptive_layout::{LayoutEdge, SafeAreaInsetPlan, ScrollOwnerResolution},
 };
 
 fn module(body: Vec<Node>, state_type: Type) -> Module {
@@ -334,6 +335,37 @@ fn inserting_a_different_sibling_kind_preserves_existing_node_identity() {
 }
 
 #[test]
+fn shape_primitive_has_a_stable_dev_identity_and_typed_payload() {
+    let dev = lower(
+        &module(
+            vec![Node::Shape {
+                shape: nexa_ir::ButtonShape::Capsule,
+                width: 29.25,
+                height: 3.51,
+                fill: nexa_ir::ColorValue::Static(nexa_ir::Color {
+                    red: 255,
+                    green: 255,
+                    blue: 255,
+                    alpha: 255,
+                }),
+                width_expression: None,
+                height_expression: None,
+                animation: None,
+            }],
+            Type::Numeric(NumericType::Int32),
+        ),
+        "shape",
+    );
+
+    assert!(dev.identities.iter().any(|identity| {
+        identity.id == "app/body/Shape:0" && identity.kind == IdentityKind::Node
+    }));
+    let payload = serde_json::to_value(&dev.module).expect("shape payload serializes");
+    assert_eq!(payload["body"][0]["Shape"]["shape"], "Capsule");
+    assert_eq!(payload["body"][0]["Shape"]["width"], 29.25);
+}
+
+#[test]
 fn diff_sends_only_the_changed_expression_path() {
     let original = lower(
         &module(vec![text("Before")], Type::Numeric(NumericType::Int32)),
@@ -466,4 +498,27 @@ fn dev_module_round_trips_as_a_typed_json_payload() {
 
     assert_eq!(decoded.revision, "r1");
     assert_eq!(decoded.identities, dev_module.identities);
+}
+
+#[test]
+fn route_host_inset_serializes_as_a_dev_runtime_endpoint_reservation() {
+    let route_inset = Node::SafeAreaInset {
+        plan: SafeAreaInsetPlan {
+            edge: LayoutEdge::Bottom,
+            spacing: 0.0,
+            scroll_owner: ScrollOwnerResolution::RouteHost,
+        },
+        content: vec![text("Tabs")],
+        children: vec![text("Navigation host")],
+    };
+    let dev_module = lower(
+        &module(vec![route_inset], Type::Numeric(NumericType::Int32)),
+        "route-host",
+    );
+    let encoded = serde_json::to_value(&dev_module).expect("serialize route host");
+    assert_eq!(
+        encoded.pointer("/module/body/0/SafeAreaInset/plan/scroll_owner"),
+        Some(&serde_json::json!("RouteHost")),
+        "{encoded:#?}"
+    );
 }

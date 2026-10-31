@@ -3,18 +3,14 @@ package __NEXA_PACKAGE__
 import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
@@ -34,6 +30,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -146,26 +143,39 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
     Surface(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize()) {
             if (module == null) {
-                Text("Connecting to Nexa…")
+                Text("Connecting to Nexa…", modifier = Modifier.align(Alignment.Center))
             } else {
                 val statusBar = module.optJSONObject("status_bar")
                 NexaDevStatusBar(statusBar)
                 val style = module.optJSONObject("direction")?.optString("style")
+                val localeOverride = store.languageOverride?.let(java.util.Locale::forLanguageTag)
                 val direction = when (style) {
                     "Rtl" -> LayoutDirection.Rtl
                     "Ltr" -> LayoutDirection.Ltr
-                    else -> LocalLayoutDirection.current
+                    else -> when (localeOverride?.let(android.text.TextUtils::getLayoutDirectionFromLocale)) {
+                        android.view.View.LAYOUT_DIRECTION_RTL -> LayoutDirection.Rtl
+                        android.view.View.LAYOUT_DIRECTION_LTR -> LayoutDirection.Ltr
+                        else -> LocalLayoutDirection.current
+                    }
+                }
+                val configuration = LocalConfiguration.current
+                val currentLocale = localeOverride ?: java.util.Locale.getDefault()
+                val updatedConfiguration = remember(configuration, currentLocale) {
+                    Configuration(configuration).apply {
+                        setLocale(currentLocale)
+                    }
                 }
                 val renderApp: @Composable () -> Unit = {
                     NexaSharedTransitionContent {
-                        CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                        CompositionLocalProvider(
+                            LocalConfiguration provides updatedConfiguration,
+                            LocalLayoutDirection provides direction,
+                        ) {
                             NexaDevNodeList(
                                 module.optJSONArray("body") ?: JSONArray(),
                                 module,
                                 store,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)),
+                                modifier = Modifier.fillMaxSize(),
                             )
                         }
                     }
@@ -174,8 +184,12 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
                     statusBar?.optJSONObject("background"),
                     isSystemInDarkTheme(),
                 )
-                if (statusBarBackground != null) {
-                    NexaStatusBarBackgroundPrimitive(statusBarBackground, renderApp)
+                val navigationBarBackground = nexaDevColor(
+                    statusBar?.optJSONObject("navigation_bar_background"),
+                    isSystemInDarkTheme(),
+                )
+                if (statusBarBackground != null || navigationBarBackground != null) {
+                    NexaStatusBarBackgroundPrimitive(statusBarBackground, navigationBarBackground, renderApp)
                 } else {
                     renderApp()
                 }

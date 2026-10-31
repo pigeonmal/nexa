@@ -47,6 +47,7 @@ pub(super) struct ExprContext<'a> {
 }
 
 impl<'a> ExprContext<'a> {
+    #[cfg(test)]
     pub(super) fn new(
         symbols: &'a HashMap<String, (Type, bool)>,
         functions: &'a FunctionSignatures,
@@ -165,6 +166,8 @@ pub(super) struct SemanticContext<'a> {
     pub(super) target: Target,
     pub(super) allow_nullable_generic_plugin_reads: bool,
     pub(super) source_file: Option<&'a str>,
+    /// Project-configured icon aliases resolved to typed font glyphs.
+    pub(super) custom_icons: Option<&'a HashMap<String, nexa_ir::SystemIcon>>,
 }
 
 impl<'a> SemanticContext<'a> {
@@ -195,6 +198,7 @@ impl<'a> SemanticContext<'a> {
             target,
             allow_nullable_generic_plugin_reads,
             source_file: None,
+            custom_icons: None,
         }
     }
 
@@ -219,7 +223,22 @@ impl<'a> SemanticContext<'a> {
             target: self.target,
             allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
             source_file: self.source_file,
+            custom_icons: self.custom_icons,
         }
+    }
+
+    pub(super) fn with_optional_custom_icons(
+        mut self,
+        icons: Option<&'a HashMap<String, nexa_ir::SystemIcon>>,
+    ) -> Self {
+        self.custom_icons = icons;
+        self
+    }
+
+    pub(super) fn resolve_icon(&self, name: &str) -> Option<nexa_ir::SystemIcon> {
+        self.custom_icons
+            .and_then(|icons| icons.get(name).cloned())
+            .or_else(|| nexa_ir::SystemIcon::shared(name))
     }
 
     pub(super) fn with_navigation(&self, allow_stack: bool, allow_back: bool) -> Self {

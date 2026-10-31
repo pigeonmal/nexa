@@ -1,18 +1,21 @@
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
-    Alignment, AnimationEasing, AnimationSpec, Color, ColorValue, HorizontalArrangement,
-    ViewEffects, ViewShadow, ViewStyle,
+    Alignment, AnimationEasing, AnimationSpec, Color, ColorValue, Expr, HorizontalArrangement,
+    NumericType, Type, ViewEffects, ViewShadow, ViewStyle,
 };
 use nexa_syntax::ast;
 
-use super::themes::ThemeSymbols;
+use super::{context::ExprContext, expressions::lower_expr, themes::ThemeSymbols};
 
 pub(super) fn lower_style(
     style: ast::LayoutStyle,
     themes: &ThemeSymbols,
+    expr_context: &ExprContext<'_>,
 ) -> Result<ViewStyle, CompileError> {
     let width_span = style.width.as_ref().map(ast::Expr::span);
+    let screen_width_fraction_span = style.screen_width_fraction.as_ref().map(ast::Expr::span);
     let height_span = style.height.as_ref().map(ast::Expr::span);
+    let screen_height_fraction_span = style.screen_height_fraction.as_ref().map(ast::Expr::span);
     let min_width_span = style.min_width.as_ref().map(ast::Expr::span);
     let max_width_span = style.max_width.as_ref().map(ast::Expr::span);
     let min_height_span = style.min_height.as_ref().map(ast::Expr::span);
@@ -24,7 +27,45 @@ pub(super) fn lower_style(
         themes,
     )?;
     let width = optional_dimension(style.width, "width", None, themes)?;
+    let screen_width_fraction = style
+        .screen_width_fraction
+        .map(|expr| {
+            let fraction = number_value(&expr, "screenWidthFraction")?;
+            if !(0.0..=1.0).contains(&fraction) {
+                return Err(CompileError::new(
+                    expr.span(),
+                    "screenWidthFraction must be between 0 and 1",
+                ));
+            }
+            Ok(fraction)
+        })
+        .transpose()?;
+    if width.is_some() && screen_width_fraction.is_some() {
+        return Err(CompileError::new(
+            screen_width_fraction_span.unwrap_or_default(),
+            "`width` and `screenWidthFraction` cannot be used together",
+        ));
+    }
     let height = optional_dimension(style.height, "height", None, themes)?;
+    let screen_height_fraction = style
+        .screen_height_fraction
+        .map(|expr| {
+            let fraction = number_value(&expr, "screenHeightFraction")?;
+            if !(0.0..=1.0).contains(&fraction) {
+                return Err(CompileError::new(
+                    expr.span(),
+                    "screenHeightFraction must be between 0 and 1",
+                ));
+            }
+            Ok(fraction)
+        })
+        .transpose()?;
+    if height.is_some() && screen_height_fraction.is_some() {
+        return Err(CompileError::new(
+            screen_height_fraction_span.unwrap_or_default(),
+            "`height` and `screenHeightFraction` cannot be used together",
+        ));
+    }
     let min_width = optional_dimension(style.min_width, "minWidth", None, themes)?;
     let max_width = optional_dimension(style.max_width, "maxWidth", None, themes)?;
     let min_height = optional_dimension(style.min_height, "minHeight", None, themes)?;
@@ -61,9 +102,41 @@ pub(super) fn lower_style(
         "minHeight",
         "maxHeight",
     )?;
-    let corner_radius = optional_dimension(
-        style.corner_radius,
-        "cornerRadius",
+    let dynamic_corner_radius = style.corner_radius.as_ref().is_some_and(|expr| {
+        !matches!(
+            expr,
+            ast::Expr::Number(_, _) | ast::Expr::Negate(_, _) | ast::Expr::ThemeToken(_, _)
+        )
+    });
+    let corner_radius_expression = if dynamic_corner_radius {
+        style
+            .corner_radius
+            .clone()
+            .map(|expr| {
+                lower_expr(
+                    &expr,
+                    Some(&Type::Numeric(NumericType::Float64)),
+                    expr_context,
+                )
+                .map(Box::new)
+            })
+            .transpose()?
+    } else {
+        None
+    };
+    let corner_radius = if dynamic_corner_radius {
+        None
+    } else {
+        optional_dimension(
+            style.corner_radius,
+            "cornerRadius",
+            Some(ast::ThemeTokenKind::Radius),
+            themes,
+        )?
+    };
+    let corner_radius_bottom = optional_dimension(
+        style.corner_radius_bottom,
+        "cornerRadiusBottom",
         Some(ast::ThemeTokenKind::Radius),
         themes,
     )?;
@@ -80,17 +153,21 @@ pub(super) fn lower_style(
             "borderColor and borderWidth must be provided together",
         ));
     }
-    let opacity = lower_opacity(style.opacity)?;
-    let effects = lower_view_effects(
+    let (opacity, opacity_expression) = lower_style_opacity(style.opacity, expr_context)?;
+    let mut effects = lower_view_effects(
         style.scale,
+        style.scale_y,
         style.rotation,
+        style.offset_y,
         style.shadow,
         style.blur,
         style.clip,
         style.z_index,
         style.glass,
         themes,
+        expr_context,
     )?;
+    effects.opacity_expression = opacity_expression;
     let alignment = style.alignment.map(parse_alignment).transpose()?;
     let horizontal_arrangement = style
         .horizontal_arrangement
@@ -106,19 +183,45 @@ pub(super) fn lower_style(
         horizontal_arrangement,
         padding,
         width,
+        screen_width_fraction,
+        fill_max_width: false,
         height,
+        screen_height_fraction,
+        fill_max_height: false,
         min_width,
         max_width,
         min_height,
         max_height,
         background,
         corner_radius,
+        corner_radius_expression,
+        corner_radius_bottom,
         border_color,
         border_width,
         opacity,
         effects,
         animation,
     })
+}
+
+fn lower_style_opacity(
+    expr: Option<ast::Expr>,
+    expr_context: &ExprContext<'_>,
+) -> Result<(Option<f32>, Option<Box<Expr>>), CompileError> {
+    match expr {
+        Some(expr @ (ast::Expr::Number(_, _) | ast::Expr::Negate(_, _))) => {
+            Ok((lower_opacity(Some(expr))?, None))
+        }
+        Some(expr) => Ok((
+            None,
+            Some(Box::new(lower_expr(
+                &expr,
+                Some(&Type::Numeric(NumericType::Float64)),
+                expr_context,
+            )?)),
+        )),
+        None => Ok((None, None)),
+    }
 }
 
 pub(super) fn lower_opacity(expr: Option<ast::Expr>) -> Result<Option<f32>, CompileError> {
@@ -138,19 +241,57 @@ pub(super) fn lower_opacity(expr: Option<ast::Expr>) -> Result<Option<f32>, Comp
 #[allow(clippy::too_many_arguments)]
 pub(super) fn lower_view_effects(
     scale: Option<ast::Expr>,
+    scale_y: Option<ast::Expr>,
     rotation: Option<ast::Expr>,
+    offset_y: Option<ast::Expr>,
     shadow: Option<ast::Expr>,
     blur: Option<ast::Expr>,
     clip: Option<ast::Expr>,
     z_index: Option<ast::Expr>,
     glass: Option<ast::Expr>,
     themes: &ThemeSymbols,
+    expr_context: &ExprContext<'_>,
 ) -> Result<ViewEffects, CompileError> {
-    let scale = scale
-        .map(|expr| finite_number_value(&expr, "scale"))
-        .transpose()?;
+    let (scale, scale_expression) = match scale {
+        Some(expr @ ast::Expr::Number(_, _)) | Some(expr @ ast::Expr::Negate(_, _)) => {
+            (Some(finite_number_value(&expr, "scale")?), None)
+        }
+        Some(expr) => (
+            None,
+            Some(Box::new(lower_expr(
+                &expr,
+                Some(&Type::Numeric(NumericType::Float64)),
+                expr_context,
+            )?)),
+        ),
+        None => (None, None),
+    };
+    let (scale_y, scale_y_expression) = match scale_y {
+        Some(expr @ ast::Expr::Number(_, _)) | Some(expr @ ast::Expr::Negate(_, _)) => {
+            (Some(finite_number_value(&expr, "scaleY")?), None)
+        }
+        Some(expr) => (
+            None,
+            Some(Box::new(lower_expr(
+                &expr,
+                Some(&Type::Numeric(NumericType::Float64)),
+                expr_context,
+            )?)),
+        ),
+        None => (None, None),
+    };
     let rotation = rotation
         .map(|expr| finite_number_value(&expr, "rotation"))
+        .transpose()?;
+    let offset_y_expression = offset_y
+        .map(|expr| {
+            lower_expr(
+                &expr,
+                Some(&Type::Numeric(NumericType::Float64)),
+                expr_context,
+            )
+            .map(Box::new)
+        })
         .transpose()?;
     let blur = blur
         .map(|expr| number_value(&expr, "blur radius"))
@@ -161,6 +302,11 @@ pub(super) fn lower_view_effects(
     let glass = glass.map(|expr| lower_glass(expr, themes)).transpose()?;
     Ok(ViewEffects {
         scale,
+        scale_expression,
+        scale_y,
+        scale_y_expression,
+        opacity_expression: None,
+        offset_y_expression,
         rotation,
         shadow,
         blur,
@@ -710,6 +856,29 @@ pub(super) fn optional_dimension(
 ) -> Result<Option<f32>, CompileError> {
     expr.map(|expr| dimension_value(&expr, field, theme_kind, themes))
         .transpose()
+}
+
+pub(super) fn optional_tracking(expr: Option<ast::Expr>) -> Result<Option<f32>, CompileError> {
+    expr.map(|expr| tracking_value(&expr)).transpose()
+}
+
+fn tracking_value(expr: &ast::Expr) -> Result<f32, CompileError> {
+    let ast::Expr::Number(raw, span) = expr else {
+        return Err(CompileError::new(
+            expr.span(),
+            "`letterSpacing` must be a finite numeric literal",
+        ));
+    };
+    let value = raw.parse::<f32>().map_err(|_| {
+        CompileError::new(
+            *span,
+            "`letterSpacing` is outside the supported tracking range",
+        )
+    })?;
+    if !value.is_finite() {
+        return Err(CompileError::new(*span, "`letterSpacing` must be finite"));
+    }
+    Ok(value)
 }
 
 pub(super) fn number_value(expr: &ast::Expr, field: &str) -> Result<f32, CompileError> {

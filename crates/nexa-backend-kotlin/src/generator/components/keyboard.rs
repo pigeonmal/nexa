@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{KeyboardDismissMode, Node};
+use nexa_ir::{KeyboardDismissMode, Node, adaptive_layout::KeyboardBehavior};
 
 use crate::generator::{
     components::render_children, engine::features::Features, engine::utils::indent,
@@ -61,15 +61,27 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 
 pub(crate) fn render_keyboard_aware(
     dismiss: KeyboardDismissMode,
+    behavior: KeyboardBehavior,
     children: &[Node],
     module: &nexa_ir::Module,
     features: &Features,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let has_native_scroll_owner = !nexa_ir::walk::scroll_owners(children).is_empty();
     indent(out, depth);
-    out.push_str("NexaKeyboardAwareColumnPrimitive(interactiveDismiss = ");
+    if has_native_scroll_owner {
+        out.push_str("NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = ");
+    } else {
+        out.push_str("NexaKeyboardAwareColumnPrimitive(interactiveDismiss = ");
+    }
     out.push_str(if matches!(dismiss, KeyboardDismissMode::Interactive) {
+        "true"
+    } else {
+        "false"
+    });
+    out.push_str(", avoidIme = ");
+    out.push_str(if matches!(behavior, KeyboardBehavior::Avoid) {
         "true"
     } else {
         "false"

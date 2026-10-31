@@ -1,12 +1,13 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::{
-    Action, AutofillType, Capitalization, KeyboardType, ReturnKeyType, TextInputChange,
+    Action, AutofillType, Capitalization, ColorValue, KeyboardType, ReturnKeyType, TextInputChange,
     TextInputFont,
 };
 
 use nexa_codegen::names::state_name;
 
 use crate::generator::{
+    colors,
     controls::render_actions,
     utils::{indent, swift_string},
 };
@@ -25,11 +26,17 @@ pub(crate) struct TextInputProps<'a> {
     pub(crate) focused: Option<&'a str>,
     pub(crate) max_length: Option<i32>,
     pub(crate) font: Option<TextInputFont>,
+    pub(crate) font_size: Option<f32>,
+    pub(crate) font_family: Option<&'a str>,
+    pub(crate) text_color: Option<ColorValue>,
+    pub(crate) placeholder_color: Option<ColorValue>,
+    pub(crate) clearable: bool,
     pub(crate) min_lines: Option<i32>,
     pub(crate) max_lines: Option<i32>,
     pub(crate) searchable: bool,
     pub(crate) horizontal_padding: Option<u32>,
     pub(crate) actions: &'a [Action],
+    pub(crate) on_focus: Option<&'a [Action]>,
     pub(crate) on_change: Option<&'a TextInputChange>,
 }
 
@@ -48,11 +55,17 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         focused,
         max_length,
         font,
+        font_size,
+        font_family,
+        text_color,
+        placeholder_color,
+        clearable,
         min_lines,
         max_lines,
         searchable,
         horizontal_padding,
         actions,
+        on_focus,
         on_change,
     } = props;
     let binding = format!("${}", state_name(state));
@@ -67,10 +80,22 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
         None => format!("Text({})", swift_string(placeholder)),
     };
     let max_length = max_length.map_or_else(|| "nil".to_owned(), |limit| limit.to_string());
+    let font_size = font_size.map_or_else(|| "nil".to_owned(), |size| size.to_string());
+    let font_family = font_family.map_or_else(|| "nil".to_owned(), swift_string);
+    let font_relative_to = match font {
+        Some(TextInputFont::Title3) => ".title3",
+        Some(TextInputFont::Body) | None => ".body",
+    };
+    let default_font_size = match font {
+        Some(TextInputFont::Title3) => nexa_codegen::design_system::TEXT_INPUT_TITLE3_FONT_SIZE,
+        Some(TextInputFont::Body) | None => nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+    };
+    let text_color = text_color.map_or_else(|| "nil".to_owned(), colors::expression);
+    let placeholder_color = placeholder_color.map_or_else(|| "nil".to_owned(), colors::expression);
     let keeps_focus_on_next = return_key == Some(ReturnKeyType::Next) && focused.is_none();
     indent(out, depth);
     out.push_str(&format!(
-        "NexaTextInputPrimitive(text: {binding}, placeholder: {placeholder}, secure: {secure}, multiline: {multiline}, searchable: {searchable}, maxLength: {max_length}, keepsFocusOnNext: {keeps_focus_on_next}"
+        "NexaTextInputPrimitive(text: {binding}, placeholder: {placeholder}, secure: {secure}, multiline: {multiline}, searchable: {searchable}, maxLength: {max_length}, fontSize: {font_size}, fontFamily: {font_family}, fontRelativeTo: {font_relative_to}, fontDefaultSize: {default_font_size}, textColor: {text_color}, placeholderColor: {placeholder_color}, clearable: {clearable}, keepsFocusOnNext: {keeps_focus_on_next}"
     ));
     if next_action_is_handled_by_primitive && !actions.is_empty() {
         out.push_str(", onSubmitAction: {\n");
@@ -151,6 +176,20 @@ pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &m
             "    ".repeat(depth + 1),
             state_name(focused)
         ));
+        if let Some(actions) = on_focus {
+            out.push_str(&format!(
+                "\n{}.onChange(of: {}) {{ isFocused in\n",
+                "    ".repeat(depth + 1),
+                state_name(focused)
+            ));
+            indent(out, depth + 2);
+            out.push_str("if isFocused {\n");
+            render_actions(actions, depth + 3, out);
+            indent(out, depth + 2);
+            out.push_str("}\n");
+            indent(out, depth + 1);
+            out.push('}');
+        }
     }
     if (!actions.is_empty() && !next_action_is_handled_by_primitive)
         || (return_key == Some(ReturnKeyType::Next) && focused.is_some())
@@ -221,7 +260,63 @@ mod tests {
     use nexa_codegen::SourceWriter;
 
     use super::{TextInputProps, render_text_input};
-    use nexa_ir::{Capitalization, KeyboardType, ReturnKeyType, TextInputChange};
+    use nexa_ir::{
+        Action, Capitalization, Color, ColorValue, Expr, KeyboardType, ReturnKeyType,
+        TextInputChange,
+    };
+
+    #[test]
+    fn custom_input_style_and_clear_control_reach_the_native_field() {
+        let mut output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "query",
+                placeholder: "Search songs",
+                comment: None,
+                keyboard: KeyboardType::Text,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: Some(ReturnKeyType::Search),
+                autocorrect: Some(false),
+                capitalization: Some(Capitalization::None),
+                focused: None,
+                max_length: Some(50),
+                font: None,
+                font_size: Some(16.38),
+                font_family: Some("Gilroy-Regular"),
+                text_color: Some(ColorValue::Static(Color {
+                    red: 255,
+                    green: 255,
+                    blue: 255,
+                    alpha: 255,
+                })),
+                placeholder_color: Some(ColorValue::Static(Color {
+                    red: 159,
+                    green: 159,
+                    blue: 159,
+                    alpha: 255,
+                })),
+                clearable: true,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                actions: &[],
+                on_focus: None,
+                on_change: None,
+            },
+            0,
+            &mut output,
+        );
+
+        let source = output.as_str();
+        assert!(source.contains("fontSize: 16.38"));
+        assert!(source.contains("fontFamily: \"Gilroy-Regular\""));
+        assert!(source.contains("textColor: Color(red: 1.000000"));
+        assert!(source.contains("placeholderColor: Color(red: 0.623529"));
+        assert!(source.contains("clearable: true"));
+    }
 
     #[test]
     fn searchable_input_is_a_real_bound_native_text_field() {
@@ -241,11 +336,17 @@ mod tests {
                 focused: None,
                 max_length: None,
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
+                clearable: false,
                 min_lines: None,
                 max_lines: None,
                 searchable: true,
                 horizontal_padding: None,
                 actions: &[],
+                on_focus: None,
                 on_change: None,
             },
             0,
@@ -276,11 +377,17 @@ mod tests {
                 focused: None,
                 max_length: Some(1200),
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
+                clearable: false,
                 min_lines: None,
                 max_lines: Some(3),
                 searchable: false,
                 horizontal_padding: None,
                 actions: &[],
+                on_focus: None,
                 on_change: None,
             },
             0,
@@ -313,11 +420,17 @@ mod tests {
                 focused: None,
                 max_length: None,
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
+                clearable: false,
                 min_lines: None,
                 max_lines: None,
                 searchable: false,
                 horizontal_padding: None,
                 actions: &[],
+                on_focus: None,
                 on_change: Some(&change),
             },
             0,
@@ -327,6 +440,51 @@ mod tests {
         let source = output.as_str();
         assert!(source.contains(", onChange: { nexa_changed in"));
         assert!(!source.contains(".onChange(of:"));
+    }
+
+    #[test]
+    fn focus_actions_run_only_when_a_tracked_text_input_gains_focus() {
+        let focus_actions = [Action::Assign {
+            name: "didFocus".to_owned(),
+            value: Expr::Bool(true),
+        }];
+        let mut output = SourceWriter::new();
+        render_text_input(
+            TextInputProps {
+                state: "query",
+                placeholder: "Search",
+                comment: None,
+                keyboard: KeyboardType::Text,
+                secure: false,
+                multiline: false,
+                autofill: None,
+                return_key: None,
+                autocorrect: None,
+                capitalization: None,
+                focused: Some("focused"),
+                max_length: None,
+                font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
+                clearable: false,
+                min_lines: None,
+                max_lines: None,
+                searchable: false,
+                horizontal_padding: None,
+                actions: &[],
+                on_focus: Some(&focus_actions),
+                on_change: None,
+            },
+            0,
+            &mut output,
+        );
+
+        let source = output.as_str();
+        assert!(source.contains(".focused($nexa_focused)"));
+        assert!(source.contains(".onChange(of: nexa_focused) { isFocused in"));
+        assert!(source.contains("if isFocused {") && source.contains("nexa_didFocus = true"));
     }
 
     #[test]
@@ -347,11 +505,17 @@ mod tests {
                 focused: None,
                 max_length: None,
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
+                clearable: false,
                 min_lines: None,
                 max_lines: None,
                 searchable: false,
                 horizontal_padding: None,
                 actions: &[nexa_ir::Action::Expression(nexa_ir::Expr::Bool(true))],
+                on_focus: None,
                 on_change: None,
             },
             0,
@@ -382,11 +546,17 @@ mod tests {
                 focused: Some("emailFocused"),
                 max_length: None,
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
+                clearable: false,
                 min_lines: None,
                 max_lines: None,
                 searchable: false,
                 horizontal_padding: None,
                 actions: &action,
+                on_focus: None,
                 on_change: None,
             },
             0,

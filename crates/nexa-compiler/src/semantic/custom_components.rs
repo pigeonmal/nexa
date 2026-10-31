@@ -181,6 +181,7 @@ pub(super) struct ComponentLoweringContext<'a> {
     pub(super) external_signatures: &'a ComponentSignatures,
     pub(super) target: Target,
     pub(super) allow_nullable_generic_plugin_reads: bool,
+    pub(super) custom_icons: Option<&'a HashMap<String, nexa_ir::SystemIcon>>,
 }
 
 pub(super) fn retain_reachable(
@@ -441,6 +442,7 @@ fn lower_component(
         allow_nullable_generic_plugin_reads,
     )
     .with_navigation(false, !screen_ids.is_empty())
+    .with_optional_custom_icons(context.custom_icons)
     .with_source_file(source_file.as_deref());
     let body = lower_nodes(declaration.body, &cx)?;
     let (on_appear, on_appear_async, body) =
@@ -846,8 +848,13 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                 }
             }
         }
-        Node::Content | Node::Spacer | Node::Divider { .. } | Node::ContentUnavailable { .. } => {}
-        Node::Layout { children, .. }
+        Node::Content
+        | Node::Spacer { .. }
+        | Node::Divider { .. }
+        | Node::Shape { .. }
+        | Node::ContentUnavailable { .. } => {}
+        Node::SafeAreaPadding { children, .. }
+        | Node::Layout { children, .. }
         | Node::Form { children, .. }
         | Node::FormSection { children, .. }
         | Node::Toolbar { children, .. }
@@ -861,6 +868,20 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::ConfirmationDialog { children, .. }
         | Node::RefreshControl { children, .. } => {
             for child in children {
+                collect_ir_component_calls(child, calls);
+            }
+        }
+        Node::SafeAreaInset {
+            content, children, ..
+        } => {
+            for child in content.iter().chain(children) {
+                collect_ir_component_calls(child, calls);
+            }
+        }
+        Node::ScrollHeader {
+            header, children, ..
+        } => {
+            for child in header.iter().chain(children) {
                 collect_ir_component_calls(child, calls);
             }
         }
@@ -946,6 +967,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::PickerDate { .. }
         | Node::Image { .. }
         | Node::SystemIcon { .. }
+        | Node::FontIcon { .. }
         | Node::LinearGradient { .. }
         | Node::NavigationStack { .. }
         | Node::NavigationBack { .. }
@@ -1100,6 +1122,7 @@ mod tests {
                 external_signatures: &HashMap::new(),
                 target: Target::Swift,
                 allow_nullable_generic_plugin_reads: false,
+                custom_icons: None,
             },
         );
         let Err(error) = result else {

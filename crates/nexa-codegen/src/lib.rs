@@ -44,6 +44,54 @@ pub mod names {
         format!("nexa_field_{name}")
     }
 
+    /// Maps a shared font family name to its deterministic Android resource ID.
+    pub fn font_resource_name(name: &str) -> String {
+        let mut slug = String::new();
+        let mut separator = false;
+        for character in name.chars() {
+            if character.is_ascii_alphanumeric() {
+                if separator && !slug.is_empty() {
+                    slug.push('_');
+                }
+                slug.push(character.to_ascii_lowercase());
+                separator = false;
+            } else {
+                separator = true;
+            }
+        }
+        while slug.ends_with('_') {
+            slug.pop();
+        }
+        if slug.is_empty() {
+            slug.push_str("font");
+        }
+        slug
+    }
+
+    /// Resolves a face declared with a `-Regular` or `_regular` PostScript
+    /// suffix to the closest packaged face for a shared text weight.
+    pub fn font_face_name(name: &str, weight: nexa_ir::FontWeight) -> String {
+        let Some((family, separator, style)) = name
+            .rsplit_once('-')
+            .map(|(family, style)| (family, "-", style))
+            .or_else(|| {
+                name.rsplit_once('_')
+                    .map(|(family, style)| (family, "_", style))
+            })
+        else {
+            return name.to_owned();
+        };
+        if !style.eq_ignore_ascii_case("regular") {
+            return name.to_owned();
+        }
+        let face = match weight {
+            nexa_ir::FontWeight::Normal => "Regular",
+            nexa_ir::FontWeight::Medium => "Medium",
+            nexa_ir::FontWeight::Semibold | nexa_ir::FontWeight::Bold => "Semibold",
+        };
+        format!("{family}{separator}{face}")
+    }
+
     /// Gives source-defined enum declarations stable native type names.
     pub fn enum_name(name: &str) -> String {
         format!("Nexa{}", pascal_name(name, "Enum"))

@@ -18,6 +18,10 @@ private fun nexaCryptoHex(bytes: ByteArray): String {
     return String(encoded)
 }
 
+internal fun nexaCryptoSha1(text: String): String = nexaCryptoHex(
+    java.security.MessageDigest.getInstance("SHA-1").digest(text.toByteArray(Charsets.UTF_8)),
+)
+
 internal fun nexaCryptoSha256(text: String): String = nexaCryptoHex(
     java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)),
 )

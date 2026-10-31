@@ -180,11 +180,12 @@ Nexa maintains a first-party native plugin ecosystem under [`plugins/`](https://
 <!-- nexadoc:begin plugin-index -->
 | Plugin | Package ID | Key Capabilities | Supported Platforms |
 |---|---|---|---|
-| **Audio Player** | `dev.nexa.audio-player` | Background audio streaming, lock screen playback controls | iOS 17.0+ \| Android 26+ |
+| **Audio Player** | `dev.nexa.audio-player` | Background audio streaming, lock screen playback controls | iOS 16.0+ \| Android 24+ |
 | **Biometrics** | `dev.nexa.biometrics` | Face ID, Touch ID, and Android BiometricPrompt | iOS 13.0+ \| Android 28+ |
 | **Browser** | `dev.nexa.browser` | In-app Safari and Chrome Custom Tabs for OAuth flows | iOS 16.0+ \| Android 23+ |
 | **Camera** | `dev.nexa.camera` | Native camera preview, photo capture, video recording | iOS 17.0+ \| Android 23+ |
 | **Data Extractor** | `dev.nexa.data-extractor` | On-device Vision OCR, barcode scanning, text recognition | iOS 13.0+ \| Android 28+ |
+| **Download Manager** | `dev.nexa.download-manager` | Managed downloads with progress and cancellation | iOS 16.0+ \| Android 24+ |
 | **In-App Purchases** | `dev.nexa.in-app-purchases` | StoreKit 2 and Google Play Billing subscriptions | iOS 17.0+ \| Android 23+ |
 | **Mail Composer** | `dev.nexa.mail-composer` | Native email composition sheets with attachments | iOS 16.0+ \| Android 23+ |
 | **Maps** | `dev.nexa.maps` | Interactive MapKit and Google Maps views with pins | iOS 17.0+ \| Android 23+ |
@@ -192,10 +193,14 @@ Nexa maintains a first-party native plugin ecosystem under [`plugins/`](https://
 | **MMKV** | `dev.nexa.mmkv` | High-speed memory-mapped key-value storage | iOS 13.0+ \| Android 21+ |
 | **Notifications** | `dev.nexa.notifications` | Scheduled local notifications, badge counts, actions | iOS 13.0+ \| Android 23+ |
 | **Sensors** | `dev.nexa.sensors` | Accelerometer, gyroscope, and magnetometer telemetry | iOS 17.0+ \| Android 26+ |
+| **Share Sheet** | `dev.nexa.share-sheet` | Native sharing for text and links | iOS 16.0+ \| Android 23+ |
+| **Social Sign-In** | `dev.nexa.social-sign-in` | Typed Google and Apple identity credentials | iOS 16.0+ \| Android 23+ |
 | **SQLite** | `dev.nexa.sqlite` | Reactive `observeQuery<T>`, WAL mode, cross-process sync | iOS 13.0+ \| Android 23+ |
+| **Text Codec** | `dev.nexa.text-codec` | Base64 UTF-8 text decoding without extra dependencies | iOS 13.0+ \| Android 21+ |
 | **Video Player** | `dev.nexa.video-player` | Hardware-accelerated HLS and MP4 video playback | iOS 17.0+ \| Android 23+ |
 | **Websocket** | `dev.nexa.websocket` | Low-latency binary and text WebSockets with auto-reconnect | iOS 13.0+ \| Android 21+ |
-| **Webview** | `dev.nexa.webview` | In-app browser engine with two-way JavaScript bridge | iOS 17.0+ \| Android 24+ |
+| **Webview** | `dev.nexa.webview` | In-app browser engine with two-way JavaScript bridge | iOS 16.0+ \| Android 24+ |
+| **YouTube Downloader** | `dev.nexa.youtube-downloader` | YouTube stream extraction with playback metadata and request headers | iOS 16.0+ \| Android 24+ |
 <!-- nexadoc:end plugin-index -->
 
 ---

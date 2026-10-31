@@ -6,13 +6,15 @@ use nexa_syntax::ast;
 
 use super::styles::{number_value, parse_color_literal};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct ThemeSymbols {
     tokens: HashMap<String, ResolvedThemeToken>,
 }
 
+#[derive(Clone)]
 enum ResolvedThemeToken {
     Color(ColorValue),
+    FontFamily(String),
     Metric {
         kind: ast::ThemeTokenKind,
         value: f32,
@@ -20,6 +22,31 @@ enum ResolvedThemeToken {
 }
 
 impl ThemeSymbols {
+    pub(super) fn default_font_family(&self) -> Option<&str> {
+        match self.tokens.get("Default") {
+            Some(ResolvedThemeToken::FontFamily(family)) => Some(family),
+            _ => None,
+        }
+    }
+
+    pub(super) fn font_family(&self, name: &str, span: Span) -> Result<String, CompileError> {
+        match self.tokens.get(name) {
+            Some(ResolvedThemeToken::FontFamily(family)) => Ok(family.clone()),
+            Some(ResolvedThemeToken::Color(_)) => Err(CompileError::new(
+                span,
+                format!("`Theme.{name}` is a color token and cannot be used as a font family"),
+            )),
+            Some(ResolvedThemeToken::Metric { kind, .. }) => Err(CompileError::new(
+                span,
+                format!(
+                    "`Theme.{name}` is a {} token and cannot be used as a font family",
+                    token_kind_name(*kind)
+                ),
+            )),
+            None => Err(unknown_token(name, span)),
+        }
+    }
+
     pub(super) fn color(
         &self,
         name: &str,
@@ -34,6 +61,10 @@ impl ThemeSymbols {
                     "`Theme.{name}` is a {} token and cannot be used as {role}",
                     token_kind_name(*kind)
                 ),
+            )),
+            Some(ResolvedThemeToken::FontFamily(_)) => Err(CompileError::new(
+                span,
+                format!("`Theme.{name}` is a fontFamily token and cannot be used as {role}"),
             )),
             None => Err(unknown_token(name, span)),
         }
@@ -61,6 +92,10 @@ impl ThemeSymbols {
             Some(ResolvedThemeToken::Color(_)) => Err(CompileError::new(
                 span,
                 format!("`Theme.{name}` is a color token and cannot be used as {role}"),
+            )),
+            Some(ResolvedThemeToken::FontFamily(_)) => Err(CompileError::new(
+                span,
+                format!("`Theme.{name}` is a fontFamily token and cannot be used as {role}"),
             )),
             None => Err(unknown_token(name, span)),
         }
@@ -102,6 +137,19 @@ pub(super) fn lower_theme(theme: Option<&ast::ThemeDecl>) -> Result<ThemeSymbols
                 kind: *kind,
                 value: number_value(value, token_kind_name(*kind))?,
             },
+            (
+                ast::ThemeTokenKind::FontFamily,
+                ast::ThemeTokenValue::Static(ast::Expr::String(family, span)),
+            ) => {
+                validate_font_family(family, *span)?;
+                ResolvedThemeToken::FontFamily(family.clone())
+            }
+            (ast::ThemeTokenKind::FontFamily, ast::ThemeTokenValue::Static(value)) => {
+                return Err(CompileError::new(
+                    value.span(),
+                    "fontFamily theme values must be a static font family string",
+                ));
+            }
             (_, ast::ThemeTokenValue::AdaptiveColor { .. }) => {
                 return Err(CompileError::new(
                     token.span,
@@ -126,5 +174,25 @@ fn token_kind_name(kind: ast::ThemeTokenKind) -> &'static str {
         ast::ThemeTokenKind::Spacing => "spacing",
         ast::ThemeTokenKind::Radius => "radius",
         ast::ThemeTokenKind::FontSize => "fontSize",
+        ast::ThemeTokenKind::FontFamily => "fontFamily",
     }
+}
+
+pub(super) fn validate_font_family(value: &str, span: Span) -> Result<(), CompileError> {
+    let mut characters = value.chars();
+    let Some(first) = characters.next() else {
+        return Err(CompileError::new(span, "font family cannot be empty"));
+    };
+    if !first.is_ascii_alphabetic()
+        || !characters.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, ' ' | '_' | '-')
+        })
+        || value.ends_with([' ', '_', '-'])
+    {
+        return Err(CompileError::new(
+            span,
+            "font family must start with a letter and contain only letters, numbers, spaces, `_`, or `-`",
+        ));
+    }
+    Ok(())
 }

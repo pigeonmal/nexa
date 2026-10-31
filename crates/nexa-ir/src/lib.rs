@@ -5,6 +5,7 @@ fn default_true() -> bool {
     true
 }
 
+pub mod adaptive_layout;
 pub mod capabilities;
 pub mod facts;
 pub mod localization;
@@ -13,7 +14,7 @@ pub mod walk;
 
 pub use system_icons::SystemIcon;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Module {
     pub app_name: String,
     pub plugins: Vec<Plugin>,
@@ -47,19 +48,19 @@ pub struct Module {
 /// permissions, manifests) live in the CLI's `PluginPackage` model, not in
 /// semantic IR: lowering only needs to know *which* plugins exist, while
 /// scaffolding decides *what* to copy, link, and declare from their manifests.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Plugin {
     pub namespace: String,
     pub idl_path: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PluginAsset {
     pub root: String,
     pub package_root: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NativeComponentEventHandler {
     pub property: String,
     pub parameters: Vec<String>,
@@ -79,25 +80,25 @@ pub enum Permission {
     Motion,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EnumDecl {
     pub name: String,
     pub cases: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StructDecl {
     pub name: String,
     pub fields: Vec<StructField>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StructField {
     pub name: String,
     pub ty: Type,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Function {
     pub name: String,
     /// Present for an instance user-defined class method. The receiver type
@@ -126,7 +127,7 @@ pub struct Function {
 }
 
 /// A periodic app task emitted as a native background worker.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BackgroundTask {
     pub name: String,
     pub identifier: String,
@@ -134,20 +135,20 @@ pub struct BackgroundTask {
     pub actions: Vec<Action>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FunctionParameter {
     pub name: String,
     pub ty: Type,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FunctionLocal {
     pub name: String,
     pub ty: Type,
     pub initial: Expr,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Component {
     pub name: String,
     pub source_file: Option<String>,
@@ -165,13 +166,13 @@ pub struct Component {
     pub on_disappear: Option<Vec<Action>>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComponentParameter {
     pub name: String,
     pub ty: Type,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Screen {
     pub id: ScreenId,
     pub name: String,
@@ -185,7 +186,7 @@ pub struct Screen {
 }
 
 /// Typed, platform-neutral widget UI and immutable timeline entry shape.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Widget {
     pub name: String,
     /// Optional source text for native widget gallery metadata.
@@ -221,7 +222,7 @@ pub struct Widget {
     pub body: Vec<Node>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WidgetConfiguration {
     pub ty: Type,
     pub default: Expr,
@@ -238,7 +239,7 @@ pub enum WidgetFamily {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ScreenId(pub usize);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct State {
     pub name: String,
     pub ty: Type,
@@ -340,6 +341,9 @@ pub struct StatusBarConfig {
     pub style: StatusBarStyle,
     pub hidden: bool,
     pub background: Option<ColorValue>,
+    /// Optional Android navigation-bar surface color; ignored by iOS.
+    #[serde(default)]
+    pub navigation_bar_background: Option<ColorValue>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -428,7 +432,7 @@ pub enum Type {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
     /// The implicit instance receiver inside a user class method.
     This(Type),
@@ -694,6 +698,9 @@ pub enum Expr {
     IsCompactWidth,
     IsRegularHeight,
     IsCompactHeight,
+    ScreenWidth,
+    ScreenHeight,
+    SafeAreaTop,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -717,7 +724,7 @@ pub enum CollectionUtilityKind {
     Take,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum InterpolatedPart {
     Literal(String),
     Value(Box<Expr>),
@@ -736,7 +743,7 @@ pub enum BinaryOp {
     GreaterEqual,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProgressBarStyle {
     #[serde(default)]
     pub tint: Option<ColorExpression>,
@@ -750,7 +757,7 @@ pub struct ProgressBarStyle {
     pub android_wave: Option<Expr>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProgressRingStyle {
     #[serde(default)]
     pub tint: Option<ColorExpression>,
@@ -764,8 +771,28 @@ pub struct ProgressRingStyle {
     pub android_wave: Option<Expr>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Node {
+    /// Adds the selected remaining visual safe insets and fixed design spacing
+    /// around an existing composed view.
+    SafeAreaPadding {
+        plan: adaptive_layout::SafeAreaPaddingPlan,
+        children: Vec<Node>,
+    },
+    /// Places composed content at one safe edge and optionally coordinates the
+    /// endpoint of one unambiguously inferred native scroll owner.
+    SafeAreaInset {
+        plan: adaptive_layout::SafeAreaInsetPlan,
+        content: Vec<Node>,
+        children: Vec<Node>,
+    },
+    /// Attaches a reusable scroll-linked header to one inferred vertical
+    /// native scroll owner without changing the owner's identity or physics.
+    ScrollHeader {
+        plan: adaptive_layout::ScrollHeaderPlan,
+        header: Vec<Node>,
+        children: Vec<Node>,
+    },
     Appearance {
         mode: Expr,
         children: Vec<Node>,
@@ -835,10 +862,28 @@ pub enum Node {
         #[serde(default)]
         background: Option<ColorExpression>,
     },
-    Spacer,
+    Spacer {
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        height: Option<f32>,
+    },
     Divider {
         color: ColorValue,
         thickness: f32,
+    },
+    /// A filled native shape with an explicit logical size.
+    Shape {
+        shape: ButtonShape,
+        width: f32,
+        height: f32,
+        fill: ColorValue,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width_expression: Option<Expr>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height_expression: Option<Expr>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        animation: Option<AnimationSpec>,
     },
     Button {
         label: Expr,
@@ -870,25 +915,61 @@ pub enum Node {
         focused: Option<String>,
         max_length: Option<i32>,
         font: Option<TextInputFont>,
+        /// Optional explicit point/sp size for the entered text and placeholder.
+        #[serde(default)]
+        font_size: Option<f32>,
+        /// Optional registered font family shared by native targets.
+        #[serde(default)]
+        font_family: Option<String>,
+        /// Optional entered-text color. Omitted values preserve native defaults.
+        #[serde(default)]
+        text_color: Option<ColorValue>,
+        /// Optional placeholder color. Omitted values preserve native defaults.
+        #[serde(default)]
+        placeholder_color: Option<ColorValue>,
+        /// Shows an inline clear control on platforms that provide this behavior.
+        #[serde(default)]
+        clearable: bool,
         min_lines: Option<i32>,
         max_lines: Option<i32>,
         #[serde(default)]
         searchable: bool,
         actions: Vec<Action>,
+        /// Runs when the bound native field transitions into focus.
+        #[serde(default)]
+        on_focus: Option<Vec<Action>>,
         #[serde(default)]
         on_change: Option<TextInputChange>,
     },
     Switch {
         state: String,
         label: Expr,
+        #[serde(default)]
+        on_change: Option<SwitchChange>,
     },
     Slider {
         state: String,
         /// Read the presentation value through Compose's native animator.
         animated: bool,
-        min: f64,
-        max: f64,
+        min: Expr,
+        max: Expr,
         step: f64,
+        #[serde(default)]
+        tint: Option<ColorExpression>,
+        #[serde(default)]
+        track_color: Option<ColorExpression>,
+        #[serde(default)]
+        thumb_color: Option<ColorExpression>,
+        #[serde(default)]
+        track_height: Option<f32>,
+        #[serde(default)]
+        thumb_size: Option<f32>,
+        #[serde(default)]
+        hit_slop: Option<f32>,
+        #[serde(default)]
+        on_change: Option<SliderChange>,
+        #[serde(default)]
+        on_editing_changed: Option<SliderEditingChanged>,
     },
     ProgressBar {
         #[serde(default)]
@@ -959,6 +1040,13 @@ pub enum Node {
         size: f32,
         tint: ColorExpression,
     },
+    FontIcon {
+        font_family: String,
+        glyph: Expr,
+        description: String,
+        size: Expr,
+        tint: ColorExpression,
+    },
     LinearGradient {
         start_color: ColorValue,
         end_color: ColorValue,
@@ -984,6 +1072,10 @@ pub enum Node {
     NavigationStack {
         root: ScreenId,
         arguments: Vec<Expr>,
+        /// Whether destinations use the platform navigation bar. Custom-header apps can disable
+        /// the native bar and own the complete screen chrome in the `.nx` view tree.
+        #[serde(default = "default_true")]
+        show_navigation_bar: bool,
         /// Compact single-row title by default; `Large` opts into the native
         /// expanding title presentation on both platforms.
         #[serde(default)]
@@ -1023,13 +1115,21 @@ pub enum Node {
     },
     KeyboardAware {
         dismiss: KeyboardDismissMode,
+        #[serde(default)]
+        behavior: adaptive_layout::KeyboardBehavior,
         children: Vec<Node>,
     },
     BottomSheet {
         component_ref: Expr,
+        /// Sizes the sheet to its laid-out content instead of using fractional detents.
+        #[serde(default)]
+        content_sized: bool,
         /// Uniform inner inset around sheet content; zero when omitted.
         #[serde(default)]
         content_padding: f32,
+        /// Optional top-corner radius for the sheet surface in points/dp.
+        #[serde(default)]
+        corner_radius: Option<f32>,
         /// Available resting heights as fractions of available screen height.
         #[serde(default)]
         detents: Vec<f32>,
@@ -1132,19 +1232,37 @@ pub enum Node {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextInputChange {
     pub parameter: String,
     pub actions: Vec<Action>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SwitchChange {
+    pub parameter: String,
+    pub actions: Vec<Action>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SliderChange {
+    pub parameter: String,
+    pub actions: Vec<Action>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SliderEditingChanged {
+    pub parameter: String,
+    pub actions: Vec<Action>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FastListRefresh {
     pub state: String,
     pub actions: Vec<Action>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BottomBarTab {
     pub index: i32,
     pub label: String,
@@ -1168,7 +1286,7 @@ pub struct BottomBarTab {
     pub children: Vec<Node>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WhenCase {
     pub value: Expr,
     pub body: Vec<Node>,
@@ -1186,7 +1304,7 @@ pub enum AccessibilityRole {
 /// Options shared by the flat (count- and collection-backed) list plans.
 /// Every field is independently optional; only the plan variant decides
 /// which bindings exist.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ListCommon {
     pub axis: ListAxis,
     /// Whether rows are separated visually. Defaults to true for existing IR.
@@ -1218,6 +1336,9 @@ pub struct ListCommon {
     pub children: Vec<Node>,
     pub on_end_reached: Option<Vec<Action>>,
     pub on_scroll: Option<Vec<Action>>,
+    /// Fires when a user begins dragging a flat list; programmatic scrolls do not fire it.
+    #[serde(default)]
+    pub on_scroll_begin_drag: Option<Vec<Action>>,
     /// Drag-reorder callback for native flat collection lists.
     #[serde(default)]
     pub on_move: Option<FastListMove>,
@@ -1229,7 +1350,7 @@ pub struct ListCommon {
 
 /// Callback payload for a flat-list row move. Indexes use zero-based logical
 /// positions in the displayed rows, independent of reverse visual layout.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FastListMove {
     pub from: String,
     pub to: String,
@@ -1242,7 +1363,7 @@ pub struct FastListMove {
 /// vertically and use `section_header` instead of `sticky_header`; they
 /// support neither scroll observers nor a scroll position, so those fields
 /// cannot be represented here at all.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SectionedListCommon {
     /// Whether rows are separated visually. Defaults to true for existing IR.
     #[serde(default = "default_true")]
@@ -1272,7 +1393,7 @@ pub struct SectionedListCommon {
 /// constructor: each variant carries exactly the bindings its source
 /// provides, so renderers never unwrap optional bindings or re-dispatch on
 /// the source shape.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ListPlan {
     Count {
         count: Expr,
@@ -1377,6 +1498,16 @@ impl ListPlan {
         match self {
             ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
                 common.on_scroll.as_deref()
+            }
+            ListPlan::Sections { .. } => None,
+        }
+    }
+
+    /// User drag-start actions, if any. Sectioned lists cannot have them.
+    pub fn on_scroll_begin_drag(&self) -> Option<&[Action]> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.on_scroll_begin_drag.as_deref()
             }
             ListPlan::Sections { .. } => None,
         }
@@ -1509,7 +1640,7 @@ pub enum MemberKind {
 /// Validated `Network.fetch` / `Network.download` arguments. Every field is
 /// required (defaults are applied by semantic lowering); `body` is `None`
 /// when the argument was absent or the `Null` literal.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NetworkRequest {
     pub url: Box<Expr>,
     pub method: Box<Expr>,
@@ -1565,12 +1696,16 @@ pub enum TimeMethod {
     AddCalendarDays,
     /// `Time.localizedDate(timestamp:)`: local date formatted using native locale conventions.
     LocalizedDate,
+    /// `Time.localizedLongDate(timestamp:, locale:)`: long local date using the app locale and native calendar/time zone.
+    LocalizedLongDate,
     /// `Time.localizedTime(timestamp:)`: local time formatted using native locale conventions.
     LocalizedTime,
     /// `Time.localizedDateTime(timestamp:)`: local date and time formatted using native locale conventions.
     LocalizedDateTime,
     /// `Time.format(timestamp, pattern)`: formats a local timestamp with a shared Foundation/Java date pattern.
     Format,
+    /// `Time.formatDuration(seconds)`: formats a non-negative duration as `mm:ss`.
+    FormatDuration,
 }
 
 /// A core logging operation.
@@ -1594,9 +1729,11 @@ impl TimeMethod {
             TimeMethod::StartOfDay => "startOfDay",
             TimeMethod::AddCalendarDays => "addCalendarDays",
             TimeMethod::LocalizedDate => "localizedDate",
+            TimeMethod::LocalizedLongDate => "localizedLongDate",
             TimeMethod::LocalizedTime => "localizedTime",
             TimeMethod::LocalizedDateTime => "localizedDateTime",
             TimeMethod::Format => "format",
+            TimeMethod::FormatDuration => "formatDuration",
         }
     }
 }
@@ -1678,14 +1815,14 @@ pub enum GradientDirection {
     TrailingToLeading,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ImageSource {
     Asset(String),
     RemoteUrl(Expr),
     LocalFile(Expr),
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewStyle {
     pub alignment: Option<Alignment>,
@@ -1693,13 +1830,31 @@ pub struct ViewStyle {
     /// Optional content inset; `None` means zero (no padding modifier).
     pub padding: Option<f32>,
     pub width: Option<f32>,
+    /// Sets the width to a fraction of the current screen width.
+    #[serde(default)]
+    pub screen_width_fraction: Option<f32>,
+    /// Expands to the width proposed by the parent layout.
+    #[serde(default)]
+    pub fill_max_width: bool,
     pub height: Option<f32>,
+    /// Sets the height to a fraction of the current screen height.
+    #[serde(default)]
+    pub screen_height_fraction: Option<f32>,
+    /// Expands to the height proposed by the parent layout.
+    #[serde(default)]
+    pub fill_max_height: bool,
     pub min_width: Option<f32>,
     pub max_width: Option<f32>,
     pub min_height: Option<f32>,
     pub max_height: Option<f32>,
     pub background: Option<ColorValue>,
     pub corner_radius: Option<f32>,
+    /// Dynamic corner radius used when a numeric state animates the shape.
+    #[serde(default)]
+    pub corner_radius_expression: Option<Box<Expr>>,
+    /// Optional radius applied to both bottom corners, overriding `corner_radius` there.
+    #[serde(default)]
+    pub corner_radius_bottom: Option<f32>,
     pub border_color: Option<ColorValue>,
     pub border_width: Option<f32>,
     pub opacity: Option<f32>,
@@ -1712,13 +1867,19 @@ impl ViewStyle {
     pub fn has_modifiers(&self) -> bool {
         self.padding.is_some()
             || self.width.is_some()
+            || self.screen_width_fraction.is_some()
+            || self.fill_max_width
             || self.height.is_some()
+            || self.screen_height_fraction.is_some()
+            || self.fill_max_height
             || self.min_width.is_some()
             || self.max_width.is_some()
             || self.min_height.is_some()
             || self.max_height.is_some()
             || self.background.is_some()
             || self.corner_radius.is_some()
+            || self.corner_radius_expression.is_some()
+            || self.corner_radius_bottom.is_some()
             || self.border_color.is_some()
             || self.border_width.is_some()
             || self.opacity.is_some()
@@ -1728,9 +1889,24 @@ impl ViewStyle {
 }
 
 /// Static visual effects applied to one native view.
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ViewEffects {
     pub scale: Option<f32>,
+    /// Dynamic transform scale, used when a numeric state drives a native animation.
+    #[serde(default)]
+    pub scale_expression: Option<Box<Expr>>,
+    /// Static vertical transform scale, independent from the uniform scale.
+    #[serde(default)]
+    pub scale_y: Option<f32>,
+    /// Dynamic vertical transform scale, used when numeric state drives animation.
+    #[serde(default)]
+    pub scale_y_expression: Option<Box<Expr>>,
+    /// Dynamic alpha in the inclusive range 0–1, read during the native layer phase.
+    #[serde(default)]
+    pub opacity_expression: Option<Box<Expr>>,
+    /// Dynamic vertical offset in logical points/dp.
+    #[serde(default)]
+    pub offset_y_expression: Option<Box<Expr>>,
     pub rotation: Option<f32>,
     pub shadow: Option<ViewShadow>,
     pub blur: Option<f32>,
@@ -1742,6 +1918,11 @@ pub struct ViewEffects {
 impl ViewEffects {
     pub fn has_modifiers(&self) -> bool {
         self.scale.is_some()
+            || self.scale_expression.is_some()
+            || self.scale_y.is_some()
+            || self.scale_y_expression.is_some()
+            || self.opacity_expression.is_some()
+            || self.offset_y_expression.is_some()
             || self.rotation.is_some()
             || self.shadow.is_some()
             || self.blur.is_some()
@@ -1810,7 +1991,7 @@ pub enum PickerDateSelection {
 
 /// Typed date/time picker options, kept behind one pointer in the node enum to
 /// avoid inflating every IR node with picker-specific state.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PickerDateProps {
     pub picker_type: PickerDateType,
     pub style: PickerDateStyle,
@@ -1835,7 +2016,7 @@ pub struct PickerDateProps {
 }
 
 /// Static rounded-rectangle shadow parameters shared by SwiftUI and Compose.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ViewShadow {
     pub radius: f32,
     pub x: f32,
@@ -1874,6 +2055,7 @@ pub enum AnimationEasing {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewTransition {
     Fade,
+    FadeSlideFromTop,
     SlideFromBottom,
     SlideFromLeft,
     SlideFromRight,
@@ -1940,14 +2122,14 @@ pub enum ColorValue {
 
 /// A native color supplied either as a compile-time color value or as a
 /// runtime hexadecimal string expression.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ColorExpression {
     Static(ColorValue),
     /// Heap-backed so optional dynamic colors do not inflate every IR `Node`.
     Dynamic(Box<Expr>),
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TextStyle {
     pub alignment: Option<TextAlignment>,
     pub color: Option<ColorValue>,
@@ -1956,6 +2138,9 @@ pub struct TextStyle {
     pub font_style: Option<TextFontStyle>,
     #[serde(default)]
     pub font_design: Option<TextFontDesign>,
+    /// Optional registered native font family shared by generated iOS and Android targets.
+    #[serde(default)]
+    pub font_family: Option<String>,
     pub font_weight: Option<FontWeight>,
     /// Optional text inset; `None` means zero (no padding modifier).
     pub padding: Option<f32>,
@@ -1971,6 +2156,29 @@ pub struct TextStyle {
     #[serde(default)]
     pub underline: bool,
     pub selectable: bool,
+    /// Generic timed word reveal rendered by the platform text primitive.
+    ///
+    /// The segment element stays a declared app struct in AOT output. Both
+    /// native backends read its fields through statically generated accessors;
+    /// DevRuntime serializes the same expressions with the Text node.
+    #[serde(default)]
+    pub reveal: Option<Box<TextReveal>>,
+}
+
+/// Shared timing inputs for reusable text reveal effects.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextReveal {
+    pub segments: Expr,
+    pub segment_type: Type,
+    pub position: Expr,
+    pub active: Expr,
+    pub playing: Expr,
+    pub enabled: Expr,
+    pub seek_revision: Expr,
+    pub dim_opacity: f32,
+    pub lead_time: f32,
+    pub target_offset: f32,
+    pub smoothing_duration: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -2011,7 +2219,7 @@ pub enum TextAlignment {
     Trailing,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Action {
     Expression(Expr),
     /// Pushes a statically resolved screen route from any foreground action.
@@ -2104,7 +2312,7 @@ pub enum TaskExecutor {
     Background,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ErrorCatchArm {
     pub namespace: String,
     pub error_type: String,

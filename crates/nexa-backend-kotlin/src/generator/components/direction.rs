@@ -20,25 +20,33 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
 
 pub(crate) fn start(
     config: Option<DirectionConfig>,
+    follows_locale: bool,
     base_depth: usize,
     out: &mut SourceWriter,
 ) -> usize {
-    let Some(config) = config else {
+    if config.is_none() && !follows_locale {
         return base_depth;
     };
-    let direction = match config.style {
-        nexa_ir::DirectionStyle::Ltr => "Ltr",
-        nexa_ir::DirectionStyle::Rtl => "Rtl",
+    let direction = match config.map(|config| config.style) {
+        Some(nexa_ir::DirectionStyle::Ltr) => "LayoutDirection.Ltr".to_owned(),
+        Some(nexa_ir::DirectionStyle::Rtl) => "LayoutDirection.Rtl".to_owned(),
+        None => "if (NexaLocale.isRightToLeft()) LayoutDirection.Rtl else LayoutDirection.Ltr"
+            .to_owned(),
     };
     out.indent(base_depth);
-    out.push_str("CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.");
-    out.push_str(direction);
+    out.push_str("CompositionLocalProvider(LocalLayoutDirection provides ");
+    out.push_str(&direction);
     out.push_str(") {\n");
     base_depth + 1
 }
 
-pub(crate) fn end(config: Option<DirectionConfig>, base_depth: usize, out: &mut SourceWriter) {
-    if config.is_some() {
+pub(crate) fn end(
+    config: Option<DirectionConfig>,
+    follows_locale: bool,
+    base_depth: usize,
+    out: &mut SourceWriter,
+) {
+    if config.is_some() || follows_locale {
         out.push('\n');
         out.indent(base_depth);
         out.push('}');

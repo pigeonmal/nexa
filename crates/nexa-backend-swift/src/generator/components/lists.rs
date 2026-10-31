@@ -44,6 +44,7 @@ struct OpenListConfig<'a> {
     scroll_enabled: Option<&'a Expr>,
     on_end_reached: Option<&'a [Action]>,
     on_scroll: Option<&'a [Action]>,
+    on_scroll_begin_drag: Option<&'a [Action]>,
     scroll_position: Option<&'a str>,
     reverse_layout: bool,
     page_snap: bool,
@@ -142,6 +143,7 @@ pub(crate) fn render_virtualized_list(
                     scroll_enabled: common.scroll_enabled.as_ref(),
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
+                    on_scroll_begin_drag: common.on_scroll_begin_drag.as_deref(),
                     scroll_position: common.scroll_position.as_deref(),
                     reverse_layout: common.reverse_layout,
                     page_snap: common.page_snap,
@@ -204,6 +206,7 @@ pub(crate) fn render_virtualized_list(
                     scroll_enabled: common.scroll_enabled.as_ref(),
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
+                    on_scroll_begin_drag: common.on_scroll_begin_drag.as_deref(),
                     scroll_position: common.scroll_position.as_deref(),
                     reverse_layout: common.reverse_layout,
                     page_snap: common.page_snap,
@@ -717,6 +720,7 @@ fn open_list(
         scroll_enabled,
         on_end_reached,
         on_scroll,
+        on_scroll_begin_drag,
         scroll_position,
         reverse_layout,
         page_snap,
@@ -782,6 +786,7 @@ fn open_list(
     }
     if on_end_reached.is_some()
         || on_scroll.is_some()
+        || on_scroll_begin_drag.is_some()
         || scroll_position.is_some()
         || reverse_layout
         || page_snap
@@ -837,6 +842,12 @@ fn open_list(
         }
         if let Some(actions) = on_scroll {
             out.push_str(", onScroll: {\n");
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push('}');
+        }
+        if let Some(actions) = on_scroll_begin_drag {
+            out.push_str(", onScrollBeginDrag: {\n");
             render_actions(actions, depth + 1, out);
             indent(out, depth);
             out.push('}');
@@ -1021,6 +1032,7 @@ mod tests {
                 scroll_enabled: None,
                 on_end_reached: None,
                 on_scroll: None,
+                on_scroll_begin_drag: None,
                 scroll_position: Some("position"),
                 reverse_layout: false,
                 page_snap: false,

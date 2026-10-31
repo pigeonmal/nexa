@@ -1,6 +1,7 @@
 import Foundation
 import CoreFoundation
 import UIKit
+import SwiftUI
 
 /// Type-erased SQL row used only by the debug interpreter. Release builds map
 /// the same query directly into the declared application struct.
@@ -95,12 +96,31 @@ final class NexaDevScopeRevision: ObservableObject {
     }
 }
 
+enum NexaDevPatchInstallResult: Equatable {
+    case render
+    case functionsOnly
+    case screenOnly
+    case fullInstallRequired
+}
+
 @MainActor
 final class NexaDevStateStore: ObservableObject {
+    private static let presentationPatchFields: Set<String> = [
+        "text", "label", "placeholder", "icon", "icon_spec", "source", "tint",
+        "color", "background", "border_color", "border_width", "corner_radius",
+        "padding", "padding_horizontal", "padding_vertical", "width", "height",
+        "min_width", "max_width", "min_height", "max_height", "opacity", "alignment",
+        "horizontal_arrangement", "vertical_arrangement", "font_size", "font_weight",
+        "font_family", "font_style", "font_design", "line_limit", "line_height",
+        "letter_spacing", "strikethrough", "italic", "underline", "text_alignment",
+        "fill_max_width", "screen_width_fraction", "scale", "scale_y", "rotation",
+        "offset_y", "accessibility_label", "style",
+    ]
     var onRuntimeFailure: ((Error, String) -> Void)?
     @Published var revision = 0
     @Published private(set) var appLifecycleEpoch = 0
-    @Published var navigationPath: [NexaDevRoute] = []
+    @Published var languageOverride: String? = UserDefaults.standard.string(forKey: "dev.nexa.locale.override")
+    @Published private var navigationPaths: [String: [NexaDevRoute]] = [:]
     /// Disabled by default; the dev console can opt into value-free trace events.
     var runtimeTraceEnabled = false
     var currentModule: [String: Any] = [:]
@@ -118,7 +138,8 @@ final class NexaDevStateStore: ObservableObject {
     var structs: [String: [[String: Any]]] = [:]
     var enumCases: [String: [String]] = [:]
     var routeArguments: [String: (screen: String, values: [String: Any], signature: String)] = [:]
-    var navigationRoot: String?
+    var routeInstanceTokens = Set<String>()
+    private var navigationRoot: String?
     private var navigationScreensSignature: String?
     var activeFunctions = Set<String>()
     var focusBindings: [String: (scope: String, state: String?)] = [:]
@@ -163,9 +184,24 @@ final class NexaDevStateStore: ObservableObject {
         return fastListEndReachedKeys.insert(key).inserted
     }
 
-    private func invalidateAllScopes() {
+    func invalidateAllScopes() {
         revision += 1
         for observer in scopeRevisions.values { observer.invalidate() }
+    }
+
+    func setLanguageOverride(_ code: String?) {
+        let trimmed = code?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "dev.nexa.locale.override")
+            languageOverride = nil
+        } else {
+            let locale = Locale(identifier: trimmed.replacingOccurrences(of: "_", with: "-"))
+            let ident = (locale.language.languageCode?.identifier != "und") ? locale.identifier : trimmed
+            UserDefaults.standard.set(ident, forKey: "dev.nexa.locale.override")
+            languageOverride = ident
+        }
+        invalidateAllScopes()
+        objectWillChange.send()
     }
 
     private func invalidateReaders(of key: String, sourceScope: String) {
@@ -193,7 +229,14 @@ final class NexaDevStateStore: ObservableObject {
         scope: String = "app"
     ) -> String {
         var translated: Any?
-        for preferred in Locale.preferredLanguages + [Locale.current.identifier] {
+        let override = UserDefaults.standard.string(forKey: "dev.nexa.locale.override")
+        let preferredLanguages = override.map { code in
+            [code] + Locale.preferredLanguages.filter {
+                $0.caseInsensitiveCompare(code) != .orderedSame
+                    && $0.split(whereSeparator: { $0 == "-" || $0 == "_" }).first?.lowercased() != nexaCurrentLanguageCode()
+            }
+        } ?? Locale.preferredLanguages
+        for preferred in preferredLanguages + [override ?? Locale.current.identifier] {
             let language = preferred.replacingOccurrences(of: "_", with: "-")
             if let value = hotTranslations[language]?[key] {
                 translated = value
@@ -212,7 +255,8 @@ final class NexaDevStateStore: ObservableObject {
         if let value = translated as? String {
             template = value
         } else if let forms = translated as? [String: String] {
-            let language = Locale.current.language.languageCode?.identifier ?? "en"
+            let language = Locale(identifier: override ?? Locale.current.identifier)
+                .language.languageCode?.identifier ?? "en"
             let category = Self.pluralCategory(count ?? 0, language: language)
             template = forms[category] ?? forms["other"] ?? forms.values.first ?? fallback
         } else {
@@ -337,16 +381,9 @@ final class NexaDevStateStore: ObservableObject {
         }
     }
 
-    func install(module: [String: Any]) {
-        currentModule = module
-        let isHotReplacement = hasInstalledModule
-        fastListEndReachedCounts.removeAll(keepingCapacity: true)
-        fastListEndReachedKeys.removeAll(keepingCapacity: true)
-        if isHotReplacement { clearNativeTasks() }
-        let screens = module["screens"] as? [[String: Any]] ?? []
-        let appStates = module["states"] as? [[String: Any]] ?? []
-        let componentDeclarations = module["components"] as? [[String: Any]] ?? []
+    private func installFunctionRegistry(_ module: [String: Any]) {
         let functionDeclarations = module["functions"] as? [[String: Any]] ?? []
+        let componentDeclarations = module["components"] as? [[String: Any]] ?? []
         var installedFunctions: [String: [String: Any]] = [:]
         installedFunctions.reserveCapacity(functionDeclarations.count)
         for function in functionDeclarations {
@@ -360,6 +397,147 @@ final class NexaDevStateStore: ObservableObject {
             }
         }
         functions = installedFunctions
+    }
+
+    func screen(named name: String) -> [String: Any]? {
+        let screens = currentModule["screens"] as? [[String: Any]] ?? []
+        return screens.first(where: { $0["name"] as? String == name })
+    }
+
+    func installPatchedModule(
+        _ module: [String: Any],
+        operations: [[String: Any]]
+    ) -> NexaDevPatchInstallResult {
+        if operations.isEmpty || isPresentationPatch(operations) {
+            currentModule = module
+            return .render
+        }
+        if isFunctionBodyPatch(operations) {
+            if !installPatchedFunctions(module, operations: operations) {
+                installFunctionRegistry(module)
+            }
+            currentModule = module
+            return .functionsOnly
+        }
+        if let affectedScreens = screenScopedIndices(operations) {
+            installPatchedScreens(module, screenIndices: affectedScreens)
+            currentModule = module
+            return .screenOnly
+        }
+        return .fullInstallRequired
+    }
+
+    /// Update only changed function entries for body-only hot reloads.
+    private func installPatchedFunctions(
+        _ module: [String: Any],
+        operations: [[String: Any]]
+    ) -> Bool {
+        guard let declarations = module["functions"] as? [[String: Any]] else { return false }
+        for operation in operations {
+            let segments = pointerSegments(operation["path"] as? String ?? "")
+            guard segments.count >= 3,
+                  segments[0] == "functions",
+                  (segments[2] == "body" || segments[2] == "body_actions"),
+                  let index = Int(segments[1]), declarations.indices.contains(index),
+                  let name = declarations[index]["name"] as? String
+            else { return false }
+            functions[name] = declarations[index]
+        }
+        return true
+    }
+
+    private func pointerSegments(_ path: String) -> [String] {
+        guard path.hasPrefix("/") else { return [] }
+        return path.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+            .map { String($0).replacingOccurrences(of: "~1", with: "/")
+                .replacingOccurrences(of: "~0", with: "~") }
+    }
+
+    private func isPresentationPatch(_ operations: [[String: Any]]) -> Bool {
+        for operation in operations {
+            guard let path = operation["path"] as? String else { return false }
+            let segments = pointerSegments(path)
+            let bodyIndex: Int
+            switch segments.first {
+            case "body": bodyIndex = 0
+            case "screens" where segments.count > 2 && segments[2] == "body": bodyIndex = 2
+            case "components" where segments.count > 2 && segments[2] == "body": bodyIndex = 2
+            default: return false
+            }
+            guard segments.count >= bodyIndex + 4,
+                  let leaf = segments.last,
+                  Self.presentationPatchFields.contains(leaf)
+            else { return false }
+        }
+        return true
+    }
+
+    private func isFunctionBodyPatch(_ operations: [[String: Any]]) -> Bool {
+        guard !operations.isEmpty else { return false }
+        return operations.allSatisfy { operation in
+            guard let path = operation["path"] as? String else { return false }
+            let segments = pointerSegments(path)
+            return segments.count >= 3 && segments[0] == "functions"
+                && (segments[2] == "body" || segments[2] == "body_actions")
+        }
+    }
+
+    private func screenScopedIndices(_ operations: [[String: Any]]) -> Set<Int>? {
+        guard !operations.isEmpty else { return nil }
+        var indices = Set<Int>()
+        for operation in operations {
+            guard let path = operation["path"] as? String else { return nil }
+            let segments = pointerSegments(path)
+            guard segments.count >= 2, segments[0] == "screens",
+                  let index = Int(segments[1])
+            else { return nil }
+            indices.insert(index)
+        }
+        return indices
+    }
+
+    private func installPatchedScreens(
+        _ module: [String: Any],
+        screenIndices: Set<Int>
+    ) {
+        let screens = module["screens"] as? [[String: Any]] ?? []
+        for index in screenIndices {
+            guard screens.indices.contains(index) else { continue }
+            let screen = screens[index]
+            guard let name = screen["name"] as? String else { continue }
+            let scope = "screen/\(name)"
+            var activeKeys = Set<String>()
+            for state in screen["states"] as? [[String: Any]] ?? [] {
+                guard let stateName = state["name"] as? String else { continue }
+                let identity = "\(scope)/state/\(stateName)"
+                activeKeys.insert(identity)
+                let signature = Self.stateShapeSignature(state["ty"], enumCases: enumCases)
+                if typeSignatures[identity] != signature || values[identity] == nil {
+                    typeSignatures[identity] = signature
+                    if let initial = state["initial"] {
+                        let evaluated = evaluate(initial, locals: [:], scope: scope)
+                        values[identity] = evaluated
+                    }
+                }
+            }
+            for key in values.keys where key.hasPrefix("\(scope)/state/") && !activeKeys.contains(key) {
+                values.removeValue(forKey: key)
+                typeSignatures.removeValue(forKey: key)
+            }
+            invalidateScope(scope)
+        }
+    }
+
+    func install(module: [String: Any]) {
+        currentModule = module
+        let isHotReplacement = hasInstalledModule
+        fastListEndReachedCounts.removeAll(keepingCapacity: true)
+        fastListEndReachedKeys.removeAll(keepingCapacity: true)
+        if isHotReplacement { clearNativeTasks() }
+        let screens = module["screens"] as? [[String: Any]] ?? []
+        let appStates = module["states"] as? [[String: Any]] ?? []
+        let componentDeclarations = module["components"] as? [[String: Any]] ?? []
+        installFunctionRegistry(module)
         let structDeclarations = module["structs"] as? [[String: Any]] ?? []
         var installedStructs: [String: [[String: Any]]] = [:]
         installedStructs.reserveCapacity(structDeclarations.count)
@@ -455,7 +633,9 @@ final class NexaDevStateStore: ObservableObject {
                 }
             }
             activeScreenParameters = activeScreenParameters.filter { scope, _ in
-                currentScreens.contains(String(scope.split(separator: "/").last ?? ""))
+                let components = scope.split(separator: "/")
+                guard components.count > 1, components[0] == "screen" else { return false }
+                return currentScreens.contains(String(components[1]))
             }
             refreshNativeEventSubscriptions(module: module)
         }
@@ -480,12 +660,14 @@ final class NexaDevStateStore: ObservableObject {
                 return values[identity] as? Bool == true
             }?.key
         }
-        let rootScreen = screens.first?["name"] as? String
         let screensSignature = Self.canonicalJSON(screens.map { $0["name"] ?? NSNull() })
+        let rootScreen = screens.first?["name"] as? String
         if navigationRoot != rootScreen || navigationScreensSignature != screensSignature {
             navigationRoot = rootScreen
             navigationScreensSignature = screensSignature
-            navigationPath = []
+            navigationPaths.removeAll(keepingCapacity: true)
+            routeArguments.removeAll(keepingCapacity: true)
+            routeInstanceTokens.removeAll(keepingCapacity: true)
         }
         invalidateAllScopes()
         if !hasInstalledModule {
@@ -494,11 +676,36 @@ final class NexaDevStateStore: ObservableObject {
         }
     }
 
+    func navigationPath(for stackIdentity: String) -> [NexaDevRoute] {
+        navigationPaths[stackIdentity] ?? []
+    }
+
+    func setNavigationPath(_ path: [NexaDevRoute], for stackIdentity: String) {
+        var seenTokens = Set<String>()
+        var uniquePath = path
+        for index in uniquePath.indices {
+            let token = uniquePath[index].token
+            guard !seenTokens.insert(token).inserted,
+                  let destination = routeArguments[token]
+            else { continue }
+
+            let instanceToken = "\(token)#\(UUID().uuidString)"
+            routeArguments[instanceToken] = destination
+            routeInstanceTokens.insert(instanceToken)
+            uniquePath[index] = NexaDevRoute(token: instanceToken)
+            seenTokens.insert(instanceToken)
+        }
+        navigationPaths[stackIdentity] = uniquePath
+    }
+
     func pushNavigation(destination: Int, expressions: [Any], locals: [String: Any], scope: String) {
         let screens = currentModule["screens"] as? [[String: Any]] ?? []
         guard screens.indices.contains(destination),
               let screenName = screens[destination]["name"] as? String
-        else { return }
+        else {
+            NSLog("NexaDevRuntime pushNavigation FAILED: destination=%d screensCount=%d", destination, screens.count)
+            return
+        }
         let parameters = screens[destination]["parameters"] as? [[String: Any]] ?? []
         var values: [String: Any] = [:]
         for (parameter, expression) in zip(parameters, expressions) {
@@ -506,14 +713,51 @@ final class NexaDevStateStore: ObservableObject {
             values[name] = evaluate(expression, locals: locals, scope: scope)
         }
         let signature = Self.canonicalSignature(parameters)
-        navigationPath.append(navigationRoute(screen: screenName, values: values, signature: signature))
-        invalidateScope("app")
+        let route = navigationRoute(screen: screenName, values: values, signature: signature)
+        let stackIdentity = locals["__nexa_navigation_stack_identity"] as? String
+            ?? navigationPaths.keys.first
+            ?? "app"
+        if let binding = locals["__nexa_navigation_path_binding"] as? Binding<[NexaDevRoute]> {
+            binding.wrappedValue.append(route)
+            invalidateScope(scope)
+            invalidateScope(stackIdentity)
+            objectWillChange.send()
+            NSLog("NexaDevRuntime pushNavigation via binding to: %@", screenName)
+            return
+        }
+        NSLog("NexaDevRuntime pushNavigation destination=%@ stackIdentity=%@ availableKeys=%@", screenName, stackIdentity, Array(navigationPaths.keys))
+        var path = navigationPath(for: stackIdentity)
+        path.append(route)
+        setNavigationPath(path, for: stackIdentity)
+        invalidateScope(scope)
+        invalidateScope(stackIdentity)
+        objectWillChange.send()
     }
 
-    func popNavigation() {
-        guard !navigationPath.isEmpty else { return }
-        navigationPath.removeLast()
-        invalidateScope("app")
+    func popNavigation(stackIdentity: String?, scope: String, locals: [String: Any]? = nil) {
+        let effectiveStack = stackIdentity
+            ?? (locals?["__nexa_navigation_stack_identity"] as? String)
+            ?? navigationPaths.keys.first(where: { !(navigationPaths[$0]?.isEmpty ?? true) })
+            ?? navigationPaths.keys.first
+            ?? "app"
+
+        if let binding = locals?["__nexa_navigation_path_binding"] as? Binding<[NexaDevRoute]> {
+            if !binding.wrappedValue.isEmpty {
+                binding.wrappedValue.removeLast()
+            }
+            invalidateScope(scope)
+            invalidateScope(effectiveStack)
+            objectWillChange.send()
+            return
+        }
+
+        var path = navigationPath(for: effectiveStack)
+        guard !path.isEmpty else { return }
+        path.removeLast()
+        setNavigationPath(path, for: effectiveStack)
+        invalidateScope(scope)
+        invalidateScope(effectiveStack)
+        objectWillChange.send()
     }
 
     func hotRestart(module: [String: Any]) {
@@ -541,7 +785,9 @@ final class NexaDevStateStore: ObservableObject {
             }
         }
         values = nextValues
-        navigationPath = []
+        navigationPaths.removeAll(keepingCapacity: true)
+        routeArguments.removeAll(keepingCapacity: true)
+        routeInstanceTokens.removeAll(keepingCapacity: true)
         focusedFieldKey = focusBindings.first { _, binding in
             guard let state = binding.state else { return false }
             return values["\(binding.scope)/state/\(state)"] as? Bool == true
@@ -681,7 +927,11 @@ final class NexaDevStateStore: ObservableObject {
         invalidateScope(scope)
     }
 
-    func screenDidDisappear(scope: String) {
+    func screenDidDisappear(
+        scope: String,
+        navigationStackIdentity: String = "app",
+        routeIdentity: String = "root"
+    ) {
         activeScreenParameters.removeValue(forKey: scope)
         for key in Array(stateReaders.keys) {
             stateReaders[key]?.remove(scope)
@@ -689,6 +939,41 @@ final class NexaDevStateStore: ObservableObject {
         }
         clearNativeEventSubscriptions(scope: scope)
         clearNativeTasks(scope: scope)
+
+        guard routeIdentity != "root",
+              !navigationPath(for: navigationStackIdentity).contains(where: { $0.token == routeIdentity })
+        else { return }
+
+        let statePrefix = "\(scope)/"
+        for key in Array(values.keys) where key.hasPrefix(statePrefix) {
+            values.removeValue(forKey: key)
+        }
+        for key in Array(stateCommandRevisions.keys) where key.hasPrefix(statePrefix) {
+            stateCommandRevisions.removeValue(forKey: key)
+        }
+        let listPrefix = "\(scope)|"
+        for key in Array(fastListEndReachedCounts.keys) where key.hasPrefix(listPrefix) {
+            fastListEndReachedCounts.removeValue(forKey: key)
+            fastListEndReachedKeys.remove(key)
+        }
+        scopeRevisions.removeValue(forKey: scope)
+
+        let removedFocusKeys = focusBindings.compactMap { entry in
+            entry.value.scope == scope ? entry.key : nil
+        }
+        for key in removedFocusKeys {
+            focusBindings.removeValue(forKey: key)
+        }
+        if let focusedFieldKey, removedFocusKeys.contains(focusedFieldKey) {
+            self.focusedFieldKey = nil
+        }
+
+        if routeInstanceTokens.remove(routeIdentity) != nil,
+           !navigationPaths.values.contains(where: { path in
+               path.contains(where: { route in route.token == routeIdentity })
+           }) {
+            routeArguments.removeValue(forKey: routeIdentity)
+        }
     }
 
     static func collectFocusBindings(
@@ -722,6 +1007,9 @@ final class NexaDevStateStore: ObservableObject {
     func evaluate(_ expression: Any, locals: [String: Any], scope: String = "app") -> Any {
         if let unit = expression as? String {
             switch unit {
+            case "ScreenWidth": return locals["__nexa_screen_width"] ?? Double(UIScreen.main.bounds.width)
+            case "ScreenHeight": return locals["__nexa_screen_height"] ?? Double(UIScreen.main.bounds.height)
+            case "SafeAreaTop": return locals["__nexa_safe_area_top"] ?? 0.0
             case "IsRegularWidth": return UIScreen.main.bounds.width >= 600
             case "IsCompactWidth": return UIScreen.main.bounds.width < 600
             case "IsRegularHeight": return UIScreen.main.bounds.height >= 600
@@ -998,6 +1286,20 @@ final class NexaDevStateStore: ObservableObject {
                 case "ResultIsSuccess": return result["Ok"] != nil
                 case "ResultValue": return result["Ok"] ?? NSNull()
                 case "ResultError": return result["Err"] ?? NSNull()
+                case "NetworkBody": return result["body"] ?? (result["text"] as? String) ?? NSNull()
+                case "NetworkStatusCode": return (result["statusCode"] as? NSNumber)?.int32Value ?? 0
+                case "StringTrimmed": return (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                case "CollectionCount":
+                    if let values = value as? [Any] { return Int32(values.count) }
+                    if let values = value as? [String: Any] { return Int32(values.count) }
+                    if let values = value as? Set<NexaDevHashableValue> { return Int32(values.count) }
+                    return 0
+                case "CollectionIsEmpty":
+                    if let values = value as? [Any] { return values.isEmpty }
+                    if let values = value as? [String: Any] { return values.isEmpty }
+                    if let values = value as? Set<NexaDevHashableValue> { return values.isEmpty }
+                    return true
+                case "SignalValue": return value
                 default: break
                 }
             }
@@ -1194,6 +1496,9 @@ final class NexaDevStateStore: ObservableObject {
         locals: [String: Any],
         scope: String
     ) async throws -> Any {
+        if let unit = expression as? String {
+            return evaluate(unit, locals: locals, scope: scope)
+        }
         guard let tagged = expression as? [String: Any], let (kind, payload) = tagged.first else {
             return NSNull()
         }
@@ -1264,6 +1569,12 @@ final class NexaDevStateStore: ObservableObject {
             case "LocalizedDate":
                 guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
                 return nexaDevLocalizedDate(timestamp)
+            case "LocalizedLongDate":
+                guard arguments.count > 1,
+                    let timestamp = arguments[0] as? NSNumber,
+                    let locale = arguments[1] as? String
+                else { return NSNull() }
+                return nexaDevLocalizedLongDate(timestamp.int64Value, locale)
             case "LocalizedTime":
                 guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
                 return nexaDevLocalizedTime(timestamp)
@@ -1276,6 +1587,9 @@ final class NexaDevStateStore: ObservableObject {
                     let pattern = arguments[1] as? String
                 else { return NSNull() }
                 return nexaDevFormatDate(timestamp.int64Value, pattern)
+            case "FormatDuration":
+                guard let seconds = (first as? NSNumber)?.doubleValue else { return NSNull() }
+                return nexaDevFormatDuration(seconds)
             default: return NSNull()
             }
         case "LogCall":
@@ -1451,6 +1765,20 @@ final class NexaDevStateStore: ObservableObject {
                 case "ResultIsSuccess": return result["Ok"] != nil
                 case "ResultValue": return result["Ok"] ?? NSNull()
                 case "ResultError": return result["Err"] ?? NSNull()
+                case "NetworkBody": return result["body"] ?? (result["text"] as? String) ?? NSNull()
+                case "NetworkStatusCode": return (result["statusCode"] as? NSNumber)?.int32Value ?? 0
+                case "StringTrimmed": return (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                case "CollectionCount":
+                    if let values = value as? [Any] { return Int32(values.count) }
+                    if let values = value as? [String: Any] { return Int32(values.count) }
+                    if let values = value as? Set<NexaDevHashableValue> { return Int32(values.count) }
+                    return 0
+                case "CollectionIsEmpty":
+                    if let values = value as? [Any] { return values.isEmpty }
+                    if let values = value as? [String: Any] { return values.isEmpty }
+                    if let values = value as? Set<NexaDevHashableValue> { return values.isEmpty }
+                    return true
+                case "SignalValue": return value
                 default: break
                 }
             }
@@ -2035,6 +2363,12 @@ func evaluateTimeCall(_ call: [String: Any]?, locals: [String: Any], scope: Stri
     case "LocalizedDate":
         guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
         return nexaDevLocalizedDate(timestamp)
+    case "LocalizedLongDate":
+        guard arguments.count > 1,
+            let timestamp = arguments[0] as? NSNumber,
+            let locale = arguments[1] as? String
+        else { return NSNull() }
+        return nexaDevLocalizedLongDate(timestamp.int64Value, locale)
     case "LocalizedTime":
         guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
         return nexaDevLocalizedTime(timestamp)
@@ -2047,6 +2381,9 @@ func evaluateTimeCall(_ call: [String: Any]?, locals: [String: Any], scope: Stri
             let pattern = arguments[1] as? String
         else { return NSNull() }
         return nexaDevFormatDate(timestamp.int64Value, pattern)
+    case "FormatDuration":
+        guard let seconds = (first as? NSNumber)?.doubleValue else { return NSNull() }
+        return nexaDevFormatDuration(seconds)
     default:
         return NSNull()
     }
@@ -2071,6 +2408,34 @@ private func nexaDevLocalizedDate(_ milliseconds: Int64) -> String {
     return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .none)
 }
 
+private func nexaDevLocalizedLongDate(_ milliseconds: Int64, _ languageCode: String) -> String {
+    let locale = Locale(identifier: languageCode.replacingOccurrences(of: "_", with: "-"))
+    let calendar = locale.calendar
+    let timeZone = TimeZone.current
+    let key = "nexa.dev.long-date.\(locale.identifier).\(String(describing: calendar.identifier)).\(timeZone.identifier)"
+    let cache = Thread.current.threadDictionary
+    let formatter: DateFormatter
+    if let cached = cache[key] as? DateFormatter {
+        formatter = cached
+    } else {
+        let cachedKeys = cache.allKeys.compactMap { key -> String? in
+            guard let key = key as? String, key.hasPrefix("nexa.dev.long-date.") else { return nil }
+            return key
+        }
+        if cachedKeys.count >= 16 {
+            cachedKeys.forEach { cache.removeObject(forKey: $0) }
+        }
+        formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        cache[key] = formatter
+    }
+    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000))
+}
+
 private func nexaDevLocalizedTime(_ milliseconds: Int64) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
     return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
@@ -2079,6 +2444,14 @@ private func nexaDevLocalizedTime(_ milliseconds: Int64) -> String {
 private func nexaDevLocalizedDateTime(_ milliseconds: Int64) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
     return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .short)
+}
+
+private func nexaDevFormatDuration(_ seconds: Double) -> String {
+    guard seconds.isFinite, seconds > 0 else { return "00:00" }
+    let wholeSeconds = Int(seconds.rounded(.down))
+    let minutes = wholeSeconds / 60
+    let remainder = wholeSeconds % 60
+    return "\(minutes < 10 ? "0" : "")\(minutes):\(remainder < 10 ? "0" : "")\(remainder)"
 }
 
 /// Mirrors generated `Time.format` while reusing formatters between hot-reload renders.

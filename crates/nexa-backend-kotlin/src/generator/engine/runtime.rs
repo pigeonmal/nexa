@@ -5,7 +5,12 @@
 /// object here is the app's view of it: generated code keeps calling
 /// `NexaRuntime`, and a plugin can call the core holder directly.
 use nexa_codegen::SourceWriter;
-pub(crate) fn render(out: &mut SourceWriter, include_permissions: bool, include_app_icon: bool) {
+pub(crate) fn render(
+    out: &mut SourceWriter,
+    include_permissions: bool,
+    include_app_icon: bool,
+    include_locale: bool,
+) {
     let core = nexa_codegen::value::KOTLIN_CORE_PACKAGE;
     out.push_str(&format!(
         r#"
@@ -115,4 +120,101 @@ public object NexaRuntime {{
         r#"}
 "#,
     );
+    if include_locale {
+        out.push_str(
+            r#"
+public object NexaLocale {
+    private const val PREFERENCES_NAME = "dev.nexa.locale.v1"
+    private const val LANGUAGE_KEY = "override"
+    private val overrideRevision = androidx.compose.runtime.mutableIntStateOf(0)
+
+    private fun preferences() = NexaRuntime.context().applicationContext
+        .getSharedPreferences(PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+
+    private fun overrideCode(): String? = preferences().getString(LANGUAGE_KEY, null)
+
+    private fun localizedContext(base: android.content.Context, selected: String?): android.content.Context {
+        if (selected == null) return base
+        val configuration = android.content.res.Configuration(base.resources.configuration)
+        configuration.setLocale(java.util.Locale.forLanguageTag(selected))
+        return base.createConfigurationContext(configuration)
+    }
+
+    @androidx.compose.runtime.Composable
+    public fun provide(content: @androidx.compose.runtime.Composable () -> Unit) {
+        val base = androidx.compose.ui.platform.LocalContext.current
+        val revision = overrideRevision.intValue
+        val selected = overrideCode()
+        if (selected == null) {
+            content()
+        } else {
+            val configured = androidx.compose.runtime.remember(base, selected, revision) {
+                localizedContext(base, selected)
+            }
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalContext provides configured,
+                androidx.compose.ui.platform.LocalConfiguration provides configured.resources.configuration,
+                content = content,
+            )
+        }
+    }
+
+    public fun setLanguageOverride(languageCode: String?) {
+        val normalized = languageCode?.trim()?.replace('_', '-')
+            ?.takeIf(String::isNotEmpty)
+            ?.let(java.util.Locale::forLanguageTag)
+            ?.takeIf { it.language.isNotEmpty() && it.language != "und" }
+            ?.toLanguageTag()
+        preferences().edit().apply {
+            if (normalized == null) remove(LANGUAGE_KEY) else putString(LANGUAGE_KEY, normalized)
+        }.apply()
+        overrideRevision.intValue = overrideRevision.intValue + 1
+    }
+
+    public fun currentLanguageCode(): String =
+        overrideCode()?.let(java.util.Locale::forLanguageTag)?.language?.takeIf(String::isNotEmpty)
+            ?: java.util.Locale.getDefault().language
+
+    public fun preferredLanguageCodes(): List<String> {
+        val system = if (android.os.Build.VERSION.SDK_INT >= 24) {
+            android.os.LocaleList.getDefault().let { locales ->
+                (0 until locales.size()).map { locales[it].toLanguageTag() }
+            }
+        } else listOf(java.util.Locale.getDefault().toLanguageTag())
+        val selected = overrideCode() ?: return system
+        val selectedLanguage = java.util.Locale.forLanguageTag(selected).language
+        return listOf(selected) + system.filter {
+            java.util.Locale.forLanguageTag(it).language != selectedLanguage
+        }
+    }
+
+    public fun displayName(languageCode: String): String? =
+        java.util.Locale.forLanguageTag(languageCode)
+            .getDisplayLanguage(
+                overrideCode()?.let(java.util.Locale::forLanguageTag)
+                    ?: java.util.Locale.getDefault(),
+            )
+            .takeIf(String::isNotEmpty)
+
+    public fun string(resourceId: Int, vararg formatArguments: Any): String {
+        val resources = localizedContext(NexaRuntime.context().applicationContext, overrideCode())
+        return if (formatArguments.isEmpty()) resources.getString(resourceId)
+        else resources.getString(resourceId, *formatArguments)
+    }
+
+    public fun quantityString(resourceId: Int, count: Int, vararg formatArguments: Any): String {
+        val resources = localizedContext(NexaRuntime.context().applicationContext, overrideCode()).resources
+        return resources.getQuantityString(resourceId, count, *formatArguments)
+    }
+
+    public fun isRightToLeft(): Boolean {
+        val locale = overrideCode()?.let(java.util.Locale::forLanguageTag)
+            ?: java.util.Locale.getDefault()
+        return android.text.TextUtils.getLayoutDirectionFromLocale(locale) ==
+            android.view.View.LAYOUT_DIRECTION_RTL
+    }
+}
+"#,
+        );
+    }
 }

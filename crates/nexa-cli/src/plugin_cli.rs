@@ -761,6 +761,28 @@ fn typecheck_swift(package: &ResolvedPackage) -> Option<String> {
         .ok()?;
         command.arg(component_ref_types);
     }
+    let needs_network_runtime = package
+        .manifest
+        .as_ref()?
+        .ios
+        .sources
+        .iter()
+        .flat_map(|source| {
+            let mut files = Vec::new();
+            collect_files(&package.root, source, &mut files);
+            files
+        })
+        .filter_map(|file| fs::read_to_string(file).ok())
+        .any(|contents| contents.contains("NexaNetwork.sharedURLSession"));
+    if needs_network_runtime {
+        let network_runtime = scratch.join("NexaNetwork.swift");
+        fs::write(
+            &network_runtime,
+            "import Foundation\npublic enum NexaNetwork { public static let sharedURLSession = URLSession(configuration: .default) }\n",
+        )
+        .ok()?;
+        command.arg(network_runtime);
+    }
     if let Some(sdk) = sdk_path() {
         // The iOS SDK alone is not enough: without a matching target triple
         // `swiftc` falls back to the host and cannot find a standard library,

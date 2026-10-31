@@ -77,6 +77,8 @@ pub struct PluginDecl {
     pub android_picture_in_picture: bool,
     /// Android MediaSessionService class contributed to the generated host.
     pub android_media_playback_service: Option<String>,
+    /// The plugin requires Nexa's generated shared network engine in the host.
+    pub requires_network: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -242,6 +244,25 @@ pub struct Config {
 pub struct AssetsConfig {
     pub icon: Option<String>,
     pub splash: Option<String>,
+    /// Font families available to named `assets.icons` glyph definitions.
+    pub icon_fonts: Vec<IconFontConfig>,
+    /// Named glyphs resolved by every built-in component `icon:` parameter.
+    pub icons: Vec<IconGlyphConfig>,
+}
+
+#[derive(Clone, Debug)]
+pub struct IconFontConfig {
+    pub family: String,
+    pub path: String,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct IconGlyphConfig {
+    pub name: String,
+    pub family: String,
+    pub glyph: u32,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]
@@ -398,6 +419,7 @@ pub enum ThemeTokenKind {
     Spacing,
     Radius,
     FontSize,
+    FontFamily,
 }
 
 #[derive(Clone, Debug)]
@@ -619,6 +641,7 @@ pub struct WhenCase {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewTransition {
     Fade,
+    FadeSlideFromTop,
     SlideFromBottom,
     SlideFromLeft,
     SlideFromRight,
@@ -661,18 +684,23 @@ pub struct LayoutStyle {
     pub horizontal_arrangement: Option<Expr>,
     pub padding: Option<Expr>,
     pub width: Option<Expr>,
+    pub screen_width_fraction: Option<Expr>,
     pub height: Option<Expr>,
+    pub screen_height_fraction: Option<Expr>,
     pub min_width: Option<Expr>,
     pub max_width: Option<Expr>,
     pub min_height: Option<Expr>,
     pub max_height: Option<Expr>,
     pub background: Option<Expr>,
     pub corner_radius: Option<Expr>,
+    pub corner_radius_bottom: Option<Expr>,
     pub border_color: Option<Expr>,
     pub border_width: Option<Expr>,
     pub opacity: Option<Expr>,
     pub scale: Option<Expr>,
+    pub scale_y: Option<Expr>,
     pub rotation: Option<Expr>,
+    pub offset_y: Option<Expr>,
     pub shadow: Option<Expr>,
     pub blur: Option<Expr>,
     pub clip: Option<Expr>,

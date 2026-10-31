@@ -2,7 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
     Action, AnimationEasing, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle,
-    Module, Node, SystemIcon, TaskExecutor,
+    Module, Node, SystemIcon, TaskExecutor, Type,
 };
 
 use crate::generator::{
@@ -222,6 +222,23 @@ fn render_button_label(
 ) {
     indent(out, depth);
     if let Some(icon) = icon {
+        if icon.font_glyph_parts().is_some() {
+            let font_icon = format!(
+                "NexaIconView(icon: {}, description: \"\", size: CGFloat({}))",
+                super::system_icons::spec(icon),
+                nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+            );
+            if comment.is_none() && is_empty_button_label(label) {
+                out.push_str(&format!("{font_icon}\n"));
+            } else {
+                out.push_str(&format!(
+                    "Label {{ {} }} icon: {{ {font_icon} }}.font(.system(size: {}))\n",
+                    crate::generator::expressions::localized_text_view(label, comment),
+                    nexa_codegen::design_system::DEFAULT_BODY_FONT_SIZE,
+                ));
+            }
+            return;
+        }
         if comment.is_none() && is_empty_button_label(label) {
             out.push_str(&format!(
                 "Image(systemName: {}).font(.system(size: {}))\n",
@@ -277,38 +294,105 @@ fn has_localized_comment(label: &nexa_ir::Expr) -> bool {
 pub(crate) fn render_switch(
     state: &str,
     label: &nexa_ir::Expr,
-    comment: Option<&str>,
+    on_change: Option<&nexa_ir::SwitchChange>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     out.text_at(
         depth,
         format_args!(
-            "NexaSwitchPrimitive(label: {}, isOn: ${})",
-            crate::generator::expressions::localized_text_view(label, comment),
+            "NexaSwitchPrimitive(label: {}, isOn: ${}, onChange: ",
+            crate::generator::expressions::localized_text_view(label, None),
             state_name(state),
         ),
     );
+    if let Some(change) = on_change {
+        out.push_str(&format!("{{ {} in\n", state_name(&change.parameter)));
+        render_actions(&change.actions, depth + 1, out);
+        indent(out, depth);
+        out.push_str("})");
+    } else {
+        out.push_str("nil)");
+    }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_slider(
     state: &str,
-    min: f64,
-    max: f64,
+    min: &nexa_ir::Expr,
+    max: &nexa_ir::Expr,
     step: f64,
+    tint: Option<&nexa_ir::ColorExpression>,
+    track_color: Option<&nexa_ir::ColorExpression>,
+    thumb_color: Option<&nexa_ir::ColorExpression>,
+    track_height: Option<f32>,
+    thumb_size: Option<f32>,
+    hit_slop: Option<f32>,
+    on_change: Option<&nexa_ir::SliderChange>,
+    on_editing_changed: Option<&nexa_ir::SliderEditingChanged>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let color = |value: Option<&nexa_ir::ColorExpression>| {
+        value.map_or_else(
+            || "nil".to_owned(),
+            crate::generator::colors::expression_for_color,
+        )
+    };
+    let optional_number =
+        |value: Option<f32>| value.map_or_else(|| "nil".to_owned(), |number| number.to_string());
+    out.line_at(depth, format_args!("NexaSliderPrimitive("));
     out.line_at(
-        depth,
+        depth + 1,
         format_args!(
-            "NexaSliderPrimitive(value: ${}, range: {}...{}, step: {})",
+            "value: ${}, minValue: {}, maxValue: {}, step: {},",
             state_name(state),
-            min,
-            max,
+            expression(min),
+            expression(max),
             step
         ),
     );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "tint: {}, trackColor: {}, thumbColor: {},",
+            color(tint),
+            color(track_color),
+            color(thumb_color)
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "trackHeight: {}, thumbSize: {}, hitSlop: {},",
+            optional_number(track_height),
+            optional_number(thumb_size),
+            optional_number(hit_slop)
+        ),
+    );
+    out.line_at(depth + 1, format_args!("onChange: "));
+    if let Some(change) = on_change {
+        out.line_at(
+            depth + 1,
+            format_args!("{{ {} in", state_name(&change.parameter)),
+        );
+        render_actions(&change.actions, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}},"));
+    } else {
+        out.line_at(depth + 1, format_args!("nil,"));
+    }
+    out.line_at(depth + 1, format_args!("onEditingChanged: "));
+    if let Some(change) = on_editing_changed {
+        out.line_at(
+            depth + 1,
+            format_args!("{{ {} in", state_name(&change.parameter)),
+        );
+        render_actions(&change.actions, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}},"));
+    } else {
+        out.line_at(depth + 1, format_args!("nil,"));
+    }
+    out.line_at(depth, format_args!(")"));
 }
 
 pub(crate) fn render_progress_bar(
@@ -474,13 +558,10 @@ pub(crate) fn render_picker(
         comment,
     } = options;
     let selected = state_name(state);
-    let icon = icon.map_or_else(
-        || "nil".to_owned(),
-        |icon| swift_string(&icon.sf_symbol_name()),
-    );
+    let icon = icon.map_or_else(|| "nil".to_owned(), super::system_icons::spec);
     let item_icons = item_icons
         .iter()
-        .map(|icon| swift_string(&icon.sf_symbol_name()))
+        .map(super::system_icons::spec)
         .collect::<Vec<_>>()
         .join(", ");
     let tint = tint.map_or_else(
@@ -958,7 +1039,7 @@ pub(crate) fn render_event_closure(
 }
 
 pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceWriter) {
-    render_actions_with_task_scope(actions, depth, out, false);
+    render_actions_with_cancellation(actions, depth, out, false, CancellationMode::Consume);
 }
 
 pub(crate) fn render_actions_in_task_scope(
@@ -966,7 +1047,31 @@ pub(crate) fn render_actions_in_task_scope(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    render_actions_with_task_scope(actions, depth, out, true);
+    render_actions_with_cancellation(actions, depth, out, true, CancellationMode::Consume);
+}
+
+/// Renders a function body with cancellation handling that matches its declared
+/// error contract. A nonthrowing Nexa function returns a typed fallback when
+/// cancellation reaches a local `try` boundary.
+pub(crate) fn render_function_actions(
+    actions: &[Action],
+    depth: usize,
+    out: &mut SourceWriter,
+    is_throwing: bool,
+    return_type: &Type,
+) {
+    let cancellation_return = cancellation_return_statement(return_type);
+    render_actions_with_cancellation(
+        actions,
+        depth,
+        out,
+        false,
+        if is_throwing {
+            CancellationMode::Propagate
+        } else {
+            CancellationMode::Return(&cancellation_return)
+        },
+    );
 }
 
 pub(crate) fn render_task_body(
@@ -975,16 +1080,107 @@ pub(crate) fn render_task_body(
     out: &mut SourceWriter,
     track_handles: bool,
 ) {
-    out.line_at(depth, format_args!("do {{"));
-    render_actions_with_task_scope(actions, depth + 1, out, track_handles);
-    out.line_at(depth, format_args!("}} catch is CancellationError {{"));
-    out.line_at(depth + 1, format_args!("return"));
-    out.line_at(depth, format_args!("}} catch {{"));
-    out.line_at(
-        depth + 1,
-        format_args!("fatalError(\"unhandled error escaped a typed Nexa task\")"),
-    );
-    out.line_at(depth, format_args!("}}"));
+    if task_actions_may_throw(actions) {
+        out.line_at(depth, format_args!("do {{"));
+        render_actions_with_task_scope(actions, depth + 1, out, track_handles);
+        out.line_at(depth, format_args!("}} catch is CancellationError {{"));
+        out.line_at(depth + 1, format_args!("return"));
+        out.line_at(depth, format_args!("}} catch {{"));
+        out.line_at(
+            depth + 1,
+            format_args!("fatalError(\"unhandled error escaped a typed Nexa task\")"),
+        );
+        out.line_at(depth, format_args!("}}"));
+    } else {
+        render_actions_with_task_scope(actions, depth, out, track_handles);
+    }
+}
+
+fn task_actions_may_throw(actions: &[Action]) -> bool {
+    actions.iter().any(|action| match action {
+        Action::Expression(expression)
+        | Action::Let {
+            value: expression, ..
+        }
+        | Action::Return { value: expression }
+        | Action::Assign {
+            value: expression, ..
+        } => expression_may_throw(expression),
+        Action::NavigationPush { arguments, .. } | Action::CollectionMutation { arguments, .. } => {
+            arguments.iter().any(expression_may_throw)
+        }
+        Action::NativePropertyAssign {
+            receiver, value, ..
+        } => expression_may_throw(receiver) || expression_may_throw(value),
+        Action::NativeEventSubscribe { receiver, .. } => expression_may_throw(receiver),
+        Action::NetworkStatusSubscribe { .. } | Action::TaskLaunch { .. } => false,
+        Action::WithAnimation { actions, .. } => task_actions_may_throw(actions),
+        Action::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expression_may_throw(condition)
+                || task_actions_may_throw(then_branch)
+                || else_branch.as_deref().is_some_and(task_actions_may_throw)
+        }
+        Action::For { iterable, body, .. } | Action::ForMap { iterable, body, .. } => {
+            expression_may_throw(iterable) || task_actions_may_throw(body)
+        }
+        Action::While { condition, body } => {
+            expression_may_throw(condition) || task_actions_may_throw(body)
+        }
+        Action::TryCatch {
+            error_catches,
+            catch_body,
+            ..
+        } => {
+            error_catches
+                .iter()
+                .any(|catch| task_actions_may_throw(&catch.body))
+                || catch_body.as_deref().is_some_and(task_actions_may_throw)
+        }
+        Action::NavigationBack | Action::TaskCancel { .. } | Action::Break | Action::Continue => {
+            false
+        }
+    })
+}
+
+fn expression_may_throw(expression: &Expr) -> bool {
+    let mut may_throw = false;
+    nexa_ir::walk::walk_expression(expression, &mut |nested| {
+        may_throw |= nested.is_throwing_call() || matches!(nested, Expr::Try { .. });
+    });
+    may_throw
+}
+
+fn expression_returns_void(expression: &Expr) -> bool {
+    match expression {
+        Expr::Located { expression, .. } => expression_returns_void(expression),
+        Expr::Call { return_type, .. } | Expr::NativeCall { return_type, .. } => {
+            *return_type == Type::Void
+        }
+        Expr::Await(value) | Expr::TryAwait(value) => expression_returns_void(value),
+        Expr::Try { value_type, .. } => *value_type == Type::Void,
+        Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Sleep,
+            ..
+        }
+        | Expr::LogCall { .. } => true,
+        _ => false,
+    }
+}
+
+fn actions_terminate(actions: &[Action]) -> bool {
+    match actions.last() {
+        Some(Action::Return { .. }) => true,
+        Some(Action::If {
+            then_branch,
+            else_branch: Some(else_branch),
+            ..
+        }) => actions_terminate(then_branch) && actions_terminate(else_branch),
+        _ => false,
+    }
 }
 
 fn render_actions_with_task_scope(
@@ -993,10 +1189,166 @@ fn render_actions_with_task_scope(
     out: &mut SourceWriter,
     track_handles: bool,
 ) {
+    render_actions_with_cancellation(
+        actions,
+        depth,
+        out,
+        track_handles,
+        CancellationMode::Return("return"),
+    );
+}
+
+#[derive(Clone, Copy)]
+enum CancellationMode<'a> {
+    Propagate,
+    Consume,
+    Return(&'a str),
+}
+
+fn cancellation_return_statement(ty: &Type) -> String {
+    match ty {
+        Type::Void => "return".to_owned(),
+        Type::String => "return \"\"".to_owned(),
+        Type::Bytes => "return Data()".to_owned(),
+        Type::Bool => "return false".to_owned(),
+        Type::Numeric(_) => "return 0".to_owned(),
+        Type::Optional(_) => "return nil".to_owned(),
+        Type::Array(_) | Type::Set(_) => "return []".to_owned(),
+        Type::Map(_, _) => "return [:]".to_owned(),
+        Type::Pair(first, second) => format!(
+            "return ({}, {})",
+            cancellation_default_value(first),
+            cancellation_default_value(second)
+        ),
+        Type::Triple(first, second, third) => format!(
+            "return ({}, {}, {})",
+            cancellation_default_value(first),
+            cancellation_default_value(second),
+            cancellation_default_value(third)
+        ),
+        Type::Struct { name, fields } => {
+            let arguments = fields
+                .iter()
+                .map(|(field, ty)| {
+                    format!(
+                        "{}: {}",
+                        nexa_codegen::names::struct_field_name(field),
+                        cancellation_default_value(ty)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "return {}({arguments})",
+                nexa_codegen::names::struct_name(name)
+            )
+        }
+        Type::Class {
+            name,
+            fields,
+            constructor_parameter_count,
+        } => {
+            let arguments = fields
+                .iter()
+                .take(*constructor_parameter_count)
+                .map(|(_, ty)| cancellation_default_value(ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "return {}({arguments})",
+                nexa_codegen::names::struct_name(name)
+            )
+        }
+        Type::Result(_, _)
+        | Type::Signal(_)
+        | Type::ComponentRef { .. }
+        | Type::ComponentRefError(_)
+        | Type::Enum(_)
+        | Type::TypeParam(_)
+        | Type::Plugin { .. }
+        | Type::TaskHandle
+        | Type::NetworkResponse => {
+            "fatalError(\"cancelled while producing a value without a default\")".to_owned()
+        }
+    }
+}
+
+fn cancellation_default_value(ty: &Type) -> String {
+    match ty {
+        Type::Void => "()".to_owned(),
+        Type::String => "\"\"".to_owned(),
+        Type::Bytes => "Data()".to_owned(),
+        Type::Bool => "false".to_owned(),
+        Type::Numeric(_) => "0".to_owned(),
+        Type::Optional(_) => "nil".to_owned(),
+        Type::Array(_) | Type::Set(_) => "[]".to_owned(),
+        Type::Map(_, _) => "[:]".to_owned(),
+        Type::Pair(first, second) => format!(
+            "({}, {})",
+            cancellation_default_value(first),
+            cancellation_default_value(second)
+        ),
+        Type::Triple(first, second, third) => format!(
+            "({}, {}, {})",
+            cancellation_default_value(first),
+            cancellation_default_value(second),
+            cancellation_default_value(third)
+        ),
+        Type::Struct { name, fields } => {
+            let arguments = fields
+                .iter()
+                .map(|(field, ty)| {
+                    format!(
+                        "{}: {}",
+                        nexa_codegen::names::struct_field_name(field),
+                        cancellation_default_value(ty)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{}({arguments})", nexa_codegen::names::struct_name(name))
+        }
+        Type::Class {
+            name,
+            fields,
+            constructor_parameter_count,
+        } => {
+            let arguments = fields
+                .iter()
+                .take(*constructor_parameter_count)
+                .map(|(_, ty)| cancellation_default_value(ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{}({arguments})", nexa_codegen::names::struct_name(name))
+        }
+        Type::Result(_, _)
+        | Type::Signal(_)
+        | Type::ComponentRef { .. }
+        | Type::ComponentRefError(_)
+        | Type::Enum(_)
+        | Type::TypeParam(_)
+        | Type::Plugin { .. }
+        | Type::TaskHandle
+        | Type::NetworkResponse => "fatalError(\"no cancellation default\")".to_owned(),
+    }
+}
+
+fn render_actions_with_cancellation(
+    actions: &[Action],
+    depth: usize,
+    out: &mut SourceWriter,
+    track_handles: bool,
+    cancellation_mode: CancellationMode,
+) {
     for action in actions {
         match action {
             Action::Expression(value) => {
-                out.line_at(depth, format_args!("{}", expression(value)));
+                let rendered = expression(value);
+                if expression_returns_void(value) {
+                    out.line_at(depth, format_args!("{rendered}"));
+                } else {
+                    out.line_at(depth, format_args!("_ = {rendered}"));
+                }
             }
             Action::NavigationPush {
                 destination,
@@ -1073,7 +1425,13 @@ fn render_actions_with_task_scope(
                     out.push_str(" in");
                 }
                 out.push('\n');
-                render_actions_with_task_scope(actions, depth + 1, out, track_handles);
+                render_actions_with_cancellation(
+                    actions,
+                    depth + 1,
+                    out,
+                    track_handles,
+                    CancellationMode::Consume,
+                );
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1081,7 +1439,13 @@ fn render_actions_with_task_scope(
                 out.text_at(depth, format_args!("NexaNetwork.onStatusChange {{ "));
                 out.push_str(&state_name(parameter));
                 out.push_str(" in\n");
-                render_actions_with_task_scope(actions, depth + 1, out, track_handles);
+                render_actions_with_cancellation(
+                    actions,
+                    depth + 1,
+                    out,
+                    track_handles,
+                    CancellationMode::Consume,
+                );
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1100,7 +1464,7 @@ fn render_actions_with_task_scope(
                     }
                 } else {
                     indent(out, depth);
-                    out.push_str("nexaTaskScope.track(");
+                    out.push_str("_ = nexaTaskScope.track(");
                 }
                 match executor {
                     TaskExecutor::Main => out.push_str("Task { @MainActor in\n"),
@@ -1127,7 +1491,13 @@ fn render_actions_with_task_scope(
                 out.push_str("withAnimation(");
                 out.push_str(&swift_animation(*animation));
                 out.push_str(") {\n");
-                render_actions_with_task_scope(actions, depth + 1, out, track_handles);
+                render_actions_with_cancellation(
+                    actions,
+                    depth + 1,
+                    out,
+                    track_handles,
+                    CancellationMode::Consume,
+                );
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1201,11 +1571,23 @@ fn render_actions_with_task_scope(
                 else_branch,
             } => {
                 out.line_at(depth, format_args!("if {} {{", expression(condition)));
-                render_actions_with_task_scope(then_branch, depth + 1, out, track_handles);
+                render_actions_with_cancellation(
+                    then_branch,
+                    depth + 1,
+                    out,
+                    track_handles,
+                    cancellation_mode,
+                );
                 if let Some(else_branch) = else_branch {
                     indent(out, depth);
                     out.push_str("} else {\n");
-                    render_actions_with_task_scope(else_branch, depth + 1, out, track_handles);
+                    render_actions_with_cancellation(
+                        else_branch,
+                        depth + 1,
+                        out,
+                        track_handles,
+                        cancellation_mode,
+                    );
                 }
                 indent(out, depth);
                 out.push_str("}\n");
@@ -1219,7 +1601,13 @@ fn render_actions_with_task_scope(
                     depth,
                     format_args!("for {} in {} {{", state_name(name), expression(iterable)),
                 );
-                render_actions_with_task_scope(body, depth + 1, out, track_handles);
+                render_actions_with_cancellation(
+                    body,
+                    depth + 1,
+                    out,
+                    track_handles,
+                    cancellation_mode,
+                );
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1238,13 +1626,25 @@ fn render_actions_with_task_scope(
                         expression(iterable)
                     ),
                 );
-                render_actions_with_task_scope(body, depth + 1, out, track_handles);
+                render_actions_with_cancellation(
+                    body,
+                    depth + 1,
+                    out,
+                    track_handles,
+                    cancellation_mode,
+                );
                 indent(out, depth);
                 out.push_str("}\n");
             }
             Action::While { condition, body } => {
                 out.line_at(depth, format_args!("while {} {{", expression(condition)));
-                render_actions_with_task_scope(body, depth + 1, out, track_handles);
+                render_actions_with_cancellation(
+                    body,
+                    depth + 1,
+                    out,
+                    track_handles,
+                    cancellation_mode,
+                );
                 indent(out, depth);
                 out.push_str("}\n");
             }
@@ -1255,13 +1655,20 @@ fn render_actions_with_task_scope(
             } => {
                 indent(out, depth);
                 out.push_str("do {\n");
-                render_actions_with_task_scope(body, depth + 1, out, track_handles);
+                render_actions_with_cancellation(
+                    body,
+                    depth + 1,
+                    out,
+                    track_handles,
+                    cancellation_mode,
+                );
                 render_swift_error_catches(
                     error_catches,
                     catch_body.as_deref(),
                     depth,
                     out,
                     track_handles,
+                    cancellation_mode,
                 );
             }
             Action::Break => {
@@ -1325,6 +1732,7 @@ fn render_swift_error_catches(
     depth: usize,
     out: &mut SourceWriter,
     track_handles: bool,
+    cancellation_mode: CancellationMode,
 ) {
     let mut groups: Vec<(&str, &str, Vec<&ErrorCatchArm>)> = Vec::new();
     for arm in catches {
@@ -1354,17 +1762,30 @@ fn render_swift_error_catches(
                     .join(", ");
                 out.push_str(&format!("case let .{}({bindings}):\n", arm.variant));
             }
-            render_actions_with_task_scope(&arm.body, depth + 3, out, track_handles);
-            // Swift does not implicitly terminate an enum switch case. Emit an
-            // explicit break even when the handler has actions so generated
-            // cases are always complete and never rely on fallthrough rules.
-            indent(out, depth + 3);
-            out.push_str("break\n");
+            render_actions_with_cancellation(
+                &arm.body,
+                depth + 3,
+                out,
+                track_handles,
+                cancellation_mode,
+            );
+            // Swift does not implicitly terminate an enum switch case. Emit a
+            // break unless this arm already returns from its enclosing function.
+            if !actions_terminate(&arm.body) {
+                indent(out, depth + 3);
+                out.push_str("break\n");
+            }
         }
         if let Some(catch_all) = catch_all {
             indent(out, depth + 2);
             out.push_str("default:\n");
-            render_actions_with_task_scope(catch_all, depth + 3, out, track_handles);
+            render_actions_with_cancellation(
+                catch_all,
+                depth + 3,
+                out,
+                track_handles,
+                cancellation_mode,
+            );
         }
         indent(out, depth + 1);
         out.push_str("}\n");
@@ -1372,14 +1793,28 @@ fn render_swift_error_catches(
 
     indent(out, depth);
     out.push_str("} catch is CancellationError {\n");
-    indent(out, depth + 1);
-    out.push_str("throw CancellationError()\n");
+    match cancellation_mode {
+        CancellationMode::Propagate => {
+            indent(out, depth + 1);
+            out.push_str("throw CancellationError()\n");
+        }
+        CancellationMode::Consume => {}
+        CancellationMode::Return(statement) => {
+            out.line_at(depth + 1, format_args!("{statement}"));
+        }
+    }
 
     if catches.is_empty() || catch_all.is_some() {
         indent(out, depth);
         out.push_str("} catch {\n");
         if let Some(catch_all) = catch_all {
-            render_actions_with_task_scope(catch_all, depth + 1, out, track_handles);
+            render_actions_with_cancellation(
+                catch_all,
+                depth + 1,
+                out,
+                track_handles,
+                cancellation_mode,
+            );
         }
         indent(out, depth);
         out.push_str("}\n");
@@ -1402,9 +1837,16 @@ mod tests {
     };
 
     use super::{
-        PickerOptions, render_actions, render_button, render_picker, render_progress_bar,
-        render_progress_ring, render_slider, render_task_body,
+        PickerOptions, render_actions, render_button, render_function_actions, render_picker,
+        render_progress_bar, render_progress_ring, render_slider, render_task_body,
     };
+
+    fn float_expr(raw: &str) -> Expr {
+        Expr::Number {
+            raw: raw.to_owned(),
+            ty: NumericType::Float64,
+        }
+    }
 
     #[test]
     fn icon_picker_uses_the_selected_dynamic_tint() {
@@ -1430,7 +1872,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "NexaPickerPrimitive(selection: $nexa_priority, items: [\"High\"], itemIcons: [], icon: \"flag.fill\", tint: nexaColor(hex: nexa_priorityTint), hasLabel: false) {"
+            "NexaPickerPrimitive(selection: $nexa_priority, items: [\"High\"], itemIcons: [], icon: NexaIconSpec(symbol: \"flag.fill\"), tint: nexaColor(hex: nexa_priorityTint), hasLabel: false) {"
         ));
         assert!(output.contains("EmptyView()"));
     }
@@ -1463,7 +1905,7 @@ mod tests {
             &mut output,
         );
 
-        assert!(output.contains("itemIcons: [\"calendar\", \"flag.fill\", \"pencil\"]"));
+        assert!(output.contains("itemIcons: [NexaIconSpec(symbol: \"calendar\"), NexaIconSpec(symbol: \"flag.fill\"), NexaIconSpec(symbol: \"pencil\")]"));
     }
 
     #[test]
@@ -1692,10 +2134,27 @@ mod tests {
     #[test]
     fn renders_slider_as_a_native_double_binding() {
         let mut output = SourceWriter::new();
-        render_slider("volume", 0.0, 1.0, 0.1, 0, &mut output);
+        let min = float_expr("0.0");
+        let max = float_expr("1.0");
+        render_slider(
+            "volume",
+            &min,
+            &max,
+            0.1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0,
+            &mut output,
+        );
         assert_eq!(
             output.as_str(),
-            "NexaSliderPrimitive(value: $nexa_volume, range: 0...1, step: 0.1)\n"
+            "NexaSliderPrimitive(\n    value: $nexa_volume, minValue: Double(0.0), maxValue: Double(1.0), step: 0.1,\n    tint: nil, trackColor: nil, thumbColor: nil,\n    trackHeight: nil, thumbSize: nil, hitSlop: nil,\n    onChange: \n    nil,\n    onEditingChanged: \n    nil,\n)\n"
         );
     }
 
@@ -1816,9 +2275,9 @@ mod tests {
         );
         assert!(output.contains("nexa_finished = true"));
         assert!(output.contains("nexa_workerTask = Task.detached {"));
-        assert!(output.contains(
-            "nexaTaskScope.track(Task { @MainActor in\n    do {\n        false\n    } catch is CancellationError {\n        return\n    } catch {"
-        ));
+        assert!(output.contains("_ = nexaTaskScope.track(Task { @MainActor in"));
+        assert!(output.contains("_ = false"));
+        assert!(!output.contains("unhandled error escaped a typed Nexa task"));
         assert!(output.ends_with("nexa_refreshTask?.cancel()\n"));
     }
 
@@ -1846,7 +2305,7 @@ mod tests {
         }];
         let mut output = SourceWriter::new();
 
-        render_actions(&actions, 0, &mut output);
+        render_function_actions(&actions, 0, &mut output, true, &Type::Void);
 
         assert!(output.contains("do {\n    (try await CameraPlugin.shared.capture())"));
         assert!(output.contains(
@@ -1856,9 +2315,37 @@ mod tests {
 
         let mut task_output = SourceWriter::new();
         render_task_body(&actions, 0, &mut task_output, false);
-        assert!(task_output.contains("throw CancellationError()"));
+        assert!(!task_output.contains("throw CancellationError()"));
         assert!(task_output.contains("} catch is CancellationError {\n    return"));
-        assert!(task_output.contains("fatalError(\"unhandled error escaped a typed Nexa task\")"));
+        assert!(task_output.contains("CameraPlugin.shared.capture()"));
+        assert!(!task_output.contains("fatalError(\"unhandled error escaped a typed Nexa task\")"));
+    }
+
+    #[test]
+    fn nonthrowing_function_returns_a_typed_default_on_cancellation() {
+        let actions = [Action::TryCatch {
+            body: vec![Action::Expression(Expr::TryAwait(Box::new(
+                Expr::NativeCall {
+                    receiver: None,
+                    namespace: "Network".to_owned(),
+                    name: "refresh".to_owned(),
+                    arguments: Vec::new(),
+                    codecs: Vec::new(),
+                    return_type: Type::Void,
+                    source_span: None,
+                    is_async: true,
+                    is_throwing: true,
+                },
+            )))],
+            error_catches: Vec::new(),
+            catch_body: Some(vec![Action::Expression(Expr::Bool(false))]),
+        }];
+        let mut output = SourceWriter::new();
+
+        render_function_actions(&actions, 0, &mut output, false, &Type::Bool);
+
+        assert!(output.contains("} catch is CancellationError {\n    return false\n} catch {"));
+        assert!(!output.contains("throw CancellationError()"));
     }
 
     #[test]
@@ -1900,14 +2387,14 @@ mod tests {
         }];
         let mut output = SourceWriter::new();
 
-        render_actions(&actions, 0, &mut output);
+        render_function_actions(&actions, 0, &mut output, true, &Type::Void);
 
         assert!(output.contains("} catch let error as PlayerError {"));
         assert!(output.contains("case .invalidUrl:"));
         assert!(output.contains("break\n"));
         assert!(output.contains("case let .decodingFailed(nexa_message):"));
         assert!(output.contains("nexa_loadError = nexa_message"));
-        assert!(output.contains("} catch is CancellationError {\n    throw CancellationError()"));
+        assert!(output.contains("catch is CancellationError"));
         assert!(
             output.contains("fatalError(\"unexpected error escaped its typed plugin contract\")")
         );

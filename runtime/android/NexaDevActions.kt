@@ -31,7 +31,7 @@ private fun NexaDevStateStore.performNavigationAction(
     scope: String,
     locals: Map<String, Any>,
 ): Boolean {
-    val controller = locals["__nexa_navigation_controller"] as? NavHostController
+    val controller = (locals["__nexa_navigation_controller"] as? NavHostController) ?: currentNavController
     val push = action.optJSONObject("NavigationPush")
     if (push != null) {
         val currentModule = module ?: return true
@@ -52,7 +52,7 @@ private fun NexaDevStateStore.performNavigationAction(
         return true
     }
     if (action.has("NavigationBack")) {
-        if (controller?.previousBackStackEntry != null) controller.popBackStack()
+        popNavigation(controller)
         return true
     }
     return false
@@ -71,8 +71,9 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
             if (raw == "Break") return NexaDevActionFlow.Break
             if (raw == "Continue") return NexaDevActionFlow.Continue
             if (raw == "NavigationBack") {
-                (actionLocals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
-                    ?.let { if (it.previousBackStackEntry != null) it.popBackStack() }
+                val controller = (actionLocals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
+                    ?: currentNavController
+                popNavigation(controller)
             }
             continue
         }
@@ -887,8 +888,9 @@ internal suspend fun NexaDevStateStore.performAsync(
             if (raw == "Break") return NexaDevActionFlow.Break
             if (raw == "Continue") return NexaDevActionFlow.Continue
             if (raw == "NavigationBack") {
-                (locals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
-                    ?.let { if (it.previousBackStackEntry != null) it.popBackStack() }
+                val controller = (locals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
+                    ?: currentNavController
+                popNavigation(controller)
             }
             continue
         }

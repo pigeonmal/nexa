@@ -96,6 +96,14 @@ impl KotlinBackend {
         generator::generate_units_with_project_features(module)
     }
 
+    /// Generate release units with Nexa's network runtime for native plugins.
+    pub fn generate_units_with_network_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> (nexa_codegen::GeneratedSources, KotlinProjectFeatures) {
+        generator::generate_units_with_network_and_project_features(module)
+    }
+
     /// Generate the development host as one concatenated source string.
     pub fn generate_for_dev_with_project_features(
         &self,

@@ -236,6 +236,20 @@ fn dev_runtime_removes_completed_task_records_without_removing_replacements() {
 }
 
 #[test]
+fn dev_runtime_reserves_safe_area_endpoints_for_navigation_hosts() {
+    let ios_renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
+    assert!(ios_renderer.contains(
+        "let accommodatesEndpoint = isUniqueOwner || (scrollOwner as? String) == \"RouteHost\""
+    ));
+
+    let android_renderer = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+    assert!(
+        android_renderer
+            .contains("(owner is JSONObject && owner.has(\"Unique\")) || owner == \"RouteHost\"")
+    );
+}
+
+#[test]
 fn ios_dev_single_root_preserves_native_text_alignment() {
     let runtime = include_str!("../../../runtime/ios/NexaDevRuntime.swift");
     let renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
@@ -590,7 +604,7 @@ fn optional_generic_compound_values_generate_aot_and_dev_codecs() {
         "fun nexaReadarray_optional_string(reader: dev.nexa.core.NexaValueReader): List<String?>?"
     ));
     assert!(kotlin.contains("val payload = nexaDecoded_payload.value as String?"));
-    assert!(kotlin.contains("return NexaResult.Success(payload)"));
+    assert!(kotlin.contains("return dev.nexa.core.NexaResult.Success(payload)"));
     assert!(
         swift.contains("guard let payload = nexaReadoptional_string(reader) else { return nil }")
     );
@@ -1101,9 +1115,8 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     )
     .expect("read Android activity edge-to-edge layout");
     assert!(activity.contains("enableEdgeToEdge()"));
-    assert!(activity.contains(
-        "WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)"
-    ));
+    assert!(activity.contains("Box(modifier = Modifier.fillMaxSize())"));
+    assert!(!activity.contains("WindowInsets.safeDrawing"));
 
     let kotlin_primitives =
         fs::read_to_string(output.join(
@@ -1897,9 +1910,11 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
     assert!(swift.contains("NexaBottomSheetPrimitive("));
     assert!(swift.contains("fields[\"component_ref\"]"));
     assert!(swift.contains("componentRef: componentRef"));
+    assert!(swift.contains("fields[\"content_sized\"] as? Bool ?? false"));
     assert!(swift.contains("fields[\"show_drag_indicator\"] as? Bool ?? true"));
     assert!(swift.contains("fields[\"content_padding\"] as? NSNumber"));
     assert!(swift.contains(".map { CGFloat(truncating: $0) } ?? 0"));
+    assert!(swift.contains("fields[\"corner_radius\"] as? NSNumber"));
     assert!(swift.contains("fields[\"detents\"] as? [NSNumber]"));
     assert!(swift.contains("fields[\"initial_detent\"] as? NSNumber"));
     assert!(!swift.contains("snap_points"));
@@ -1915,21 +1930,26 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_types.swift"))
             .expect("read generated iOS sheet primitive");
     assert!(swift_primitives.contains("struct NexaBottomSheetPrimitive<Content: View>"));
+    assert!(swift_primitives.contains("NexaBottomSheetCornerRadius(cornerRadius: cornerRadius)"));
+    assert!(swift_primitives.contains("presentationCornerRadius(cornerRadius)"));
+    assert!(swift_primitives.contains("sheet.preferredCornerRadius = cornerRadius"));
     assert!(swift_primitives.contains("public final class NexaBottomSheetRef"));
     assert!(swift_primitives.contains("public func present()"));
     assert!(swift_primitives.contains("public func dismiss()"));
     assert!(swift_primitives.contains("struct NexaBottomSheetContentPrimitive<Content: View>"));
-    assert!(
-        swift_primitives
-            .contains("NexaBottomSheetContentPrimitive(contentPadding: contentPadding) {")
-    );
+    assert!(swift_primitives.contains(
+        "contentPadding: contentPadding,\n                    contentSized: contentSized"
+    ));
     assert!(swift_primitives.contains("NexaColumnPrimitive("));
     assert!(swift_primitives.contains("alignment: .top"));
     assert!(swift_primitives.contains(".sheet(isPresented: $isPresented, onDismiss: {"));
     assert!(swift_primitives.contains("allowsBackgroundInteraction: allowsBackgroundInteraction"));
     assert!(swift_primitives.contains("presentationBackgroundInteraction(.enabled)"));
     assert!(!swift_primitives.contains("fullScreenCover"));
-    assert!(swift_primitives.contains(".presentationDetents(detents, selection: $selectedDetent)"));
+    assert!(swift_primitives.contains(
+        ".presentationDetents(\n                        contentSized ? [.height(measuredContentHeight)] : detents"
+    ));
+    assert!(swift_primitives.contains("NexaBottomSheetContentHeightKey.self"));
     assert!(
         swift_primitives
             .contains(".presentationDragIndicator(showDragIndicator ? .visible : .hidden)")
@@ -1942,8 +1962,10 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
     assert!(kotlin.contains("NexaBottomSheetPrimitive("));
     assert!(kotlin.contains("\"component_ref\""));
     assert!(kotlin.contains("componentRef = componentRef"));
+    assert!(kotlin.contains("fields.optBoolean(\"content_sized\", false)"));
     assert!(kotlin.contains("fields.optBoolean(\"show_drag_indicator\", true)"));
     assert!(kotlin.contains("fields.optDouble(\"content_padding\", 0.0).toFloat().dp"));
+    assert!(kotlin.contains("fields.opt(\"corner_radius\") as? Number"));
     assert!(kotlin.contains("fields.optJSONArray(\"detents\")"));
     assert!(kotlin.contains("fields.optDouble(\"initial_detent\""));
     assert!(!kotlin.contains("snap_points"));
@@ -1961,6 +1983,7 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
     assert!(kotlin_primitives.contains("public fun present()"));
     assert!(kotlin_primitives.contains("public fun dismiss()"));
     assert!(kotlin_primitives.contains("internal fun NexaBottomSheetPrimitive("));
+    assert!(kotlin_primitives.contains("shape = nexaBottomSheetShape(cornerRadius)"));
     assert!(kotlin_primitives.contains("fun NexaBottomSheetContentPrimitive("));
     assert!(kotlin_primitives.contains("NexaColumnPrimitive("));
     assert!(
@@ -1968,6 +1991,8 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms_inner() {
     );
     assert!(kotlin_primitives.contains("NexaCustomBottomSheetPrimitive("));
     assert!(kotlin_primitives.contains("ModalBottomSheet("));
+    assert!(kotlin_primitives.contains("if (contentSized || nativeValues.size == detents.size)"));
+    assert!(kotlin_primitives.contains("if (contentSized) {"));
     assert!(kotlin_primitives.contains("retainedInComposition.value = false"));
     assert!(kotlin_primitives.contains("dragHandle = if (showDragIndicator)"));
     assert!(kotlin_primitives.contains("ModalBottomSheetProperties("));
@@ -2121,14 +2146,13 @@ fn development_runtime_renders_bottom_tabs_on_both_platforms() {
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),
     )
     .expect("read Android bottom-bar activity");
-    assert!(activity.contains(
-        "WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)"
-    ));
+    assert!(activity.contains("Box(modifier = Modifier.fillMaxSize())"));
+    assert!(!activity.contains("WindowInsets.safeDrawing"));
     assert!(activity.contains("color = Color.Transparent"));
 }
 
 #[test]
-fn android_aot_content_starts_below_status_bar_with_edge_to_edge_background() {
+fn android_aot_root_is_fully_edge_to_edge() {
     let root = temporary_project();
     let source = root.path().join("edge-to-edge-app");
     fs::create_dir(&source).expect("create isolated app source directory");
@@ -2148,8 +2172,7 @@ fn android_aot_content_starts_below_status_bar_with_edge_to_edge_background() {
     )
     .expect("read generated Android AOT activity");
     assert!(activity.contains("enableEdgeToEdge()"));
-    assert!(activity.contains(
-        "WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)"
-    ));
+    assert!(activity.contains("Modifier.fillMaxSize()"));
+    assert!(!activity.contains("WindowInsets.safeDrawing"));
     assert!(!activity.contains("safeDrawingPadding()"));
 }

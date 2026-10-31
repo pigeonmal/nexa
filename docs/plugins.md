@@ -71,6 +71,8 @@ sensor-plugin/
 
 `nexa plugin check` runs syntax and contract validation; native type-checking depends on the installed platform tools and package dependencies. C++ output creates a typed contract; it does not mean every API shape has a generated host adapter.
 
+`hostCapabilities` is an optional `Array<String>` in `plugin.config.nx`; `network` is currently its only supported value. Declaring `hostCapabilities: ["network"]` asks the app generator to include Nexa's shared network implementation only when a reachable plugin needs it: URLSession on iOS and Cronet on Android. This keeps the app network engine available to native plugins without adding a second client or making every plugin app pay its binary-size cost.
+
 ### Document a plugin API
 
 Place a standalone `//` or `///` comment immediately above a declaration or member in `native.nxid`. Consecutive comment lines become one description; a blank line separates the comment from the following item. Inline comments are ignored. The generated API reference includes all declared types, fields, enum and error cases, services, native classes and components, constructors, methods, properties, events, config options, exact types, defaults, async and error signatures, and the comments attached to each item.
@@ -274,11 +276,12 @@ which means the app's store listing and `Info.plist` need a matching user-facing
 <!-- nexadoc:begin native-requirements -->
 | Plugin | iOS minimum | Android `minSdk` | Android permissions | iOS usage descriptions |
 |---|---|---|---|---|
-| **Audio Player** | `17.0` | `26` (API 26) | `android.permission.INTERNET`, `android.permission.WAKE_LOCK` | `—` |
+| **Audio Player** | `16.0` | `24` (API 24) | `android.permission.INTERNET`, `android.permission.WAKE_LOCK` | `—` |
 | **Biometrics** | `13.0` | `28` (API 28) | `android.permission.USE_BIOMETRIC` | `NSFaceIDUsageDescription`: Use Face ID to confirm your identity. |
 | **Browser** | `16.0` | `23` (API 23) | `—` | `—` |
 | **Camera** | `17.0` | `23` (API 23) | `android.permission.CAMERA`, `android.permission.RECORD_AUDIO` | `NSCameraUsageDescription`: Use the camera features you open in this app.<br>`NSMicrophoneUsageDescription`: Record audio when you start a camera video recording with audio enabled. |
 | **Data Extractor** | `13.0` | `28` (API 28) | `—` | `—` |
+| **Download Manager** | `16.0` | `24` (API 24) | `android.permission.INTERNET` | `—` |
 | **In-App Purchases** | `17.0` | `23` (API 23) | `—` | `—` |
 | **Mail Composer** | `16.0` | `23` (API 23) | `—` | `—` |
 | **Maps** | `17.0` | `23` (API 23) | `android.permission.INTERNET` | `—` |
@@ -286,10 +289,14 @@ which means the app's store listing and `Info.plist` need a matching user-facing
 | **MMKV** | `13.0` | `21` (API 21) | `—` | `—` |
 | **Notifications** | `13.0` | `23` (API 23) | `android.permission.INTERNET`, `android.permission.ACCESS_NETWORK_STATE`, `android.permission.POST_NOTIFICATIONS` | `—` |
 | **Sensors** | `17.0` | `26` (API 26) | `android.permission.ACTIVITY_RECOGNITION` | `NSMotionUsageDescription`: Motion and barometer data is used only for the sensor features you start. |
+| **Share Sheet** | `16.0` | `23` (API 23) | `—` | `—` |
+| **Social Sign-In** | `16.0` | `23` (API 23) | `—` | `—` |
 | **SQLite** | `13.0` | `23` (API 23) | `—` | `—` |
+| **Text Codec** | `13.0` | `21` (API 21) | `—` | `—` |
 | **Video Player** | `17.0` | `23` (API 23) | `android.permission.INTERNET` | `—` |
 | **Websocket** | `13.0` | `21` (API 21) | `android.permission.INTERNET` | `—` |
-| **Webview** | `17.0` | `24` (API 24) | `android.permission.INTERNET` | `—` |
+| **Webview** | `16.0` | `24` (API 24) | `android.permission.INTERNET` | `—` |
+| **YouTube Downloader** | `16.0` | `24` (API 24) | `android.permission.INTERNET` | `—` |
 <!-- nexadoc:end native-requirements -->
 
 ### Entitlements, background modes, and services
@@ -298,24 +305,29 @@ These decide whether a plugin links and runs on a real device: a missing entitle
 background mode is a launch-time failure on the platform, not a compile error.
 
 <!-- nexadoc:begin native-integration -->
-| Plugin | iOS entitlements | iOS background modes | App delegate | Android services | Android metadata |
-|---|---|---|---|---|---|
-| **Audio Player** | `—` | `audio` | `—` | `dev.nexa.audio.AudioPlaybackService` | `—` |
-| **Biometrics** | `—` | `—` | `—` | `—` | `—` |
-| **Browser** | `—` | `—` | `—` | `—` | `—` |
-| **Camera** | `—` | `—` | `—` | `—` | `—` |
-| **Data Extractor** | `—` | `—` | `—` | `—` | `—` |
-| **In-App Purchases** | `—` | `—` | `—` | `—` | `—` |
-| **Mail Composer** | `—` | `—` | `—` | `—` | `—` |
-| **Maps** | `—` | `—` | `—` | `—` | `com.google.android.geo.API_KEY`: ${NEXA_MAPS_API_KEY} |
-| **Media Picker** | `—` | `—` | `—` | `—` | `—` |
-| **MMKV** | `—` | `—` | `—` | `—` | `—` |
-| **Notifications** | `aps-environment`: development | `—` | `NotificationsAppDelegate` | `dev.nexa.notifications.NotificationsFirebaseMessagingService` | `—` |
-| **Sensors** | `—` | `—` | `—` | `—` | `—` |
-| **SQLite** | `—` | `—` | `—` | `—` | `—` |
-| **Video Player** | `—` | `—` | `—` | `—` | `—` |
-| **Websocket** | `—` | `—` | `—` | `—` | `—` |
-| **Webview** | `—` | `—` | `—` | `—` | `—` |
+| Plugin | Host capabilities | iOS entitlements | iOS background modes | App delegate | Android services | Android metadata |
+|---|---|---|---|---|---|---|
+| **Audio Player** | `network` | `—` | `audio` | `—` | `dev.nexa.audio.AudioPlaybackService` | `—` |
+| **Biometrics** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Browser** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Camera** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Data Extractor** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Download Manager** | `network` | `—` | `—` | `—` | `—` | `—` |
+| **In-App Purchases** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Mail Composer** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Maps** | `—` | `—` | `—` | `—` | `—` | `com.google.android.geo.API_KEY`: ${NEXA_MAPS_API_KEY} |
+| **Media Picker** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **MMKV** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Notifications** | `—` | `aps-environment`: development | `—` | `NotificationsAppDelegate` | `dev.nexa.notifications.NotificationsFirebaseMessagingService` | `—` |
+| **Sensors** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Share Sheet** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Social Sign-In** | `—` | `com.apple.developer.applesignin`: Default | `—` | `SocialSignInAppDelegate` | `—` | `—` |
+| **SQLite** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Text Codec** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Video Player** | `network` | `—` | `—` | `—` | `—` | `—` |
+| **Websocket** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **Webview** | `—` | `—` | `—` | `—` | `—` | `—` |
+| **YouTube Downloader** | `network` | `—` | `—` | `—` | `—` | `—` |
 <!-- nexadoc:end native-integration -->
 
 ### Native dependency coordinates
@@ -325,11 +337,12 @@ Swift packages and Maven artifacts the plugin generator links into the generated
 <!-- nexadoc:begin native-dependencies -->
 | Plugin | Swift packages | Maven dependencies | iOS frameworks | Linker flags |
 |---|---|---|---|---|
-| **Audio Player** | `—` | `androidx.media3:media3-exoplayer:1.11.1`, `androidx.media3:media3-exoplayer-hls:1.11.1`, `androidx.media3:media3-session:1.11.1` | `AVFoundation`, `MediaPlayer` | `—` |
+| **Audio Player** | `—` | `androidx.media3:media3-exoplayer:1.11.1`, `androidx.media3:media3-exoplayer-hls:1.11.1`, `androidx.media3:media3-session:1.11.1`, `androidx.media3:media3-datasource-cronet:1.11.1` | `AVFoundation`, `MediaPlayer` | `—` |
 | **Biometrics** | `—` | `—` | `LocalAuthentication` | `—` |
 | **Browser** | `—` | `androidx.browser:browser:1.10.0` | `SafariServices`, `UIKit` | `—` |
 | **Camera** | `—` | `androidx.camera:camera-camera2:1.6.2`, `androidx.camera:camera-lifecycle:1.6.2`, `androidx.camera:camera-view:1.6.2`, `androidx.camera:camera-video:1.6.2`, `com.google.mlkit:barcode-scanning:17.3.0` | `AVFoundation` | `—` |
 | **Data Extractor** | `—` | `—` | `—` | `—` |
+| **Download Manager** | `—` | `—` | `—` | `—` |
 | **In-App Purchases** | `—` | `com.android.billingclient:billing:9.1.0` | `StoreKit` | `—` |
 | **Mail Composer** | `—` | `—` | `MessageUI`, `UIKit` | `—` |
 | **Maps** | `—` | `com.google.maps.android:maps-compose:8.6.0` | `MapKit` | `—` |
@@ -337,10 +350,14 @@ Swift packages and Maven artifacts the plugin generator links into the generated
 | **MMKV** | `https://github.com/Tencent/MMKV.git` (from `2.4.2`) | `io.github.zhongwuzw:mmkv:2.4.2` | `—` | `—` |
 | **Notifications** | `—` | `androidx.work:work-runtime-ktx:2.11.2`, `androidx.core:core-ktx:1.17.0`, `com.google.firebase:firebase-messaging:25.1.3` | `UserNotifications`, `UIKit` | `—` |
 | **Sensors** | `—` | `—` | `CoreMotion` | `—` |
+| **Share Sheet** | `—` | `—` | `UIKit` | `—` |
+| **Social Sign-In** | `https://github.com/google/GoogleSignIn-iOS` (from `10.0.0`) | `androidx.credentials:credentials:1.6.0`, `androidx.credentials:credentials-play-services-auth:1.6.0`, `com.google.android.libraries.identity.googleid:googleid:1.2.1` | `AuthenticationServices`, `UIKit` | `—` |
 | **SQLite** | `—` | `—` | `—` | `-lsqlite3` |
-| **Video Player** | `—` | `androidx.media3:media3-exoplayer:1.11.1`, `androidx.media3:media3-datasource:1.11.1`, `androidx.media3:media3-database:1.11.1`, `androidx.media3:media3-exoplayer-hls:1.11.1`, `androidx.media3:media3-exoplayer-dash:1.11.1`, `androidx.media3:media3-datasource-cronet:1.11.1`, `androidx.media3:media3-ui:1.11.1`, `org.chromium.net:cronet-embedded:143.7445.0` | `AVFoundation` | `—` |
+| **Text Codec** | `—` | `—` | `Foundation` | `—` |
+| **Video Player** | `—` | `androidx.media3:media3-exoplayer:1.11.1`, `androidx.media3:media3-datasource:1.11.1`, `androidx.media3:media3-database:1.11.1`, `androidx.media3:media3-exoplayer-hls:1.11.1`, `androidx.media3:media3-exoplayer-dash:1.11.1`, `androidx.media3:media3-datasource-cronet:1.11.1`, `androidx.media3:media3-ui:1.11.1` | `AVFoundation` | `—` |
 | **Websocket** | `—` | `com.squareup.okhttp3:okhttp:5.5.0` | `—` | `—` |
 | **Webview** | `—` | `androidx.webkit:webkit:1.17.1` | `WebKit` | `—` |
+| **YouTube Downloader** | `—` | `org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2`, `androidx.annotation:annotation:1.9.1` | `CryptoKit`, `WebKit` | `—` |
 <!-- nexadoc:end native-dependencies -->
 
 ## Optional compiler analyzer

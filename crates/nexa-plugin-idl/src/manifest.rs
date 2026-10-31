@@ -20,8 +20,16 @@ pub struct PluginManifest {
     /// Optional sources compiled into the generated native host projects.
     pub cpp: CppManifest,
     pub assets: Vec<String>,
+    /// First-party host facilities required by this plugin's native sources.
+    pub host_capabilities: Vec<HostCapability>,
     /// Optional host-side compiler analyzer supplied by this plugin.
     pub compiler: Option<CompilerManifest>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostCapability {
+    /// Nexa's shared URLSession implementation on iOS and Cronet engine on Android.
+    Network,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +138,7 @@ impl Default for PluginManifest {
             android: PlatformManifest::default(),
             cpp: CppManifest::default(),
             assets: Vec::new(),
+            host_capabilities: Vec::new(),
             compiler: None,
         }
     }
@@ -337,6 +346,23 @@ impl Parser {
                 Some("version") => manifest.version = self.parse_string_field("version")?,
                 Some("nexa") => manifest.nexa = Some(self.parse_string_field("nexa")?),
                 Some("assets") => manifest.assets = self.parse_string_array_field("assets")?,
+                Some("hostCapabilities") => {
+                    let values = self.parse_string_array_field("hostCapabilities")?;
+                    let mut capabilities = Vec::with_capacity(values.len());
+                    for value in values {
+                        let capability = match value.as_str() {
+                            "network" => HostCapability::Network,
+                            _ => return self.error(format!("unknown host capability `{value}`")),
+                        };
+                        if capabilities.contains(&capability) {
+                            return self.error(format!(
+                                "host capability `{value}` is declared more than once"
+                            ));
+                        }
+                        capabilities.push(capability);
+                    }
+                    manifest.host_capabilities = capabilities;
+                }
                 Some("sources") => self.parse_sources(&mut manifest)?,
                 Some("ios") => self.parse_platform(&mut manifest.ios, false)?,
                 Some("android") => self.parse_platform(&mut manifest.android, true)?,
@@ -1409,6 +1435,7 @@ mod tests {
                 schema: 2
                 id: "dev.nexa.video"
                 version: "1.0.0"
+                hostCapabilities: ["network"]
                 sources {
                     native: "native.nxid"
                 }
@@ -1468,6 +1495,7 @@ mod tests {
         )
         .expect("manifest should parse");
         assert_eq!(manifest.native.as_deref(), Some("native.nxid"));
+        assert_eq!(manifest.host_capabilities, vec![HostCapability::Network]);
         assert_eq!(
             manifest
                 .compiler
@@ -1565,6 +1593,27 @@ mod tests {
         assert_eq!(
             manifest.ios.linker_flags,
             vec!["-ObjC", "-force_load", "$(PROJECT_DIR)/Vendor/lib.a"]
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_or_duplicate_host_capabilities() {
+        let unknown = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.example" version: "1.0.0" sources { native: "native.nxid" } hostCapabilities: ["bluetooth"] }"#,
+        );
+        assert!(
+            unknown
+                .unwrap_err()
+                .contains("unknown host capability `bluetooth`")
+        );
+
+        let duplicate = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.example" version: "1.0.0" sources { native: "native.nxid" } hostCapabilities: ["network", "network"] }"#,
+        );
+        assert!(
+            duplicate
+                .unwrap_err()
+                .contains("host capability `network` is declared more than once")
         );
     }
 

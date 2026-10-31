@@ -26,6 +26,10 @@ private func nexaCryptoHex<D: Sequence>(_ bytes: D) -> String where D.Element ==
     return String(decoding: encoded, as: UTF8.self)
 }
 
+func nexaCryptoSha1(_ text: String) -> String {
+    nexaCryptoHex(Insecure.SHA1.hash(data: Data(text.utf8)))
+}
+
 func nexaCryptoSha256(_ text: String) -> String {
     nexaCryptoHex(SHA256.hash(data: Data(text.utf8)))
 }

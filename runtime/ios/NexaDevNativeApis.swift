@@ -2,8 +2,10 @@ import Foundation
 import UIKit
 import Network
 
-private func nexaCurrentLanguageCode() -> String {
-    guard let language = Locale.current.identifier
+func nexaCurrentLanguageCode() -> String {
+    let identifier = UserDefaults.standard.string(forKey: "dev.nexa.locale.override")
+        ?? Locale.current.identifier
+    guard let language = identifier
         .split(whereSeparator: { $0 == "-" || $0 == "_" })
         .first,
         language.count > 1
@@ -300,16 +302,30 @@ extension NexaDevStateStore {
         case "Locale":
             switch name {
             case "currentLanguageCode": return .handled(nexaCurrentLanguageCode())
-            case "preferredLanguageCodes": return .handled(Locale.preferredLanguages)
+            case "preferredLanguageCodes":
+                let override = UserDefaults.standard.string(forKey: "dev.nexa.locale.override")
+                let preferred = Locale.preferredLanguages
+                return .handled(override.map { code in
+                    [code] + preferred.filter {
+                        $0.caseInsensitiveCompare(code) != .orderedSame
+                            && $0.split(whereSeparator: { $0 == "-" || $0 == "_" }).first?.lowercased() != nexaCurrentLanguageCode()
+                    }
+                } ?? preferred)
+            case "setLanguageOverride":
+                let code = options["languageCode"] as? String
+                setLanguageOverride(code)
+                return .handled(NSNull())
             case "displayName":
                 return .handled(
-                    Locale.current.localizedString(forLanguageCode: stringOption("languageCode"))
+                    Locale(identifier: UserDefaults.standard.string(forKey: "dev.nexa.locale.override") ?? Locale.current.identifier)
+                        .localizedString(forLanguageCode: stringOption("languageCode"))
                         ?? NSNull() as Any
                 )
             default: return .unhandled
             }
         case "Crypto":
             switch name {
+            case "sha1": return .handled(nexaCryptoSha1(stringOption("text")))
             case "sha256": return .handled(nexaCryptoSha256(stringOption("text")))
             case "sha512": return .handled(nexaCryptoSha512(stringOption("text")))
             case "hmacSha256":
@@ -419,6 +435,23 @@ extension NexaDevStateStore {
                 name: name,
                 headerName: options["name"] as? String ?? ""
             )
+        }
+        if namespace == "__NexaString",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull) {
+            let receiver = try await evaluateAsync(rawReceiver, locals: locals, scope: scope) as? String ?? ""
+            let argument = options["arg0"] as? String ?? ""
+            switch name {
+            case "trim": return receiver.trimmingCharacters(in: .whitespacesAndNewlines)
+            case "toLowercase": return receiver.lowercased()
+            case "toUppercase": return receiver.uppercased()
+            case "normalizeNFKD": return receiver.decomposedStringWithCompatibilityMapping
+            case "split": return receiver.components(separatedBy: argument)
+            case "contains": return receiver.contains(argument)
+            case "startsWith": return receiver.hasPrefix(argument)
+            case "endsWith": return receiver.hasSuffix(argument)
+            default: return NSNull()
+            }
         }
         if let receiverExpression = call["receiver"], !(receiverExpression is NSNull) {
             let receiver = try await evaluateAsync(receiverExpression, locals: locals, scope: scope)
@@ -549,7 +582,13 @@ extension NexaDevStateStore {
                 userInfo: [NSLocalizedDescriptionKey: "Unsupported async native call \(namespace).\(name)"]
             )
         }
-        let headers = options["headers"] as? [String: String] ?? [:]
+        let directHeaders = options["headers"] as? [String: String] ?? [:]
+        var headers: [String: String] = directHeaders
+        if headers.isEmpty, let rawHeaders = options["headers"] as? [String: Any] {
+            for (key, value) in rawHeaders where !(value is NSNull) {
+                headers[key] = stringify(value)
+            }
+        }
         let pins = Set(options["certificatePins"] as? Set<String> ?? [])
         let body = (options["body"] as? String).map { Data($0.utf8) }
         let url = stringOption("url")
@@ -669,6 +708,22 @@ extension NexaDevStateStore {
                 name: name,
                 headerName: options["name"] as? String ?? ""
             )
+        }
+        if namespace == "__NexaString",
+           let rawReceiver = call["receiver"],
+           !(rawReceiver is NSNull) {
+            let receiver = evaluate(rawReceiver, locals: locals, scope: scope) as? String ?? ""
+            switch name {
+            case "trim": return receiver.trimmingCharacters(in: .whitespacesAndNewlines)
+            case "toLowercase": return receiver.lowercased()
+            case "toUppercase": return receiver.uppercased()
+            case "normalizeNFKD": return receiver.decomposedStringWithCompatibilityMapping
+            case "split": return receiver.components(separatedBy: options["arg0"] as? String ?? " ")
+            case "contains": return receiver.contains(options["arg0"] as? String ?? "")
+            case "startsWith": return receiver.hasPrefix(options["arg0"] as? String ?? "")
+            case "endsWith": return receiver.hasSuffix(options["arg0"] as? String ?? "")
+            default: return NSNull()
+            }
         }
         if namespace == "Regex" {
             let receiverExpression = call["receiver"]

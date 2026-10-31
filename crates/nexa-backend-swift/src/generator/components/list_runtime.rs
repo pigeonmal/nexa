@@ -400,6 +400,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let onEndReached: (() -> Void)?
     // <nexa:scroll-events-field:begin>
     let onScroll: (() -> Void)?
+    let onScrollBeginDrag: (() -> Void)?
     // <nexa:scroll-events-field:end>
     // <nexa:sticky-header-field:begin>
     let headerContent: (() -> HeaderContent)?
@@ -424,6 +425,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         onEndReached: (() -> Void)? = nil,
         // <nexa:scroll-events-init-parameter:begin>
         onScroll: (() -> Void)? = nil,
+        onScrollBeginDrag: (() -> Void)? = nil,
         // <nexa:scroll-events-init-parameter:end>
         // <nexa:sticky-header-init-parameter:begin>
         headerContent: (() -> HeaderContent)? = nil,
@@ -447,6 +449,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         self.onEndReached = onEndReached
         // <nexa:scroll-events-init-assignment:begin>
         self.onScroll = onScroll
+        self.onScrollBeginDrag = onScrollBeginDrag
         // <nexa:scroll-events-init-assignment:end>
         // <nexa:sticky-header-init-assignment:begin>
         self.headerContent = headerContent
@@ -468,6 +471,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             onEndReached: onEndReached,
             // <nexa:scroll-events-coordinator-argument:begin>
             onScroll: onScroll,
+            onScrollBeginDrag: onScrollBeginDrag,
             // <nexa:scroll-events-coordinator-argument:end>
             // <nexa:sticky-header-coordinator-argument:begin>
             headerContent: headerContent,
@@ -605,6 +609,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         coordinator.onEndReached = onEndReached
         // <nexa:scroll-events-update-assignment:begin>
         coordinator.onScroll = onScroll
+        coordinator.onScrollBeginDrag = onScrollBeginDrag
         // <nexa:scroll-events-update-assignment:end>
         // <nexa:sticky-header-update-assignment:begin>
         coordinator.headerContent = headerContent
@@ -721,6 +726,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         var onEndReached: (() -> Void)?
         // <nexa:scroll-events-coordinator-field:begin>
         var onScroll: (() -> Void)?
+        var onScrollBeginDrag: (() -> Void)?
         // <nexa:scroll-events-coordinator-field:end>
         // <nexa:sticky-header-coordinator-field:begin>
         var headerContent: (() -> HeaderContent)?
@@ -750,6 +756,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             onEndReached: (() -> Void)?,
             // <nexa:scroll-events-coordinator-init-parameter:begin>
             onScroll: (() -> Void)?,
+            onScrollBeginDrag: (() -> Void)?,
             // <nexa:scroll-events-coordinator-init-parameter:end>
             // <nexa:sticky-header-coordinator-init-parameter:begin>
             headerContent: (() -> HeaderContent)?,
@@ -770,6 +777,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             self.onEndReached = onEndReached
             // <nexa:scroll-events-coordinator-init-assignment:begin>
             self.onScroll = onScroll
+            self.onScrollBeginDrag = onScrollBeginDrag
             // <nexa:scroll-events-coordinator-init-assignment:end>
             // <nexa:sticky-header-coordinator-init-assignment:begin>
             self.headerContent = headerContent
@@ -1028,6 +1036,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             isIgnoringProgrammaticScrollCallbacks = false
+            // <nexa:scroll-events-callback:begin>
+            onScrollBeginDrag?()
+            // <nexa:scroll-events-callback:end>
             if isApplyingVisibleRowReconfiguration {
                 visibleRowReconfigurationGeneration += 1
             }
@@ -2780,6 +2791,7 @@ fn append_fast_list_primitive(
     out.push_str("    onEndReached: (() -> Void)? = nil,\n");
     if uses_scroll_events {
         out.push_str("    onScroll: (() -> Void)? = nil,\n");
+        out.push_str("    onScrollBeginDrag: (() -> Void)? = nil,\n");
     }
     if has_header {
         out.push_str("    headerContent: (() -> HeaderContent)?,\n");
@@ -2856,6 +2868,7 @@ fn append_native_fast_list_call(
     out.push_str("            onEndReached: onEndReached,\n");
     if uses_scroll_events {
         out.push_str("            onScroll: onScroll,\n");
+        out.push_str("            onScrollBeginDrag: onScrollBeginDrag,\n");
     }
     if has_header {
         out.push_str("            headerContent: headerContent,\n");

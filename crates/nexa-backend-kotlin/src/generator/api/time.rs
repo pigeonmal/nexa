@@ -39,6 +39,31 @@ internal fun nexaFormatDate(milliseconds: Long, pattern: String): String {
     return formatter.format(java.util.Date(milliseconds))
 }
 
+/** Reuses locale-aware long-date formatters for announcement dates. */
+private val nexaLongDateFormatters = ThreadLocal.withInitial { HashMap<String, java.text.DateFormat>() }
+
+internal fun nexaLocalizedLongDate(milliseconds: Long, languageCode: String): String {
+    val locale = java.util.Locale.forLanguageTag(languageCode.replace('_', '-'))
+    val timeZone = java.util.TimeZone.getDefault()
+    val key = "${locale.toLanguageTag()}|${timeZone.id}"
+    val formatters = nexaLongDateFormatters.get()!!
+    val formatter = formatters[key] ?: java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG, locale).apply {
+        this.timeZone = timeZone
+    }.also {
+        if (formatters.size >= 16) formatters.clear()
+        formatters[key] = it
+    }
+    return formatter.format(java.util.Date(milliseconds))
+}
+
+/** Formats a playback duration without locale-sensitive date conversion or formatter allocation. */
+internal fun nexaFormatDuration(seconds: Double): String {
+    val wholeSeconds = if (seconds.isFinite() && seconds > 0.0) kotlin.math.floor(seconds).toLong() else 0L
+    val minutes = wholeSeconds / 60L
+    val remainder = wholeSeconds % 60L
+    return "${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}"
+}
+
 /** The local calendar-day key for a wall-clock timestamp. */
 internal fun nexaStartOfDay(milliseconds: Long): Long =
     java.util.Calendar.getInstance().apply {
@@ -193,3 +218,22 @@ private fun nexaDaysFromCivil(year: Long, month: Long, day: Long): Long {
     return era * NEXA_DAYS_IN_400_YEARS + dayOfEra - NEXA_EPOCH_DAYS
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::TIME_RUNTIME;
+
+    #[test]
+    fn long_dates_use_a_cached_language_formatter() {
+        assert!(
+            TIME_RUNTIME.contains(
+                "java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG, locale)"
+            )
+        );
+        assert!(
+            TIME_RUNTIME
+                .contains("java.util.Locale.forLanguageTag(languageCode.replace('_', '-'))")
+        );
+        assert!(TIME_RUNTIME.contains("formatters[key] = it"));
+    }
+}

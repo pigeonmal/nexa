@@ -14,6 +14,10 @@ pub enum SystemIcon {
     SfSymbol(String),
     /// An explicit Android Compose Material icon name.
     MaterialSymbol(String),
+    /// A preconfigured app icon-font glyph. The app config resolves the public
+    /// icon name during compilation, so generated views carry a typed family
+    /// and scalar value rather than doing runtime string lookup.
+    FontGlyph { font_family: String, glyph: u32 },
 }
 
 /// One portable icon name and its native spellings.
@@ -1208,6 +1212,7 @@ impl SystemIcon {
                         .next()
                         .is_some_and(|suffix| suffix == icon.material_name)
             }),
+            Self::FontGlyph { .. } => None,
         }?;
 
         let (resource_name, path_data) = match shared.name {
@@ -1262,6 +1267,21 @@ impl SystemIcon {
         (!symbol.1.is_empty()).then_some(Self::MaterialSymbol(name))
     }
 
+    pub fn font_glyph(font_family: impl Into<String>, glyph: u32) -> Option<Self> {
+        let font_family = font_family.into();
+        (!font_family.trim().is_empty()
+            && !font_family.contains(['\n', '\r', '\0'])
+            && char::from_u32(glyph).is_some())
+        .then_some(Self::FontGlyph { font_family, glyph })
+    }
+
+    pub fn font_glyph_parts(&self) -> Option<(&str, u32)> {
+        match self {
+            Self::FontGlyph { font_family, glyph } => Some((font_family, *glyph)),
+            _ => None,
+        }
+    }
+
     pub fn sf_symbol_name(&self) -> String {
         match self {
             Self::Shared(name) => shared_icon(name).map_or_else(
@@ -1273,6 +1293,7 @@ impl SystemIcon {
                 || "questionmark".to_owned(),
                 |icon| icon.sf_symbol.to_owned(),
             ),
+            Self::FontGlyph { .. } => "questionmark".to_owned(),
         }
     }
 
@@ -1291,6 +1312,7 @@ impl SystemIcon {
                     material_symbol_parts(name).unwrap_or(("Filled", "Star".to_owned()));
                 material_import(namespace, &symbol)
             }
+            Self::FontGlyph { .. } => material_import("Filled", "Star"),
         }
     }
 
@@ -1305,6 +1327,7 @@ impl SystemIcon {
             Self::MaterialSymbol(name) => {
                 material_symbol_parts(name).unwrap_or_else(|| ("Filled", "Star".to_owned()))
             }
+            Self::FontGlyph { .. } => ("Filled", "Star".to_owned()),
         };
         format!("Icons.{namespace}.{symbol}")
     }

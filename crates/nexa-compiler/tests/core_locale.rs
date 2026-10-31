@@ -84,7 +84,7 @@ fn text_literals_are_translation_keys_and_keep_translator_comments() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(swift_source.contains("Text(\"Save\", comment: \"Button to persist user profile\")"));
-    assert!(swift_source.contains("Text(String(format: NSLocalizedString("));
+    assert!(swift_source.contains("Text(String(format: NexaLocale.localizedString("));
     assert!(swift_source.contains("comment: \"Greeting shown at the top of the screen\""));
     assert!(swift_source.contains("arguments: [String(describing: nexa_name) as CVarArg]))"));
     assert!(
@@ -103,11 +103,11 @@ fn text_literals_are_translation_keys_and_keep_translator_comments() {
         .generate_with_project_features(&kotlin)
         .0;
     assert!(
-        kotlin_source.contains("stringResource(R.string.nexa_save_"),
+        kotlin_source.contains("NexaLocale.string(R.string.nexa_save_"),
         "{kotlin_source}"
     );
     assert!(
-        kotlin_source.contains("pluralStringResource(R.plurals."),
+        kotlin_source.contains("NexaLocale.quantityString(R.plurals."),
         "{kotlin_source}"
     );
 
@@ -169,24 +169,34 @@ fn picker_and_segmented_choices_use_the_localization_catalog() {
         .map(|unit| unit.contents)
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(swift.contains("NSLocalizedString(\"Due date\""), "{swift}");
-    assert!(swift.contains("NSLocalizedString(\"Newest\""), "{swift}");
-    assert!(swift.contains("NSLocalizedString(\"Week\""), "{swift}");
+    assert_eq!(swift.matches("enum NexaLocale {").count(), 1);
+    assert!(
+        swift.contains("NexaLocale.localizedString(key: \"Due date\""),
+        "{swift}"
+    );
+    assert!(
+        swift.contains("NexaLocale.localizedString(key: \"Newest\""),
+        "{swift}"
+    );
+    assert!(
+        swift.contains("NexaLocale.localizedString(key: \"Week\""),
+        "{swift}"
+    );
 
     let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
     let due_date_resource = nexa_codegen::names::localization_resource_name("Due date");
     let newest_resource = nexa_codegen::names::localization_resource_name("Newest");
     let week_resource = nexa_codegen::names::localization_resource_name("Week");
     assert!(
-        kotlin.contains(&format!("getString(R.string.{due_date_resource})")),
+        kotlin.contains(&format!("NexaLocale.string(R.string.{due_date_resource})")),
         "{kotlin}"
     );
     assert!(
-        kotlin.contains(&format!("getString(R.string.{newest_resource})")),
+        kotlin.contains(&format!("NexaLocale.string(R.string.{newest_resource})")),
         "{kotlin}"
     );
     assert!(
-        kotlin.contains(&format!("getString(R.string.{week_resource})")),
+        kotlin.contains(&format!("NexaLocale.string(R.string.{week_resource})")),
         "{kotlin}"
     );
 }
@@ -226,7 +236,7 @@ fn locale_localized_accepts_source_text_for_native_api_arguments() {
         .map(|unit| unit.contents)
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(swift_source.contains("NSLocalizedString(\"Reminder\""));
+    assert!(swift_source.contains("NexaLocale.localizedString(key: \"Reminder\""));
 
     let kotlin = compile_file_with_warnings_for_target(&entry, Target::Kotlin)
         .expect("source-text locale calls should compile for Compose")
@@ -234,7 +244,69 @@ fn locale_localized_accepts_source_text_for_native_api_arguments() {
     let kotlin_source = nexa_backend_kotlin::KotlinBackend
         .generate_with_project_features(&kotlin)
         .0;
-    assert!(kotlin_source.contains("NexaRuntime.context().getString(R.string."));
+    assert!(kotlin_source.contains("NexaLocale.string(R.string."));
+}
+
+#[test]
+fn locale_language_override_is_typed_and_drives_native_layout_and_resources() {
+    let project = TestProject::new("nexa-locale-language-override");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app LocaleOverride {
+    state language: String = "ar"
+    body {
+        Column {
+            Text(Locale.localized("Settings"))
+            Button("Use selected language") {
+                Locale.setLanguageOverride(language)
+            }
+        }
+    }
+}
+"#,
+    )
+    .expect("test source should be written");
+
+    let swift_module = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .expect("language override should type-check for SwiftUI")
+        .module;
+    let swift = nexa_backend_swift::SwiftBackend
+        .generate_units(&swift_module)
+        .units
+        .into_iter()
+        .map(|unit| unit.contents)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("NexaLocale.setLanguageOverride(nexa_language)"));
+    assert!(
+        swift.contains("@AppStorage(\"dev.nexa.locale.override\") private var nexaLocaleOverride")
+    );
+    assert!(swift.contains(
+        ".environment(\\.locale, NexaLocale.formatLocale(override: nexaLocaleOverride))"
+    ));
+    assert!(swift.contains(
+        ".environment(\\.layoutDirection, NexaLocale.isRightToLeft(override: nexaLocaleOverride)"
+    ));
+
+    let kotlin_module = compile_file_with_warnings_for_target(&entry, Target::Kotlin)
+        .expect("language override should type-check for Compose")
+        .module;
+    let kotlin = nexa_backend_kotlin::KotlinBackend
+        .generate_with_project_features(&kotlin_module)
+        .0;
+    assert!(kotlin.contains("NexaLocale.setLanguageOverride(nexa_language)"));
+    assert!(kotlin.contains("SharedPreferences"));
+    assert!(kotlin.contains("NexaLocale.isRightToLeft()"));
+    assert!(kotlin.contains("NexaLocale.string(R.string."));
+    assert!(kotlin.contains("NexaLocale.provide {"));
+    assert!(kotlin.contains("LocalConfiguration provides configured.resources.configuration"));
+    assert!(
+        kotlin.contains(
+            "private val overrideRevision = androidx.compose.runtime.mutableIntStateOf(0)"
+        )
+    );
+    assert!(kotlin.contains("overrideRevision.intValue = overrideRevision.intValue + 1"));
 }
 
 #[test]
@@ -263,4 +335,41 @@ app LocaleExample {
         .module;
     let entries = nexa_ir::localization::extract(&module);
     assert!(entries.contains_key("Task reminder"));
+}
+
+#[test]
+fn locale_display_name_preserves_optional_type_for_fallback() {
+    let project = TestProject::new("nexa-locale-display-name-fallback");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app LocaleDisplayName {
+    state displayName: String = Locale.displayName(languageCode: "fr") ?? "fr"
+    body {
+        Text(displayName)
+    }
+}
+"#,
+    )
+    .expect("test source should be written");
+
+    let swift_module = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .expect("optional language names should support a string fallback on SwiftUI")
+        .module;
+    let swift = nexa_backend_swift::SwiftBackend
+        .generate_units(&swift_module)
+        .units
+        .into_iter()
+        .map(|unit| unit.contents)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("NexaLocale.displayName(languageCode: \"fr\")"));
+
+    let kotlin_module = compile_file_with_warnings_for_target(&entry, Target::Kotlin)
+        .expect("optional language names should support a string fallback on Compose")
+        .module;
+    let kotlin = nexa_backend_kotlin::KotlinBackend
+        .generate_with_project_features(&kotlin_module)
+        .0;
+    assert!(kotlin.contains("NexaLocale.displayName(\"fr\")"));
 }

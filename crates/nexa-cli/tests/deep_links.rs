@@ -34,7 +34,8 @@ fn deep_link_config_generates_native_registration_and_typed_screen_routes() {
         .expect("read iOS associated-domain entitlement");
     assert!(entitlements.contains("applinks:links.example.com"));
     let swift = TestProject::concat_sources_in(&ios_root, "swift");
-    assert!(swift.contains("NavigationStack(path: $__nexaNavigationPath)"));
+    assert!(swift.contains("NavigationStack(path: __nexaNavigationPath)"));
+    assert!(swift.contains("__nexaNavigationPath.wrappedValue = []"));
     assert!(swift.contains("case \"product-details\":"));
     assert!(swift.contains("guard segments.count <= 3"));
     assert!(swift.contains("queryItems.first(where: { $0.name == \"page\" })?.value"));

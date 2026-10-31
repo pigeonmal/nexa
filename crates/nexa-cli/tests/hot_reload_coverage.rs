@@ -531,7 +531,8 @@ fn collect_parity_components(
                         || (invocation.name == "LinearGradient" && name == "direction")
                         || (invocation.name == "Image" && name == "scale")
                         || (invocation.name == "StatusBar" && name == "style")
-                        || (invocation.name == "KeyboardAware" && name == "dismiss")
+                        || (invocation.name == "KeyboardAware"
+                            && ["dismiss", "behavior"].contains(&name.as_str()))
                     {
                         let literal_name = match value {
                             Expr::EnumCase { case_name, .. } => Some(case_name.as_str()),
@@ -810,6 +811,7 @@ fn component_parity_app_exercises_every_catalog_component() {
         ),
         ("scale", ["Fit", "Fill"].as_slice()),
         ("dismiss", ["Interactive", "Never"].as_slice()),
+        ("behavior", ["Stay", "Avoid"].as_slice()),
     ] {
         for value in expected {
             assert!(
@@ -1039,6 +1041,19 @@ fn text_input_parity_route_covers_every_parameter_and_enum_case() {
             && screen_source.contains("state emailFocused: Bool = false"),
         "TextInputCases must cover an initially unfocused and user-focusable field"
     );
+    assert!(
+        screen_source.contains(".onFocus {"),
+        "TextInputCases must exercise a focus action"
+    );
+
+    let ios_runtime = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    let android_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android DevRuntime renderer");
+    assert!(ios_runtime.contains("let onFocus = fields[\"on_focus\"] as? [Any]"));
+    assert!(ios_runtime.contains("store.perform(onFocus, scope: scope, locals: locals)"));
+    assert!(android_runtime.contains("fields.optJSONArray(\"on_focus\")"));
+    assert!(android_runtime.contains("store.perform(onFocus, scope, locals)"));
 }
 
 #[test]
@@ -1184,7 +1199,9 @@ fn picker_date_dev_runtimes_read_typed_props_from_the_ir_node() {
         .nth(1)
         .and_then(|section| section.split("\n        \"").next())
         .expect("find Android DevRuntime FormSection renderer");
-    assert!(android_form_section.contains("horizontalInset = 0f"));
+    assert!(
+        android_form_section.contains("horizontalInset = nexaDevFormRowHorizontalInset.toFloat()")
+    );
 }
 
 #[test]
@@ -1334,12 +1351,12 @@ fn component_parity_app_generates_release_code_for_both_targets() {
         (
             "scale",
             ".scaleEffect(1.2)",
-            ".graphicsLayer(scaleX = 1.2f, scaleY = 1.2f, rotationZ = 0.0f)",
+            "scaleX = 1.2f",
         ),
         (
             "rotation",
             ".rotationEffect(.degrees(12))",
-            ".graphicsLayer(scaleX = 1.0f, scaleY = 1.0f, rotationZ = 12f)",
+            "rotationZ = 12f",
         ),
         ("shadow", "radius: 8, x: 4, y: 6)", "Shadow(radius = 8.dp"),
         ("blur", ".blur(radius: 2)", ".blur(2.dp)"),
@@ -1407,9 +1424,9 @@ fn component_parity_app_generates_release_code_for_both_targets() {
     assert!(swift.contains("hint: Text(\"Demonstrates Column semantics\")"));
     assert!(swift.contains("value: Text(\"Ready\")"));
     assert!(swift.contains("role: \"Header\""));
-    assert!(kotlin.contains("label = NexaRuntime.context().getString(R.string."));
-    assert!(kotlin.contains("hint = NexaRuntime.context().getString(R.string."));
-    assert!(kotlin.contains("value = NexaRuntime.context().getString(R.string."));
+    assert!(kotlin.contains("label = NexaLocale.string(R.string."));
+    assert!(kotlin.contains("hint = NexaLocale.string(R.string."));
+    assert!(kotlin.contains("value = NexaLocale.string(R.string."));
     assert!(kotlin.contains("role = null,"));
     assert!(kotlin.contains("isHeading = true,"));
     assert!(swift.contains("role: \"Button\""));
@@ -1965,6 +1982,7 @@ fn keyed_fast_list_module(with_reordering: bool) -> Module {
                 }],
                 on_end_reached: None,
                 on_scroll: None,
+                on_scroll_begin_drag: None,
                 on_move: with_reordering.then(|| nexa_ir::FastListMove {
                     from: "from".to_owned(),
                     to: "to".to_owned(),
@@ -2031,14 +2049,25 @@ fn every_view_node_has_aot_and_dev_dispatch_on_both_platforms() {
             kotlin_dispatch.contains(&format!("Node::{variant}")),
             "Kotlin AOT has no Node::{variant} mapping"
         );
-        assert!(
-            swift_runtime.contains(&format!("\"{variant}\"")),
-            "iOS DevRuntime has no {variant} mapping"
-        );
-        assert!(
-            kotlin_runtime.contains(&format!("\"{variant}\"")),
-            "Android DevRuntime has no {variant} mapping"
-        );
+        if variant == "Shape" {
+            assert!(
+                swift_runtime.contains("NexaDevNodeKind.shape"),
+                "iOS DevRuntime has no Shape mapping"
+            );
+            assert!(
+                kotlin_runtime.contains("NexaDevNodeKind.SHAPE"),
+                "Android DevRuntime has no Shape mapping"
+            );
+        } else {
+            assert!(
+                swift_runtime.contains(&format!("\"{variant}\"")),
+                "iOS DevRuntime has no {variant} mapping"
+            );
+            assert!(
+                kotlin_runtime.contains(&format!("\"{variant}\"")),
+                "Android DevRuntime has no {variant} mapping"
+            );
+        }
     }
 }
 
@@ -2216,7 +2245,9 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
                 name: "BottomSheet".to_owned(),
                 identity: "show-editor-sheet".to_owned(),
             },
+            content_sized: false,
             content_padding: 0.0,
+            corner_radius: None,
             detents: vec![0.5, 1.0],
             initial_detent: None,
             show_drag_indicator: true,
@@ -2257,6 +2288,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         Node::Switch {
             state: "enabled".to_owned(),
             label: Expr::String("Shared switch".to_owned()),
+            on_change: None,
         },
         Node::TextInput {
             state: "query".to_owned(),
@@ -2272,18 +2304,38 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
             focused: None,
             max_length: None,
             font: None,
+            font_size: None,
+            font_family: None,
+            text_color: None,
+            placeholder_color: None,
+            clearable: false,
             min_lines: None,
             max_lines: None,
             searchable: true,
             actions: Vec::new(),
+            on_focus: None,
             on_change: None,
         },
         Node::Slider {
             state: "amount".to_owned(),
             animated: false,
-            min: 0.0,
-            max: 1.0,
+            min: Expr::Number {
+                raw: "0.0".to_owned(),
+                ty: nexa_ir::NumericType::Float64,
+            },
+            max: Expr::Number {
+                raw: "1.0".to_owned(),
+                ty: nexa_ir::NumericType::Float64,
+            },
             step: 0.1,
+            tint: None,
+            track_color: None,
+            thumb_color: None,
+            track_height: None,
+            thumb_size: None,
+            hit_slop: None,
+            on_change: None,
+            on_editing_changed: None,
         },
         Node::ProgressBar {
             progress: Some(Expr::Number {
@@ -2480,10 +2532,10 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(swift.contains("NexaAppBottomBarPrimitive("));
     assert!(swift_runtime.contains("NexaAppBottomBarPrimitive("));
     assert!(swift_runtime.contains("nexaDevUsesIconOnlyButtonLabel"));
-    assert!(swift_runtime.contains("Image(systemName: symbol)"));
-    assert!(swift.contains("itemIcons: [\"calendar\", \"flag.fill\", \"pencil\"]"));
-    assert!(swift.contains("Image(systemName: itemIcons[index])"));
-    assert!(swift_runtime.contains("fields[\"item_icons\"] as? [[String: String]]"));
+    assert!(swift_runtime.contains("NexaIconView(icon: icon, description:"));
+    assert!(swift.contains("itemIcons: [NexaIconSpec(symbol: \"calendar\"), NexaIconSpec(symbol: \"flag.fill\"), NexaIconSpec(symbol: \"pencil\")]"));
+    assert!(swift.contains("NexaIconView(icon: itemIcons[index]"));
+    assert!(swift_runtime.contains("compactMap(nexaDevIconSpec)"));
     for primitive in ["NexaAssetImagePrimitive(", "NexaRemoteImagePrimitive("] {
         assert!(swift.contains(primitive), "iOS AOT omitted {primitive}");
         assert!(
@@ -2537,14 +2589,14 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         "NexaFormRowPrimitive(",
         "NexaSwitchPrimitive(label:",
         "NexaTextInputPrimitive(",
-        "NexaSliderPrimitive(value:",
+        "NexaSliderPrimitive(",
         "NexaProgressBarPrimitive(",
         "NexaProgressRingPrimitive(",
         "NexaDividerPrimitive(color:",
         "NexaSegmentedControlPrimitive(items:",
         "NexaPickerPrimitive(selection:",
         "NexaContentUnavailablePrimitive(",
-        "NexaSystemIconPrimitive(symbol:",
+        "NexaIconView(icon:",
         "NexaLinearGradientPrimitive(colors:",
         "NexaAccessibilityPrimitive(",
         "NexaLinkPrimitive(destination:",
@@ -2603,7 +2655,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(kotlin.contains("internal fun NexaAppBottomBarPrimitive("));
     assert!(kotlin_runtime.contains("NexaAppBottomBarPrimitive("));
     assert!(kotlin.contains(
-        "itemIcons = listOf(Icons.Outlined.CalendarMonth, Icons.Filled.Flag, Icons.Filled.Edit)"
+        "itemIcons = listOf(NexaIconSpec(vector = Icons.Outlined.CalendarMonth), NexaIconSpec(vector = Icons.Filled.Flag), NexaIconSpec(vector = Icons.Filled.Edit))"
     ));
     assert!(kotlin.contains("itemIcons.getOrNull(index)?.let"));
     assert!(kotlin_runtime.contains("fields.optJSONArray(\"item_icons\")"));
@@ -2633,14 +2685,14 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         "NexaFormRowPrimitive(",
         "NexaSwitchPrimitive(",
         "NexaTextInputPrimitive(",
-        "NexaSliderPrimitive(value =",
+        "NexaSliderPrimitive(",
         "NexaProgressBarPrimitive(progress =",
         "NexaProgressRingPrimitive(",
         "NexaDividerPrimitive(color =",
         "NexaSegmentedControlPrimitive(items =",
         "NexaPickerPrimitive(items =",
         "NexaContentUnavailablePrimitive(title =",
-        "NexaSystemIconPrimitive(image =",
+        "NexaIconContent(icon =",
         "NexaLinearGradientPrimitive(startColor =",
         "NexaAccessibilityPrimitive(",
         "NexaLinkPrimitive(onClick =",
@@ -2662,7 +2714,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         "NexaSegmentedControlPrimitive(",
         "NexaPickerPrimitive(",
         "NexaContentUnavailablePrimitive(",
-        "NexaSystemIconPrimitive(",
+        "NexaIconContent(",
         "NexaLinearGradientPrimitive(",
     ] {
         assert!(
@@ -2871,11 +2923,6 @@ fn aot_prunes_unreachable_shared_components_while_dev_hosts_preload_them() {
             "NexaContentUnavailablePrimitive(",
         ),
         (
-            "struct NexaSystemIconPrimitive: View",
-            "internal fun NexaSystemIconPrimitive(",
-            "NexaSystemIconPrimitive(",
-        ),
-        (
             "struct NexaLinearGradientPrimitive: View",
             "internal fun NexaLinearGradientPrimitive(",
             "NexaLinearGradientPrimitive(",
@@ -2943,6 +2990,10 @@ fn aot_prunes_unreachable_shared_components_while_dev_hosts_preload_them() {
             "Android DevRuntime does not dispatch through {call}"
         );
     }
+    assert!(swift_dev.contains("struct NexaIconView: View"));
+    assert!(kotlin_dev.contains("internal fun NexaIconContent("));
+    assert!(swift_runtime.contains("NexaIconView(icon:"));
+    assert!(kotlin_runtime.contains("NexaIconContent("));
 
     assert!(swift_release.contains("struct NexaColumnPrimitive<Content: View>"));
     assert!(kotlin_release.contains("internal fun NexaColumnPrimitive("));
@@ -3102,14 +3153,22 @@ fn dev_runtime_roots_preserve_aot_layout_background_and_binding_updates() {
 
     assert!(swift_root.contains("if let module = runtime.module {"));
     assert!(swift_root.contains(".overlay(alignment: .topTrailing)"));
-    assert!(!swift_root.contains("alignment: .topLeading"));
+    let root_layout_end = swift_root
+        .find("struct NexaDevSafeAreaInsetPrimitive")
+        .expect("find dev root layout boundary");
+    assert!(!swift_root[..root_layout_end].contains("alignment: .topLeading"));
+    assert!(swift_root.contains(
+        ".frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)"
+    ));
+    assert!(swift_root.contains(".environment(\\.nexaSafeAreaRootFillsWidth, true)"));
     assert!(swift_state.contains("func setValue(_ name: String, value: Any, scope: String)"));
     assert!(swift_state.contains("current.isEqual(next)"));
     assert!(swift_state.contains("invalidateReaders(of: storageKey, sourceScope: scope)"));
     assert!(kotlin_root.contains("Surface(Modifier.fillMaxSize()) {"));
+    assert!(kotlin_root.contains("modifier = Modifier.fillMaxSize(),"));
     assert!(
-        kotlin_root
-            .contains(".windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))")
+        !kotlin_root
+            .contains("windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))")
     );
 }
 
@@ -3185,8 +3244,18 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
         .expect("read iOS dev renderer");
     let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android dev renderer");
-    let swift_icons = section(&swift, "case \"SystemIcon\":", "case \"LinearGradient\":");
-    let kotlin_icons = section(&kotlin, "\"SystemIcon\" -> {", "\"LinearGradient\" -> {");
+    let swift_icons = section(
+        &swift,
+        "private func nexaDevIconSpec(",
+        "private func nexaDevMaterialIconSymbol(",
+    );
+    let kotlin_icons = section(
+        &kotlin,
+        "private fun nexaDevIconSpec(",
+        "internal data class NexaDevContentSlot",
+    );
+    let swift_font_icons = section(&swift, "case \"FontIcon\":", "case \"LinearGradient\":");
+    let kotlin_font_icons = section(&kotlin, "\"FontIcon\" -> {", "\"LinearGradient\" -> {");
     for (kind, swift_key, kotlin_key) in [
         ("shared", "icon[\"shared\"]", "selection.has(\"shared\")"),
         (
@@ -3209,6 +3278,10 @@ fn system_icons_and_gradient_directions_have_both_native_renderers() {
             "Android dev renderer has no {kind} system icon mapping"
         );
     }
+    assert!(swift_font_icons.contains("store.evaluate(fields[\"size\"]"));
+    assert!(swift_font_icons.contains("NexaFontIconPrimitive("));
+    assert!(kotlin_font_icons.contains("store.evaluatePresented(fields.opt(\"size\")"));
+    assert!(kotlin_font_icons.contains("NexaFontIconPrimitive("));
 
     let swift_gradients = section(&swift, "case \"LinearGradient\":", "case \"Image\":");
     let kotlin_gradients = section(&kotlin, "\"LinearGradient\" -> {", "\"Button\" ->");
@@ -3236,7 +3309,7 @@ fn semantic_text_font_roles_match_native_metrics_in_both_dev_runtimes() {
     let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android dev renderer");
     let swift_text = section(&swift, "case \"Text\":", "case \"Spacer\":");
-    let kotlin_text = section(&kotlin, "\"Text\" -> {", "\"Spacer\" -> Spacer");
+    let kotlin_text = section(&kotlin, "\"Text\" -> {", "\"Spacer\" ->");
 
     for (role, swift_style, kotlin_size, kotlin_weight) in [
         ("LargeTitle", ".largeTitle", 34, "Normal"),
@@ -3298,7 +3371,12 @@ fn localized_date_time_formatting_has_both_dev_runtime_mappings() {
     let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
         .expect("read Android dev state evaluator");
 
-    for method in ["LocalizedDate", "LocalizedTime", "LocalizedDateTime"] {
+    for method in [
+        "LocalizedDate",
+        "LocalizedLongDate",
+        "LocalizedTime",
+        "LocalizedDateTime",
+    ] {
         assert!(
             swift.contains(&format!("case \"{method}\":")),
             "iOS DevRuntime has no {method} dispatch"
@@ -3309,6 +3387,8 @@ fn localized_date_time_formatting_has_both_dev_runtime_mappings() {
         );
     }
     assert!(swift.contains("DateFormatter.localizedString(from: date"));
+    assert!(swift.contains("private func nexaDevLocalizedLongDate("));
+    assert!(kotlin.contains("private fun nexaDevLocalizedLongDate("));
     assert!(kotlin.contains("java.text.DateFormat.getDateTimeInstance("));
 }
 
@@ -4430,7 +4510,7 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
         "fontStyle: Subheadline,",
         "fontDesign: Serif,",
         "lineHeight: 20,",
-        "Button(\n                    \"Configured button\"",
+        "Button(\n                \"Configured button\"",
         "searchable: true",
         "materialsymbol: \"star\"",
         "reverseLayout: true",
@@ -4444,7 +4524,10 @@ fn aot_and_devruntime_accessibility_and_screenshot_parity_runs_on_both_platforms
         !main_and_detail.contains("KeyboardAware"),
         "KeyboardAware must not be nested in the vertically scrolling Form"
     );
-    assert!(fixture.contains("screen TextEntry {\n        KeyboardAware(dismiss: Never)"));
+    assert!(
+        fixture
+            .contains("screen TextEntry {\n        KeyboardAware(dismiss: Never, behavior: Stay)")
+    );
     for style_modifier in [
         ".fontSize(",
         ".bold()",
@@ -4517,6 +4600,10 @@ fn keyboard_ergonomics_are_consumed_by_dev_runtime() {
     assert!(swift_native.contains("case \"Keyboard\" where name == \"dismiss\":"));
     assert!(kotlin_native.contains("\"Keyboard\" -> if (name == \"dismiss\")"));
     assert!(kotlin_renderer.contains("NexaKeyboardAwareColumnPrimitive("));
+    assert!(swift_renderer.contains("fields[\"behavior\"] as? String == \"Avoid\""));
+    assert!(swift_renderer.contains("nexaDevContainsNativeScrollOwner(children)"));
+    assert!(kotlin_renderer.contains("avoidIme = fields.optString(\"behavior\") == \"Avoid\""));
+    assert!(kotlin_renderer.contains("NexaKeyboardAwareOwnerPrimitive("));
     assert!(kotlin_core.contains("foregroundActivity"));
     assert!(kotlin_core.contains("hideSoftInputFromWindow"));
 }
@@ -4569,7 +4656,7 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
         "spacing: nativeSpacing",
         "nexaDevGlass(tint:",
         "NexaNavigationScreenPrimitive(",
-        "NexaTabLabelPrimitive(title: Text(title), systemImage: name)",
+        "NexaTabLabelPrimitive(title: Text(title), icon: icon)",
         "if style[\"italic\"] as? Bool == true",
         "if style[\"underline\"] as? Bool == true",
         "Font.system(textStyle, design: fontDesign)",
@@ -4581,7 +4668,7 @@ fn dev_renderers_keep_release_native_structure_for_common_controls() {
     assert!(swift_primitives.contains(".tabViewStyle(.sidebarAdaptable)"));
     assert!(swift_primitives.contains(".tabViewSearchActivation(.searchTabSelection)"));
     assert!(swift_primitives.contains("struct NexaTabLabelPrimitive: View"));
-    assert!(swift_primitives.contains("Image(systemName: systemImage).accessibilityHidden(true)"));
+    assert!(swift_primitives.contains("Image(systemName: symbol).accessibilityHidden(true)"));
     assert!(swift_primitives.contains(".accessibilityIdentifier(\"\")"));
     assert!(swift.contains("NexaRemoteImagePrimitive("));
     for marker in [
@@ -4625,11 +4712,11 @@ fn hot_reload_patch_application_avoids_full_module_clones_and_long_retry_waits()
         .split_once("private fun shallowCopy(")
         .expect("find end of Android patch application")
         .0;
-    assert!(patch_apply.contains("val root = module ?: return false"));
+    assert!(patch_apply.contains("val root = currentModule ?: module ?: return false"));
     assert!(
         patch_apply.contains("val operations = patch.optJSONArray(\"operations\") ?: return false")
     );
-    assert!(patch_apply.contains("if (!applyOperation(updated, operation)) return false"));
+    assert!(patch_apply.contains("if (!applyOperation(root, operation)) return false"));
     assert!(patch_apply.contains("install(updated)\n        return true"));
 
     let patch_handler = android_protocol
@@ -4732,6 +4819,7 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                 children: vec![row("Task title"), row("Task details")],
                 on_end_reached: None,
                 on_scroll: None,
+                on_scroll_begin_drag: None,
                 on_move: None,
                 swipe_actions: Some(vec![Node::Button {
                     label: Expr::String("Delete".to_owned()),
@@ -4905,6 +4993,7 @@ fn divider_preferences_reach_dev_ir_and_both_runtime_renderers() {
                     children: vec![text("First task"), text("Second task")],
                     on_end_reached: None,
                     on_scroll: None,
+                    on_scroll_begin_drag: None,
                     on_move: None,
                     swipe_actions: None,
                     sticky_header: None,
@@ -4987,6 +5076,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 }],
                 on_end_reached: None,
                 on_scroll: None,
+                on_scroll_begin_drag: None,
                 on_move: None,
                 swipe_actions: None,
                 sticky_header: None,
@@ -5139,6 +5229,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 }],
                 on_end_reached: None,
                 on_scroll: None,
+                on_scroll_begin_drag: None,
                 on_move: None,
                 swipe_actions: Some(vec![Node::Button {
                     label: Expr::String("Delete".to_owned()),
@@ -5248,6 +5339,7 @@ fn horizontal_fast_list_row_height_does_not_constrain_width_in_android() {
                 }],
                 on_end_reached: None,
                 on_scroll: None,
+                on_scroll_begin_drag: None,
                 on_move: None,
                 swipe_actions: None,
                 sticky_header: None,
@@ -5621,6 +5713,7 @@ fn android_dev_bottom_sheet_uses_shared_native_configuration_and_inline_content(
         .expect("read Android DevRuntime renderer");
 
     assert!(renderer.contains("fields.optJSONArray(\"detents\")"));
+    assert!(renderer.contains("fields.opt(\"corner_radius\") as? Number"));
     assert!(renderer.contains("fields.optDouble(\"initial_detent\", defaultDetent.toDouble())"));
     assert!(renderer.contains("fields.optBoolean(\"allows_dismissal\", true)"));
     assert!(renderer.contains("fields.optJSONObject(\"background_color\")"));
@@ -5635,6 +5728,7 @@ fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntim
     let mut module = empty_module(vec![Node::NavigationStack {
         root: ScreenId(0),
         arguments: Vec::new(),
+        show_navigation_bar: true,
         title_mode: nexa_ir::NavigationTitleMode::Inline,
         title_alignment: nexa_ir::NavigationTitleAlignment::Leading,
     }]);
@@ -5752,8 +5846,10 @@ fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntim
     assert!(kotlin.contains("contentDescription = \"Back\""));
     assert!(kotlin.contains("NexaNavigationScreenPrimitive("));
     assert!(kotlin.contains("title = \"Task Details\""));
-    assert!(kotlin.contains("inline = true"));
-    assert!(kotlin.contains("leadingTitle = true"));
+    assert!(kotlin.contains("nexaTitleInline = true"));
+    assert!(kotlin.contains("inline = nexaTitleInline"));
+    assert!(kotlin.contains("nexaLeadingTitle = true"));
+    assert!(kotlin.contains("leadingTitle = nexaLeadingTitle"));
     assert!(kotlin.contains("internal fun NexaNavigationLinkPrimitive("));
     assert!(kotlin.contains("NexaNavigationLinkPrimitive("));
     assert!(kotlin_runtime.contains("NexaNavigationScreenPrimitive("));

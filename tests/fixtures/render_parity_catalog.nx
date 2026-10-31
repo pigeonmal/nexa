@@ -55,6 +55,10 @@ app RenderParityCatalog {
                                 Text("Stack layout")
                             }
                             Divider(color: "#606060", thickness: 1)
+                            Shape(shape: Capsule, width: 28, height: 4, fill: "#E11D48")
+                            Shape(shape: Circle, width: 8, height: 8, fill: "#2563EB")
+                            Shape(shape: Rounded(3), width: 16, height: 8, fill: "#7C3AED")
+                            Spacer(width: 8, height: 8)
                             Row {
                                 Text("Flexible row")
                                 Spacer()
@@ -79,7 +83,10 @@ app RenderParityCatalog {
                             Text("Enabled: $enabled", fontSize: 12)
                             TextInput(value: title, placeholder: "Task title", keyboardType: Text, capitalization: None)
                             Text("Title: $title", fontSize: 12)
-                            Slider(value: sliderValue, min: 0, max: 1, step: 0.05, accessibilityLabel: "Progress slider")
+                            Slider(value: sliderValue, min: 0, max: 1, step: 0.05, tint: "#CA2828", trackColor: "#424242", thumbColor: "#FFFFFF", trackHeight: 3.51, thumbSize: 14.04, hitSlop: 18.72, accessibilityLabel: "Progress slider")
+                                .onEditingChanged { editing ->
+                                    enabled = editing
+                                }
                             ProgressBar(progress: progress, accessibilityLabel: "Task progress")
                             ProgressRing(progress: progress, tint: "#2563EB", trackColor: "#DBEAFE", size: 48, thickness: 5, androidWave: true, accessibilityLabel: "Circular task progress")
                             ProgressRing()

@@ -69,7 +69,7 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
     assert!(swift.contains("NexaPickerPrimitive(selection: $nexa_startPage"));
     assert!(swift.contains("hasLabel: true) {"));
     assert!(swift.contains("Text(\"Start Page\")"));
-    assert!(swift.contains("icon: \"star.fill\""));
+    assert!(swift.contains("icon: NexaIconSpec(symbol: \"star.fill\")"));
     assert!(swift.contains("Text(nexa_switchLabel)"));
     assert!(swift.contains(".scrollContentBackground(.hidden)"));
     assert!(swift.contains(".listRowBackground(background ?? Color.clear)"));
@@ -81,16 +81,16 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
         nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&kotlin_module);
     assert!(kotlin.contains("NexaFormPrimitive(background = Color(0xFFFAFAFA)) {"));
     assert!(kotlin.contains("background = Color(0xFFFFFFFF),"));
-    assert!(kotlin.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 0f) {"));
+    assert!(kotlin.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 16f) {"));
     assert_eq!(kotlin.matches("NexaFormDividerPrimitive()").count(), 2);
     let section_title = nexa_codegen::names::localization_resource_name("General");
-    assert!(kotlin.contains(&format!("title = stringResource(R.string.{section_title})")));
+    assert!(kotlin.contains(&format!(
+        "title = NexaLocale.string(R.string.{section_title})"
+    )));
     assert!(kotlin.contains("NexaPickerPrimitive(items ="));
     let picker_label = nexa_codegen::names::localization_resource_name("Start Page");
     assert!(
-        kotlin.contains(&format!(
-            "NexaRuntime.context().getString(R.string.{picker_label})"
-        )),
+        kotlin.contains(&format!("NexaLocale.string(R.string.{picker_label})")),
         "{kotlin}"
     );
     assert!(kotlin.contains("nexa_switchLabel"));

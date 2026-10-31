@@ -241,6 +241,16 @@ fn render_component(
         );
         out.push_str("    @Environment(\\.verticalSizeClass) private var nexaVerticalSizeClass\n");
     }
+    let uses_screen_geometry = features.component_uses_screen_geometry(&component.name);
+    let uses_safe_area_top = features.component_uses_safe_area_top(&component.name);
+    if uses_screen_geometry {
+        out.push_str("    @Environment(\\.nexaViewportSize) private var nexaViewportSize\n");
+    }
+    if uses_safe_area_top {
+        out.push_str(
+            "    @Environment(\\.nexaVisualSafeAreaInsets) private var nexaVisualSafeAreaInsets\n",
+        );
+    }
     if features.component_uses_navigation(&component.name) {
         out.push_str("    @Environment(\\.nexaNavigationPath) private var nexaNavigationPath\n");
     }
@@ -250,6 +260,8 @@ fn render_component(
         || has_content_slot
         || uses_adaptive_color
         || uses_size_class
+        || uses_screen_geometry
+        || uses_safe_area_top
         || features.component_uses_navigation(&component.name)
     {
         out.push('\n');

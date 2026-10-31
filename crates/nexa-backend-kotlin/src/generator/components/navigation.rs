@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::{navigation_route_name, state_name};
-use nexa_ir::{Expr, Module, Node, ScreenId, Type};
+use nexa_ir::{Expr, Module, Node, ScreenId, State, Type};
 
 use crate::generator::{
     components::{appearance, bottom_bar, render_children},
@@ -109,7 +109,7 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         "androidx.compose.material3.Text",
     );
     imports.add(
-        features.uses_navigation_link,
+        context.has_navigation,
         "androidx.navigation.NavHostController",
     );
     imports.add(
@@ -213,6 +213,7 @@ pub(crate) fn render_toolbar_link(
 pub(crate) struct NavigationTitleOptions {
     pub(crate) mode: nexa_ir::NavigationTitleMode,
     pub(crate) alignment: nexa_ir::NavigationTitleAlignment,
+    pub(crate) show_native_bar: bool,
 }
 
 pub(crate) fn render_navigation_stack(
@@ -224,7 +225,11 @@ pub(crate) fn render_navigation_stack(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let NavigationTitleOptions { mode, alignment } = title;
+    let NavigationTitleOptions {
+        mode,
+        alignment,
+        show_native_bar,
+    } = title;
     let app_appearance_mode = appearance::module_mode(module, root);
     indent(out, depth);
     out.push_str("val navController = rememberNavController()\n");
@@ -268,77 +273,10 @@ pub(crate) fn render_navigation_stack(
     for screen in &module.screens {
         indent(out, depth + 1);
         let route = route_pattern(screen);
-        if screen.parameters.is_empty() {
-            out.push_str(&format!(
-                "composable(route = {route}) {{\n",
-                route = kotlin_string(&route)
-            ));
-        } else {
-            out.push_str(&format!(
-                "composable(route = {}) {{ backStackEntry ->\n",
-                kotlin_string(&route)
-            ));
-            for parameter in &screen.parameters {
-                out.line_at(
-                    depth + 2,
-                    format_args!(
-                        "val {} = {}",
-                        state_name(&parameter.name),
-                        route_parameter_expression(parameter)
-                    ),
-                );
-            }
-        }
-        if features.screen_uses_task_scope(&screen.name) {
-            out.line_at(
-                depth + 2,
-                format_args!("val nexaTaskScope = rememberCoroutineScope()"),
-            );
-        }
-        for state in &screen.states {
-            render_screen_state(state, depth + 2, out);
-        }
-        let mut animated_targets = crate::generator::state::animated_state_targets(&screen.body);
-        for actions in [screen.on_appear.as_deref(), screen.on_disappear.as_deref()]
-            .into_iter()
-            .flatten()
-        {
-            crate::generator::state::add_animated_state_targets(actions, &mut animated_targets);
-        }
-        crate::generator::state::render_animated_state_aliases(
-            &screen.states,
-            &animated_targets,
-            depth + 2,
-            out,
-        );
-        let focus_bindings = features
-            .facts
-            .focus_bindings
-            .screens
-            .get(&screen.name)
-            .cloned()
-            .unwrap_or_default();
-        for binding in &focus_bindings {
-            out.line_at(
-                depth + 2,
-                format_args!(
-                    "val {} = remember {{ FocusRequester() }}",
-                    crate::generator::input::focus_requester_name(binding)
-                ),
-            );
-        }
-        for binding in &focus_bindings {
-            let state = state_name(binding);
-            let requester = crate::generator::input::focus_requester_name(binding);
-            out.line_at(depth + 2, format_args!("LaunchedEffect({state}) {{ if ({state}) {requester}.requestFocus() else {requester}.freeFocus() }}"
-            ));
-        }
-        if features.uses_shared_elements {
-            out.line_at(
-                depth + 2,
-                format_args!("val nexaAnimatedVisibilityScope = this"),
-            );
-        }
+        out.push_str(&format!(
+            "composable(route = {}) {{ backStackEntry ->\n",
+            kotlin_string(&route)
+        ));
         let theme_depth = depth + 2;
         let themed_content_depth = if app_appearance_mode.is_some() {
             theme_depth + 2
@@ -355,75 +293,24 @@ pub(crate) fn render_navigation_stack(
                 themed_content_depth,
                 out,
             );
-        if screen.id == root {
-            render_screen_body(&screen.body, module, features, themed_content_depth, out);
-        } else {
-            let navigation_toolbars = bottom_bar::tab_toolbars(&screen.body);
-            let content = bottom_bar::without_tab_toolbars(&screen.body);
-            let leading_title = match alignment {
-                // Automatic uses the native centered title variant. Leading is
-                // available when an app explicitly wants the title beside Back.
-                nexa_ir::NavigationTitleAlignment::Automatic => false,
-                nexa_ir::NavigationTitleAlignment::Leading => true,
-                nexa_ir::NavigationTitleAlignment::Center => false,
-            };
-            out.line_at(
-                themed_content_depth,
-                format_args!("NexaNavigationScreenPrimitive("),
-            );
-            out.line_at(
-                themed_content_depth + 1,
-                format_args!("title = {},", kotlin_string(&screen.name)),
-            );
-            out.line_at(
-                themed_content_depth + 1,
-                format_args!(
-                    "inline = {},",
-                    matches!(mode, nexa_ir::NavigationTitleMode::Inline)
-                ),
-            );
-            out.line_at(
-                themed_content_depth + 1,
-                format_args!("leadingTitle = {},", leading_title),
-            );
-            out.line_at(
-                themed_content_depth + 1,
-                format_args!(
-                    "hasTrailingActions = {},",
-                    navigation_toolbars.iter().any(|(placement, children)| {
-                        *placement == nexa_ir::ToolbarPlacement::Trailing && !children.is_empty()
-                    })
-                ),
-            );
-            out.line_at(
-                themed_content_depth + 1,
-                format_args!("onBack = {{ if (navController.previousBackStackEntry != null) navController.popBackStack() }},"),
-            );
-            for (parameter, placement) in [
-                ("leadingActions", nexa_ir::ToolbarPlacement::Leading),
-                ("actions", nexa_ir::ToolbarPlacement::Trailing),
-            ] {
-                if navigation_toolbars
-                    .iter()
-                    .any(|(toolbar_placement, _)| *toolbar_placement == placement)
-                {
-                    out.line_at(themed_content_depth + 1, format_args!("{parameter} = {{"));
-                    bottom_bar::render_tab_toolbar_items(
-                        &navigation_toolbars,
-                        placement,
-                        module,
-                        features,
-                        themed_content_depth + 2,
-                        out,
-                    );
-                    out.line_at(themed_content_depth + 1, format_args!("}},"));
-                }
-            }
-            out.line_at(themed_content_depth, format_args!(") {{"));
-            render_screen_body(&content, module, features, themed_content_depth + 1, out);
-            out.push('\n');
-            out.line_at(themed_content_depth, format_args!("}}"));
-        }
+        let parameter_arguments = screen
+            .parameters
+            .iter()
+            .map(route_parameter_expression)
+            .collect::<Vec<_>>();
+        render_screen_call(
+            screen,
+            &parameter_arguments,
+            ScreenCallContext {
+                is_root: screen.id == root,
+                title_mode: mode,
+                title_alignment: alignment,
+                show_navigation_bar: show_native_bar,
+            },
+            features,
+            themed_content_depth,
+            out,
+        );
         if wrap_status_bar_background {
             crate::generator::components::status_bar::render_background_end(
                 themed_content_depth,
@@ -433,36 +320,6 @@ pub(crate) fn render_navigation_stack(
         if app_appearance_mode.is_some() {
             appearance::render_theme_end(theme_depth, out);
         }
-        if screen.on_appear.is_some() || screen.on_disappear.is_some() {
-            out.push('\n');
-        }
-        crate::generator::components::lifecycle::render_on_appear(
-            screen.on_appear.as_deref(),
-            depth + 2,
-            out,
-        );
-        crate::generator::components::lifecycle::render_on_disappear(
-            screen.on_disappear.as_deref(),
-            depth + 2,
-            out,
-        );
-        crate::generator::components::lifecycle::render_task_cancellation_on_dispose(
-            &screen.states,
-            depth + 2,
-            out,
-        );
-        if screen.status_bar.or(module.status_bar).is_some() {
-            out.push('\n');
-        }
-        crate::generator::components::status_bar::render(
-            status_bar_config,
-            features.uses_status_bar,
-            depth + 2,
-            out,
-        );
-        if screen.on_appear.is_none() && screen.on_disappear.is_none() {
-            out.push('\n');
-        }
         indent(out, depth + 1);
         out.push_str("}\n");
     }
@@ -470,6 +327,352 @@ pub(crate) fn render_navigation_stack(
     out.push('}');
     out.push('\n');
     render_deep_link_dispatch(module, depth, out);
+}
+
+/// Emit each screen body once as a local composable in the app function.
+/// Navigation hosts call these functions instead of inlining every route body
+/// into every host. This keeps nested per-tab NavigationStacks finite while
+/// retaining access to app state through Kotlin's lexical scope.
+pub(crate) fn render_screen_functions(
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let opt_in_annotations = [
+        "androidx.compose.material3.ExperimentalMaterial3Api::class",
+        "androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class",
+        "androidx.compose.foundation.layout.ExperimentalLayoutApi::class",
+        "androidx.compose.foundation.ExperimentalFoundationApi::class",
+    ];
+    let mut screens = module.screens.iter().collect::<Vec<_>>();
+    // A screen that contains its own NavigationStack calls the other screen
+    // composables from inside that host. Emit those owners after their route
+    // targets so Kotlin's local declarations are in scope at each call site.
+    screens.sort_by_key(|screen| screen_contains_navigation_stack(screen));
+    for screen in &screens {
+        if !screen.states.is_empty() {
+            render_route_state_type(screen, depth, out);
+            out.push('\n');
+        }
+    }
+    for screen in screens {
+        out.push('\n');
+        indent(out, depth);
+        out.push_str(&format!("@OptIn({})\n", opt_in_annotations.join(", ")));
+        out.line_at(depth, format_args!("@Composable"));
+        indent(out, depth);
+        out.push_str(&format!("fun {}(\n", screen_composable_name(screen.id)));
+        out.line_at(depth + 1, format_args!("navController: NavHostController,"));
+        out.line_at(
+            depth + 1,
+            format_args!("nexaBackStackEntry: androidx.navigation.NavBackStackEntry,"),
+        );
+        for parameter in &screen.parameters {
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "{}: {},",
+                    state_name(&parameter.name),
+                    kotlin_type(&parameter.ty)
+                ),
+            );
+        }
+        out.line_at(depth + 1, format_args!("nexaIsRoot: Boolean,"));
+        out.line_at(depth + 1, format_args!("nexaShowNavigationBar: Boolean,"));
+        out.line_at(depth + 1, format_args!("nexaTitleInline: Boolean,"));
+        out.line_at(depth + 1, format_args!("nexaLeadingTitle: Boolean,"));
+        if features.uses_shared_elements {
+            out.line_at(
+                depth + 1,
+                format_args!("nexaAnimatedVisibilityScope: AnimatedVisibilityScope,"),
+            );
+        }
+        out.line_at(depth, format_args!(") {{"));
+
+        if features.screen_uses_task_scope(&screen.name) {
+            out.line_at(
+                depth + 1,
+                format_args!("val nexaTaskScope = rememberCoroutineScope()"),
+            );
+        }
+        let route_state = route_state_variable_name(screen.id);
+        if !screen.states.is_empty() {
+            render_route_state_access(screen, &route_state_name(screen.id), depth + 1, out);
+        }
+        for state in &screen.states {
+            render_screen_state(state, &route_state, depth + 1, out);
+        }
+        let mut animated_targets = crate::generator::state::animated_state_targets(&screen.body);
+        for actions in [screen.on_appear.as_deref(), screen.on_disappear.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            crate::generator::state::add_animated_state_targets(actions, &mut animated_targets);
+        }
+        crate::generator::state::render_animated_state_aliases(
+            &screen.states,
+            &animated_targets,
+            depth + 1,
+            out,
+        );
+        let focus_bindings = features
+            .facts
+            .focus_bindings
+            .screens
+            .get(&screen.name)
+            .cloned()
+            .unwrap_or_default();
+        for binding in &focus_bindings {
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "val {} = remember {{ FocusRequester() }}",
+                    crate::generator::input::focus_requester_name(binding)
+                ),
+            );
+        }
+        for binding in &focus_bindings {
+            let state = state_name(binding);
+            let requester = crate::generator::input::focus_requester_name(binding);
+            out.line_at(depth + 1, format_args!("LaunchedEffect({state}) {{ if ({state}) {requester}.requestFocus() else {requester}.freeFocus() }}"));
+        }
+
+        let root_body = &screen.body;
+        let navigation_toolbars = bottom_bar::tab_toolbars(root_body);
+        let destination_body = bottom_bar::without_tab_toolbars(root_body);
+        if navigation_toolbars.is_empty() {
+            render_screen_content_function(
+                "nexaScreenContent",
+                root_body,
+                module,
+                features,
+                depth + 1,
+                out,
+            );
+            out.line_at(
+                depth + 1,
+                format_args!("if (nexaIsRoot || !nexaShowNavigationBar) {{"),
+            );
+            out.line_at(depth + 2, format_args!("nexaScreenContent()"));
+            out.line_at(depth + 1, format_args!("}} else {{"));
+            render_navigation_screen_chrome(
+                screen,
+                &navigation_toolbars,
+                module,
+                features,
+                depth + 2,
+                out,
+            );
+            out.line_at(depth + 2, format_args!(") {{ nexaScreenContent() }}"));
+            out.line_at(depth + 2, format_args!("}}"));
+        } else {
+            render_screen_content_function(
+                "nexaScreenRootContent",
+                root_body,
+                module,
+                features,
+                depth + 1,
+                out,
+            );
+            render_screen_content_function(
+                "nexaScreenDestinationContent",
+                &destination_body,
+                module,
+                features,
+                depth + 1,
+                out,
+            );
+            out.line_at(
+                depth + 1,
+                format_args!("if (nexaIsRoot || !nexaShowNavigationBar) {{"),
+            );
+            out.line_at(depth + 2, format_args!("nexaScreenRootContent()"));
+            out.line_at(depth + 1, format_args!("}} else {{"));
+            render_navigation_screen_chrome(
+                screen,
+                &navigation_toolbars,
+                module,
+                features,
+                depth + 2,
+                out,
+            );
+            out.line_at(
+                depth + 2,
+                format_args!(") {{ nexaScreenDestinationContent() }}"),
+            );
+            out.line_at(depth + 2, format_args!("}}"));
+        }
+        crate::generator::components::lifecycle::render_on_appear(
+            screen.on_appear.as_deref(),
+            depth + 1,
+            out,
+        );
+        crate::generator::components::lifecycle::render_on_disappear(
+            screen.on_disappear.as_deref(),
+            depth + 1,
+            out,
+        );
+        crate::generator::components::lifecycle::render_task_cancellation_on_dispose(
+            &screen.states,
+            depth + 1,
+            out,
+        );
+        crate::generator::components::status_bar::render(
+            screen.status_bar.or(module.status_bar),
+            features.uses_status_bar,
+            depth + 1,
+            out,
+        );
+        out.line_at(depth, format_args!("}}"));
+    }
+}
+
+fn render_screen_content_function(
+    name: &str,
+    body: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    out.line_at(depth, format_args!("@Composable"));
+    out.line_at(depth, format_args!("fun {name}() {{"));
+    if features.uses_shared_elements {
+        out.line_at(
+            depth + 1,
+            format_args!("CompositionLocalProvider(LocalNexaAnimatedVisibilityScope provides nexaAnimatedVisibilityScope) {{"),
+        );
+        render_screen_body(body, module, features, depth + 2, out);
+        out.line_at(depth + 1, format_args!("}}"));
+    } else {
+        render_screen_body(body, module, features, depth + 1, out);
+    }
+    out.line_at(depth, format_args!("}}"));
+}
+
+fn render_navigation_screen_chrome(
+    screen: &nexa_ir::Screen,
+    toolbars: &[(nexa_ir::ToolbarPlacement, &[Node])],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    out.line_at(depth, format_args!("NexaNavigationScreenPrimitive("));
+    out.line_at(
+        depth + 1,
+        format_args!("title = {},", kotlin_string(&screen.name)),
+    );
+    out.line_at(depth + 1, format_args!("inline = nexaTitleInline,"));
+    out.line_at(depth + 1, format_args!("leadingTitle = nexaLeadingTitle,"));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "hasTrailingActions = {},",
+            toolbars.iter().any(|(placement, children)| {
+                *placement == nexa_ir::ToolbarPlacement::Trailing && !children.is_empty()
+            })
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("onBack = {{ if (navController.previousBackStackEntry != null) navController.popBackStack() }},"),
+    );
+    for (parameter, placement) in [
+        ("leadingActions", nexa_ir::ToolbarPlacement::Leading),
+        ("actions", nexa_ir::ToolbarPlacement::Trailing),
+    ] {
+        if toolbars
+            .iter()
+            .any(|(toolbar_placement, _)| *toolbar_placement == placement)
+        {
+            out.line_at(depth + 1, format_args!("{parameter} = {{"));
+            bottom_bar::render_tab_toolbar_items(
+                toolbars,
+                placement,
+                module,
+                features,
+                depth + 2,
+                out,
+            );
+            out.line_at(depth + 1, format_args!("}},"));
+        }
+    }
+}
+
+struct ScreenCallContext {
+    is_root: bool,
+    show_navigation_bar: bool,
+    title_mode: nexa_ir::NavigationTitleMode,
+    title_alignment: nexa_ir::NavigationTitleAlignment,
+}
+
+fn render_screen_call(
+    screen: &nexa_ir::Screen,
+    arguments: &[String],
+    context: ScreenCallContext,
+    features: &Features,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    indent(out, depth);
+    out.push_str(&format!("{}(\n", screen_composable_name(screen.id)));
+    out.line_at(depth + 1, format_args!("navController = navController,"));
+    out.line_at(
+        depth + 1,
+        format_args!("nexaBackStackEntry = backStackEntry,"),
+    );
+    for (parameter, value) in screen.parameters.iter().zip(arguments) {
+        out.line_at(
+            depth + 1,
+            format_args!("{} = {},", state_name(&parameter.name), value),
+        );
+    }
+    out.line_at(depth + 1, format_args!("nexaIsRoot = {},", context.is_root));
+    out.line_at(
+        depth + 1,
+        format_args!("nexaShowNavigationBar = {},", context.show_navigation_bar),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "nexaTitleInline = {},",
+            matches!(context.title_mode, nexa_ir::NavigationTitleMode::Inline)
+        ),
+    );
+    let leading_title = match context.title_alignment {
+        nexa_ir::NavigationTitleAlignment::Automatic
+        | nexa_ir::NavigationTitleAlignment::Center => false,
+        nexa_ir::NavigationTitleAlignment::Leading => true,
+    };
+    out.line_at(
+        depth + 1,
+        format_args!("nexaLeadingTitle = {leading_title},"),
+    );
+    if features.uses_shared_elements {
+        out.line_at(
+            depth + 1,
+            format_args!("nexaAnimatedVisibilityScope = this,"),
+        );
+    }
+    out.line_at(depth, format_args!(")"));
+}
+
+fn screen_composable_name(screen: ScreenId) -> String {
+    format!("nexaScreen{}", screen.0)
+}
+
+fn screen_contains_navigation_stack(screen: &nexa_ir::Screen) -> bool {
+    let mut contains_navigation_stack = false;
+    nexa_ir::walk::walk_ir(
+        &screen.body,
+        &mut |node| {
+            contains_navigation_stack |= matches!(node, Node::NavigationStack { .. });
+        },
+        &mut |_| {},
+    );
+    contains_navigation_stack
 }
 
 fn render_screen_body(
@@ -602,40 +805,144 @@ fn route_slug(name: &str) -> String {
     slug
 }
 
-fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut SourceWriter) {
-    let name = state_name(&state.name);
+fn route_state_name(screen: ScreenId) -> String {
+    format!("NexaRouteState{}", screen.0)
+}
+
+fn route_state_variable_name(screen: ScreenId) -> String {
+    format!("nexaRouteState{}", screen.0)
+}
+
+fn route_state_field_name(state: &State) -> String {
+    state_name(&state.name)
+}
+
+fn route_state_initial_name(state: &State) -> String {
+    format!("nexaInitial{}", state_name(&state.name))
+}
+
+fn render_route_state_type(screen: &nexa_ir::Screen, depth: usize, out: &mut SourceWriter) {
+    let class_name = route_state_name(screen.id);
     indent(out, depth);
-    if state.mutable {
+    out.push_str(&format!("class {class_name}(\n"));
+    for state in &screen.states {
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "{}: {},",
+                route_state_initial_name(state),
+                kotlin_type(&state.ty)
+            ),
+        );
+    }
+    indent(out, depth);
+    out.push_str(") : androidx.lifecycle.ViewModel() {\n");
+    for state in &screen.states {
+        let field = route_state_field_name(state);
+        let initial = route_state_initial_name(state);
+        indent(out, depth + 1);
         if crate::generator::state::is_mutable_collection(state) {
-            out.push_str(&format!(
-                "val {name} = remember {{ {} }}\n",
-                crate::generator::state::kotlin_state_initializer(state)
-            ));
-        } else {
-            let remember = if crate::generator::state::uses_saveable_state(state) {
-                "rememberSaveable"
-            } else {
-                "remember"
+            let initializer = match &state.ty {
+                Type::Array(element) => format!(
+                    "mutableStateListOf<{}>().also {{ it.addAll({initial}) }}",
+                    kotlin_type(element)
+                ),
+                Type::Set(element) => format!(
+                    "mutableStateSetOf<{}>().also {{ it.addAll({initial}) }}",
+                    kotlin_type(element)
+                ),
+                Type::Map(key, value) => format!(
+                    "mutableStateMapOf<{}, {}>().also {{ it.putAll({initial}) }}",
+                    kotlin_type(key),
+                    kotlin_type(value)
+                ),
+                _ => format!("mutableStateOf<{}>({initial})", kotlin_type(&state.ty)),
             };
+            out.push_str(&format!("val {field} = {initializer}\n"));
+        } else if state.mutable {
+            let initializer = match state.ty {
+                Type::Numeric(nexa_ir::NumericType::Int32) => {
+                    format!("mutableIntStateOf({initial})")
+                }
+                Type::Numeric(nexa_ir::NumericType::Int64) => {
+                    format!("mutableLongStateOf({initial})")
+                }
+                Type::Numeric(nexa_ir::NumericType::Float32) => {
+                    format!("mutableFloatStateOf({initial})")
+                }
+                Type::Numeric(nexa_ir::NumericType::Float64) => {
+                    format!("mutableDoubleStateOf({initial})")
+                }
+                _ => format!("mutableStateOf<{}>({initial})", kotlin_type(&state.ty)),
+            };
+            out.push_str(&format!("val {field} = {initializer}\n"));
+        } else {
             out.push_str(&format!(
-                "var {name} by {remember} {{ {} }}\n",
-                crate::generator::state::kotlin_state_initializer(state)
+                "val {field}: {} = {initial}\n",
+                kotlin_type(&state.ty)
             ));
         }
-    } else if state.is_native_class_instance_binding()
-        || matches!(state.ty, nexa_ir::Type::Signal(_))
-        || matches!(state.ty, nexa_ir::Type::ComponentRef { .. })
-    {
-        out.push_str(&format!(
-            "val {name}: {} = remember {{ {} }}\n",
-            kotlin_type(&state.ty),
-            crate::generator::expressions::expression(&state.initial)
-        ));
+    }
+    indent(out, depth);
+    out.push_str("}\n");
+}
+
+fn render_route_state_access(
+    screen: &nexa_ir::Screen,
+    class_name: &str,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let store_key = kotlin_string(&format!("nexa-route-state-{}", screen.id.0));
+    let state_variable = route_state_variable_name(screen.id);
+    indent(out, depth);
+    out.push_str(&format!(
+        "val {state_variable} = nexaBackStackEntry.viewModelStore.get({store_key}) as? {class_name} ?: run {{\n"
+    ));
+    for state in &screen.states {
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "val {}: {} = {}",
+                route_state_field_name(state),
+                kotlin_type(&state.ty),
+                crate::generator::expressions::expression(&state.initial)
+            ),
+        );
+    }
+    let constructor_arguments = screen
+        .states
+        .iter()
+        .map(|state| {
+            format!(
+                "{} = {}",
+                route_state_initial_name(state),
+                route_state_field_name(state)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "{class_name}({constructor_arguments}).also {{ nexaBackStackEntry.viewModelStore.put({store_key}, it) }}"
+        ),
+    );
+    indent(out, depth);
+    out.push_str("}\n");
+}
+
+fn render_screen_state(state: &State, route_state: &str, depth: usize, out: &mut SourceWriter) {
+    let name = state_name(&state.name);
+    indent(out, depth);
+    if state.mutable && !crate::generator::state::is_mutable_collection(state) {
+        out.push_str(&format!("var {name} by {route_state}.{name}\n"));
+    } else if crate::generator::state::is_mutable_collection(state) {
+        out.push_str(&format!("val {name} = {route_state}.{name}\n"));
     } else {
         out.push_str(&format!(
-            "val {name}: {} = {}\n",
-            kotlin_type(&state.ty),
-            crate::generator::expressions::expression(&state.initial)
+            "val {name}: {} = {route_state}.{name}\n",
+            kotlin_type(&state.ty)
         ));
     }
 }

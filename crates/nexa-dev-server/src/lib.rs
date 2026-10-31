@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use nexa_dev_ir::DevModule;
+use nexa_dev_ir::{DevModule, JsonPatchKind, JsonPatchOperation};
 use nexa_dev_protocol::{
     ClientMessage, Diagnostic, EditorRequest, PROTOCOL_VERSION, ServerMessage, TargetPlatform,
     decode_client, encode_server,
@@ -23,7 +23,7 @@ use tungstenite::{Bytes, Message, Utf8Bytes, WebSocket, accept};
 // The blocking WebSocket read also waits on this interval before the loop can
 // observe a newly published module. Keep that delivery bound small enough for
 // interactive edits while avoiding a busy spin on connected dev clients.
-const READ_TIMEOUT: Duration = Duration::from_millis(10);
+const READ_TIMEOUT: Duration = Duration::from_millis(1);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
@@ -139,6 +139,7 @@ impl DevServer {
                             if stream.set_nonblocking(false).is_err() {
                                 continue;
                             }
+                            let _ = stream.set_nodelay(true);
                             let state = Arc::clone(&listener_state);
                             let stopping = Arc::clone(&listener_stopping);
                             let token = listener_token.clone();
@@ -199,34 +200,6 @@ impl DevServer {
                 nexa_dev_ir::DEV_IR_FORMAT_VERSION
             ));
         }
-        {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| "Nexa dev server state is unavailable".to_owned())?;
-            if !state.modules.contains_key(&target) {
-                return Err(format!("no dev session was started for {target:?}"));
-            }
-            let has_client = state.clients.values().any(|client| client.target == target);
-            if !has_client {
-                state.modules.insert(
-                    target,
-                    PublishedModule {
-                        module,
-                        json: None,
-                        // A disconnected update can change the module size by
-                        // an arbitrary amount. Force one full publish after a
-                        // runtime reconnect to refresh the size baseline.
-                        full_frame_len: None,
-                    },
-                );
-                state.diagnostics.remove(&target);
-                return Ok(());
-            }
-        }
-
-        let module_json = serde_json::to_value(&module.module)
-            .map_err(|error| format!("cannot cache the {target:?} dev module: {error}"))?;
         let mut state = self
             .state
             .lock()
@@ -234,37 +207,47 @@ impl DevServer {
         if !state.modules.contains_key(&target) {
             return Err(format!("no dev session was started for {target:?}"));
         }
+        let has_client = state.clients.values().any(|client| client.target == target);
+        if !has_client {
+            state.modules.insert(
+                target,
+                PublishedModule {
+                    module,
+                    json: None,
+                    // A disconnected update can change the module size by an
+                    // arbitrary amount. Force a full publish after reconnect.
+                    full_frame_len: None,
+                },
+            );
+            state.diagnostics.remove(&target);
+            return Ok(());
+        }
 
         let revision = module.revision.clone();
         let patch = state.modules.get(&target).and_then(|previous| {
             previous.json.as_ref().map_or_else(
                 || nexa_dev_ir::diff(&previous.module, &module),
                 |previous_json| {
-                    nexa_dev_ir::diff_with_module_values(
-                        &previous.module,
-                        previous_json,
-                        &module,
-                        &module_json,
-                    )
+                    nexa_dev_ir::diff_module_with_values(&previous.module, previous_json, &module)
                 },
             )
         });
+        // A source edit can change comments or whitespace without changing
+        // the typed module. Check the native IR before allocating a JSON tree
+        // or recursively diffing it, while preserving the last revision known
+        // to connected runtimes.
         if patch.as_ref().is_some_and(|patch| {
             patch.operations.is_empty()
                 && patch.identities.is_none()
                 && patch.translations.is_none()
         }) {
-            // Filesystem watchers can report a generated localization write
-            // after the source edit that caused it. The second compile then
-            // produces a new revision with no semantic IR changes. Keep the
-            // runtime and cached revision aligned, and avoid a redundant
-            // empty patch/recomposition.
             return Ok(());
         }
         let patch_message = patch
+            .as_ref()
             .map(|patch| {
                 encode_update(&ServerMessage::Patch {
-                    patch: Box::new(patch),
+                    patch: Box::new(patch.clone()),
                 })
             })
             .transpose()?;
@@ -279,22 +262,48 @@ impl DevServer {
         let patch_is_clearly_smaller = patch_message.as_ref().is_some_and(|patch| {
             previous_full_frame_len.is_some_and(|full_len| patch.frame.len() < full_len / 2)
         });
-        let (update, full_frame_len) = match (patch_is_clearly_smaller, patch_message) {
-            (true, Some(patch)) => (patch, previous_full_frame_len),
-            _ => {
+        let patch_state_applied = if patch_is_clearly_smaller {
+            let operations = patch.as_ref().map(|patch| patch.operations.as_slice());
+            state
+                .modules
+                .get_mut(&target)
+                .and_then(|previous| previous.json.as_mut())
+                .zip(operations)
+                .is_some_and(|(json, operations)| apply_json_patch(json, operations).is_ok())
+        } else {
+            false
+        };
+        let (update, full_frame_len, module_json) =
+            if patch_is_clearly_smaller && patch_state_applied {
+                let previous = state
+                    .modules
+                    .get_mut(&target)
+                    .ok_or_else(|| format!("no dev session was started for {target:?}"))?;
+                (
+                    patch_message.ok_or_else(|| "missing encoded Nexa dev patch".to_owned())?,
+                    previous_full_frame_len,
+                    previous.json.take(),
+                )
+            } else {
+                if patch_is_clearly_smaller && let Some(previous) = state.modules.get_mut(&target) {
+                    // A failed cache update must not leave the old typed module
+                    // paired with a partially updated JSON view.
+                    previous.json = None;
+                }
                 let full_update = encode_update(&ServerMessage::FullModule {
                     revision: revision.clone(),
                     module: Box::new(module.clone()),
                 })?;
                 let full_frame_len = full_update.frame.len();
-                (full_update, Some(full_frame_len))
-            }
-        };
+                let module_json = serde_json::to_value(&module.module)
+                    .map_err(|error| format!("cannot cache the {target:?} dev module: {error}"))?;
+                (full_update, Some(full_frame_len), Some(module_json))
+            };
         state.modules.insert(
             target,
             PublishedModule {
                 module,
-                json: Some(module_json),
+                json: module_json,
                 full_frame_len,
             },
         );
@@ -412,6 +421,7 @@ fn serve_client(
     client_id: u64,
     editor_requests: Sender<EditorRequest>,
 ) {
+    let _ = stream.set_nodelay(true);
     if stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT)).is_err() {
         return;
     }
@@ -498,6 +508,19 @@ fn serve_client(
             let _ = websocket.close(None);
             return;
         };
+        if let Some(published) = shared.modules.get_mut(&target) {
+            if published.json.is_none() {
+                published.json = serde_json::to_value(&published.module.module).ok();
+            }
+            if published.full_frame_len.is_none() {
+                published.full_frame_len = encode_update(&ServerMessage::FullModule {
+                    revision: published.module.revision.clone(),
+                    module: Box::new(published.module.clone()),
+                })
+                .ok()
+                .map(|u| u.frame.len());
+            }
+        }
         shared.clients.insert(
             client_id,
             Client {
@@ -557,6 +580,7 @@ fn serve_client(
         return;
     }
     println!("Nexa {} dev runtime connected.", target_name(target));
+    let _ = websocket.get_mut().set_nodelay(true);
     let _ = websocket.get_mut().set_read_timeout(Some(READ_TIMEOUT));
 
     let mut pending_patch_revisions = std::collections::HashSet::new();
@@ -568,6 +592,7 @@ fn serve_client(
                 if websocket.send(Message::Text(update.frame.clone())).is_err() {
                     break;
                 }
+                let _ = websocket.flush();
                 if let Some(revision) = update.revision.as_ref() {
                     if update.is_patch {
                         pending_patch_revisions.insert(revision.clone());
@@ -686,6 +711,93 @@ fn send<S: io::Read + io::Write>(
         tungstenite::Error::Io(io::Error::new(io::ErrorKind::InvalidData, error))
     })?;
     websocket.send(Message::Text(frame.into()))
+}
+
+fn apply_json_patch(
+    root: &mut serde_json::Value,
+    operations: &[JsonPatchOperation],
+) -> Result<(), String> {
+    for operation in operations {
+        let value = match operation.op {
+            JsonPatchKind::Set => operation
+                .value
+                .clone()
+                .ok_or_else(|| format!("set operation has no value at {}", operation.path))?,
+            JsonPatchKind::Remove => serde_json::Value::Null,
+        };
+        if operation.path.is_empty() {
+            if matches!(operation.op, JsonPatchKind::Remove) {
+                *root = serde_json::Value::Null;
+            } else {
+                *root = value;
+            }
+            continue;
+        }
+        let segments = operation
+            .path
+            .strip_prefix('/')
+            .ok_or_else(|| format!("invalid JSON patch path {}", operation.path))?
+            .split('/')
+            .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+            .collect::<Vec<_>>();
+        let (last, parents) = segments
+            .split_last()
+            .ok_or_else(|| format!("invalid JSON patch path {}", operation.path))?;
+        let parent = value_at_mut(root, parents)
+            .ok_or_else(|| format!("missing JSON patch parent at {}", operation.path))?;
+        match (parent, &operation.op) {
+            (serde_json::Value::Object(object), JsonPatchKind::Set) => {
+                object.insert(last.clone(), value);
+            }
+            (serde_json::Value::Array(array), JsonPatchKind::Set) => {
+                let index = last
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid array index in {}", operation.path))?;
+                if index == array.len() {
+                    array.push(value);
+                } else if let Some(slot) = array.get_mut(index) {
+                    *slot = value;
+                } else {
+                    return Err(format!(
+                        "array index is out of bounds in {}",
+                        operation.path
+                    ));
+                }
+            }
+            (serde_json::Value::Object(object), JsonPatchKind::Remove) => {
+                object.remove(last);
+            }
+            (serde_json::Value::Array(array), JsonPatchKind::Remove) => {
+                let index = last
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid array index in {}", operation.path))?;
+                if index >= array.len() {
+                    return Err(format!(
+                        "array index is out of bounds in {}",
+                        operation.path
+                    ));
+                }
+                array.remove(index);
+            }
+            _ => return Err(format!("invalid JSON patch parent at {}", operation.path)),
+        }
+    }
+    Ok(())
+}
+
+fn value_at_mut<'a>(
+    root: &'a mut serde_json::Value,
+    segments: &[String],
+) -> Option<&'a mut serde_json::Value> {
+    let mut value = root;
+    for segment in segments {
+        value = match value {
+            serde_json::Value::Object(object) => object.get_mut(segment)?,
+            serde_json::Value::Array(array) => array.get_mut(segment.parse::<usize>().ok()?)?,
+            _ => return None,
+        };
+    }
+    Some(value)
 }
 
 fn unregister(state: &Arc<Mutex<SharedState>>, client_id: u64) {

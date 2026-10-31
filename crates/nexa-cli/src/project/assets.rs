@@ -10,6 +10,12 @@ struct ProjectImage {
     extension: String,
 }
 
+struct ProjectFont {
+    resource_name: String,
+    source: PathBuf,
+    extension: String,
+}
+
 pub(super) fn copy_ios_project_images(
     source_root: &Path,
     output_root: &Path,
@@ -105,6 +111,158 @@ pub(super) fn copy_android_project_images(
         copy_if_changed(&image.source, &destination)?;
     }
     write_marker(&marker, &generated)
+}
+
+/// Copies registered app fonts into both native targets' resource layouts.
+/// Font file stems use `<family>_<weight>.ttf` for weighted families, or
+/// `<family>.ttf` for a single-face family. Recognized weights are `regular`,
+/// `medium`, `semibold`, and `bold`.
+pub(super) fn copy_ios_project_fonts(
+    source_root: &Path,
+    output_root: &Path,
+    app_name: &str,
+) -> Result<Vec<String>, String> {
+    let fonts = project_fonts(source_root)?;
+    let directory = output_root.join("ios").join(app_name).join("Fonts");
+    let marker = output_root
+        .join("ios")
+        .join(app_name)
+        .join(".nexa-project-fonts");
+    let generated = fonts
+        .iter()
+        .map(|font| {
+            font.source
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| format!("Fonts/{name}"))
+                .ok_or_else(|| format!("invalid app font path: {}", font.source.display()))
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    remove_stale_generated(
+        &output_root.join("ios").join(app_name),
+        &marker,
+        &generated,
+        false,
+    )?;
+    if fonts.is_empty() {
+        write_marker(&marker, &generated)?;
+        return Ok(Vec::new());
+    }
+    fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
+    for font in &fonts {
+        let filename = font
+            .source
+            .file_name()
+            .ok_or_else(|| format!("invalid font path: {}", font.source.display()))?;
+        let destination = directory.join(filename);
+        let relative = format!("Fonts/{}", filename.to_string_lossy());
+        ensure_owned_destination(&destination, &marker, &relative)?;
+        copy_if_changed(&font.source, &destination)?;
+    }
+    write_marker(&marker, &generated)?;
+    Ok(generated.into_iter().collect())
+}
+
+pub(super) fn copy_android_project_fonts(
+    source_root: &Path,
+    output_root: &Path,
+    include_dev_assets: bool,
+) -> Result<(), String> {
+    let fonts = project_fonts(source_root)?;
+    let resources = output_root.join("android/app/src/main/res/font");
+    let marker = output_root.join("android/app/src/main/res/.nexa-project-fonts");
+    let dev_assets = output_root.join("android/app/src/main/assets/nexa/fonts");
+    let dev_marker = dev_assets.join(".nexa-project-fonts");
+    let mut generated = BTreeSet::new();
+    for font in &fonts {
+        generated.insert(format!("{}.{}", font.resource_name, font.extension));
+    }
+    remove_stale_generated(&resources, &marker, &generated, false)?;
+    if !fonts.is_empty() {
+        fs::create_dir_all(&resources)
+            .map_err(|error| format!("{}: {error}", resources.display()))?;
+    }
+    for font in &fonts {
+        let filename = format!("{}.{}", font.resource_name, font.extension);
+        let destination = resources.join(&filename);
+        ensure_owned_destination(&destination, &marker, &filename)?;
+        copy_if_changed(&font.source, &destination)?;
+    }
+    write_marker(&marker, &generated)?;
+
+    if include_dev_assets {
+        let mut dev_generated = BTreeSet::new();
+        for font in &fonts {
+            let filename = format!("{}.{}", font.resource_name, font.extension);
+            dev_generated.insert(filename.clone());
+            let destination = dev_assets.join(&filename);
+            ensure_owned_destination(&destination, &dev_marker, &filename)?;
+            fs::create_dir_all(&dev_assets)
+                .map_err(|error| format!("{}: {error}", dev_assets.display()))?;
+            copy_if_changed(&font.source, &destination)?;
+        }
+        remove_stale_generated(&dev_assets, &dev_marker, &dev_generated, false)?;
+        write_marker(&dev_marker, &dev_generated)?;
+    } else {
+        remove_stale_generated(&dev_assets, &dev_marker, &BTreeSet::new(), false)?;
+        write_marker(&dev_marker, &BTreeSet::new())?;
+    }
+    Ok(())
+}
+
+fn project_fonts(root: &Path) -> Result<Vec<ProjectFont>, String> {
+    let directory = root.join("assets/fonts");
+    let entries = match fs::read_dir(&directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("{}: {error}", directory.display())),
+    };
+    let mut fonts = Vec::new();
+    let mut names = BTreeSet::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
+        let path = entry.path();
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let metadata =
+            fs::symlink_metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if !metadata.file_type().is_file() {
+            return Err(format!(
+                "app font assets must be regular files directly inside {}: {}",
+                directory.display(),
+                path.display()
+            ));
+        }
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)
+            .ok_or_else(|| format!("app font has no supported extension: {}", path.display()))?;
+        if !matches!(extension.as_str(), "ttf" | "otf") {
+            return Err(format!(
+                "unsupported app font format `{extension}`: {} (use ttf or otf)",
+                path.display()
+            ));
+        }
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| format!("invalid app font filename: {}", path.display()))?;
+        let resource_name = nexa_codegen::names::font_resource_name(stem);
+        if !names.insert(resource_name.clone()) {
+            return Err(format!(
+                "app fonts map to duplicate native face name `{resource_name}`"
+            ));
+        }
+        fonts.push(ProjectFont {
+            resource_name,
+            source: path,
+            extension,
+        });
+    }
+    fonts.sort_by(|left, right| left.resource_name.cmp(&right.resource_name));
+    Ok(fonts)
 }
 
 pub(super) fn copy_android_localizations(
@@ -716,7 +874,49 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_android_icon_named, generate_android_icon_set_named};
+    use super::{
+        copy_android_project_fonts, copy_ios_project_fonts, generate_android_icon_named,
+        generate_android_icon_set_named,
+    };
+
+    #[test]
+    fn project_fonts_register_in_ios_and_android_resources() {
+        let temp = nexa_testkit::TempDir::new("nexa-project-fonts");
+        let source = temp.path().join("source");
+        let output = temp.path().join("project");
+        let font_directory = source.join("assets/fonts");
+        std::fs::create_dir_all(&font_directory).expect("create font source directory");
+        std::fs::write(font_directory.join("gilroy_regular.ttf"), b"regular font")
+            .expect("write regular font");
+        std::fs::write(font_directory.join("gilroy_medium.ttf"), b"medium font")
+            .expect("write medium font");
+        std::fs::write(font_directory.join("Mazicon.ttf"), b"icon font").expect("write icon font");
+
+        let ios_fonts =
+            copy_ios_project_fonts(&source, &output, "Demo").expect("copy iOS font resources");
+        copy_android_project_fonts(&source, &output, true).expect("copy Android font resources");
+
+        assert_eq!(
+            ios_fonts,
+            [
+                "Fonts/Mazicon.ttf".to_owned(),
+                "Fonts/gilroy_medium.ttf".to_owned(),
+                "Fonts/gilroy_regular.ttf".to_owned(),
+            ]
+        );
+        assert!(output.join("ios/Demo/Fonts/gilroy_regular.ttf").is_file());
+        assert!(output.join("ios/Demo/Fonts/gilroy_medium.ttf").is_file());
+
+        let resources = output.join("android/app/src/main/res/font");
+        assert!(resources.join("gilroy_regular.ttf").is_file());
+        assert!(resources.join("gilroy_medium.ttf").is_file());
+        assert!(resources.join("mazicon.ttf").is_file());
+        assert!(
+            output
+                .join("android/app/src/main/assets/nexa/fonts/gilroy_regular.ttf")
+                .is_file()
+        );
+    }
 
     #[test]
     fn adaptive_icon_set_generates_fallback_and_native_layered_resources() {

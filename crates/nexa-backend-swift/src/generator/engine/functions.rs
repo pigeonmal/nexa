@@ -45,7 +45,7 @@ pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
         out.push_str(&format!(
             "@MainActor\nfunc __nexaBackgroundTask{index}() async {{\n"
         ));
-        controls::render_actions(&task.actions, 1, out);
+        controls::render_function_actions(&task.actions, 1, out, false, &nexa_ir::Type::Void);
         out.push_str("}\n\n");
     }
 }
@@ -190,7 +190,13 @@ fn render_method(function: &Function, is_static: bool, out: &mut SourceWriter) {
     out.push_str(&swift_type(&function.return_type));
     out.push_str(" {\n");
     if let Some(actions) = &function.body_actions {
-        controls::render_actions(actions, 2, out);
+        controls::render_function_actions(
+            actions,
+            2,
+            out,
+            function.is_throwing,
+            &function.return_type,
+        );
     } else {
         for local in &function.locals {
             out.line_at(
@@ -242,7 +248,13 @@ fn render_function(function: &Function, out: &mut SourceWriter) {
     out.push_str(&swift_type(&function.return_type));
     out.push_str(" {\n");
     if let Some(actions) = &function.body_actions {
-        controls::render_actions(actions, 1, out);
+        controls::render_function_actions(
+            actions,
+            1,
+            out,
+            function.is_throwing,
+            &function.return_type,
+        );
     } else {
         for local in &function.locals {
             out.line_at(

@@ -84,6 +84,8 @@ internal object NexaDevKeys {
     const val COMPONENT_REF = "component_ref"
     const val ARGUMENTS = "arguments"
     const val CHILDREN = "children"
+    const val PLAN = "plan"
+    const val CONTENT = "content"
 
     // Pressable fields
     const val DRAG_PARAMETERS = "drag_parameters"
@@ -129,6 +131,7 @@ internal object NexaDevNodeKind {
     const val CONTENT_UNAVAILABLE = "ContentUnavailable"
     const val SPACER = "Spacer"
     const val DIVIDER = "Divider"
+    const val SHAPE = "Shape"
     const val BUTTON = "Button"
     const val PRESSABLE = "Pressable"
     const val TEXT_INPUT = "TextInput"
@@ -146,6 +149,9 @@ internal object NexaDevNodeKind {
     const val LINK = "Link"
     const val ACCESSIBILITY = "Accessibility"
     const val KEYBOARD_AWARE = "KeyboardAware"
+    const val SAFE_AREA_PADDING = "SafeAreaPadding"
+    const val SAFE_AREA_INSET = "SafeAreaInset"
+    const val SCROLL_HEADER = "ScrollHeader"
     const val APP_BOTTOM_BAR = "AppBottomBar"
     const val PAGE_PAGER = "PagePager"
     const val BOTTOM_SHEET = "BottomSheet"

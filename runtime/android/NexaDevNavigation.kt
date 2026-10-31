@@ -1,12 +1,14 @@
 package __NEXA_PACKAGE__
 
 import android.util.Base64
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -16,6 +18,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.launch
@@ -99,6 +102,7 @@ internal fun RenderNavigationStack(
     modifier: Modifier = Modifier,
 ) {
     val screens = module.optJSONArray("screens") ?: JSONArray()
+    val showNavigationBar = fields.optBoolean("show_navigation_bar", true)
     val rootScreen = screens.optJSONObject(fields.optInt("root", -1)) ?: return
     val route = store.encodeScreenRoute(
         rootScreen,
@@ -118,6 +122,17 @@ internal fun RenderNavigationStack(
     }
     androidx.compose.runtime.key(store.navigationEpoch) {
         val navController = rememberNavController()
+        val currentBackStackEntry by navController.currentBackStackEntryAsState()
+        val canPop = currentBackStackEntry != null && navController.previousBackStackEntry != null
+        androidx.compose.runtime.DisposableEffect(navController) {
+            store.registerNavController(navController)
+            onDispose {
+                store.unregisterNavController(navController)
+            }
+        }
+        BackHandler(enabled = canPop) {
+            store.popNavigation(navController)
+        }
         NavHost(
             navController = navController,
             startDestination = route,
@@ -190,7 +205,7 @@ internal fun RenderNavigationStack(
                             )
                         }
                         val routeContent: @Composable () -> Unit = {
-                            if (isRootScreen) {
+                            if (isRootScreen || !showNavigationBar) {
                                 screenContent()
                             } else {
                                 NexaNavigationScreenPrimitive(
@@ -204,9 +219,7 @@ internal fun RenderNavigationStack(
                                         it.first == "Trailing" && it.second.length() > 0
                                     },
                                     onBack = {
-                                        if (navController.previousBackStackEntry != null) {
-                                            navController.popBackStack()
-                                        }
+                                        store.popNavigation(navController)
                                     },
                                     leadingActions = {
                                         RenderTabToolbarItems(

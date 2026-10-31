@@ -57,6 +57,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(uses_transport, "java.nio.ByteBuffer");
     imports.add(uses_transport, "java.util.WeakHashMap");
     imports.add(uses_transport, "java.util.concurrent.Executors");
+    imports.add(uses_transport, "java.util.concurrent.Executor");
     imports.add(uses_transport, "kotlin.coroutines.resume");
     imports.add(uses_transport, "kotlin.coroutines.resumeWithException");
 }
@@ -195,32 +196,30 @@ private object NexaCronetRuntime {
             .joinToString("|") { (host, pins) ->
                 host + ":" + pins.map { pin -> pin.joinToString(",") }.sorted().joinToString(";")
             }
-        synchronized(engines) {
-            engines[applicationContext]?.get(pinKey)?.let { return it }
-        }
-        val cacheDirectory = java.io.File(applicationContext.cacheDir, "nexa-cronet").apply {
-            mkdirs()
-        }
-        val diskCacheSizeBytes = NexaCronetConfig.DISK_CACHE_SIZE_BYTES
-        val builder = CronetEngine.Builder(applicationContext)
-            .enableHttp2(true)
-            .enableQuic(true)
-            .enableBrotli(true)
-            .setStoragePath(cacheDirectory.absolutePath)
-            .enableHttpCache(
-                if (diskCacheSizeBytes > 0L) CronetEngine.Builder.HTTP_CACHE_DISK
-                else CronetEngine.Builder.HTTP_CACHE_DISABLED,
-                diskCacheSizeBytes,
-            )
-        val expiration = java.util.Date(System.currentTimeMillis() + 365L * 24L * 60L * 60L * 1000L)
-        for ((host, pins) in certificatePins) {
-            builder.addPublicKeyPins(host, pins, true, expiration)
-        }
-        val engine = builder.build()
-        synchronized(engines) {
+        return synchronized(engines) {
+            engines[applicationContext]?.get(pinKey)?.let { return@synchronized it }
+            val cacheDirectory = java.io.File(applicationContext.cacheDir, "nexa-cronet").apply {
+                mkdirs()
+            }
+            val diskCacheSizeBytes = NexaCronetConfig.DISK_CACHE_SIZE_BYTES
+            val builder = CronetEngine.Builder(applicationContext)
+                .enableHttp2(true)
+                .enableQuic(true)
+                .enableBrotli(true)
+                .setStoragePath(cacheDirectory.absolutePath)
+                .enableHttpCache(
+                    if (diskCacheSizeBytes > 0L) CronetEngine.Builder.HTTP_CACHE_DISK
+                    else CronetEngine.Builder.HTTP_CACHE_DISABLED,
+                    diskCacheSizeBytes,
+                )
+            val expiration = java.util.Date(System.currentTimeMillis() + 365L * 24L * 60L * 60L * 1000L)
+            for ((host, pins) in certificatePins) {
+                builder.addPublicKeyPins(host, pins, true, expiration)
+            }
+            val engine = builder.build()
             engines.getOrPut(applicationContext) { mutableMapOf() }[pinKey] = engine
+            engine
         }
-        return engine
     }
 }
 
@@ -240,7 +239,9 @@ private class NexaUploadProvider(private val payload: ByteArray) : UploadDataPro
             byteBuffer.put(payload, offset, count)
             offset += count
         }
-        uploadDataSink.onReadSucceeded(offset >= payload.size)
+        // getLength() makes this a fixed-length (non-chunked) upload. Cronet
+        // requires finalChunk=false for every read in that mode.
+        uploadDataSink.onReadSucceeded(false)
     }
 
     override fun rewind(uploadDataSink: UploadDataSink) {
@@ -306,7 +307,8 @@ private class NexaMultipartUploadProvider(
                     else -> break
                 }
             }
-            uploadDataSink.onReadSucceeded(phase == 4)
+            // getLength() makes this a fixed-length (non-chunked) upload.
+            uploadDataSink.onReadSucceeded(false)
         } catch (error: Exception) {
             uploadDataSink.onReadError(error)
         }
@@ -530,6 +532,12 @@ private class NexaCronetImageRequestClient(
 }
 
 public object NexaNetwork {
+    /** Shared Cronet engine for native streaming plugins in this app. */
+    public fun cronetEngine(context: Context): CronetEngine = NexaCronetRuntime.engine(context)
+
+    /** Shared Cronet callback executor for native streaming plugins in this app. */
+    public fun cronetExecutor(): Executor = NexaCronetRuntime.executor()
+
     private fun requireSuccessful(response: NexaNetworkResponse) {
         if (response.statusCode !in 200..299) {
             throw NexaNetworkException("HTTP ${response.statusCode}")
@@ -908,6 +916,33 @@ mod tests {
     }
 
     #[test]
+    fn native_plugins_can_reuse_the_generated_cronet_engine() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+
+        assert!(output.contains("public fun cronetEngine(context: Context): CronetEngine"));
+        assert!(output.contains("public fun cronetExecutor(): Executor"));
+        assert!(output.contains("return synchronized(engines)"));
+        assert!(
+            output.contains(
+                "engines.getOrPut(applicationContext) { mutableMapOf() }[pinKey] = engine"
+            )
+        );
+
+        let mut without_network = SourceWriter::new();
+        render(
+            &mut without_network,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+        );
+        assert!(!without_network.contains("cronetEngine(context"));
+    }
+
+    #[test]
     fn cronet_image_adapter_preserves_each_response_header_value() {
         let mut output = SourceWriter::new();
         render(&mut output, true, true, false, false, false, false);
@@ -968,7 +1003,7 @@ mod tests {
         assert!(output.contains("public suspend fun upload("));
         assert!(output.contains("NexaMultipartUploadProvider(source, fields, boundary)"));
         assert!(output.contains("input.read(byteBuffer)"));
-        assert!(output.contains("uploadDataSink.onReadSucceeded(phase == 4)"));
+        assert!(output.contains("uploadDataSink.onReadSucceeded(false)"));
         assert!(!output.contains("writeMultipartBody"));
         assert!(!output.contains("nexa-upload-"));
         assert!(output.contains("timeout: Double = 30.0"));
@@ -978,6 +1013,23 @@ mod tests {
         assert!(
             output.contains("put(\"Content-Type\", \"multipart/form-data; boundary=$boundary\")")
         );
+    }
+
+    #[test]
+    fn fixed_length_cronet_uploads_never_mark_a_final_chunk() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+
+        assert_eq!(
+            output
+                .as_str()
+                .matches("uploadDataSink.onReadSucceeded(false)")
+                .count(),
+            2,
+            "byte-array and multipart providers both have known lengths",
+        );
+        assert!(!output.contains("onReadSucceeded(offset >= payload.size)"));
+        assert!(!output.contains("onReadSucceeded(phase == 4)"));
     }
 
     #[test]

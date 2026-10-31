@@ -55,6 +55,9 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::IsCompactWidth => "(nexaHorizontalSizeClass == .compact)".to_owned(),
         Expr::IsRegularHeight => "(nexaVerticalSizeClass == .regular)".to_owned(),
         Expr::IsCompactHeight => "(nexaVerticalSizeClass == .compact)".to_owned(),
+        Expr::ScreenWidth => "Double(nexaViewportSize.width)".to_owned(),
+        Expr::ScreenHeight => "Double(nexaViewportSize.height)".to_owned(),
+        Expr::SafeAreaTop => "Double(nexaVisualSafeAreaInsets.top)".to_owned(),
         Expr::Number { raw, ty } => match ty {
             NumericType::Float32 => format!("Float({raw})"),
             NumericType::Float64 => format!("Double({raw})"),
@@ -563,7 +566,7 @@ fn localized_text_expression(
     let catalog_key =
         nexa_ir::localization::apple_catalog_key(value).unwrap_or_else(|| key.to_owned());
     let localized = format!(
-        "NSLocalizedString({}, tableName: nil, bundle: .main, value: {}, comment: {})",
+        "NexaLocale.localizedString(key: {}, value: {}, comment: {})",
         swift_string(&catalog_key),
         swift_string(&fallback),
         comment
@@ -583,7 +586,7 @@ fn localized_text_expression(
         localized
     } else {
         format!(
-            "String(format: {localized}, locale: Locale.current, arguments: [{}])",
+            "String(format: {localized}, locale: NexaLocale.formatLocale, arguments: [{}])",
             arguments.join(", ")
         )
     }
@@ -636,6 +639,13 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
         TimeMethod::LocalizedDate => format!(
             "DateFormatter.localizedString(from: Date(timeIntervalSince1970: Double({first}) / 1000.0), dateStyle: .short, timeStyle: .none)"
         ),
+        TimeMethod::LocalizedLongDate => {
+            let locale = rendered
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "\"en\"".to_owned());
+            format!("nexaLocalizedLongDate({first}, {locale})")
+        }
         TimeMethod::LocalizedTime => format!(
             "DateFormatter.localizedString(from: Date(timeIntervalSince1970: Double({first}) / 1000.0), dateStyle: .none, timeStyle: .short)"
         ),
@@ -649,6 +659,7 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
                 .unwrap_or_else(|| "\"\"".to_owned());
             format!("nexaFormatDate({first}, {pattern})")
         }
+        TimeMethod::FormatDuration => format!("nexaFormatDuration({first})"),
     }
 }
 
@@ -673,9 +684,7 @@ fn native_call(
         let key = rendered.first().map(String::as_str).unwrap_or("\"\"");
         let codec_name = nexa_codegen::value::json_codec_name(&codec.ty);
         return match name {
-            "get" => format!(
-                "NexaStorage.getJson({key}).flatMap {{ raw in\n    if case .success(let value) = nexaJsonParse(raw, using: {codec_name}.self) {{\n        return value\n    }}\n    return nil\n}}"
-            ),
+            "get" => format!("nexaStorageGetJson({key}, using: {codec_name}.self)"),
             "set" => {
                 let value = rendered.get(1).map(String::as_str).unwrap_or("nil");
                 format!(
@@ -772,6 +781,9 @@ fn native_call(
                 }
                 "toLowercase" => format!("{rendered_receiver}.lowercased()"),
                 "toUppercase" => format!("{rendered_receiver}.uppercased()"),
+                "normalizeNFKD" => {
+                    format!("{rendered_receiver}.decomposedStringWithCompatibilityMapping")
+                }
                 "split" => {
                     let delimiter = rendered.first().map(String::as_str).unwrap_or("\" \"");
                     format!("{rendered_receiver}.components(separatedBy: {delimiter})")
@@ -897,11 +909,19 @@ fn native_call(
             rendered.first().map(String::as_str).unwrap_or("0.0"),
             rendered.get(1).map(String::as_str).unwrap_or("\"\"")
         ),
-        ("Locale", "currentLanguageCode") => "nexaCurrentLanguageCode()".to_owned(),
-        ("Locale", "preferredLanguageCodes") => "Locale.preferredLanguages".to_owned(),
+        ("Locale", "currentLanguageCode") => "NexaLocale.currentLanguageCode".to_owned(),
+        ("Locale", "preferredLanguageCodes") => "NexaLocale.preferredLanguageCodes".to_owned(),
+        ("Locale", "setLanguageOverride") => format!(
+            "NexaLocale.setLanguageOverride({})",
+            rendered.first().map(String::as_str).unwrap_or("nil")
+        ),
         ("Locale", "displayName") => format!(
-            "Locale.current.localizedString(forLanguageCode: {})",
+            "NexaLocale.displayName(languageCode: {})",
             rendered.first().map(String::as_str).unwrap_or("\"und\"")
+        ),
+        ("Crypto", "sha1") => format!(
+            "nexaCryptoSha1({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
         ),
         ("Crypto", "sha256") => format!(
             "nexaCryptoSha256({})",
@@ -1112,7 +1132,8 @@ fn plugin_swift_decode(
         ),
         (true, Some(target)) => (
             format!(
-                "{read}.map {{ raw -> {target} in guard let converted = {target}(exactly: raw) else {{ throw {row_failure_name} }}; return converted }}"
+                "try {{ () throws(Failure) -> {} in guard let raw = {read} else {{ return nil }}; guard let converted = {target}(exactly: raw) else {{ throw {row_failure_name} }}; return converted }}()",
+                crate::generator::engine::types::swift_type(ty)
             ),
             Some(row_failure),
         ),
@@ -1333,7 +1354,7 @@ mod tests {
     };
 
     #[test]
-    fn current_language_code_uses_the_availability_safe_native_helper() {
+    fn current_language_code_reads_the_persisted_language_override() {
         let call = Expr::NativeCall {
             receiver: None,
             namespace: "Locale".to_owned(),
@@ -1346,7 +1367,7 @@ mod tests {
             is_throwing: false,
         };
 
-        assert_eq!(expression(&call), "nexaCurrentLanguageCode()");
+        assert_eq!(expression(&call), "NexaLocale.currentLanguageCode");
     }
 
     #[test]
@@ -1380,7 +1401,7 @@ mod tests {
         };
 
         let generated = localized_text_view(&expression, None);
-        assert!(generated.contains("String(format: NSLocalizedString("));
+        assert!(generated.contains("String(format: NexaLocale.localizedString("));
         assert!(generated.contains("String(describing: nexa_dragUpdated) as CVarArg"));
         assert!(!generated.contains("\\(nexa_dragUpdated)"));
     }
@@ -1516,6 +1537,7 @@ mod tests {
         let mapper = plugin_row_mapper(&ty).expect("structs should receive typed row mappers");
         assert!(mapper.contains("row.optionalInteger(nexaColumn0, \"count\")"));
         assert!(mapper.contains("Int32(exactly: raw)"));
+        assert!(mapper.contains("throws(Failure) -> Int32? in guard let raw"));
         assert!(mapper.contains("row.boolean(nexaColumn1, \"enabled\")"));
         assert!(mapper.contains("row.decimal(nexaColumn2, \"ratio\")"));
         assert!(mapper.contains("row.optionalBytes(nexaColumn3, \"payload\")"));
@@ -2059,6 +2081,21 @@ mod tests {
                 expected
             );
         }
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::LocalizedLongDate,
+                arguments: vec![
+                    Expr::Number {
+                        raw: "1700000000000".to_owned(),
+                        ty: NumericType::Int64,
+                    },
+                    Expr::String("fr".to_owned()),
+                ],
+                return_type: Type::String,
+                is_async: false,
+            }),
+            "nexaLocalizedLongDate(1700000000000, \"fr\")"
+        );
     }
 
     #[test]

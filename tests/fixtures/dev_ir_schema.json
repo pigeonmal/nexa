@@ -3,7 +3,7 @@
   "title": "NexaDevIRSchema",
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
   "protocol_version": 13,
-  "dev_ir_format_version": 65,
+  "dev_ir_format_version": 77,
   "view_transitions": [
     "Fade",
     "SlideFromBottom",
@@ -49,6 +49,7 @@
     "FormSection",
     "Text",
     "ContentUnavailable",
+    "Shape",
     "Button",
     "Pressable",
     "TextInput",
@@ -66,6 +67,9 @@
     "Link",
     "Accessibility",
     "KeyboardAware",
+    "SafeAreaPadding",
+    "SafeAreaInset",
+    "ScrollHeader",
     "AppBottomBar",
     "BottomSheet",
     "Dialog",
@@ -197,6 +201,15 @@
     "fast_list": {
       "reverse_layout": "reverse_layout",
       "page_snap": "page_snap"
+    },
+    "safe_area_padding": {
+      "plan": "plan",
+      "children": "children"
+    },
+    "safe_area_inset": {
+      "plan": "plan",
+      "children": "children",
+      "content": "content"
     },
     "pressable": {
       "drag_parameters": "drag_parameters",

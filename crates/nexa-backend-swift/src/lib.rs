@@ -81,6 +81,22 @@ impl SwiftBackend {
         generator::generate_units_with_project_features(module)
     }
 
+    /// Generate release units with Nexa's network runtime for native plugins.
+    pub fn generate_units_with_network_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_units_with_network_and_project_features(module)
+    }
+
+    /// Generate network and value codec runtimes for native plugins.
+    pub fn generate_units_with_plugin_value_runtime_and_network_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_units_with_plugin_value_runtime_and_network_and_project_features(module)
+    }
+
     /// Generate release units with the value codec runtime required by a
     /// native plugin contract that declares generic methods.
     pub fn generate_units_with_plugin_value_runtime(

@@ -288,7 +288,7 @@ pub(crate) fn render_navigation_routes(module: &Module, out: &mut SourceWriter) 
     if module.screens.is_empty() {
         return;
     }
-    out.push_str("private struct NexaNavigationPathEnvironmentKey: EnvironmentKey {\n    nonisolated(unsafe) static let defaultValue: Binding<NavigationPath> = .constant(NavigationPath())\n}\n\nprivate extension EnvironmentValues {\n    var nexaNavigationPath: Binding<NavigationPath> {\n        get { self[NexaNavigationPathEnvironmentKey.self] }\n        set { self[NexaNavigationPathEnvironmentKey.self] = newValue }\n    }\n}\n\nprivate enum NexaNavigationRoute: Hashable {\n");
+    out.push_str("private enum NexaNavigationRoute: Hashable {\n");
     for screen in &module.screens {
         let case_name = nexa_codegen::names::navigation_case_name(screen.id);
         let mut payload_types = vec!["UUID".to_owned()];
@@ -304,6 +304,122 @@ pub(crate) fn render_navigation_routes(module: &Module, out: &mut SourceWriter) 
         ));
     }
     out.push_str("}\n\n");
+    render_navigation_path_helpers(out);
+}
+
+fn render_navigation_path_helpers(out: &mut SourceWriter) {
+    out.push_str(
+        r#"private struct NexaNavigationPathEnvironmentKey: EnvironmentKey {
+    static let defaultValue: Binding<[NexaNavigationRoute]> = .constant([])
+}
+
+private extension EnvironmentValues {
+    var nexaNavigationPath: Binding<[NexaNavigationRoute]> {
+        get { self[NexaNavigationPathEnvironmentKey.self] }
+        set { self[NexaNavigationPathEnvironmentKey.self] = newValue }
+    }
+}
+
+private struct NexaNavigationPathHost<Content: View>: View {
+    @State private var path: [NexaNavigationRoute] = []
+    @State private var rootIdentity = UUID()
+    private let content: (Binding<[NexaNavigationRoute]>, UUID) -> Content
+
+    init(@ViewBuilder content: @escaping (Binding<[NexaNavigationRoute]>, UUID) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content($path, rootIdentity)
+    }
+}
+
+@MainActor
+private struct NexaNavigationBackSwipeModifier: ViewModifier {
+    @Binding var path: [NexaNavigationRoute]
+
+    func body(content: Content) -> some View {
+        content.background(
+            NexaNavigationBackGestureProbe(path: $path)
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+        )
+    }
+}
+
+@MainActor
+private struct NexaNavigationBackGestureProbe: UIViewRepresentable {
+    @Binding var path: [NexaNavigationRoute]
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(path: $path)
+    }
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ view: ProbeView, context: Context) {
+        context.coordinator.path = $path
+        view.coordinator = context.coordinator
+        view.installGesture()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var path: Binding<[NexaNavigationRoute]>
+
+        init(path: Binding<[NexaNavigationRoute]>) {
+            self.path = path
+        }
+
+        func install(from view: UIView) {
+            var responder: UIResponder? = view
+            while let current = responder {
+                if let controller = current as? UIViewController,
+                   let navigationController = controller.navigationController,
+                   let popGesture = navigationController.interactivePopGestureRecognizer {
+                    popGesture.delegate = self
+                    popGesture.isEnabled = true
+                    return
+                }
+                responder = current.next
+            }
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard !path.wrappedValue.isEmpty else { return false }
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+                  let view = gestureRecognizer.view else { return true }
+            let velocity = pan.velocity(in: view)
+            let isLeadingEdgeSwipe = view.effectiveUserInterfaceLayoutDirection == .rightToLeft
+                ? velocity.x < 0
+                : velocity.x > 0
+            return isLeadingEdgeSwipe && abs(velocity.x) > abs(velocity.y)
+        }
+    }
+
+    @MainActor
+    final class ProbeView: UIView {
+        weak var coordinator: Coordinator?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.installGesture()
+            }
+        }
+
+        func installGesture() {
+            coordinator?.install(from: self)
+        }
+    }
+}
+
+"#,
+    );
 }
 
 #[cfg(test)]

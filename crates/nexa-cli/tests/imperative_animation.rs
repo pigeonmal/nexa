@@ -33,11 +33,11 @@ fn imperative_float_animation_is_lowered_for_both_native_backends() {
     assert!(kotlin.contains("nexa_progressAnimationSpec by remember"));
     assert!(
         kotlin.contains(
-            "nexa_progressAnimated by androidx.compose.animation.core.animateFloatAsState("
+            "nexa_progressAnimated = androidx.compose.animation.core.animateFloatAsState("
         )
     );
     assert!(kotlin.contains("androidx.compose.animation.core.animateFloatAsState("));
-    assert!(kotlin.contains("nexa_progressAnimated.toDouble()"));
+    assert!(kotlin.contains("nexa_progressAnimated.value.toDouble()"));
     assert!(kotlin.contains("val nexaAnimatedStateBefore"));
     assert!(kotlin.contains("nexa_progress.toBits() == nexaAnimatedStateBefore"));
     assert!(kotlin.contains("nexa_progressAnimationSpec = androidx.compose.animation.core.snap()"));
@@ -84,6 +84,55 @@ fn tween_animation_is_preserved_in_aot_and_dev_ir() {
         json["module"]["body"][0]["Button"]["actions"][0]["WithAnimation"]["animation"]["Tween"]["delay"],
         0.0
     );
+}
+
+#[test]
+fn animated_layout_geometry_is_lowered_for_both_native_backends() {
+    let module = nexa_compiler::compile(
+        r#"app AnimatedSearchOverlay {
+            state progress: Float64 = 1.0
+            body {
+                Button("Collapse") {
+                    withAnimation(Tween(duration: 0.3, easing: EaseInOut)) {
+                        progress = 0.0
+                    }
+                }
+                Column(
+                    fillMaxWidth: true,
+                    fillMaxHeight: true,
+                    cornerRadius: (1.0 - progress) * 35.1,
+                    scale: 0.95 + progress * 0.05,
+                    scaleY: (70.2 + progress * (Layout.screenHeight - 70.2)) / Layout.screenHeight,
+                    offsetY: (1.0 - progress) * (SafeArea.top - (Layout.screenHeight - 70.2) / 2.0)
+                ) { }
+            }
+        }"#,
+    )
+    .expect("animated viewport geometry should compile");
+
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("Double(nexaViewportSize.height)"));
+    assert!(swift.contains("Double(nexaVisualSafeAreaInsets.top)"));
+    assert!(swift.contains(".offset(y:"));
+    assert!(swift.contains("RoundedRectangle(cornerRadius:"));
+
+    let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
+    assert!(kotlin.contains("LocalWindowInfo.current.containerSize.height"));
+    assert!(kotlin.contains("nexa_progressAnimated.value.toDouble()"));
+    assert!(kotlin.contains("Modifier.graphicsLayer {"));
+    assert!(
+        kotlin.contains("RoundedCornerShape((((1.0 - nexa_progressAnimated.value.toDouble()) * 35.1)).toFloat().dp)")
+    );
+    assert!(kotlin.contains("translationY = (((1.0 - nexa_progressAnimated.value.toDouble()) *"));
+
+    let dev_module = nexa_dev_ir::lower(&module, "animated-search-overlay");
+    let json = serde_json::to_value(dev_module).expect("serialize geometry Dev IR");
+    let style = &json["module"]["body"][1]["Layout"]["style"];
+    assert_eq!(
+        style["corner_radius_expression"]["Arithmetic"]["op"],
+        "Multiply"
+    );
+    assert!(style["effects"]["offset_y_expression"].is_object());
 }
 
 #[test]
@@ -147,7 +196,7 @@ fn conditional_transitions_accept_custom_timing_in_aot_and_dev_runtime() {
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
     assert!(swift.contains(
-        ".transition(.move(edge: .bottom)).animation(.timingCurve(0.0, 0.0, 0.2, 1.0, duration: 0.28).delay(0.04), value: nexa_visible)"
+        "NexaAnimatedWhen(value: nexa_visible, animation: .timingCurve(0.0, 0.0, 0.2, 1.0, duration: 0.28).delay(0.04), transition: .move(edge: .bottom))"
     ));
 
     let (kotlin, features) =
@@ -576,7 +625,7 @@ fn segmented_control_comment_is_attached_to_inline_choice_translations() {
         assert!(kotlin.contains(&format!("R.string.{resource}")));
     }
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
-    assert!(swift.contains("NSLocalizedString("));
+    assert!(swift.contains("NexaLocale.localizedString("));
     assert!(swift.contains("comment: \"Date range options\""));
 
     let dev_module = nexa_dev_ir::lower(&module, "localized-segments");
@@ -619,6 +668,6 @@ fn state_defined_segmented_choices_can_be_localized_at_their_declaration() {
     }
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
-    assert!(swift.contains("NSLocalizedString(\"Morning\""));
-    assert!(swift.contains("NSLocalizedString(\"Evening\""));
+    assert!(swift.contains("NexaLocale.localizedString(key: \"Morning\", value: \"Morning\""));
+    assert!(swift.contains("NexaLocale.localizedString(key: \"Evening\", value: \"Evening\""));
 }

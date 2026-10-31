@@ -2,6 +2,8 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    sync::Mutex,
+    time::Instant,
 };
 
 use nexa_diagnostics::{CompileError, Span};
@@ -99,6 +101,17 @@ pub fn compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
         )
 }
 
+#[derive(Clone)]
+struct PluginWarning {
+    target: Option<String>,
+    warning: nexa_diagnostics::CompileWarning,
+}
+
+#[derive(Clone, Default)]
+struct PluginAnalysis {
+    warnings: Vec<PluginWarning>,
+}
+
 /// Reuses parsed source files across builds in a long-lived development
 /// session. Semantic analysis still runs for the assembled project so changes
 /// to shared declarations are checked against every dependent declaration.
@@ -106,7 +119,13 @@ pub fn compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
 pub struct IncrementalProjectCompiler {
     parsed_sources: HashMap<PathBuf, CachedProgram>,
     analyzers: HashMap<String, AnalyzerProcess>,
+    dev_function_caches: Mutex<HashMap<Target, semantic::DevFunctionLoweringCache>>,
+    last_dev_change_hints: Mutex<HashMap<Target, crate::DevChangeHint>>,
     last_stats: ProjectCompileStats,
+    canonical_paths: HashMap<PathBuf, PathBuf>,
+    custom_icons: Option<HashMap<String, nexa_ir::SystemIcon>>,
+    cached_plugin_analysis: Option<PluginAnalysis>,
+    modified_paths: HashSet<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -118,22 +137,56 @@ pub struct ProjectCompileStats {
 struct CachedProgram {
     source: String,
     program: nexa_syntax::ast::Program,
+    mtime: Option<std::time::SystemTime>,
+    file_size: u64,
 }
 
-struct PluginWarning {
-    target: Option<String>,
-    warning: nexa_diagnostics::CompileWarning,
+fn function_source_snippets(
+    functions: &[nexa_syntax::ast::FunctionDecl],
+    parsed_sources: &HashMap<PathBuf, CachedProgram>,
+) -> HashMap<String, String> {
+    functions
+        .iter()
+        .filter_map(|function| {
+            let source_file = function.source_file.as_deref()?;
+            let source = parsed_sources.get(Path::new(source_file))?;
+            let snippet = source.source.get(function.span.start..function.span.end)?;
+            Some((function.name.clone(), snippet.to_owned()))
+        })
+        .collect()
 }
 
-struct PluginAnalysis {
-    warnings: Vec<PluginWarning>,
+fn screen_source_snippets(
+    screens: &[nexa_syntax::ast::ScreenDecl],
+    parsed_sources: &HashMap<PathBuf, CachedProgram>,
+) -> HashMap<String, String> {
+    screens
+        .iter()
+        .filter_map(|screen| {
+            let source_file = screen.source_file.as_deref()?;
+            let source = parsed_sources.get(Path::new(source_file))?;
+            let snippet = source.source.get(screen.span.start..screen.span.end)?;
+            Some((screen.name.clone(), snippet.to_owned()))
+        })
+        .collect()
 }
+
 
 impl IncrementalProjectCompiler {
     /// Counts source files freshly parsed and reused by the last compilation
     /// attempt. Counts reset for every compile call.
     pub fn last_compile_stats(&self) -> ProjectCompileStats {
         self.last_stats
+    }
+
+    /// Returns compiler-proven unchanged Dev IR declaration indices from the
+    /// most recent DevRuntime compile for a concrete target.
+    pub fn last_dev_change_hint(&self, target: Target) -> Option<crate::DevChangeHint> {
+        self.last_dev_change_hints
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&target)
+            .cloned()
     }
 
     /// Incrementally loads and compiles a Nexa source graph for the requested
@@ -218,8 +271,22 @@ impl IncrementalProjectCompiler {
         include_optimization_report: bool,
         source_overrides: &HashMap<PathBuf, String>,
     ) -> Result<Vec<crate::Compilation>, CompileError> {
+        let t_mode_start = Instant::now();
         self.last_stats = ProjectCompileStats::default();
+        self.modified_paths.clear();
+        self.last_dev_change_hints
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
         let entry_path = path.as_ref();
+        let project_load_started = Instant::now();
+        let custom_icons = if let Some(cached) = &self.custom_icons {
+            cached.clone()
+        } else {
+            let icons = project_icon_registry(entry_path)?;
+            self.custom_icons = Some(icons.clone());
+            icons
+        };
         let mut context = ProjectLoadContext {
             active: HashSet::new(),
             loaded_paths: HashSet::new(),
@@ -237,6 +304,7 @@ impl IncrementalProjectCompiler {
         self.parsed_sources
             .retain(|path, _| loaded_paths.contains(path));
 
+        let t_after_load = Instant::now();
         let mut app = loaded.app.ok_or_else(|| {
             CompileError::new(
                 file_level_span(),
@@ -245,91 +313,237 @@ impl IncrementalProjectCompiler {
             .with_file(entry_path.display().to_string())
         })?;
         app.plugins = loaded.plugins;
+        app.components = loaded.components;
+        app.enums.extend(loaded.enums);
+        app.structs = loaded.structs;
+        app.classes = loaded.classes;
+        app.screens.extend(loaded.screens);
+        app.widgets.extend(loaded.widgets);
+        app.functions.extend(loaded.functions);
+        app.globals.extend(loaded.globals);
+        app.tests = loaded.tests;
+        let t_after_assemble = Instant::now();
+        let function_sources = function_source_snippets(&app.functions, &self.parsed_sources);
+        let screen_sources = screen_source_snippets(&app.screens, &self.parsed_sources);
+        let app_source = app.source_file.as_deref().and_then(|source_file| {
+            let source = self.parsed_sources.get(Path::new(source_file))?;
+            source.source.get(app.span.start..app.span.end).map(|s| s.to_owned())
+        });
+        let t_after_snippets = Instant::now();
+        let project_load_elapsed = project_load_started.elapsed();
         let plugin_analysis = if app
             .plugins
             .iter()
             .any(|plugin| !plugin.compiler_analyzer.is_empty())
         {
-            let (ios_minimum, android_min_sdk) = project_target_minimums(entry_path)?;
-            self.run_plugin_analyzers(
-                &app.plugins,
-                entry_path,
-                targets,
-                &ios_minimum,
-                android_min_sdk,
-                &loaded_paths,
-            )?
+            let can_reuse = dev_runtime
+                && self.cached_plugin_analysis.is_some()
+                && self.modified_paths.iter().all(|path| {
+                    if let Some(cached) = self.parsed_sources.get(path) {
+                        if !cached.program.plugins.is_empty() {
+                            return false;
+                        }
+                        for plugin in &app.plugins {
+                            if !plugin.compiler_analyzer.is_empty()
+                                && cached.source.contains(&plugin.namespace)
+                            {
+                                return false;
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                });
+
+            if can_reuse {
+                self.cached_plugin_analysis.clone().unwrap()
+            } else {
+                let (ios_minimum, android_min_sdk) = project_target_minimums(entry_path)?;
+                let analysis = self.run_plugin_analyzers(
+                    &app.plugins,
+                    entry_path,
+                    targets,
+                    &ios_minimum,
+                    android_min_sdk,
+                    &loaded_paths,
+                )?;
+                if dev_runtime {
+                    self.cached_plugin_analysis = Some(analysis.clone());
+                }
+                analysis
+            }
         } else {
             PluginAnalysis {
                 warnings: Vec::new(),
             }
         };
-        targets
-            .iter()
-            .map(|&target| {
-                let mut app = app.clone();
-                app.components = loaded.components.clone();
-                app.enums.extend(loaded.enums.clone());
-                app.structs = loaded.structs.clone();
-                app.classes = loaded.classes.clone();
-                app.screens.extend(loaded.screens.clone());
-                app.widgets.extend(loaded.widgets.clone());
-                app.functions.extend(loaded.functions.clone());
-                app.globals.extend(loaded.globals.clone());
-                app.tests = loaded
-                    .tests
-                    .iter()
-                    .filter(|test| {
-                        !test.source_file.as_deref().is_some_and(|source_file| {
-                            let source_file = Path::new(source_file);
-                            plugin_roots
-                                .values()
-                                .any(|plugin_root| source_file.starts_with(plugin_root))
-                        })
-                    })
-                    .cloned()
-                    .collect();
-                let plugins = app.plugins.clone();
-                let lowered = if include_optimization_report {
-                    semantic::lower_with_project_targets_and_optimization_report(
-                        app,
-                        target,
-                        dev_runtime,
-                    )
-                    .map(|(module, warnings, tests, report)| {
-                        (module, warnings, tests, Some(report))
-                    })
-                } else {
-                    semantic::lower_with_project_targets(app, target, dev_runtime)
-                        .map(|(module, warnings, tests)| (module, warnings, tests, None))
-                };
-                let (module, mut warnings, tests, optimization_report) =
-                    lowered.map_err(|error| error.with_file(entry_path.display().to_string()))?;
-                warnings.extend(
-                    plugin_analysis
-                        .warnings
-                        .iter()
-                        .filter(|warning| {
-                            warning.target.as_deref().is_none_or(|warning_target| {
-                                target == Target::All || warning_target == target.as_str()
-                            })
-                        })
-                        .map(|warning| warning.warning.clone()),
+        let t_after_plugins = Instant::now();
+        let lower_target = |target: Target, mut target_app: App| {
+            let semantic_started = Instant::now();
+            target_app.tests.retain(|test| {
+                !test.source_file.as_deref().is_some_and(|source_file| {
+                    let source_file = Path::new(source_file);
+                    plugin_roots
+                        .values()
+                        .any(|plugin_root| source_file.starts_with(plugin_root))
+                })
+            });
+            let plugins = target_app.plugins.clone();
+            let lowered = if include_optimization_report {
+                semantic::lower_with_project_targets_and_optimization_report(
+                    target_app,
+                    target,
+                    dev_runtime,
+                    &custom_icons,
+                )
+                .map(|(module, warnings, tests, report)| (module, warnings, tests, Some(report)))
+            } else if dev_runtime {
+                let mut cache = self
+                    .dev_function_caches
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&target)
+                    .unwrap_or_default();
+                let lowered = semantic::lower_with_project_targets_and_dev_cache(
+                    target_app,
+                    target,
+                    &custom_icons,
+                    &mut cache,
+                    &function_sources,
+                    &screen_sources,
+                    app_source.as_deref(),
                 );
-                for warning in &mut warnings {
-                    if warning.file.is_none() {
-                        warning.file = Some(entry_path.display().to_string());
+                if let Ok((module, _, _)) = &lowered {
+                    self.last_dev_change_hints
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .insert(target, cache.change_hint(module));
+                }
+                self.dev_function_caches
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(target, cache);
+                lowered.map(|(module, warnings, tests)| (module, warnings, tests, None))
+            } else {
+                semantic::lower_with_project_targets(target_app, target, dev_runtime, &custom_icons)
+                    .map(|(module, warnings, tests)| (module, warnings, tests, None))
+            };
+            eprintln!(
+                "Nexa semantic lowering {target:?}: {} ms",
+                semantic_started.elapsed().as_millis()
+            );
+            let (module, mut warnings, tests, optimization_report) =
+                lowered.map_err(|error| error.with_file(entry_path.display().to_string()))?;
+            warnings.extend(
+                plugin_analysis
+                    .warnings
+                    .iter()
+                    .filter(|warning| {
+                        warning.target.as_deref().is_none_or(|warning_target| {
+                            target == Target::All || warning_target == target.as_str()
+                        })
+                    })
+                    .map(|warning| warning.warning.clone()),
+            );
+            for warning in &mut warnings {
+                if warning.file.is_none() {
+                    warning.file = Some(entry_path.display().to_string());
+                }
+            }
+            Ok(crate::Compilation {
+                module,
+                warnings,
+                optimization_report,
+                plugins,
+                tests,
+            })
+        };
+
+        eprintln!(
+            "Nexa project source graph load: {} ms",
+            project_load_elapsed.as_millis()
+        );
+
+        eprintln!(
+            "Nexa project detail timings: load_file {} ms, assemble {} ms, snippets {} ms, plugins {} ms",
+            t_after_load.duration_since(t_mode_start).as_millis(),
+            t_after_assemble.duration_since(t_after_load).as_millis(),
+            t_after_snippets.duration_since(t_after_assemble).as_millis(),
+            t_after_plugins.duration_since(t_after_snippets).as_millis(),
+        );
+
+        if targets.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let [target] = targets {
+            let res = lower_target(*target, app).map(|compilation| vec![compilation]);
+            eprintln!("Nexa compile mode total: {} ms", t_mode_start.elapsed().as_millis());
+            return res;
+        }
+
+        std::thread::scope(|scope| {
+            const LOWERING_WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
+            let mut handles = Vec::with_capacity(targets.len());
+            let mut first_error = None;
+            let total_targets = targets.len();
+            let mut app_opt = Some(app);
+            for (idx, target) in targets.iter().copied().enumerate() {
+                let target_app = if idx == total_targets - 1 {
+                    app_opt.take().unwrap_or_else(|| unreachable!())
+                } else {
+                    app_opt.as_ref().unwrap().clone()
+                };
+                let lower_target = &lower_target;
+                let worker = std::thread::Builder::new()
+                    .name(format!("nexa-lower-{}", target.as_str()))
+                    .stack_size(LOWERING_WORKER_STACK_SIZE)
+                    .spawn_scoped(scope, move || lower_target(target, target_app));
+                match worker {
+                    Ok(handle) => handles.push((target, handle)),
+                    Err(error) => {
+                        if first_error.is_none() {
+                            first_error = Some(
+                                CompileError::new(
+                                    file_level_span(),
+                                    format!(
+                                        "could not start the {} semantic lowering worker: {error}",
+                                        target.as_str()
+                                    ),
+                                )
+                                .with_file(entry_path.display().to_string()),
+                            );
+                        }
                     }
                 }
-                Ok(crate::Compilation {
-                    module,
-                    warnings,
-                    optimization_report,
-                    plugins,
-                    tests,
-                })
-            })
-            .collect()
+            }
+            let mut compilations = Vec::with_capacity(handles.len());
+            for (target, handle) in handles {
+                match handle.join() {
+                    Ok(Ok(compilation)) => compilations.push(compilation),
+                    Ok(Err(error)) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
+                    Err(_) => {
+                        if first_error.is_none() {
+                            first_error = Some(
+                                CompileError::new(
+                                    file_level_span(),
+                                    format!("semantic lowering worker for {target:?} panicked"),
+                                )
+                                .with_file(entry_path.display().to_string()),
+                            );
+                        }
+                    }
+                }
+            }
+            match first_error {
+                Some(error) => Err(error),
+                None => Ok(compilations),
+            }
+        })
     }
 
     fn run_plugin_analyzers(
@@ -349,18 +563,6 @@ impl IncrementalProjectCompiler {
                 warnings: Vec::new(),
             });
         }
-        let mut source_files = loaded_paths
-            .iter()
-            .filter_map(|path| {
-                self.parsed_sources
-                    .get(path)
-                    .map(|source| AnalyzerSourceFile {
-                        path: path.display().to_string(),
-                        contents: source.source.clone(),
-                    })
-            })
-            .collect::<Vec<_>>();
-        source_files.sort_by(|left, right| left.path.cmp(&right.path));
         let target_configurations =
             analyzer_target_configurations(targets, ios_minimum, android_min_sdk);
         let mut warnings = Vec::new();
@@ -382,13 +584,32 @@ impl IncrementalProjectCompiler {
                 )
                 .with_file(entry_path.display().to_string()));
             };
+            let mut source_files = loaded_paths
+                .iter()
+                .filter_map(|path| {
+                    let source = self.parsed_sources.get(path)?;
+                    let touches_plugin = !source.program.plugins.is_empty()
+                        || !source.program.structs.is_empty()
+                        || !source.program.enums.is_empty()
+                        || source.source.contains(&plugin.namespace);
+                    if touches_plugin {
+                        Some(AnalyzerSourceFile {
+                            path: path.display().to_string(),
+                            contents: source.source.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            source_files.sort_by(|left, right| left.path.cmp(&right.path));
             let request = AnalysisRequest::new(
                 package_id,
                 &plugin.namespace,
                 package_root,
                 entry_path.display().to_string(),
                 target_configurations.clone(),
-                source_files.clone(),
+                source_files,
             );
             let process_key = format!(
                 "{package_id}:{package_root}:{}",
@@ -477,21 +698,28 @@ impl IncrementalProjectCompiler {
         &mut self,
         path: &Path,
         source: String,
+        mtime: Option<std::time::SystemTime>,
+        file_size: u64,
     ) -> Result<nexa_syntax::ast::Program, CompileError> {
-        if let Some(cached) = self.parsed_sources.get(path)
+        if let Some(cached) = self.parsed_sources.get_mut(path)
             && cached.source == source
         {
+            cached.mtime = mtime;
+            cached.file_size = file_size;
             self.last_stats.reused_source_files += 1;
             return Ok(cached.program.clone());
         }
         let program = nexa_syntax::parse_program(&source)
             .map_err(|error| error.with_file(path.display().to_string()))?;
         self.last_stats.parsed_source_files += 1;
+        self.modified_paths.insert(path.to_owned());
         self.parsed_sources.insert(
             path.to_owned(),
             CachedProgram {
                 source,
                 program: program.clone(),
+                mtime,
+                file_size,
             },
         );
         Ok(program)
@@ -582,6 +810,174 @@ fn project_target_minimums(entry_path: &Path) -> Result<(String, u32), CompileEr
             .and_then(|android| android.min_sdk)
             .unwrap_or(23),
     ))
+}
+
+/// Loads and validates project icon aliases once before target-specific
+/// semantic lowering. Font files remain ordinary project assets; this table
+/// only turns names into statically typed glyphs in the IR.
+fn project_icon_registry(
+    entry_path: &Path,
+) -> Result<HashMap<String, nexa_ir::SystemIcon>, CompileError> {
+    let config_path = entry_path
+        .ancestors()
+        .map(|directory| directory.join("nexa.config.nx"))
+        .find(|candidate| candidate.is_file());
+    let Some(config_path) = config_path else {
+        return Ok(HashMap::new());
+    };
+    let source = fs::read_to_string(&config_path).map_err(|error| {
+        CompileError::new(
+            file_level_span(),
+            format!("cannot read project config: {error}"),
+        )
+        .with_file(config_path.display().to_string())
+    })?;
+    let config = nexa_syntax::parse_config(&source)
+        .map_err(|error| error.with_file(config_path.display().to_string()))?;
+    let Some(assets) = config.assets else {
+        return Ok(HashMap::new());
+    };
+    let config_root = config_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut families = HashSet::with_capacity(assets.icon_fonts.len());
+    let mut native_font_names = HashSet::with_capacity(assets.icon_fonts.len());
+    for font in &assets.icon_fonts {
+        let path = Path::new(&font.path);
+        let valid_relative_path = !path.is_absolute()
+            && path
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_)))
+            && path.parent() == Some(Path::new("assets/fonts"));
+        if !valid_relative_path {
+            return Err(CompileError::new(
+                font.span,
+                "icon font path must name a font directly inside `assets/fonts`",
+            )
+            .with_file(config_path.display().to_string()));
+        }
+        let source_path = config_root.join(path);
+        let metadata = fs::symlink_metadata(&source_path).map_err(|error| {
+            CompileError::new(
+                font.span,
+                format!("cannot read icon font `{}`: {error}", font.path),
+            )
+            .with_file(config_path.display().to_string())
+        })?;
+        if !metadata.file_type().is_file() {
+            return Err(CompileError::new(
+                font.span,
+                format!("icon font `{}` must be a regular file", font.path),
+            )
+            .with_file(config_path.display().to_string()));
+        }
+        let extension = source_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase);
+        if !matches!(extension.as_deref(), Some("ttf" | "otf")) {
+            return Err(
+                CompileError::new(font.span, "icon fonts must use `.ttf` or `.otf` files")
+                    .with_file(config_path.display().to_string()),
+            );
+        }
+        let stem = source_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        let resource_name = font_resource_key(&font.family);
+        if resource_name != font_resource_key(stem) {
+            return Err(CompileError::new(
+                font.span,
+                format!(
+                    "icon font family `{}` must match its font filename `{stem}` so Android can resolve it statically",
+                    font.family
+                ),
+            )
+            .with_file(config_path.display().to_string()));
+        }
+        if !families.insert(font.family.as_str()) {
+            return Err(CompileError::new(
+                font.span,
+                format!(
+                    "icon font family `{}` is declared more than once",
+                    font.family
+                ),
+            )
+            .with_file(config_path.display().to_string()));
+        }
+        if !native_font_names.insert(resource_name) {
+            return Err(CompileError::new(
+                font.span,
+                format!(
+                    "icon font family `{}` conflicts with another native font resource",
+                    font.family
+                ),
+            )
+            .with_file(config_path.display().to_string()));
+        }
+    }
+
+    let mut icons = HashMap::with_capacity(assets.icons.len());
+    for icon in assets.icons {
+        if nexa_ir::SystemIcon::shared(&icon.name).is_some() {
+            return Err(CompileError::new(
+                icon.span,
+                format!(
+                    "custom icon `{}` conflicts with a shared Nexa icon",
+                    icon.name
+                ),
+            )
+            .with_file(config_path.display().to_string()));
+        }
+        if !families.contains(icon.family.as_str()) {
+            return Err(CompileError::new(
+                icon.span,
+                format!(
+                    "custom icon `{}` references undeclared icon font family `{}`",
+                    icon.name, icon.family
+                ),
+            )
+            .with_file(config_path.display().to_string()));
+        }
+        let glyph =
+            nexa_ir::SystemIcon::font_glyph(icon.family.clone(), icon.glyph).ok_or_else(|| {
+                CompileError::new(
+                    icon.span,
+                    format!("icon `{}` has an invalid Unicode codepoint", icon.name),
+                )
+                .with_file(config_path.display().to_string())
+            })?;
+        if icons.insert(icon.name.clone(), glyph).is_some() {
+            return Err(CompileError::new(
+                icon.span,
+                format!("custom icon `{}` is declared more than once", icon.name),
+            )
+            .with_file(config_path.display().to_string()));
+        }
+    }
+    Ok(icons)
+}
+
+fn font_resource_key(name: &str) -> String {
+    let mut key = String::new();
+    let mut separator = false;
+    for character in name.chars() {
+        if character.is_ascii_alphanumeric() {
+            if separator && !key.is_empty() {
+                key.push('_');
+            }
+            key.push(character.to_ascii_lowercase());
+            separator = false;
+        } else {
+            separator = true;
+        }
+    }
+    while key.ends_with('_') {
+        key.pop();
+    }
+    if key.is_empty() {
+        key.push_str("font");
+    }
+    key
 }
 
 #[cfg(test)]
@@ -681,6 +1077,51 @@ mod plugin_analyzer_tests {
     }
 }
 
+#[cfg(test)]
+mod plugin_host_capability_tests {
+    use std::fs;
+
+    use crate::{Target, compile_file_with_warnings_for_targets_and_plugin_roots};
+    use nexa_testkit::TestProject;
+
+    #[test]
+    fn network_host_capability_is_carried_from_plugin_manifest() {
+        let project = TestProject::new("nexa-plugin-network-host-capability");
+        let entry = project.write_app(
+            "plugin \"./network-plugin\" as NetworkPlugin\napp Demo { body { Text(\"ready\") } }\n",
+        );
+        let package = project.join("network-plugin");
+        fs::create_dir_all(&package).expect("plugin package directory");
+        fs::write(
+            package.join("plugin.config.nx"),
+            r#"plugin {
+                schema: 2
+                id: "dev.example.network-plugin"
+                version: "1.0.0"
+                hostCapabilities: ["network"]
+                sources { native: "native.nxid" }
+            }"#,
+        )
+        .expect("plugin manifest");
+        fs::write(
+            package.join("native.nxid"),
+            "native class Marker { init() }\n",
+        )
+        .expect("plugin contract");
+
+        let compiled = compile_file_with_warnings_for_targets_and_plugin_roots(
+            &entry,
+            &[Target::Swift, Target::Kotlin],
+            &std::collections::HashMap::new(),
+        )
+        .expect("project compiles");
+
+        assert_eq!(compiled.len(), 2);
+        assert!(compiled[0].plugins[0].requires_network);
+        assert!(compiled[1].plugins[0].requires_network);
+    }
+}
+
 #[derive(Default)]
 struct LoadedProject {
     app: Option<App>,
@@ -711,32 +1152,41 @@ fn load_file(
     import_site: Option<(&str, Span)>,
     context: &mut ProjectLoadContext<'_>,
 ) -> Result<(), CompileError> {
-    let canonical_path = fs::canonicalize(path).map_err(|error| {
-        let Some((importing_file, span)) = import_site else {
-            return CompileError::new(
-                file_level_span(),
-                format!("cannot resolve source file `{}`: {error}", path.display()),
+    let canonical_path = if let Some(cached) = context.compiler.canonical_paths.get(path) {
+        cached.clone()
+    } else {
+        let canonical = fs::canonicalize(path).map_err(|error| {
+            let Some((importing_file, span)) = import_site else {
+                return CompileError::new(
+                    file_level_span(),
+                    format!("cannot resolve source file `{}`: {error}", path.display()),
+                )
+                .with_file(path.display().to_string());
+            };
+            let importing_path = Path::new(importing_file);
+            let import_base = importing_path.parent().unwrap_or_else(|| Path::new("."));
+            let requested_path = path.strip_prefix(import_base).unwrap_or(path);
+            let suggestions = source_import_suggestions(path, import_base);
+            let hint = if suggestions.is_empty() {
+                String::new()
+            } else {
+                format!("; similar files: {}", suggestions.join(", "))
+            };
+            CompileError::new(
+                span,
+                format!(
+                    "cannot resolve imported source `{}`: {error}{hint}",
+                    requested_path.display()
+                ),
             )
-            .with_file(path.display().to_string());
-        };
-        let importing_path = Path::new(importing_file);
-        let import_base = importing_path.parent().unwrap_or_else(|| Path::new("."));
-        let requested_path = path.strip_prefix(import_base).unwrap_or(path);
-        let suggestions = source_import_suggestions(path, import_base);
-        let hint = if suggestions.is_empty() {
-            String::new()
-        } else {
-            format!("; similar files: {}", suggestions.join(", "))
-        };
-        CompileError::new(
-            span,
-            format!(
-                "cannot resolve imported source `{}`: {error}{hint}",
-                requested_path.display()
-            ),
-        )
-        .with_file(importing_file.to_owned())
-    })?;
+            .with_file(importing_file.to_owned())
+        })?;
+        context
+            .compiler
+            .canonical_paths
+            .insert(path.to_owned(), canonical.clone());
+        canonical
+    };
 
     if context.active.contains(&canonical_path) {
         let (span, file) = import_site
@@ -748,17 +1198,38 @@ fn load_file(
         return Ok(());
     }
 
-    let source = match context.source_overrides.get(&canonical_path) {
-        Some(source) => source.clone(),
-        None => fs::read_to_string(&canonical_path).map_err(|error| {
-            CompileError::new(
-                file_level_span(),
-                format!("cannot read source file: {error}"),
-            )
-            .with_file(canonical_path.display().to_string())
-        })?,
+    let mut program = match context.source_overrides.get(&canonical_path) {
+        Some(source) => {
+            context
+                .compiler
+                .parse_source(&canonical_path, source.clone(), None, 0)?
+        }
+        None => {
+            if let Some(cached) = context.compiler.parsed_sources.get(&canonical_path)
+                && let Ok(metadata) = fs::metadata(&canonical_path)
+                && let Ok(mtime) = metadata.modified()
+                && cached.mtime == Some(mtime)
+                && cached.file_size == metadata.len()
+            {
+                context.compiler.last_stats.reused_source_files += 1;
+                cached.program.clone()
+            } else {
+                let metadata = fs::metadata(&canonical_path).ok();
+                let mtime = metadata.as_ref().and_then(|m| m.modified().ok());
+                let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                let source = fs::read_to_string(&canonical_path).map_err(|error| {
+                    CompileError::new(
+                        file_level_span(),
+                        format!("cannot read source file: {error}"),
+                    )
+                    .with_file(canonical_path.display().to_string())
+                })?;
+                context
+                    .compiler
+                    .parse_source(&canonical_path, source, mtime, file_size)?
+            }
+        }
     };
-    let mut program = context.compiler.parse_source(&canonical_path, source)?;
 
     if !program.plugins.is_empty() {
         for plugin in &mut program.plugins {
@@ -858,6 +1329,9 @@ fn load_file(
                 plugin.ios_background_modes = manifest.ios.background_modes.clone();
                 plugin.android_media_playback_service =
                     manifest.android.media_playback_service.clone();
+                plugin.requires_network = manifest
+                    .host_capabilities
+                    .contains(&nexa_plugin_idl::manifest::HostCapability::Network);
                 plugin.assets_path = manifest
                     .assets
                     .first()

@@ -1,6 +1,11 @@
 import Foundation
 import SwiftUI
 
+private final class NexaDevPatchTrie {
+    var change: (kind: String, value: Any?)?
+    var children: [String: NexaDevPatchTrie] = [:]
+}
+
 struct NexaDevDiagnostic: Identifiable, Equatable {
     let id = UUID()
     let file: String
@@ -35,6 +40,7 @@ final class NexaDevRuntime: ObservableObject {
     private let serverURL: String
     private let sessionToken: String
     private var socket: URLSessionWebSocketTask?
+    private var connectionTask: Task<Void, Never>?
     private var isConnecting = false
     private var currentRevision: String?
 
@@ -59,6 +65,14 @@ final class NexaDevRuntime: ObservableObject {
         )]
     }
 
+    func startConnection() {
+        guard connectionTask == nil else { return }
+        connectionTask = Task { [weak self] in
+            await self?.connect()
+            self?.connectionTask = nil
+        }
+    }
+
     func connect() async {
         guard !isConnecting, let url = URL(string: serverURL) else { return }
         isConnecting = true
@@ -70,6 +84,10 @@ final class NexaDevRuntime: ObservableObject {
         var retryDelayNanoseconds: UInt64 = 50_000_000
         while !Task.isCancelled {
             let socket = URLSession.shared.webSocketTask(with: url)
+            // Initial Dev IR for a real app can exceed URLSession's default
+            // receive cap. This setting is debug transport only; AOT apps do
+            // not buffer or interpret Dev IR modules.
+            socket.maximumMessageSize = 32 * 1024 * 1024
             self.socket = socket
             socket.resume()
             do {
@@ -98,9 +116,7 @@ final class NexaDevRuntime: ObservableObject {
                     receive(text)
                 }
             } catch {
-                if !Task.isCancelled {
-                    print("Nexa dev connection ended: \(error); retrying")
-                }
+                print("Nexa dev connection ended: \(error); retrying")
             }
             socket.cancel(with: Task.isCancelled ? .goingAway : .normalClosure, reason: nil)
             self.socket = nil
@@ -128,14 +144,17 @@ final class NexaDevRuntime: ObservableObject {
             currentRevision = devModule[NexaDevKeys.revision] as? String
             diagnostics = []
             module = nextModule
+            print("Nexa iOS DevRuntime applied module \(currentRevision ?? "unknown")")
             if let currentRevision { acknowledge(currentRevision) }
         case NexaDevKeys.msgPatch:
+            let patchStarted = DispatchTime.now().uptimeNanoseconds
             guard let patch = payload[NexaDevKeys.msgPatch] as? [String: Any],
                   let baseRevision = patch[NexaDevKeys.baseRevision] as? String,
                   let revision = patch[NexaDevKeys.revision] as? String,
                   let operations = patch[NexaDevKeys.operations] as? [[String: Any]],
-                  var nextModule = module
+                  module != nil
             else { return }
+            var nextModule = store.currentModule
             guard currentRevision == baseRevision else {
                 requestFullModule()
                 return
@@ -147,11 +166,20 @@ final class NexaDevRuntime: ObservableObject {
             if let translations = patch["translations"] {
                 store.installTranslations(translations)
             }
-            store.install(module: nextModule)
+            let installResult = store.installPatchedModule(nextModule, operations: operations)
+            if installResult == .fullInstallRequired {
+                store.install(module: nextModule)
+            }
             currentRevision = revision
             diagnostics = []
-            module = nextModule
+            if installResult != .functionsOnly && installResult != .screenOnly {
+                module = nextModule
+            }
+            let patchNanos = DispatchTime.now().uptimeNanoseconds - patchStarted
+            let patchWorkMs = Double(patchNanos) / 1_000_000.0
             acknowledge(revision)
+            NSLog("Nexa iOS DevRuntime applied patch %@ (patch work %.2fms / %lluµs)", revision, patchWorkMs, patchNanos / 1000)
+            print("Nexa iOS DevRuntime applied patch \(revision) (patch work \(String(format: "%.2f", patchWorkMs))ms / \(patchNanos / 1000)µs)")
         case NexaDevKeys.msgDiagnostics:
             diagnostics = (payload[NexaDevKeys.diagnostics] as? [[String: Any]] ?? []).map { diagnostic in
                 let file = diagnostic[NexaDevKeys.file] as? String ?? "<unknown>"
@@ -176,19 +204,14 @@ final class NexaDevRuntime: ObservableObject {
 
     private func requestFullModule() {
         guard let socket else { return }
-        Task {
-            try? await socket.send(.string(try Self.encode([NexaDevKeys.type: NexaDevKeys.msgRequestFullModule])))
-        }
+        let payload = "{\"\(NexaDevKeys.type)\":\"\(NexaDevKeys.msgRequestFullModule)\"}"
+        socket.send(.string(payload)) { _ in }
     }
 
     private func acknowledge(_ revision: String) {
         guard let socket else { return }
-        Task {
-            try? await socket.send(.string(try Self.encode([
-                NexaDevKeys.type: NexaDevKeys.msgAcknowledge,
-                NexaDevKeys.payload: [NexaDevKeys.revision: revision],
-            ])))
-        }
+        let payload = "{\"\(NexaDevKeys.type)\":\"\(NexaDevKeys.msgAcknowledge)\",\"\(NexaDevKeys.payload)\":{\"\(NexaDevKeys.revision)\":\"\(revision)\"}}"
+        socket.send(.string(payload)) { _ in }
     }
 
     func openInEditor(_ diagnostic: NexaDevDiagnostic) {
@@ -210,85 +233,79 @@ final class NexaDevRuntime: ObservableObject {
         _ operations: [[String: Any]],
         to module: inout [String: Any]
     ) -> Bool {
+        let root = NexaDevPatchTrie()
         for operation in operations {
             guard let kind = operation[NexaDevKeys.opSet] as? String ?? operation["op"] as? String,
                   let path = operation[NexaDevKeys.opPath] as? String
             else { return false }
-            let tokens = path.split(separator: "/").map {
-                $0.replacingOccurrences(of: "~1", with: "/")
-                    .replacingOccurrences(of: "~0", with: "~")
-            }
+            guard kind == NexaDevKeys.opSet || kind == NexaDevKeys.opRemove else { return false }
+            let tokens = pointerSegments(path)
             guard !tokens.isEmpty else { return false }
-            var valid = true
-            guard let updated = update(
-                module,
-                tokens: tokens,
-                index: 0,
-                kind: kind,
-                value: operation[NexaDevKeys.opValue],
-                valid: &valid
-            ) as? [String: Any], valid else { return false }
-            module = updated
+            var node = root
+            for token in tokens.dropLast() {
+                if let child = node.children[token] {
+                    node = child
+                } else {
+                    let child = NexaDevPatchTrie()
+                    node.children[token] = child
+                    node = child
+                }
+            }
+            let leaf = tokens[tokens.count - 1]
+            let change = node.children[leaf] ?? NexaDevPatchTrie()
+            change.change = (kind, operation[NexaDevKeys.opValue])
+            node.children[leaf] = change
         }
+
+        guard let updated = applying(root, to: module) as? [String: Any] else { return false }
+        module = updated
         return true
     }
 
-    private static func update(
-        _ current: Any,
-        tokens: [String],
-        index: Int,
-        kind: String,
-        value: Any?,
-        valid: inout Bool
-    ) -> Any? {
-        guard index < tokens.count else {
-            valid = false
-            return nil
-        }
-        let key = tokens[index]
-        let isLeaf = index == tokens.count - 1
-        if var object = current as? [String: Any] {
-            if isLeaf {
-                switch kind {
-                case NexaDevKeys.opSet:
-                    guard let value else { valid = false; return nil }
-                    object[key] = value
-                case NexaDevKeys.opRemove: object.removeValue(forKey: key)
-                default: valid = false; return nil
+    private static func pointerSegments(_ path: String) -> [String] {
+        guard path.hasPrefix("/") else { return [] }
+        return path.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+            .map { String($0).replacingOccurrences(of: "~1", with: "/")
+                .replacingOccurrences(of: "~0", with: "~") }
+    }
+
+    private static func applying(_ node: NexaDevPatchTrie, to current: Any) -> Any? {
+        if let objectValue = current as? [String: Any] {
+            var object = objectValue
+            for (key, childNode) in node.children {
+                if let change = childNode.change {
+                    switch change.kind {
+                    case NexaDevKeys.opSet:
+                        guard let value = change.value else { return nil }
+                        object[key] = value
+                    case NexaDevKeys.opRemove:
+                        object.removeValue(forKey: key)
+                    default:
+                        return nil
+                    }
+                } else {
+                    guard let child = object[key],
+                          let updated = applying(childNode, to: child)
+                    else { return nil }
+                    object[key] = updated
                 }
-            } else {
-                guard let child = object[key],
-                      let updated = update(
-                        child,
-                        tokens: tokens,
-                        index: index + 1,
-                        kind: kind,
-                        value: value,
-                        valid: &valid
-                      ), valid
-                else { valid = false; return nil }
-                object[key] = updated
             }
             return object
         }
-        if var array = current as? [Any], let arrayIndex = Int(key), array.indices.contains(arrayIndex) {
-            if isLeaf {
-                guard kind == NexaDevKeys.opSet, let value else { valid = false; return nil }
-                array[arrayIndex] = value
-            } else {
-                guard let updated = update(
-                    array[arrayIndex],
-                    tokens: tokens,
-                    index: index + 1,
-                    kind: kind,
-                    value: value,
-                    valid: &valid
-                ), valid else { valid = false; return nil }
-                array[arrayIndex] = updated
+        if let arrayValue = current as? [Any] {
+            var array = arrayValue
+            for (key, childNode) in node.children {
+                guard let index = Int(key), array.indices.contains(index) else { return nil }
+                if let change = childNode.change {
+                    guard change.kind == NexaDevKeys.opSet, let value = change.value else { return nil }
+                    array[index] = value
+                } else {
+                    guard let updated = applying(childNode, to: array[index]) else { return nil }
+                    array[index] = updated
+                }
             }
             return array
         }
-        valid = false
         return nil
     }
 

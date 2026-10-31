@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::navigation_case_name;
-use nexa_ir::{Expr, Module, Node, ScreenId, Type};
+use nexa_ir::{Expr, Module, Node, ScreenId, Type, walk::walk_ir};
 
 use crate::generator::engine::expressions::expression;
 use crate::generator::engine::types::swift_type;
@@ -77,6 +77,7 @@ pub(crate) fn action_route_value(destination: ScreenId, arguments: &[Expr]) -> S
 pub(crate) struct NavigationTitleOptions {
     pub(crate) mode: nexa_ir::NavigationTitleMode,
     pub(crate) alignment: nexa_ir::NavigationTitleAlignment,
+    pub(crate) show_native_bar: bool,
 }
 
 pub(crate) fn render_navigation_stack(
@@ -88,7 +89,11 @@ pub(crate) fn render_navigation_stack(
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let NavigationTitleOptions { mode, alignment } = title;
+    let NavigationTitleOptions {
+        mode,
+        alignment,
+        show_native_bar,
+    } = title;
     let app_appearance_mode = super::appearance::module_mode(module, root);
     if let Some(appearance_mode) = &app_appearance_mode {
         out.line_at(
@@ -100,16 +105,28 @@ pub(crate) fn render_navigation_stack(
         );
     }
     let depth = depth + usize::from(app_appearance_mode.is_some());
+    let root_has_toolbar = screen_has_navigation_toolbar(module, root);
+    let host_depth = depth;
+    out.line_at(
+        host_depth,
+        format_args!("NexaNavigationPathHost {{ __nexaNavigationPath, __nexaRootScreenIdentity in"),
+    );
+    let depth = host_depth + 1;
     indent(out, depth);
-    out.push_str("NavigationStack(path: $__nexaNavigationPath) {\n");
+    out.push_str("NavigationStack(path: __nexaNavigationPath) {\n");
     indent(out, depth + 1);
     out.push_str(&screen_call(
         module,
         root,
         arguments,
         features,
-        "Self.__nexaRootScreenIdentity",
+        "__nexaRootScreenIdentity",
     ));
+    if !show_native_bar {
+        out.push('\n');
+        indent(out, depth + 2);
+        out.push_str(".ignoresSafeArea(.container, edges: .all)");
+    }
     out.push('\n');
     indent(out, depth + 2);
     out.push_str(".navigationDestination(for: NexaNavigationRoute.self) { route in\n");
@@ -153,17 +170,24 @@ pub(crate) fn render_navigation_stack(
             nexa_ir::NavigationTitleAlignment::Leading => true,
             nexa_ir::NavigationTitleAlignment::Center => false,
         };
-        out.push_str(&format!(
-            "NexaNavigationScreenPrimitive(title: {}, inline: {}, leadingTitle: {}) {{\n",
-            swift_string(&screen.name),
-            matches!(mode, nexa_ir::NavigationTitleMode::Inline),
-            leading_title
-        ));
-        indent(out, depth + 5);
-        out.push_str(&destination);
-        out.push('\n');
-        indent(out, depth + 4);
-        out.push('}');
+        if show_native_bar {
+            out.push_str(&format!(
+                "NexaNavigationScreenPrimitive(title: {}, inline: {}, leadingTitle: {}) {{\n",
+                swift_string(&screen.name),
+                matches!(mode, nexa_ir::NavigationTitleMode::Inline),
+                leading_title
+            ));
+            indent(out, depth + 5);
+            out.push_str(&destination);
+            out.push('\n');
+            indent(out, depth + 4);
+            out.push('}');
+        } else {
+            out.push_str(&destination);
+            out.push_str(
+                "\n    .toolbar(.hidden, for: .navigationBar)\n    .ignoresSafeArea(.container, edges: .all)",
+            );
+        }
         out.push('\n');
     }
     indent(out, depth + 3);
@@ -176,12 +200,40 @@ pub(crate) fn render_navigation_stack(
     indent(out, depth + 1);
     out.push_str("}\n");
     indent(out, depth);
-    out.push_str("}.environment(\\.nexaNavigationPath, $__nexaNavigationPath)");
+    out.push_str("}.environment(\\.nexaNavigationPath, __nexaNavigationPath)");
+    if !show_native_bar {
+        out.push_str(".modifier(NexaNavigationBackSwipeModifier(path: __nexaNavigationPath))");
+    }
+    if !show_native_bar {
+        out.push_str(
+            ".toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .all)",
+        );
+    } else if !root_has_toolbar {
+        out.push_str(
+            ".toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .top)",
+        );
+    }
+    out.push('\n');
+    indent(out, depth - 1);
+    out.push('}');
     if app_appearance_mode.is_some() {
         out.push('\n');
-        indent(out, depth - 1);
+        indent(out, depth - 2);
         out.push('}');
     }
+}
+
+fn screen_has_navigation_toolbar(module: &Module, screen_id: ScreenId) -> bool {
+    let Some(screen) = module.screens.iter().find(|screen| screen.id == screen_id) else {
+        return false;
+    };
+    let mut has_toolbar = false;
+    walk_ir(
+        &screen.body,
+        &mut |node| has_toolbar |= matches!(node, Node::Toolbar { .. }),
+        &mut |_| {},
+    );
+    has_toolbar
 }
 
 fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWriter) {
@@ -260,11 +312,11 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWrit
             }
         }
         indent(out, depth + 2);
-        out.push_str("__nexaNavigationPath = NavigationPath()\n");
+        out.push_str("__nexaNavigationPath.wrappedValue = []\n");
         out.line_at(
             depth + 2,
             format_args!(
-                "__nexaNavigationPath.append(NexaNavigationRoute.{}({}))",
+                "__nexaNavigationPath.wrappedValue.append(NexaNavigationRoute.{}({}))",
                 navigation_case_name(screen.id),
                 arguments.join(", ")
             ),
@@ -300,6 +352,15 @@ pub(crate) fn render_screen_view(
         screen_view_name(screen.id)
     ));
     out.push_str("    @Environment(\\.nexaNavigationPath) private var nexaNavigationPath\n");
+    let screen_ui = features.facts.ui.screens.get(&screen.name);
+    if screen_ui.is_some_and(|scope| scope.screen_geometry) {
+        out.push_str("    @Environment(\\.nexaViewportSize) private var nexaViewportSize\n");
+    }
+    if screen_ui.is_some_and(|scope| scope.safe_area_top) {
+        out.push_str(
+            "    @Environment(\\.nexaVisualSafeAreaInsets) private var nexaVisualSafeAreaInsets\n",
+        );
+    }
     let cancel_task_scope = features
         .facts
         .untracked_task_launch_scopes

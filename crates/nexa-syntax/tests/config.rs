@@ -24,6 +24,30 @@ fn parses_shared_assets_and_platform_icon_overrides() {
 }
 
 #[test]
+fn parses_custom_icon_fonts_and_named_glyphs() {
+    let config = parse_config(
+        r#"config {
+            assets {
+                iconFonts { Mazicon: "assets/fonts/Mazicon.ttf" },
+                icons {
+                    mazica_play: ["Mazicon", 61696],
+                    mazica_search: ["Mazicon", 61697]
+                }
+            }
+        }"#,
+    )
+    .expect("custom icon fonts and aliases parse");
+    let assets = config.assets.expect("assets block");
+    assert_eq!(assets.icon_fonts.len(), 1);
+    assert_eq!(assets.icon_fonts[0].family, "Mazicon");
+    assert_eq!(assets.icon_fonts[0].path, "assets/fonts/Mazicon.ttf");
+    assert_eq!(assets.icons.len(), 2);
+    assert_eq!(assets.icons[0].name, "mazica_play");
+    assert_eq!(assets.icons[0].family, "Mazicon");
+    assert_eq!(assets.icons[0].glyph, 61696);
+}
+
+#[test]
 fn parses_platform_architecture_options() {
     let config = parse_config(
         r#"config {

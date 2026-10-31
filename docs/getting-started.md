@@ -111,6 +111,29 @@ config {
 }
 ```
 
+In `nexa.config.nx`, register a font and give its codepoints semantic names.
+Nexa copies the font into both native apps and resolves each alias to a typed
+glyph during compilation:
+
+```nexa
+config {
+    assets {
+        iconFonts { Mazicon: "assets/fonts/Mazicon.ttf" },
+        icons {
+            mazica_play: ["Mazicon", 61696],
+            mazica_search: ["Mazicon", 61697],
+        }
+    }
+}
+```
+
+Any built-in component `icon:` parameter can then use the alias from an app
+source file:
+
+```nexa
+app Player { body { Button("Play", icon: "mazica_play") { } } }
+```
+
 ### Configuration Options Reference
 
 > Generated from `ProjectConfig::from_defaults`, so the Default column is what the compiler
@@ -128,6 +151,8 @@ config {
 | `app` | `stagingSuffix` | `String` | `"staging"` | Application ID suffix applied by the implicit `staging` flavor. |
 | `assets` | `icon` | `String` | `—` | Path to the app icon asset. |
 | `assets` | `splash` | `String` | `—` | Path to the splash image asset. |
+| `assets` | `iconFonts` | font-family to path | `—` | Registers a TTF or OTF file directly inside `assets/fonts` for custom glyph icons. |
+| `assets` | `icons` | icon name to `[font family, codepoint]` | `—` | Defines compile-time glyph aliases accepted by built-in component `icon:` parameters. |
 | `flavors.<name>` | `suffix` | `String` | `—` | Application ID suffix for that named flavor. Defaults to the flavor name when omitted. |
 | `ios` | `minVersion` | `String` | `"16.0"` | Minimum supported iOS deployment target. |
 | `ios` | `bundleIdentifier` | `String` | `"com.nexa.nexaapp"` | Reverse-DNS iOS app ID, derived from the project name by default. |

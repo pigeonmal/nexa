@@ -121,7 +121,7 @@ fn render_decode_body(ty: &Type, enums: &[EnumDecl], out: &mut SourceWriter) {
         Type::Result(success, failure) => {
             out.push_str("    if (reader.peek() != JsonToken.BEGIN_OBJECT) nexaJsonTypeMismatch()\n    reader.beginObject()\n    if (!reader.hasNext()) nexaJsonInvalidValue()\n    val caseName = reader.nextName()\n    val result = when (caseName) {\n");
             out.push_str(&format!(
-                "        \"success\" -> NexaResult.Success({}(reader))\n        \"failure\" -> NexaResult.Failure({}(reader))\n",
+                "        \"success\" -> dev.nexa.core.NexaResult.Success({}(reader))\n        \"failure\" -> dev.nexa.core.NexaResult.Failure({}(reader))\n",
                 nexa_codegen::value::json_decode_name(success),
                 nexa_codegen::value::json_decode_name(failure)
             ));
@@ -290,7 +290,7 @@ fn render_encode_body(ty: &Type, out: &mut SourceWriter) {
             let success_code = nexa_codegen::value::json_encode_name(success);
             let failure_code = nexa_codegen::value::json_encode_name(failure);
             out.push_str(&format!(
-                "    output.append('{{')\n    when (value) {{\n        is NexaResult.Success<*> -> {{\n            nexaJsonAppendQuoted(\"success\", output)\n            output.append(':')\n            @Suppress(\"UNCHECKED_CAST\")\n            val item = value.value as {}\n            {success_code}(item, output)\n        }}\n        is NexaResult.Failure<*> -> {{\n            nexaJsonAppendQuoted(\"failure\", output)\n            output.append(':')\n            @Suppress(\"UNCHECKED_CAST\")\n            val item = value.error as {}\n            {failure_code}(item, output)\n        }}\n    }}\n    output.append('}}')\n",
+                "    output.append('{{')\n    when (value) {{\n        is dev.nexa.core.NexaResult.Success<*> -> {{\n            nexaJsonAppendQuoted(\"success\", output)\n            output.append(':')\n            @Suppress(\"UNCHECKED_CAST\")\n            val item = value.value as {}\n            {success_code}(item, output)\n        }}\n        is dev.nexa.core.NexaResult.Failure<*> -> {{\n            nexaJsonAppendQuoted(\"failure\", output)\n            output.append(':')\n            @Suppress(\"UNCHECKED_CAST\")\n            val item = value.error as {}\n            {failure_code}(item, output)\n        }}\n    }}\n    output.append('}}')\n",
                 kotlin_type(success),
                 kotlin_type(failure)
             ));
@@ -331,7 +331,7 @@ fn render_api_wrappers(ty: &Type, out: &mut SourceWriter) {
         .to_owned();
     let native = kotlin_type(ty);
     out.push_str(&format!(
-        "internal fun nexaJsonParse_{suffix}(raw: String): NexaResult<{native}, NexaJsonError> {{\n    return try {{\n        val reader = JsonReader(StringReader(raw))\n        reader.isLenient = false\n        val value = {}(reader)\n        if (reader.peek() != JsonToken.END_DOCUMENT) nexaJsonInvalidValue()\n        NexaResult.Success(value)\n    }} catch (failure: NexaJsonFailure) {{\n        NexaResult.Failure(failure.error)\n    }} catch (_: java.io.IOException) {{\n        NexaResult.Failure(NexaJsonError.invalidJson)\n    }} catch (_: IllegalStateException) {{\n        NexaResult.Failure(NexaJsonError.invalidJson)\n    }}\n}}\n\n",
+        "internal fun nexaJsonParse_{suffix}(raw: String): NexaResult<{native}, NexaJsonError> {{\n    return try {{\n        val reader = JsonReader(StringReader(raw))\n        reader.isLenient = false\n        val value = {}(reader)\n        if (reader.peek() != JsonToken.END_DOCUMENT) nexaJsonInvalidValue()\n        dev.nexa.core.NexaResult.Success(value)\n    }} catch (failure: NexaJsonFailure) {{\n        dev.nexa.core.NexaResult.Failure(failure.error)\n    }} catch (_: java.io.IOException) {{\n        dev.nexa.core.NexaResult.Failure(NexaJsonError.invalidJson)\n    }} catch (_: IllegalStateException) {{\n        dev.nexa.core.NexaResult.Failure(NexaJsonError.invalidJson)\n    }}\n}}\n\n",
         nexa_codegen::value::json_decode_name(ty)
     ));
     out.push_str(&format!(

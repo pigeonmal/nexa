@@ -67,6 +67,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::IsCompactWidth => "(LocalConfiguration.current.screenWidthDp < 600)".to_owned(),
         Expr::IsRegularHeight => "(LocalConfiguration.current.screenHeightDp >= 600)".to_owned(),
         Expr::IsCompactHeight => "(LocalConfiguration.current.screenHeightDp < 600)".to_owned(),
+        Expr::ScreenWidth => "(androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDouble() / androidx.compose.ui.platform.LocalDensity.current.density.toDouble())".to_owned(),
+        Expr::ScreenHeight => "(androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toDouble() / androidx.compose.ui.platform.LocalDensity.current.density.toDouble())".to_owned(),
+        Expr::SafeAreaTop => {
+            "nexaSafeAreaDynamicInsets().top.value.toDouble()".to_owned()
+        }
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
         Expr::State(name, _) if locals.iter().any(|local| local == name) => name.clone(),
         Expr::State(name, _) => match name.split_once("::") {
@@ -77,11 +82,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             ),
             None => state_name(name),
         },
-        Expr::AnimatedState(name, Type::Numeric(NumericType::Float64)) => {
-            format!("{}Animated.toDouble()", state_name(name))
-        }
         Expr::AnimatedState(name, _) if locals.iter().any(|local| local == name) => name.clone(),
-        Expr::AnimatedState(name, _) => format!("{}Animated", state_name(name)),
+        Expr::AnimatedState(name, Type::Numeric(NumericType::Float64)) => {
+            format!("{}Animated.value.toDouble()", state_name(name))
+        }
+        Expr::AnimatedState(name, _) => format!("{}Animated.value", state_name(name)),
         Expr::EnumValue {
             enum_name,
             case_name,
@@ -437,8 +442,12 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 format!("({} in {})", render(value), render(collection))
             }
         }
-        Expr::ResultOk { value, .. } => format!("NexaResult.Success({})", render(value)),
-        Expr::ResultErr { error, .. } => format!("NexaResult.Failure({})", render(error)),
+        Expr::ResultOk { value, .. } => {
+            format!("dev.nexa.core.NexaResult.Success({})", render(value))
+        }
+        Expr::ResultErr { error, .. } => {
+            format!("dev.nexa.core.NexaResult.Failure({})", render(error))
+        }
         Expr::Try { expr, .. } => format!("{}.getOrThrow()", render(expr)),
     }
 }
@@ -460,7 +469,7 @@ fn localized_text_expression(key: &str, value: &Expr, locals: &[String]) -> Stri
     if let Some((_, count)) = count_argument {
         let count = expression_with_locals(count, locals);
         format!(
-            "NexaRuntime.context().resources.getQuantityString(R.plurals.{resource}, {count}{})",
+            "NexaLocale.quantityString(R.plurals.{resource}, {count}{})",
             if format_arguments.is_empty() {
                 String::new()
             } else {
@@ -473,7 +482,7 @@ fn localized_text_expression(key: &str, value: &Expr, locals: &[String]) -> Stri
         } else {
             format!(", {}", format_arguments.join(", "))
         };
-        format!("NexaRuntime.context().getString(R.string.{resource}{format_arguments})")
+        format!("NexaLocale.string(R.string.{resource}{format_arguments})")
     }
 }
 
@@ -491,7 +500,7 @@ fn localized_composable_text(key: &str, value: &Expr) -> String {
     if let Some((_, count)) = count_argument {
         let count = expression(count);
         format!(
-            "pluralStringResource(R.plurals.{resource}, {count}{})",
+            "NexaLocale.quantityString(R.plurals.{resource}, {count}{})",
             if format_arguments.is_empty() {
                 String::new()
             } else {
@@ -500,7 +509,7 @@ fn localized_composable_text(key: &str, value: &Expr) -> String {
         )
     } else {
         format!(
-            "stringResource(R.string.{resource}{})",
+            "NexaLocale.string(R.string.{resource}{})",
             if format_arguments.is_empty() {
                 String::new()
             } else {
@@ -533,6 +542,13 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
         TimeMethod::LocalizedDate => format!(
             "java.text.DateFormat.getDateInstance(java.text.DateFormat.SHORT).format(java.util.Date({first}))"
         ),
+        TimeMethod::LocalizedLongDate => {
+            let locale = rendered
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "\"en\"".to_owned());
+            format!("nexaLocalizedLongDate({first}, {locale})")
+        }
         TimeMethod::LocalizedTime => format!(
             "java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date({first}))"
         ),
@@ -546,6 +562,7 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
                 .unwrap_or_else(|| "\"\"".to_owned());
             format!("nexaFormatDate({first}, {pattern})")
         }
+        TimeMethod::FormatDuration => format!("nexaFormatDuration({first})"),
     }
 }
 
@@ -570,7 +587,7 @@ fn native_call(
             "get" => {
                 let parse = nexa_codegen::value::json_parse_name(&codec.ty);
                 format!(
-                    "NexaStorage.getJson({context}, {key})?.let {{ raw -> when (val decoded = {parse}(raw)) {{ is NexaResult.Success -> decoded.value; is NexaResult.Failure -> null }} }}"
+                    "NexaStorage.getJson({context}, {key})?.let {{ raw -> when (val decoded = {parse}(raw)) {{ is dev.nexa.core.NexaResult.Success -> decoded.value; is dev.nexa.core.NexaResult.Failure -> null }} }}"
                 )
             }
             "set" => {
@@ -645,6 +662,9 @@ fn native_call(
                 "trim" => format!("{rendered_receiver}.trim()"),
                 "toLowercase" => format!("{rendered_receiver}.lowercase()"),
                 "toUppercase" => format!("{rendered_receiver}.uppercase()"),
+                "normalizeNFKD" => format!(
+                    "java.text.Normalizer.normalize({rendered_receiver}, java.text.Normalizer.Form.NFKD)"
+                ),
                 "split" => {
                     let delimiter = rendered.first().map(String::as_str).unwrap_or("\" \"");
                     format!("{rendered_receiver}.split({delimiter})")
@@ -773,11 +793,19 @@ fn native_call(
             rendered.first().map(String::as_str).unwrap_or("0.0"),
             rendered.get(1).map(String::as_str).unwrap_or("\"\"")
         ),
-        ("Locale", "currentLanguageCode") => "java.util.Locale.getDefault().language".to_owned(),
-        ("Locale", "preferredLanguageCodes") => "if (android.os.Build.VERSION.SDK_INT >= 24) android.os.LocaleList.getDefault().let { nexaLocales -> (0 until nexaLocales.size()).map { nexaLocales[it].toLanguageTag() } } else listOf(java.util.Locale.getDefault().toLanguageTag())".to_owned(),
+        ("Locale", "currentLanguageCode") => "NexaLocale.currentLanguageCode()".to_owned(),
+        ("Locale", "preferredLanguageCodes") => "NexaLocale.preferredLanguageCodes()".to_owned(),
+        ("Locale", "setLanguageOverride") => format!(
+            "NexaLocale.setLanguageOverride({})",
+            rendered.first().map(String::as_str).unwrap_or("null")
+        ),
         ("Locale", "displayName") => format!(
-            "java.util.Locale.forLanguageTag({}).getDisplayLanguage(java.util.Locale.getDefault()).takeIf {{ it.isNotEmpty() }}",
+            "NexaLocale.displayName({})",
             rendered.first().map(String::as_str).unwrap_or("\"und\"")
+        ),
+        ("Crypto", "sha1") => format!(
+            "nexaCryptoSha1({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
         ),
         ("Crypto", "sha256") => format!(
             "nexaCryptoSha256({})",
@@ -1318,7 +1346,7 @@ mod tests {
     }
 
     #[test]
-    fn localized_text_nodes_use_compose_resource_lookups() {
+    fn localized_text_nodes_use_resources_with_the_app_language_override() {
         let localized = Expr::LocalizedText {
             key: "Welcome, {name}!".to_owned(),
             value: Box::new(Expr::Interpolation(vec![
@@ -1332,7 +1360,7 @@ mod tests {
 
         assert_eq!(
             text_expression(&localized),
-            format!("stringResource(R.string.{resource}, nexa_name)")
+            format!("NexaLocale.string(R.string.{resource}, nexa_name)")
         );
     }
 
@@ -1383,7 +1411,7 @@ mod tests {
         let resource = nexa_codegen::names::localization_resource_name("Save");
         assert_eq!(
             expression(&literal),
-            format!("NexaRuntime.context().getString(R.string.{resource})")
+            format!("NexaLocale.string(R.string.{resource})")
         );
         assert!(!expression(&literal).contains("getIdentifier"));
 
@@ -1401,7 +1429,7 @@ mod tests {
             comment: None,
         };
         let formatted_source = expression(&formatted);
-        assert!(formatted_source.contains("NexaRuntime.context().getString(R.string."));
+        assert!(formatted_source.contains("NexaLocale.string(R.string."));
         assert!(formatted_source.contains("nexa_name, 7"));
 
         let plural = Expr::LocalizedText {
@@ -1417,7 +1445,7 @@ mod tests {
         };
         let plural_source = expression(&plural);
         assert!(plural_source.contains("R.plurals."));
-        assert!(plural_source.contains("NexaRuntime.context().resources.getQuantityString("));
+        assert!(plural_source.contains("NexaLocale.quantityString("));
         assert!(plural_source.contains("nexa_count, nexa_count"));
         let plural_resource = nexa_codegen::names::localization_resource_name("{count} task");
         assert!(plural_source.contains(&format!("R.plurals.{plural_resource}")));
@@ -1821,6 +1849,21 @@ mod tests {
                 expected
             );
         }
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::LocalizedLongDate,
+                arguments: vec![
+                    Expr::Number {
+                        raw: "1700000000000".to_owned(),
+                        ty: NumericType::Int64,
+                    },
+                    Expr::String("fr".to_owned()),
+                ],
+                return_type: Type::String,
+                is_async: false,
+            }),
+            "nexaLocalizedLongDate(1700000000000L, \"fr\")"
+        );
     }
 
     #[test]

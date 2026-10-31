@@ -403,7 +403,7 @@ mod tests {
         }
 
         fn inspect_node(&self, node: &Node, context: &mut ExtensionContext) {
-            if matches!(node, Node::Spacer) {
+            if matches!(node, Node::Spacer { .. }) {
                 self.nodes.fetch_add(1, Ordering::Relaxed);
                 assert_eq!(context.extension_name(), "probe");
             }
@@ -469,7 +469,10 @@ mod tests {
             screens: Vec::new(),
             widgets: Vec::new(),
             components: Vec::new(),
-            body: vec![Node::Spacer],
+            body: vec![Node::Spacer {
+                width: None,
+                height: None,
+            }],
             status_bar: None,
             direction: None,
             on_appear: None,

@@ -757,6 +757,21 @@
         "android": "covered"
       },
       {
+        "name": "ScreenWidth",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ScreenHeight",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SafeAreaTop",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "IsRegularWidth",
         "ios": "covered",
         "android": "covered"
@@ -1276,6 +1291,11 @@
         "android": "covered"
       },
       {
+        "name": "Shape",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Button",
         "ios": "covered",
         "android": "covered"
@@ -1312,6 +1332,11 @@
       },
       {
         "name": "SystemIcon",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FontIcon",
         "ios": "covered",
         "android": "covered"
       },
@@ -1427,6 +1452,21 @@
       },
       {
         "name": "NativeComponentCall",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SafeAreaPadding",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SafeAreaInset",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ScrollHeader",
         "ios": "covered",
         "android": "covered"
       }
@@ -1804,6 +1844,11 @@
         "android": "covered"
       },
       {
+        "name": "LocalizedLongDate",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "LocalizedTime",
         "ios": "covered",
         "android": "covered"
@@ -1815,6 +1860,11 @@
       },
       {
         "name": "Format",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FormatDuration",
         "ios": "covered",
         "android": "covered"
       }
@@ -1963,6 +2013,11 @@
     "ViewTransition": [
       {
         "name": "Fade",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FadeSlideFromTop",
         "ios": "covered",
         "android": "covered"
       },

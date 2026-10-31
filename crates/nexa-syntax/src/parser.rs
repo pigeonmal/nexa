@@ -39,6 +39,7 @@ pub fn parse_program(tokens: Vec<Token>) -> Result<Program, CompileError> {
         tokens,
         cursor: 0,
         enum_names: std::collections::BTreeSet::new(),
+        shared_modifiers: catalog::SHARED_VIEW_MODIFIERS,
     }
     .program()
 }
@@ -48,6 +49,7 @@ pub fn parse_config(tokens: Vec<Token>) -> Result<Config, CompileError> {
         tokens,
         cursor: 0,
         enum_names: std::collections::BTreeSet::new(),
+        shared_modifiers: catalog::SHARED_VIEW_MODIFIERS,
     }
     .config()
 }
@@ -56,6 +58,7 @@ struct Parser {
     tokens: Vec<Token>,
     cursor: usize,
     enum_names: std::collections::BTreeSet<String>,
+    shared_modifiers: &'static [catalog::SharedViewModifierSchema],
 }
 
 impl Parser {
@@ -122,7 +125,7 @@ impl Parser {
                 android = Some(self.config_android_decl()?);
             } else {
                 return self.error_here(
-                    "expected an `app`, `flavors`, `dependencies`, `permissions`, `plugins`, `ios`, or `android` block in config",
+                    "expected an `app`, `flavors`, `dependencies`, `assets`, `permissions`, `plugins`, `ios`, or `android` block in config",
                 );
             }
         }
@@ -150,13 +153,42 @@ impl Parser {
         let mut assets = AssetsConfig {
             icon: None,
             splash: None,
+            icon_fonts: Vec::new(),
+            icons: Vec::new(),
         };
+        let mut has_icon_fonts = false;
+        let mut has_icons = false;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (field, span) = self.ident()?;
-            self.expect(Kind::Colon, "expected `:` after asset field")?;
             match field.as_str() {
-                "icon" => assets.icon = Some(self.config_string("asset icon")?),
-                "splash" => assets.splash = Some(self.config_string("splash asset")?),
+                "icon" => {
+                    self.expect(Kind::Colon, "expected `:` after asset field")?;
+                    assets.icon = Some(self.config_string("asset icon")?);
+                }
+                "splash" => {
+                    self.expect(Kind::Colon, "expected `:` after asset field")?;
+                    assets.splash = Some(self.config_string("splash asset")?);
+                }
+                "iconFonts" => {
+                    if has_icon_fonts {
+                        return Err(CompileError::new(
+                            span,
+                            "asset `iconFonts` is declared more than once",
+                        ));
+                    }
+                    has_icon_fonts = true;
+                    assets.icon_fonts = self.config_icon_fonts_decl()?;
+                }
+                "icons" => {
+                    if has_icons {
+                        return Err(CompileError::new(
+                            span,
+                            "asset `icons` is declared more than once",
+                        ));
+                    }
+                    has_icons = true;
+                    assets.icons = self.config_icon_glyphs_decl()?;
+                }
                 _ => {
                     return Err(CompileError::new(
                         span,
@@ -169,6 +201,51 @@ impl Parser {
         self.expect(Kind::RBrace, "expected `}` to close config assets")?;
         self.optional_semicolon();
         Ok(assets)
+    }
+
+    fn config_icon_fonts_decl(&mut self) -> Result<Vec<IconFontConfig>, CompileError> {
+        self.expect(Kind::LBrace, "expected `{` after `iconFonts`")?;
+        let mut fonts = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (family, span) = self.ident()?;
+            self.expect(Kind::Colon, "expected `:` after icon font family")?;
+            let path = self.config_string("icon font path")?;
+            fonts.push(IconFontConfig { family, path, span });
+            self.config_field_separator("iconFonts")?;
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config iconFonts")?;
+        self.optional_semicolon();
+        Ok(fonts)
+    }
+
+    fn config_icon_glyphs_decl(&mut self) -> Result<Vec<IconGlyphConfig>, CompileError> {
+        self.expect(Kind::LBrace, "expected `{` after `icons`")?;
+        let mut icons = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            self.expect(Kind::Colon, "expected `:` after icon name")?;
+            self.expect(
+                Kind::LBracket,
+                "icon glyph must be `[fontFamily, codepoint]`",
+            )?;
+            let family = self.config_string("icon glyph font family")?;
+            self.expect(
+                Kind::Comma,
+                "expected `,` between icon font family and codepoint",
+            )?;
+            let glyph = self.config_u32("icon glyph codepoint")?;
+            self.expect(Kind::RBracket, "expected `]` after icon glyph")?;
+            icons.push(IconGlyphConfig {
+                name,
+                family,
+                glyph,
+                span,
+            });
+            self.config_field_separator("icons")?;
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config icons")?;
+        self.optional_semicolon();
+        Ok(icons)
     }
 
     fn config_app_decl(&mut self) -> Result<AppConfig, CompileError> {
@@ -1212,6 +1289,7 @@ impl Parser {
             android_firebase_messaging_service: None,
             android_picture_in_picture: false,
             android_media_playback_service: None,
+            requires_network: false,
         })
     }
 
@@ -1626,6 +1704,7 @@ impl Parser {
                 "spacing" => ThemeTokenKind::Spacing,
                 "radius" => ThemeTokenKind::Radius,
                 "fontSize" => ThemeTokenKind::FontSize,
+                "fontFamily" => ThemeTokenKind::FontFamily,
                 _ => {
                     return Err(CompileError::new(
                         span,
@@ -1744,6 +1823,10 @@ impl Parser {
             self.type_syntax()?
         };
         let body = self.function_body()?;
+        let span = Span {
+            end: self.previous_span().end,
+            ..keyword
+        };
         Ok(FunctionDecl {
             name,
             is_async,
@@ -1752,7 +1835,7 @@ impl Parser {
             parameters,
             return_type,
             body,
-            span: keyword,
+            span,
             source_file: None,
         })
     }
@@ -2287,7 +2370,9 @@ impl Parser {
         let mut modifiers = Vec::new();
         while self.take(&Kind::Dot) {
             let (modifier, modifier_span) = self.ident()?;
-            let Some(spec) = schema.modifiers.iter().find(|spec| spec.name == modifier) else {
+            let Some(spec) =
+                catalog::modifier_schema_for(schema.modifiers, self.shared_modifiers, &modifier)
+            else {
                 return Err(CompileError::new(
                     modifier_span,
                     catalog::unknown_modifier_message(schema, &modifier),
@@ -2342,6 +2427,10 @@ impl Parser {
         if let Some(message) = schema.trailing_message {
             if self.check(&Kind::LBrace)
                 || schema.modifiers.iter().any(|spec| self.word_is(spec.name))
+                || self
+                    .shared_modifiers
+                    .iter()
+                    .any(|spec| self.word_is(spec.modifier.name))
             {
                 return self.error_here(message);
             }
@@ -3475,7 +3564,7 @@ impl Parser {
                     }
                     self.cursor = mark;
                 }
-                if value == "Theme" || value == "Layout" {
+                if value == "Theme" || value == "Layout" || value == "SafeArea" {
                     if !self.take(&Kind::Dot) {
                         return Ok(Expr::Name(value, token.span));
                     }
@@ -3486,6 +3575,24 @@ impl Parser {
                     };
                     return match value.as_str() {
                         "Theme" => Ok(Expr::ThemeToken(name, span)),
+                        "SafeArea" if name == "top" => Ok(Expr::Member {
+                            base: Box::new(Expr::Name(value.clone(), token.span)),
+                            name,
+                            optional: false,
+                            span,
+                        }),
+                        "SafeArea" => Err(CompileError::new(
+                            name_span,
+                            format!("unknown safe-area property `{name}`; expected `top`"),
+                        )),
+                        "Layout" if matches!(name.as_str(), "screenWidth" | "screenHeight") => {
+                            Ok(Expr::Member {
+                                base: Box::new(Expr::Name(value.clone(), token.span)),
+                                name,
+                                optional: false,
+                                span,
+                            })
+                        }
                         "Layout" if name == "isRegularWidth" => Ok(Expr::IsRegularWidth(span)),
                         "Layout" if name == "isCompactWidth" => Ok(Expr::IsCompactWidth(span)),
                         "Layout" if name == "isRegularHeight" => Ok(Expr::IsRegularHeight(span)),
@@ -3493,7 +3600,7 @@ impl Parser {
                         "Layout" => Err(CompileError::new(
                             name_span,
                             format!(
-                                "unknown layout property `{name}`; expected `isRegularWidth`, `isCompactWidth`, `isRegularHeight`, or `isCompactHeight`"
+                                "unknown layout property `{name}`; expected `screenWidth`, `screenHeight`, `isRegularWidth`, `isCompactWidth`, `isRegularHeight`, or `isCompactHeight`"
                             ),
                         )),
                         _ => unreachable!("namespace checked above"),
@@ -3649,6 +3756,7 @@ impl Parser {
             tokens,
             cursor: 0,
             enum_names: self.enum_names.clone(),
+            shared_modifiers: self.shared_modifiers,
         };
         let expression = parser.expr()?;
         if !parser.check(&Kind::Eof) {
@@ -4035,6 +4143,27 @@ impl Parser {
         let (kind, kind_span) = self.ident()?;
         let transition = match kind.as_str() {
             "fade" => ViewTransition::Fade,
+            "fadeSlide" => {
+                self.expect(Kind::LParen, "expected `(` after `.fadeSlide`")?;
+                let (argument, argument_span) = self.ident()?;
+                if argument != "from" {
+                    return Err(CompileError::new(
+                        argument_span,
+                        "`.fadeSlide` expects `from: .top`",
+                    ));
+                }
+                self.expect(Kind::Colon, "expected `:` after `from`")?;
+                self.expect(Kind::Dot, "expected `.top` after `from:`")?;
+                let (edge, edge_span) = self.ident()?;
+                if edge != "top" {
+                    return Err(CompileError::new(
+                        edge_span,
+                        "`.fadeSlide` currently supports `.top`",
+                    ));
+                }
+                self.expect(Kind::RParen, "expected `)` after `.fadeSlide(from: .top)`")?;
+                ViewTransition::FadeSlideFromTop
+            }
             "scale" => ViewTransition::Scale,
             "slide" => {
                 self.expect(Kind::LParen, "expected `(` after `.slide`")?;
@@ -4065,7 +4194,7 @@ impl Parser {
             _ => {
                 return Err(CompileError::new(
                     kind_span,
-                    "transition must be `.fade`, `.slide(from: .bottom|.left|.right)`, or `.scale`",
+                    "transition must be `.fade`, `.fadeSlide(from: .top)`, `.slide(from: .bottom|.left|.right)`, or `.scale`",
                 ));
             }
         };
@@ -4387,4 +4516,45 @@ fn is_ident_start(character: char) -> bool {
 
 fn is_ident_continue(character: char) -> bool {
     is_ident_start(character) || character.is_ascii_digit()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Parser, lexer};
+    use crate::{ast, catalog};
+
+    static TEST_SHARED_MODIFIERS: &[catalog::SharedViewModifierSchema] =
+        &[catalog::SharedViewModifierSchema {
+            modifier: catalog::ModifierSchema {
+                name: "sharedProbe",
+                arguments: &[],
+                body: catalog::ModifierBody::None,
+                required: false,
+            },
+            target: catalog::ViewModifierTarget::AnyView,
+        }];
+
+    #[test]
+    fn parser_accepts_a_catalogued_shared_view_modifier() {
+        let source = r#"app SharedModifierProbe {
+            body {
+                Column { Text("Content") }.sharedProbe
+            }
+        }"#;
+        let tokens = lexer::lex(source).expect("shared modifier probe lexes");
+        let program = Parser {
+            tokens,
+            cursor: 0,
+            enum_names: std::collections::BTreeSet::new(),
+            shared_modifiers: TEST_SHARED_MODIFIERS,
+        }
+        .program()
+        .expect("catalogued shared modifier parses");
+        let app = program.app.expect("app declaration");
+        let ast::Node::ComponentInvocation(invocation) = &app.body[0] else {
+            panic!("expected component invocation");
+        };
+        assert_eq!(invocation.modifiers.len(), 1);
+        assert_eq!(invocation.modifiers[0].name, "sharedProbe");
+    }
 }

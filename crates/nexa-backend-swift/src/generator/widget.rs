@@ -126,8 +126,9 @@ fn validate_widget(module: &Module, widget: &Widget) -> Result<(), crate::Widget
         for node in children {
             match node {
                 Node::Text { .. }
-                | Node::Spacer
+                | Node::Spacer { .. }
                 | Node::Divider { .. }
+                | Node::Shape { .. }
                 | Node::SystemIcon { .. } => {}
                 Node::Layout { children, .. } => nodes(widget, children)?,
                 Node::Accessibility { children, .. } => nodes(widget, children)?,
@@ -1172,9 +1173,19 @@ fn render_widget_layout(
     }
     if let Some(width) = style.width {
         out.line_at(depth, format_args!(".frame(width: {width})"));
+    } else if let Some(fraction) = style.screen_width_fraction {
+        out.line_at(
+            depth,
+            format_args!(".frame(width: UIScreen.main.bounds.width * {fraction})"),
+        );
     }
     if let Some(height) = style.height {
         out.line_at(depth, format_args!(".frame(height: {height})"));
+    } else if let Some(fraction) = style.screen_height_fraction {
+        out.line_at(
+            depth,
+            format_args!(".frame(height: UIScreen.main.bounds.height * {fraction})"),
+        );
     }
     if let Some(background) = style.background {
         out.line_at(

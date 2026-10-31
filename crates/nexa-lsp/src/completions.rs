@@ -413,7 +413,9 @@ fn api_parameters(call: &str) -> Vec<&'static str> {
         "Storage.getString" | "getString" | "Storage.delete" | "delete" => vec!["key"],
         "Storage.setString" | "setString" => vec!["key", "value"],
         "Time.elapsed" | "elapsed" => vec!["since"],
+        "Time.formatDuration" | "formatDuration" => vec!["seconds"],
         "Time.sleep" | "sleep" => vec!["milliseconds"],
+        "Time.localizedLongDate" | "localizedLongDate" => vec!["timestamp", "locale"],
         "Time.iso8601"
         | "iso8601"
         | "Time.startOfDay"
@@ -1219,7 +1221,7 @@ fn is_identifier(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SNIPPET_FORMAT, get_completions, get_document_completions};
+    use super::{SNIPPET_FORMAT, api_parameters, get_completions, get_document_completions};
     use crate::protocol::Position;
 
     fn labels_at(source: &str, line: u32, character: u32) -> Vec<String> {
@@ -1279,6 +1281,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(labels.contains(&"displayName".to_owned()));
         assert!(!labels.contains(&"onTap".to_owned()));
+    }
+
+    #[test]
+    fn duration_formatter_completes_its_named_argument() {
+        assert_eq!(api_parameters("Time.formatDuration"), vec!["seconds"]);
     }
 
     #[test]

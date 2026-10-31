@@ -14,6 +14,15 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_text_node,
         "androidx.compose.ui.text.style.TextAlign",
     );
+    imports.add(features.uses_text_node, "androidx.compose.ui.text.drawText");
+    imports.add(
+        features.uses_text_node,
+        "androidx.compose.ui.draw.drawWithContent",
+    );
+    imports.add(
+        features.uses_text_node,
+        "androidx.compose.ui.graphics.drawscope.clipRect",
+    );
     imports.add(
         features.uses_font_weight || features.uses_text_node,
         "androidx.compose.ui.text.font.FontWeight",
@@ -21,10 +30,17 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 }
 
 pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut SourceWriter) {
-    out.text_at(
-        depth,
-        format_args!("NexaTextPrimitive(text = {}", text_expression(value)),
-    );
+    if style.reveal.is_some() {
+        out.text_at(
+            depth,
+            format_args!("NexaTextRevealPrimitive(text = {}", text_expression(value)),
+        );
+    } else {
+        out.text_at(
+            depth,
+            format_args!("NexaTextPrimitive(text = {}", text_expression(value)),
+        );
+    }
     if let Some(color) = style.color {
         out.push_str(&format!(", color = {}", colors::expression(color)));
     }
@@ -49,7 +65,14 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
             kotlin_font_weight(font_weight)
         ));
     }
-    if let Some(font_design) = style
+    if let Some(family) = style.font_family.as_deref() {
+        let face = nexa_codegen::names::font_face_name(family, font_weight);
+        let resource_name = nexa_codegen::names::font_resource_name(&face);
+        out.push_str(&format!(
+            ", fontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(R.font.{resource_name}, weight = {}))",
+            kotlin_font_weight(font_weight)
+        ));
+    } else if let Some(font_design) = style
         .font_design
         .filter(|design| *design != nexa_ir::TextFontDesign::Default)
     {
@@ -103,6 +126,51 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
             number(shadow.y)
         ));
     }
+    if let Some(reveal) = &style.reveal {
+        let expression = crate::generator::engine::expressions::expression;
+        out.push_str(&format!(
+            ", segments = {}, textOf = {{ segment -> segment.{} }}, startTimeOf = {{ segment -> segment.{}.toDouble() }}, endTimeOf = {{ segment -> segment.{}.toDouble() }}",
+            expression(&reveal.segments),
+            nexa_codegen::names::struct_field_name("text"),
+            nexa_codegen::names::struct_field_name("startTimeSeconds"),
+            nexa_codegen::names::struct_field_name("endTimeSeconds"),
+        ));
+        let has_trailing_space = match &reveal.segment_type {
+            nexa_ir::Type::Struct { fields, .. } => fields
+                .iter()
+                .find(|(name, _)| name == "hasTrailingSpace")
+                .map(|(_, ty)| {
+                    (
+                        nexa_codegen::names::struct_field_name("hasTrailingSpace"),
+                        ty,
+                    )
+                }),
+            _ => None,
+        };
+        if let Some((field, nexa_ir::Type::Optional(_))) = has_trailing_space {
+            out.push_str(&format!(
+                ", hasTrailingSpaceOf = {{ segment -> segment.{field} ?: true }}"
+            ));
+        } else if let Some((field, _)) = has_trailing_space {
+            out.push_str(&format!(
+                ", hasTrailingSpaceOf = {{ segment -> segment.{field} }}"
+            ));
+        } else {
+            out.push_str(", hasTrailingSpaceOf = { _ -> true }");
+        }
+        out.push_str(&format!(
+            ", position = ({}).toDouble(), active = {}, playing = {}, enabled = {}, seekRevision = ({}).toLong(), dimOpacity = {}f, leadTime = {}f, targetOffset = {}f, smoothingDurationMs = {}",
+            expression(&reveal.position),
+            expression(&reveal.active),
+            expression(&reveal.playing),
+            expression(&reveal.enabled),
+            expression(&reveal.seek_revision),
+            number(reveal.dim_opacity),
+            number(reveal.lead_time),
+            number(reveal.target_offset),
+            (reveal.smoothing_duration * 1000.0).round() as u32,
+        ));
+    }
     append_visual_modifier(style, out);
     out.push(')');
 }
@@ -112,6 +180,9 @@ fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
     let has_modifier = style.padding.is_some()
         || style.opacity.is_some()
         || effects.scale.is_some()
+        || effects.scale_expression.is_some()
+        || effects.scale_y.is_some()
+        || effects.scale_y_expression.is_some()
         || effects.rotation.is_some()
         || effects.blur.is_some()
         || effects.clip_rounded.is_some()
@@ -123,18 +194,13 @@ fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
     if let Some(opacity) = style.opacity {
         out.push_str(&format!(".alpha({}f)", number(opacity)));
     }
-    if effects.scale.is_some() || effects.rotation.is_some() {
-        let scale = effects
-            .scale
-            .map(number)
-            .unwrap_or_else(|| "1.0".to_owned());
-        let rotation = effects
-            .rotation
-            .map(number)
-            .unwrap_or_else(|| "0.0".to_owned());
-        out.push_str(&format!(
-            ".graphicsLayer(scaleX = {scale}f, scaleY = {scale}f, rotationZ = {rotation}f)"
-        ));
+    if effects.scale.is_some()
+        || effects.scale_expression.is_some()
+        || effects.scale_y.is_some()
+        || effects.scale_y_expression.is_some()
+        || effects.rotation.is_some()
+    {
+        super::graphics_layer::append_inline(effects, out);
     }
     if let Some(blur) = effects.blur {
         out.push_str(&format!(".blur({}.dp)", number(blur)));
@@ -288,6 +354,26 @@ mod tests {
                 .finish()
                 .contains("fontFamily = androidx.compose.ui.text.font.FontFamily.Serif")
         );
+    }
+
+    #[test]
+    fn custom_text_font_family_uses_a_static_android_font_resource() {
+        let mut output = SourceWriter::new();
+        render(
+            &Expr::String("Mazica".to_owned()),
+            &TextStyle {
+                font_family: Some("Gilroy-Regular".to_owned()),
+                font_weight: Some(nexa_ir::FontWeight::Semibold),
+                ..TextStyle::default()
+            },
+            0,
+            &mut output,
+        );
+
+        let generated = output.finish();
+        assert!(generated.contains("R.font.gilroy_semibold"));
+        assert!(generated.contains("fontWeight = FontWeight.SemiBold"));
+        assert!(generated.contains("R.font.gilroy_semibold, weight = FontWeight.SemiBold"));
     }
 
     #[test]

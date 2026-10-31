@@ -300,13 +300,16 @@ component Preferences() {
     state name: String = ""
     state submitted: String = ""
     state enabled: Bool = false
+    state persistedEnabled: Bool = false
     state volume: Float64 = 0.0
     state choice: String = "First"
     body {
         TextInput(value: name, placeholder: "Name") {
             submitted = name
         }
-        Switch(value: enabled, label: "Enabled")
+        Switch(value: enabled, label: "Enabled").onChange { nextValue ->
+            persistedEnabled = nextValue
+        }
         Slider(value: volume, min: 0.0, max: 1.0, step: 0.25)
         SegmentedControl(items: ["First", "Second"], selected: choice)
         Text("Name: $name")
@@ -330,6 +333,7 @@ test "form and control interactions" for Preferences() {
     assert(name == "Ada")
     assert(submitted == "Ada")
     assert(enabled)
+    assert(persistedEnabled)
     assert(volume == 0.75)
     assert(choice == "Second")
     assertText("Name: Ada")

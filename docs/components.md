@@ -26,6 +26,36 @@ app ProfileCard {
 }
 ```
 
+## Custom icon fonts
+
+Register one TTF or OTF font in `nexa.config.nx` and name the glyph codepoints once. The aliases compile into native font glyphs and work with built-in `icon:` parameters on both platforms.
+
+```nexa
+config {
+    assets {
+        iconFonts { Mazicon: "assets/fonts/Mazicon.ttf" },
+        icons {
+            mazica_play: ["Mazicon", 61696],
+            mazica_search: ["Mazicon", 61697],
+        }
+    }
+}
+```
+
+Put the font directly in `assets/fonts/`; its filename stem must match the declared family so Android can resolve the resource statically. Use aliases in `Button(icon:)`, `ContentUnavailable(icon:)`, `Picker(icon:)`, `Picker(itemIcons:)`, `Tab(icon:)`, or `Icon(system:)`. The compiler checks the font path, family, alias, and Unicode codepoint and emits a typed glyph without runtime name lookup.
+
+```nexa
+app PlayerActions {
+    state filter: String = "All"
+
+    body {
+        Button("Play", icon: "mazica_play") { }
+        Picker(items: ["All"], selected: filter, itemIcons: ["mazica_search"])
+        Icon(system: "mazica_search", description: "Search", size: 24, tint: "#FFFFFF")
+    }
+}
+```
+
 ## Layout and styling
 
 Use `Column` for vertical flow, `Row` for horizontal flow, and `Stack` for overlapping content. Layout and visual options belong in each component's argument list. Nexa does not support SwiftUI-style styling chains such as `.padding()` or `.background()`.
@@ -46,15 +76,205 @@ app ReleaseSummary {
 
 The exact layout, typography, accessibility, and visual options are listed for each component in the [syntax audit](syntax-audit.md#layout) and [`crates/nexa-syntax/src/catalog.rs`](../crates/nexa-syntax/src/catalog.rs).
 
+For a branded bottom toolbar, use Nexa's recommended [`AppBottomBar` custom `TabBar` pattern](state-and-navigation.md#recommended-custom-bottom-toolbar). It keeps tab routing in `AppBottomBar` and gives the app full control of the visible toolbar layout. Use `Toolbar` for native actions attached to a screen's top navigation bar; it is a different surface.
+
 Layout defaults are shared by iOS and Android: `Column` aligns its children and text to `Center`, `Row` aligns children vertically to `Center` and starts its horizontal arrangement at `Start`, and `Stack` centers its content. Omitted `padding` adds no inset. Explicit layout parameters replace these defaults.
 
 `width` and `height` set a fixed content size. `minWidth`, `maxWidth`, `minHeight`, and `maxHeight` constrain that size or the content's natural size. A fixed size must fit within any supplied bounds; contradictory values are compile errors. Padding is added outside the content size, so it increases the component's total size.
 
+### Shape
+
+Use `Shape` for filled geometry such as a page indicator, badge dot, or divider pill. It emits a concrete native path instead of relying on an empty layout container's background.
+
+```nx
+app WelcomeIndicator {
+    body {
+        Row(spacing: 4) {
+            Shape(shape: Capsule, width: 28, height: 4, fill: "#FFFFFF")
+            Shape(shape: Circle, width: 4, height: 4, fill: "#FFFFFF")
+            Shape(shape: Rounded(2), width: 16, height: 4, fill: "#FFFFFF")
+        }
+    }
+}
+```
+
+| Option | Type | Required | Default | Behavior |
+|---|---|---:|---|---|
+| `shape` | `Capsule \| Circle \| Rounded(radius: Double)` | Yes | — | Selects the native path. `Rounded` uses a logical-point radius. |
+| `width` | `Double` | Yes | — | Shape width in logical points. |
+| `height` | `Double` | Yes | — | Shape height in logical points. |
+| `fill` | `Color` | Yes | — | Static or adaptive fill color. |
+
+`Shape` has no child block or component-specific dot modifiers. SwiftUI receives a concrete `Capsule`, `Circle`, or `RoundedRectangle`; Compose paints a sized `Spacer` with the matching shape.
+
+### Spacer
+
+`Spacer()` expands along its parent layout axis. Give it a fixed `width` or `height` to express a gap without an empty layout container; dimensions use points on iOS and dp on Android.
+
+```nx
+app OnboardingLayout {
+    body {
+        Column {
+            Spacer(height: 234)
+            Text("MAZICA", fontSize: 86, fontWeight: Semibold)
+            Spacer()
+            Text("Discover music picked for you.")
+            Spacer(height: 29)
+            Button("Continue") { }
+        }
+    }
+}
+```
+
+`Column`, `Row`, and `Stack` also accept `screenWidthFraction` and `screenHeightFraction` from `0` to `1` for proportional dimensions. They use native screen metrics on iOS and Android. `screenWidthFraction` cannot be combined with `width` or `fillMaxWidth`; `screenHeightFraction` cannot be combined with `height` or `fillMaxHeight`.
+
+Set `cornerRadiusBottom` to round both bottom corners while keeping the top corners square. It can be combined with `cornerRadius`; when both are present, `cornerRadiusBottom` overrides the bottom pair. SwiftUI uses an uneven rounded rectangle and Compose uses a four-corner `RoundedCornerShape`.
+
+Use `fillMaxWidth: true` or `fillMaxHeight: true` when a layout should consume the corresponding space its parent offers. They compose with `minWidth`, `maxWidth`, `minHeight`, and `maxHeight`, but cannot be combined with a fixed size on the same axis. Both platforms use their native flexible frame and layout modifiers; omitted flags preserve intrinsic sizing.
+
 `Row(alignment:)` positions children vertically (`Start`, `Center`, or `End`). Use `horizontalArrangement: Start|Center|End` to place the child group across the available width; it defaults to `Start`. Setting `horizontalArrangement` makes the Row use available width, constrained by any explicit width bounds.
+
+Use `scale` for uniform visual scaling and `scaleY` for an independent vertical transform on `Column`, `Row`, `Stack`, and `Text`. Both accept a `Float64` expression and animate when the state is changed inside `withAnimation`; when both are provided, `scaleY` overrides the vertical part while `scale` controls the horizontal part.
+
+### System bars
+
+Set native system-bar appearance once at the app or screen root. Nexa draws requested backgrounds into the system insets while retaining native status icons.
+
+| Parameter | Type | Default | Behavior |
+|---|---|---|---|
+| `style` | `Default \| Light \| Dark` | `Default` | Selects status-bar content appearance. `Light` requests light icons and `Dark` requests dark icons. |
+| `hidden` | `Bool` | `false` | Shows or hides the status bar. |
+| `background` | Hex color | None | Fills the status-bar inset on Android and iOS. |
+| `navigationBarBackground` | Hex color | None | Fills the Android navigation-bar inset. iOS ignores this Android-only surface color. |
+
+```nx
+app MazicaShell {
+    screen Home { Text("Home") }
+
+    body {
+        StatusBar(style: Light, hidden: false, navigationBarBackground: "#000000")
+        NavigationStack(root: Home)
+    }
+}
+```
+
+## Safe area and edge-attached content
+
+Nexa roots draw edge-to-edge by default. A background image or gradient can extend beneath system bars while a foreground subtree opts into visual-safe placement. Use ordinary `Stack`, `Column`, and `Row` composition; no screen-region container is required.
+
+```nx
+app StoryViewer {
+    body {
+        Stack {
+            Image(asset: "story_cover", description: "Mountain landscape", scale: Fill, maxHeight: 640)
+            Column(spacing: 12, padding: 20, alignment: Center) {
+                Text("A weekend above the clouds", fontSize: 26, fontWeight: Bold, color: "#FFFFFF")
+                Text("Read the field notes", fontSize: 16, color: "#F1F5F9")
+            }
+            .safeAreaPadding(edges: [Top, Leading, Trailing], spacing: 16)
+        }
+        .safeAreaInset(edge: Bottom, spacing: 12) {
+            Button("Save story") { }
+        }
+    }
+}
+```
+
+The generated [syntax audit](syntax-audit.md#shared-view-modifiers) is the parameter reference for both modifiers, including accepted edge names, defaults, and required arguments.
+
+| Concern | Contract |
+|---|---|
+| Visual safe insets | SwiftUI reads `GeometryProxy.safeAreaInsets` before expanding only the app child to full bleed; it adds those insets once to the safe-region size to recover the window viewport. Toolbar-free navigation roots and destinations use that viewport edge-to-edge, and Nexa safe-area modifiers apply the selected insets. Android uses the per-edge union of system bars, display cutouts, and waterfall insets. Overlapping sources are not added together. Values follow system visibility, orientation, window resizing, and layout direction without polling or inset-reader state. |
+| Gesture regions | System gesture, mandatory gesture, and tappable-element insets are not part of visual safe-area padding and are not consumed by these modifiers. |
+| IME | Keyboard/IME height is separate from visual safe insets and fixed spacing. `KeyboardAware` defaults to `Stay`, keeping its scope anchored to the window while the IME can cover content; `behavior: Avoid` opts into resizing above the IME. |
+| Native scrolling content | `FastList`, `Form`, and `KeyboardAware` keep scroll content within remaining visual safe insets. When a unique owner is accommodated, its scroll viewport reserves the attachment's measured extent, fixed gap, and selected dynamic inset; surrounding backgrounds and other composed layers can still fill the screen. SwiftUI uses native `safeAreaInset`; Compose applies padding to the scroll container. An ancestor `safeAreaPadding` consumes its selected edges first. Reverse-layout and page-snapping lists preserve their specialized native inset behavior. |
+| Fixed spacing | `safeAreaPadding` adds its fixed `spacing` after the remaining selected visual inset. `safeAreaInset` offsets its attached content by the fixed gap; for a unique scroll owner, the gap is included once in that owner's viewport reservation. Neither value is consumed as a system inset. |
+| Attached content size | `safeAreaInset` measures its node block during the platform layout pass. Android uses subcomposition, so the measured extent is available to the body and scroll viewport in that same pass without a size-state write and follow-up composition. The attachment extent stays distinct from the dynamic safe inset and fixed gap. |
+| Cutouts and orientation | Edge attachments also inset their cross-axis content around cutouts and curved display edges. The platform reports logical leading/trailing values after layout direction is applied; rotating or resizing updates the native inset modifiers. |
+| Nested scopes | A selected dynamic edge is consumed once for descendants. Nested safe-area padding receives only the remaining inset, so selecting the same edge again adds no second system inset. |
+| Scroll owner | Placement works without scrolling. When exactly one compatible scroll owner is found, its native viewport reserves the attachment's measured extent, fixed gap, and remaining visual inset so rows do not render behind the attachment. No artificial row or per-item inset is added. If ownership is ambiguous, placement remains and the compiler does not choose an arbitrary owner. |
+
+For a feed, the same edge attachment is automatically coordinated with the unique `FastList` scroll owner:
+
+```nx
+app ReadingFeed {
+    body {
+        FastList(count: 32) { index in
+            Column(spacing: 4, padding: 12) {
+                Text("Field note \(index + 1)", fontSize: 18, fontWeight: Semibold)
+                Text("A short update from the expedition.", fontSize: 14, color: "#64748B")
+            }
+        }
+        .safeAreaInset(edge: Bottom, spacing: 8) {
+            Button("Write a note") { }
+        }
+    }
+}
+```
+
+SwiftUI keeps native scroll behavior through `safeAreaInset` when a compatible owner is unique. Compose keeps `FastList`/`Form` virtualization and applies the measured reservation to the scroll container, outside list items. AOT and DevRuntime use the same typed edge, spacing, and owner resolution. `safeAreaPadding` and `safeAreaInset` do not alter gesture policy or replace `KeyboardAware`.
+
+### Adaptive scroll headers
+
+Attach one custom header to a subtree containing exactly one vertical native scroll owner. The modifier can wrap `FastList`, `Form`, or a future compatible owner; it does not replace scrolling or introduce an extra scroll container. If there are zero or multiple compatible owners, the compiler reports the relationship and asks you to place the modifier on the intended owner.
+
+| Parameter | Type | Default | Behavior |
+|---|---|---|---|
+| `behavior` | `Pinned \| Collapse \| HideOnScroll` | `Pinned` | `Pinned` keeps the measured header height. `Collapse` shrinks it linearly as the owner scrolls through the first 120 logical points/dp. `HideOnScroll` hides after 8 logical points/dp of downward content movement and reveals on upward movement. |
+| `collapsedHeight` | `Float64` (points on iOS, dp on Android) | `56` for `Collapse` | The minimum height used by `Collapse`. It must be positive and is valid only with `behavior: Collapse`. |
+| Header block | Node block | Required | Ordinary Nexa composition for the header. Use `safeAreaPadding` in this block when header controls need protection from a system edge; header behavior does not consume visual safe insets. |
+
+```nx
+app Preferences {
+    state notificationsEnabled: Bool = true
+
+    body {
+        Form {
+            Section(title: "Notifications") {
+                Switch(value: notificationsEnabled, label: "Daily updates")
+            }
+        }
+        .scrollHeader(behavior: Collapse, collapsedHeight: 56) {
+            Column(padding: 16, background: "#F8FAFC") {
+                Text("Preferences", fontSize: 30, fontWeight: Bold)
+                    .safeAreaPadding(edges: [Top])
+            }
+        }
+    }
+}
+```
+
+The system `NavigationStack(titleMode: Large)` remains the native choice for standard large titles. Custom header tracking is local to the header: Swift observes the native scroll view offset, Compose observes nested vertical scroll deltas, and neither backend measures list rows. Hide/reveal honors reduced-motion settings on iOS and the system animation scale on Android. Scroll state and list identity remain owned by `FastList` or `Form`.
+
+### KeyboardAware
+
+`KeyboardAware` preserves its existing scroll dismissal behavior and can either stay fixed to the window or avoid the software keyboard. It reuses a nested `FastList` or `Form` as the native scroll owner; when there is no scroll owner, it supplies a vertical scrolling container.
+
+| Argument | Type | Default | Behavior |
+|---|---|---|---|
+| `dismiss` | `Interactive \| Never` | `Interactive` | Controls whether a drag can dismiss the software keyboard. |
+| `behavior` | `Stay \| Avoid` | `Stay` | `Stay` leaves the scope at the window position and allows the IME to cover content. `Avoid` resizes or moves the scope above the IME. |
+
+```nx
+app MessageComposer {
+    state message: String = ""
+
+    body {
+        KeyboardAware(behavior: Avoid, dismiss: Interactive) {
+            Column(spacing: 12, padding: 16) {
+                Text("Message the expedition team", fontWeight: Semibold)
+                TextInput(value: message, placeholder: "Write a message")
+            }
+        }
+    }
+}
+```
+
+The Android host uses a non-resizing IME policy by default so `Stay` remains anchored to the physical window. `Avoid` applies native IME insets to the `KeyboardAware` scope. Text input focus and keyboard dismissal continue to use native platform behavior.
 
 ## Input and interaction
 
-Bind controls directly to declared `state`. A `TextInput` accepts `value` and `placeholder`; use `.onChange { ... }` only when extra action work is needed. `Button` action blocks contain app state updates.
+Bind controls directly to declared `state`. `TextInput` and `Switch` accept typed `.onChange { ... }` actions when a control change also needs side effects. `Button` action blocks contain app state updates.
 
 ### Button
 
@@ -64,7 +284,7 @@ Bind controls directly to declared `state`. A `TextInput` accepts `value` and `p
 |---|---|---|---|
 | `label` | `String` expression | Required positional value | Visible button text. |
 | `comment` | `String` | None | Translator context for the visible label. |
-| `icon` | Shared system icon name (`String`) | None | Adds a shared catalog icon; unknown names are compile errors. |
+| `icon` | Nexa shared icon or `assets.icons` alias (`String`) | None | Adds a shared or registered custom glyph; unknown names are compile errors. |
 | `loading` | `Bool` expression | `false` | Replaces the label with a native progress indicator and disables activation. |
 | `disabled` | `Bool` expression | `false` | Disables activation while retaining the label. |
 | `style` | `BorderedProminent`, `Bordered`, `Borderless`, or `Plain` | `BorderedProminent` | Selects the shared button treatment. |
@@ -78,6 +298,191 @@ Bind controls directly to declared `state`. A `TextInput` accepts `value` and `p
 ```nx
 Button("", icon: "add", shape: Circle, accessibilityLabel: "Add task") {
     taskCount = taskCount + 1
+}
+```
+
+### TextInput
+
+`TextInput` binds directly to mutable `String` state and uses the native text control on each
+platform. Static font and color options are typed at compile time. Placeholder strings are
+localized automatically. `clearable` adds the iOS inline clear control; Android retains its
+native field behavior, matching React Native's iOS-only clear-button mode. Use `.onFocus` with
+`focused` when an interaction must run after the user focuses the field.
+
+<!-- nexadoc:begin TEXT_INPUT_PARAMETERS -->
+| Parameter | Type | Default | Behavior |
+|---|---|---|---|
+| `value` | mutable `String` state | Required | Current text; native edits update the bound state before `.onChange` runs |
+| `placeholder` | `String` literal | Required | Shown while the bound value is empty and automatically localized |
+| `comment` | `String` literal | Omitted | Translator context for the placeholder |
+| `keyboardType` | `Text`, `Number`, `Email`, `Phone`, or `Url` | `Text` | Selects the native keyboard layout |
+| `isSecure` | `Bool` | `false` | Masks the entered text and selects secure-entry behavior |
+| `autofill` | `Username`, `Password`, or `OneTimeCode` | Omitted | Hints the native autofill service about the expected value |
+| `returnKeyType` | `Done`, `Search`, `Send`, or `Next` | Native default; `Done` for an action block and `Search` for `searchable` | Sets the keyboard action; submit actions run before native dismissal |
+| `multiline` | `Bool` | `false` | Uses a vertically expanding native text control; submit action blocks are not supported |
+| `autocorrect` | `Bool` | Platform default | Enables or disables native spelling correction |
+| `capitalization` | `None`, `Sentences`, `Words`, or `Characters` | `Sentences` | Selects automatic capitalization behavior |
+| `focused` | mutable `Bool` state | Omitted | Requests focus when true and reflects native focus changes |
+| `maxLength` | positive integer literal | Unlimited | Bounds text accepted from native editing |
+| `font` | `Body` or `Title3` | Platform default | Selects a shared native text style |
+| `fontSize` | non-negative number or `FontSize` theme token | Platform default | Sets entered-text and placeholder size in points on iOS and `sp` on Android |
+| `fontFamily` | registered font-face `String` or font-family theme token | `Theme.Default` when declared, otherwise platform default | Uses the registered native font face from `assets/fonts/` |
+| `textColor` | hex color `String` or color theme token | Platform default | Sets the entered-text color |
+| `placeholderColor` | hex color `String` or color theme token | Platform default | Sets the placeholder color independently of entered text |
+| `clearable` | `Bool` | `false` | Shows an inline clear control on iOS while text is present; Android keeps its native field behavior |
+| `minLines` | positive integer literal | 1 | Minimum visible line count; requires `multiline: true` |
+| `maxLines` | positive integer literal | Unlimited | Maximum visible line count; requires `multiline: true` |
+| `searchable` | `Bool` | `false` | Adds a native search icon and uses the Search return-key action; cannot be combined with multiline or submit actions |
+<!-- nexadoc:end TEXT_INPUT_PARAMETERS -->
+
+<!-- nexadoc:begin TEXT_INPUT_EVENTS -->
+| Action or modifier | Type | Default | Behavior |
+|---|---|---|---|
+| `action block` | actions | Omitted | Runs on submit for a single-line field; defaults the return key to `Done` |
+| `.onChange` | one `String` binding and actions | Omitted | Runs after user-driven edits with the new text bound to its parameter; programmatic state changes do not trigger it |
+| `.onFocus` | actions | Omitted | Runs when the field gains native focus; requires `focused` so both native targets can track the focus binding |
+<!-- nexadoc:end TEXT_INPUT_EVENTS -->
+
+Common accessibility options also apply: `accessibilityLabel` is required when any of
+`accessibilityHint`, `accessibilityValue`, or `accessibilityRole` is supplied. Accessibility
+strings are localized automatically.
+
+```nx
+app SongSearchField {
+    state query: String = ""
+    state changedText: String = ""
+    state focused: Bool = false
+    state focusEntries: Int32 = 0
+
+    body {
+        Column(spacing: 8, padding: 16) {
+            TextInput(
+                value: query,
+                placeholder: "Search songs and artists",
+                keyboardType: Text,
+                returnKeyType: Search,
+                autocorrect: false,
+                capitalization: None,
+                fontSize: 16,
+                textColor: "#FFFFFF",
+                placeholderColor: "#9F9F9F",
+                clearable: true,
+                focused: focused,
+                accessibilityLabel: "Search songs and artists",
+            ).onFocus {
+                if query != "" {
+                    query = ""
+                    changedText = ""
+                }
+                focusEntries = focusEntries + 1
+            }.onChange { typed ->
+                changedText = typed
+            }
+            Text("Last edit: \(changedText) · focused \(focusEntries) times")
+        }
+    }
+}
+```
+
+### Switch
+
+`Switch` binds a Boolean state value to the native toggle on each platform. Its optional
+`.onChange` action receives the new value when the user changes the control: SwiftUI uses a
+native `Toggle`, and Android uses Material 3 `Switch`. Keep persistence and immediate behavior
+changes in this event action; the bound state is updated before the action runs.
+
+| Argument or modifier | Type | Required/default | Behavior |
+|---|---|---|---|
+| `value` | Mutable `Bool` state | Required | The current toggle value. |
+| `label` | `String` expression | Required | Visible and accessible control label. |
+| `comment` | `String` | Omitted | Translator context for the label. |
+| `.onChange { value -> ... }` | One `Bool` binding and actions | Omitted | Runs after a user changes the toggle, with the new value bound to `value`. |
+
+```nx
+app AudioPreferences {
+    state skipSilence: Bool = false
+    state savedPreference: Bool = false
+
+    body {
+        Switch(value: skipSilence, label: "Skip silent passages")
+            .onChange { enabled ->
+                savedPreference = enabled
+            }
+        Text("Persisted: \(savedPreference)")
+    }
+}
+```
+
+### Slider
+
+`Slider` binds to mutable `Float64` state and accepts a dynamic range, which lets a
+media player bind its position directly to the current track duration. Use
+`step: 0.0` for a continuous seek bar. The shared renderer draws the same rounded
+track and circular thumb on iOS and Android; track, thumb, and hit-area sizes use
+points on iOS and dp on Android. Horizontal drag pauses the player through
+`.onEditingChanged`; the callback ends before the final position is sought.
+
+<!-- nexadoc:begin SLIDER_PARAMETERS -->
+| Parameter | Type | Default | Behavior |
+|---|---|---|---|
+| `value` | mutable `Float64` state | Required | Current slider value; updated before `.onChange` actions run |
+| `min` | `Float64` expression | Required | Lower end of the value range |
+| `max` | `Float64` expression | Required | Upper end of the range; must be greater than `min` when rendered |
+| `step` | non-negative `Float64` literal | Required; use `0.0` for continuous values | Quantization interval; a zero step keeps native pointer precision |
+| `tint` | color expression (`String`) or `String` state | Platform accent | Filled portion of the track |
+| `trackColor` | color expression (`String`) or `String` state | Platform inactive track color | Unfilled portion of the track |
+| `thumbColor` | color expression (`String`) or `String` state | White | Circular thumb fill |
+| `trackHeight` | positive `Dp` number | 4 dp | Track thickness |
+| `thumbSize` | positive `Dp` number | 14 dp | Thumb diameter |
+| `hitSlop` | non-negative `Dp` number | 0 dp | Extra vertical pointer hit area above and below the visual control |
+<!-- nexadoc:end SLIDER_PARAMETERS -->
+
+<!-- nexadoc:begin SLIDER_EVENTS -->
+| Modifier | Type | Default | Behavior |
+|---|---|---|---|
+| `.onChange` | one `Float64` binding and actions | Omitted | Runs as the bound value changes; its `Float64` parameter is commonly named `value` and tap and drag input are supported |
+| `.onEditingChanged` | one `Bool` binding and actions | Omitted | Runs with `true` when horizontal dragging begins and `false` when it ends; its `Bool` parameter is commonly named `editing`; taps do not enter editing state |
+<!-- nexadoc:end SLIDER_EVENTS -->
+
+```nx
+app EpisodePlayer {
+    state position: Float64 = 45.0
+    state duration: Float64 = 202.0
+    state isSeeking: Bool = false
+    state lastSeekRequest: Float64 = 0.0
+
+    body {
+        Column(spacing: 10, padding: 16, background: "#0F0F0F") {
+            Slider(
+                value: position,
+                min: 0.0,
+                max: duration,
+                step: 0.0,
+                tint: "#CA2828",
+                trackColor: "#424242",
+                thumbColor: "#FFFFFF",
+                trackHeight: 3.51,
+                thumbSize: 14.04,
+                hitSlop: 18.72
+            )
+                .onChange { seconds ->
+                    if !isSeeking {
+                        lastSeekRequest = seconds
+                    }
+                }
+                .onEditingChanged { editing ->
+                    isSeeking = editing
+                    if !editing {
+                        lastSeekRequest = position
+                    }
+                }
+            Row(fillMaxWidth: true) {
+                Text(Time.formatDuration(seconds: position), color: "#9F9F9F")
+                Spacer()
+                Text(Time.formatDuration(seconds: duration), color: "#9F9F9F")
+            }
+        }
+    }
 }
 ```
 
@@ -142,7 +547,10 @@ Event modifiers are reserved for interactions and system triggers. For example, 
 `ProgressBar` renders a linear indicator. Omit `progress` to show the
 indeterminate animation; provide a `Float64` value for determinate progress.
 Determinate mode uses SwiftUI `ProgressView` on iOS and Material 3
-`LinearProgressIndicator` on Android. Indeterminate mode uses an animated SwiftUI
+`LinearProgressIndicator` on Android. A custom determinate bar with
+`cornerRadius: 0` uses a square track and fill on both platforms and animates
+progress changes with a 250 ms linear tween; the animation respects each
+platform's reduced-motion setting. Indeterminate mode uses an animated SwiftUI
 bar on iOS and the native Material 3 linear indicator on Android. Set
 `androidWave` to opt into Android Material 3's native wavy indicator in either
 mode; iOS accepts and ignores that Android-specific argument. Determinate values
@@ -266,6 +674,7 @@ of 52 pt/dp.
 |---|---|---|
 | `.onEndReached { ... }` | Actions | Runs once when the final data row becomes visible; it can run again after the item count changes. |
 | `.onScroll { ... }` | Actions | Runs when the leading unobscured data row changes, not for every pixel; the initial viewport does not emit it. |
+| `.onScrollBeginDrag { ... }` | Actions | Runs once when the user begins dragging a forward vertical flat list. Programmatic scrolling does not emit it; sectioned, reversed, horizontal, and page-snapping lists are not supported. |
 | `.onMove(enabled:) { from, to -> ... }` | Optional `Bool` (`true`); event actions | Reorders an array-backed vertical list; the platform list surface is selected automatically. Android starts reordering with a long-press and drag. Reordering and swipe actions are separate interaction modes on both platforms; turn reordering off to reveal swipe actions. |
 | `.stickyHeader { ... }` | Nodes | Adds a header to a flat vertical list. |
 | `.sectionHeader { section -> ... }` | Nodes | Renders a header for each `sections:` group. |
@@ -509,11 +918,12 @@ compiler checks the destination and each argument type. A screen declared in
 the same `.nx` file is available directly. A screen declared in another source
 file is available after importing that file relative to the importing source.
 
-`NavigationStack` uses the platform's native inline title by default: SwiftUI's centered inline title on iOS and Material 3's centered top app bar on Android. Set `titleAlignment: Leading` to place the title beside Back; set `Center` to keep the centered layout. Set `titleMode: Large` for SwiftUI's large title and Material 3's expanding large top app bar.
+`NavigationStack` uses the platform's native inline title by default: SwiftUI's centered inline title on iOS and Material 3's centered top app bar on Android. Set `titleAlignment: Leading` to place the title beside Back; set `Center` to keep the centered layout. Set `titleMode: Large` for SwiftUI's large title and Material 3's expanding large top app bar. Set `showNavigationBar: false` when screens draw a custom header and back control; pushed screens then use the full content area without an extra native bar.
 
 | Parameter | Type | Required/default | Behavior |
 |---|---|---|---|
 | `root` | Declared screen | Required | Screen shown at the root of the stack. |
+| `showNavigationBar` | `Bool` | `true` | Shows native navigation chrome on pushed screens. Set `false` when each screen supplies its own header and back control. |
 | `titleMode` | `Inline` or `Large` | `Inline` | Inline keeps the title in the back-control row. Large expands and collapses with scroll on both platforms. |
 | `titleAlignment` | `Automatic`, `Leading`, or `Center` | `Automatic` | Inline title placement. Automatic uses each platform's native centered title. Leading is an explicit layout beside the back button. Large titles keep their native leading alignment. |
 
@@ -564,20 +974,30 @@ screen parameter. No import is needed for a screen in the current file.
 
 ### BottomSheet
 
-`BottomSheet` uses SwiftUI `.sheet` on iOS and a Compose sheet on Android. Both
-platforms use the same `detents` fractions, so custom heights do not need a
-second parameter. Drag the sheet to change its height; Nexa keeps the selected
-height inside the native view. The child block uses Nexa `Column` defaults on both
-platforms: children are centered horizontally and start at the top of the
-available content area immediately after the native drag indicator. The sheet
-adds no content inset by default. Set `contentPadding` to add a uniform inset;
-padding on child layouts adds to it.
+`BottomSheet` uses SwiftUI `.sheet` on iOS and a Compose sheet on Android. Use
+fractional `detents` for fixed resting heights, or set `contentSized: true` to
+fit the sheet to its measured child content. These modes are exclusive. Drag a
+fractional sheet to change its height; a content-sized sheet follows its content
+height and can still be dismissed by dragging. The child block uses Nexa
+`Column` defaults on both platforms: children are centered horizontally and
+start at the top of the available content area immediately after the native drag
+indicator. The sheet adds no content inset by default. Set `contentPadding` to
+add a uniform inset; padding on child layouts adds to it.
+Set `cornerRadius` to override the top corner radius on both platforms. iOS
+uses SwiftUI's presentation radius on iOS 16.4+ and the UIKit sheet controller
+on earlier supported iOS versions. Omit it to preserve each platform's native
+sheet shape.
+A `NavigationStack` may be the sheet's direct child; its pushed destinations stay
+inside the sheet. Back returns to the sheet's previous screen and dismisses the
+sheet only when its root is active.
 
 <!-- nexadoc:begin BOTTOM_SHEET_PARAMETERS -->
 | Parameter | Type | Default | Behavior |
 |---|---|---|---|
 | `ref` | `ComponentRef<BottomSheet>` | Required | Controls presentation through the typed `present()` and `dismiss()` methods |
+| `contentSized` | `Bool` | `false` | Fits the sheet to its laid-out content; cannot be combined with `detents` or `initialDetent` |
 | `contentPadding` | non-negative `Dp` number | 0 dp | Uniform inset around sheet content; explicit child padding adds to it |
+| `cornerRadius` | non-negative `Dp` number | Platform sheet shape | Sets the top radius on Android and on all supported iOS versions through SwiftUI or UIKit |
 | `detents` | `Array<Float64>` fractions in `(0, 1]` | `[0.5, 1.0]` | Available resting heights as fractions of screen height; at least one unique ascending value is required |
 | `initialDetent` | `Float64` fraction in `(0, 1]` | First entry in `detents` | Initial resting height; must match one configured detent |
 | `showDragIndicator` | `Bool` | `true` | Shows or hides the platform-native drag indicator |
@@ -759,11 +1179,12 @@ Image(
 | `alignment` | `Leading`, `Center`, `Trailing` | Inherited column text alignment | Aligns lines within the text's measured width. |
 | `fontSize` | Dimension | Platform body size | Uses points on iOS and `sp` on Android. Overrides the semantic style's size. |
 | `fontStyle` | `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`, `Footnote`, `Caption`, `Caption2` | None | Applies the matching semantic size and default weight; the style scales with accessibility text settings. |
-| `fontDesign` | `Default`, `Serif`, `Rounded`, `Monospaced` | Platform default design | Selects the system font design. |
+| `fontDesign` | `Default`, `Serif`, `Rounded`, `Monospaced` | Platform default design | Selects the system font design. Ignored when `fontFamily` is supplied. |
+| `fontFamily` | Static registered font face `String` or `Theme` font-family token | `Theme.Default` when declared, otherwise platform default | Selects a registered PostScript font face from `assets/fonts/`. The name must contain letters, numbers, spaces, `_`, or `-`, and begin with a letter. |
 | `fontWeight` | `Normal`, `Medium`, `Semibold`, `Bold` | Semantic style weight, otherwise `Normal` | Explicit weight overrides the weight associated with `fontStyle`. |
 | `padding` | Dimension | None | Adds equal padding around the text. |
 | `opacity` | `Float` from `0` to `1` | `1` | Applies alpha to the rendered text. |
-| `scale` | `Float` | `1` | Scales the text view uniformly. |
+| `scale` | `Float64` expression | `1` | Scales the text view uniformly; a state expression can be changed inside `withAnimation` for native transform animation. |
 | `rotation` | `Float` degrees | `0` | Rotates the text view. |
 | `shadow` | `Shadow(radius, x, y, color)` | None | Draws a shadow behind glyphs using the blur radius and offsets. |
 | `blur` | Dimension | None | Blurs the rendered text. |
@@ -771,7 +1192,7 @@ Image(
 | `zIndex` | `Int32` | `0` | Controls drawing order relative to overlapping siblings. |
 | `lineLimit` | Positive integer | Unlimited | Limits visible lines and truncates overflow with an ellipsis. |
 | `lineHeight` | Dimension | Native line height | Sets the total line box height. |
-| `letterSpacing` | Dimension | `0` | Adds tracking between characters. |
+| `letterSpacing` | Signed dimension | `0` | Adds or removes tracking between characters; negative values bring glyphs closer together. |
 | `strikethrough` | `Bool` | `false` | Draws a line through the text. |
 | `italic` | `Bool` | `false` | Uses the italic font face. |
 | `underline` | `Bool` | `false` | Underlines the text. |
@@ -780,6 +1201,8 @@ Image(
 | `accessibilityHint` | `String` | None | Supplies an accessibility hint. |
 | `accessibilityValue` | `String` | None | Supplies an accessibility value. |
 | `accessibilityRole` | Accessibility role | Text role | Overrides the accessibility role. |
+
+Declare an app-wide default face once with `theme { fontFamily Default: "Gilroy-Regular" }`; an explicit `Text(fontFamily:)` overrides it. Place `.ttf` or `.otf` files directly in `assets/fonts/`. Name weighted faces `<family>_regular`, `<family>_medium`, or `<family>_semibold`; Nexa registers their PostScript names (for example `Gilroy-Regular`) on iOS and the matching static resource IDs on Android. A single-face font uses its PostScript name, such as `Mazicon`. For a face ending in `-Regular` or `_regular`, Nexa selects the matching Medium or Semibold face from `fontWeight`; Bold uses Semibold when the family has no separate bold file.
 
 All numeric dimensions use the app's shared logical units: points on iOS and `dp`/`sp` on Android as appropriate. `fontDesign` (`Default`, `Serif`, `Rounded`, or `Monospaced`) selects the system font family while keeping the design choice aligned across targets.
 
@@ -796,6 +1219,86 @@ app TaskTypographyPreview {
 }
 ```
 
+### TextReveal
+
+`TextReveal` is the reusable timed-text counterpart to `Text`. It measures the same wrapped text used for drawing, divides timed segments across visual lines, and reveals the active segment with native line clipping. AOT and DevRuntime call the same Compose and TextKit primitives. `segments` is a statically typed array of any app-declared struct that contains the timing fields below; no plugin or Nexa-specific lyric model is required.
+
+```nx
+struct TranscriptCue {
+    text: String,
+    startTimeSeconds: Float64,
+    endTimeSeconds: Float64,
+    hasTrailingSpace: Bool?,
+}
+
+app AudioTranscript {
+    state cues: Array<TranscriptCue> = [
+        TranscriptCue(text: "Turn", startTimeSeconds: 4.2, endTimeSeconds: 4.5, hasTrailingSpace: true),
+        TranscriptCue(text: "left", startTimeSeconds: 4.6, endTimeSeconds: 5.0, hasTrailingSpace: false),
+    ]
+    state position: Float64 = 4.2
+    state active: Bool = true
+    state playing: Bool = true
+    state revealEnabled: Bool = true
+    state seekRevision: Int32 = 0
+
+    body {
+        TextReveal(
+            "Turn left after the bridge",
+            segments: cues,
+            position: position,
+            active: active,
+            playing: playing,
+            enabled: revealEnabled,
+            seekRevision: seekRevision,
+            fontSize: 20,
+            fontWeight: Semibold,
+            color: "#FFFFFF",
+            lineHeight: 27,
+        )
+    }
+}
+```
+
+| Parameter | Type | Required/default | Behavior |
+|---|---|---|---|
+| `value` | `String` expression | Required | Complete text shown by the component. It should contain the same words and spaces as `segments` in the same order. |
+| `segments` | `Array<Struct>` | Required | Each element must provide `text: String`, `startTimeSeconds: Float64`, and `endTimeSeconds: Float64`. Optional `hasTrailingSpace: Bool?` defaults to `true`; it contributes one text unit when Nexa assigns segments to wrapped lines. |
+| `position` | `Float64` | Required | Current playback or timeline position in seconds. |
+| `active` | `Bool` | Required | Enables the highlight overlay for this text row. Inactive rows keep only their dimmed base text. |
+| `playing` | `Bool` | Required | Controls timeline smoothing. When false, the current position is applied immediately and no animation clock runs. |
+| `enabled` | `Bool` | Required | Enables timed word reveal. When false, an active row is fully highlighted. |
+| `seekRevision` | Integer | Required | Increment after an explicit seek. Nexa snaps to the earlier of `position` and the first segment start time. |
+| `revealOpacity` | `Float64` literal from `0` to `1` | `0.38` | Opacity of the dim base text. The reveal overlay uses `color` at full opacity. |
+| `leadTime` | Non-negative numeric literal in seconds | `0.3` | Initial lead after a row becomes active during playback. |
+| `targetOffset` | Non-negative numeric literal in seconds | `0.56` | Position offset targeted when smoothing each playback sample. |
+| `smoothingDuration` | Non-negative numeric literal in seconds | `0.25` | Linear native animation duration used to settle to a playback sample. |
+| `comment` | `String` | None | Translator context for static text, following `Text` localization rules. |
+| `color` | Color expression | Platform text color | Foreground color for the revealed text. |
+| `alignment` | `Leading`, `Center`, `Trailing` | Inherited column text alignment | Aligns each wrapped line. Leading and trailing follow layout direction. |
+| `fontSize` | Dimension | Platform body size | Uses points on iOS and `sp` on Android. |
+| `fontStyle` | Semantic text style | None | Uses the same semantic style names and default weights as `Text`. |
+| `fontDesign` | `Default`, `Serif`, `Rounded`, `Monospaced` | Platform default | Selects the system font design when no registered `fontFamily` is supplied. |
+| `fontFamily` | Registered font face or theme font-family token | Theme default or platform default | Selects a font registered from `assets/fonts/`. |
+| `fontWeight` | `Normal`, `Medium`, `Semibold`, `Bold` | Semantic style weight, otherwise `Normal` | Selects the requested native font weight. |
+| `padding` | Dimension | None | Adds equal padding around the measured text. |
+| `opacity` | `Float` from `0` to `1` | `1` | Applies alpha to both base text and reveal overlay. |
+| `scale` | `Float64` expression | `1` | Scales the complete text component. |
+| `scaleY` | `Float64` expression | `scale` | Overrides vertical scale independently. |
+| `rotation` | `Float` degrees | `0` | Rotates the complete text component. |
+| `shadow` | `Shadow(radius, x, y, color)` | None | Draws the same glyph shadow in both text layers. |
+| `blur` | Dimension | None | Blurs the complete text component. |
+| `clip` | `Rounded(radius)` | None | Clips the component to a rounded rectangle. |
+| `zIndex` | `Int32` | `0` | Controls drawing order among overlapping siblings. |
+| `lineLimit` | Positive integer | Unlimited | Limits visible lines and truncates overflow with an ellipsis. |
+| `lineHeight` | Dimension | Native line height | Sets the total line box height. |
+| `letterSpacing` | Signed dimension | `0` | Adds or removes tracking between glyphs. |
+| `strikethrough` | `Bool` | `false` | Draws a line through both text layers. |
+| `italic` | `Bool` | `false` | Uses the italic face where available. |
+| `underline` | `Bool` | `false` | Underlines both text layers. |
+
+The component measures line wrapping with the selected font and width, then caches line and segment timing ranges. Android reads the `TextLayoutResult`; iOS lays out with TextKit. A native frame clock runs only for an active, enabled row while playing and settling. The clock stops after smoothing completes, on pause, when the row leaves the screen, or when timed reveal is disabled. RTL rows reveal from the logical leading edge.
+
 ### ContentUnavailable
 
 `ContentUnavailable` presents an empty or unavailable state using the platform's native visual treatment: SwiftUI `ContentUnavailableView` on iOS and a centered Material 3 empty state on Android. The supporting description is optional; omitting it removes the detail text and its spacing. Optional color parameters customize each visual part independently; omitted colors keep the native platform defaults.
@@ -803,7 +1306,7 @@ app TaskTypographyPreview {
 | Parameter | Type | Required/default | Behavior |
 |---|---|---|---|
 | `title` | `String` expression | Required | Main empty-state heading. |
-| `icon` | Shared system icon name (`String`) | Required | Icon name from Nexa's shared icon catalog; unknown names are compile errors. |
+| `icon` | Nexa shared icon or `assets.icons` alias (`String`) | Required | Icon name from Nexa's shared catalog or a registered custom glyph alias; unknown names are compile errors. |
 | `description` | `String` expression | Omitted | Optional supporting copy below the title. |
 | `titleColor` | Color expression (`String`) | Native default | Optional title color. Accepts a hex color, theme color, or dynamic string expression. |
 | `descriptionColor` | Color expression (`String`) | Native default | Optional supporting description color. |
@@ -921,10 +1424,12 @@ the user chooses an item.
 reflect the current value, such as a task priority. Android presents an
 anchored Material 3 Expressive menu; iOS uses a native menu.
 
-`itemIcons` optionally supplies shared system icons for menu rows. Its string
+`itemIcons` optionally supplies Nexa shared icons or registered `assets.icons`
+aliases for menu rows. Its string
 literal entries map by index to `items`; an option without a matching entry has
-no leading icon. The compiler resolves names to native SF Symbols and Material
-icons, so an unknown icon name is a compile error.
+no leading icon. The compiler resolves built-in icons to native SF Symbols and
+Material icons and custom aliases to registered font glyphs, so an unknown
+icon name is a compile error.
 
 Picker labels and choices, along with SegmentedControl choices, use Nexa's
 generated localization catalogs. Literal strings are extracted automatically.

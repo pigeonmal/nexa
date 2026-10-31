@@ -1,6 +1,8 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     path::Path,
+    sync::Arc,
+    time::Instant,
 };
 
 use nexa_diagnostics::{CompileError, CompileWarning};
@@ -31,7 +33,7 @@ use crate::Target;
 
 mod components;
 mod context;
-mod core_api;
+pub mod core_api;
 mod custom_components;
 mod expressions;
 mod generics;
@@ -83,7 +85,16 @@ mod widget_capability_tests {
 
     #[test]
     fn widget_subset_accepts_static_content_primitives() {
-        assert!(validate_widget_body(&[Node::Spacer], Span::default()).is_ok());
+        assert!(
+            validate_widget_body(
+                &[Node::Spacer {
+                    width: None,
+                    height: None
+                }],
+                Span::default()
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -124,7 +135,10 @@ mod widget_capability_tests {
             hint: None,
             value: None,
             role: AccessibilityRole::Button,
-            children: vec![Node::Spacer],
+            children: vec![Node::Spacer {
+                width: None,
+                height: None,
+            }],
         };
         let error = validate_widget_body(&[role], Span::default())
             .expect_err("button role must have the same Glance semantics");
@@ -187,7 +201,7 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                         ));
                     }
                 }
-                Node::Spacer | Node::Divider { .. } => {}
+                Node::Spacer { .. } | Node::Divider { .. } | Node::Shape { .. } => {}
                 Node::SystemIcon { icon, .. } => {
                     if icon.android_widget_drawable().is_none() {
                         return Err(CompileError::new(
@@ -195,6 +209,12 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                             format!("system icon `{icon:?}` has no Android widget equivalent"),
                         ));
                     }
+                }
+                Node::FontIcon { .. } => {
+                    return Err(CompileError::new(
+                        span,
+                        "custom font glyph icons are not supported in Android widgets",
+                    ));
                 }
                 Node::Layout {
                     style, children, ..
@@ -316,7 +336,12 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                 | Node::OnBackground { .. } => {
                     return Err(unsupported("lifecycle callbacks", span));
                 }
-                Node::Appearance { .. } | Node::Form { .. } | Node::FormSection { .. } => {
+                Node::Appearance { .. }
+                | Node::Form { .. }
+                | Node::FormSection { .. }
+                | Node::SafeAreaPadding { .. }
+                | Node::SafeAreaInset { .. }
+                | Node::ScrollHeader { .. } => {
                     return Err(unsupported("platform-specific container", span));
                 }
                 Node::Button { .. }
@@ -386,7 +411,8 @@ pub fn lower_with_warnings(
     app: ast::App,
     target: Target,
 ) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
-    let (module, warnings, tests, _) = lower_with_warnings_in_mode(app, target, false, false)?;
+    let (module, warnings, tests, _) =
+        lower_with_warnings_in_mode(app, target, false, false, None, None, None, None, None)?;
     Ok((module, warnings, tests))
 }
 
@@ -394,9 +420,42 @@ pub(super) fn lower_with_project_targets(
     app: ast::App,
     target: Target,
     dev_runtime: bool,
+    custom_icons: &HashMap<String, nexa_ir::SystemIcon>,
 ) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
-    let (module, warnings, tests, _) =
-        lower_with_warnings_in_mode(app, target, dev_runtime, false)?;
+    let (module, warnings, tests, _) = lower_with_warnings_in_mode(
+        app,
+        target,
+        dev_runtime,
+        false,
+        Some(custom_icons),
+        None,
+        None,
+        None,
+        None,
+    )?;
+    Ok((module, warnings, tests))
+}
+
+pub(crate) fn lower_with_project_targets_and_dev_cache(
+    app: ast::App,
+    target: Target,
+    custom_icons: &HashMap<String, nexa_ir::SystemIcon>,
+    cache: &mut DevFunctionLoweringCache,
+    function_sources: &HashMap<String, String>,
+    screen_sources: &HashMap<String, String>,
+    app_source: Option<&str>,
+) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
+    let (module, warnings, tests, _) = lower_with_warnings_in_mode(
+        app,
+        target,
+        true,
+        false,
+        Some(custom_icons),
+        Some(cache),
+        Some(function_sources),
+        Some(screen_sources),
+        app_source,
+    )?;
     Ok((module, warnings, tests))
 }
 
@@ -404,6 +463,7 @@ pub(super) fn lower_with_project_targets_and_optimization_report(
     app: ast::App,
     target: Target,
     dev_runtime: bool,
+    custom_icons: &HashMap<String, nexa_ir::SystemIcon>,
 ) -> Result<
     (
         Module,
@@ -413,16 +473,31 @@ pub(super) fn lower_with_project_targets_and_optimization_report(
     ),
     CompileError,
 > {
-    let (module, warnings, tests, report) =
-        lower_with_warnings_in_mode(app, target, dev_runtime, true)?;
+    let (module, warnings, tests, report) = lower_with_warnings_in_mode(
+        app,
+        target,
+        dev_runtime,
+        true,
+        Some(custom_icons),
+        None,
+        None,
+        None,
+        None,
+    )?;
     Ok((module, warnings, tests, report.unwrap_or_default()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_with_warnings_in_mode(
     mut app: ast::App,
     target: Target,
     allow_nullable_generic_plugin_reads: bool,
     include_optimization_report: bool,
+    custom_icons: Option<&HashMap<String, nexa_ir::SystemIcon>>,
+    mut dev_function_cache: Option<&mut DevFunctionLoweringCache>,
+    function_sources: Option<&HashMap<String, String>>,
+    screen_sources: Option<&HashMap<String, String>>,
+    app_source: Option<&str>,
 ) -> Result<
     (
         Module,
@@ -432,387 +507,761 @@ fn lower_with_warnings_in_mode(
     ),
     CompileError,
 > {
+    let screen_environment = dev_function_cache.as_ref().map(|_| {
+        screen_lowering_environment_key(
+            &app,
+            target,
+            allow_nullable_generic_plugin_reads,
+            custom_icons,
+        )
+    });
     let app_source_file = app.source_file.clone();
-    let warnings = warnings::analyze(&app, target);
-    let themes = lower_theme(app.theme.as_ref())?;
-    let enum_declarations = lower_enum_declarations(&app.enums)?;
-    let (struct_declarations, mut struct_types) = lower_struct_declarations(&app.structs)?;
-    let mut class_types = HashMap::with_capacity(app.classes.len());
-    for declaration in &app.classes {
-        if class_types.contains_key(&declaration.name)
-            || struct_types.contains_key(&declaration.name)
-        {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("type `{}` is already declared", declaration.name),
-            ));
+    let warnings_started = Instant::now();
+    let warnings = if let Some(cache) = dev_function_cache.as_mut() {
+        if let Some(cached) = &cache.cached_warnings {
+            cached.clone()
+        } else {
+            let computed = warnings::analyze(&app, target);
+            cache.cached_warnings = Some(computed.clone());
+            computed
         }
-        class_types.insert(
-            declaration.name.clone(),
-            Type::Class {
-                name: declaration.name.clone(),
-                fields: Vec::new(),
-                constructor_parameter_count: declaration.constructor_parameters.len(),
-            },
+    } else {
+        warnings::analyze(&app, target)
+    };
+    if allow_nullable_generic_plugin_reads {
+        eprintln!(
+            "Nexa semantic {target:?} warnings: {} ms",
+            warnings_started.elapsed().as_millis()
         );
     }
-    for declaration in &app.classes {
-        let fields = declaration
-            .constructor_parameters
-            .iter()
-            .map(|parameter| {
-                Ok((
-                    parameter.name.clone(),
-                    resolve_class_member_type(&parameter.ty, &struct_types, &app.plugins, false)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, CompileError>>()?;
-        class_types.insert(
-            declaration.name.clone(),
-            Type::Class {
-                name: declaration.name.clone(),
-                fields,
-                constructor_parameter_count: declaration.constructor_parameters.len(),
-            },
-        );
-    }
-    struct_types.extend(class_types.clone());
-    let mut enum_symbols = enum_symbols(&enum_declarations);
-    enum_symbols.extend(plugin_enum_symbols(&app.plugins));
-    let mut enum_names = enum_declarations
-        .iter()
-        .map(|declaration| declaration.name.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    enum_names.extend(app.classes.iter().map(|class| class.name.as_str()));
-    enum_names.insert("JsonError");
-    for case in [
-        "invalidJson",
-        "typeMismatch",
-        "missingField",
-        "invalidValue",
-    ] {
-        enum_symbols.insert(
-            format!("JsonError.{case}"),
-            (Type::Enum("JsonError".to_owned()), false),
-        );
-    }
-    let owned_enum_names = enum_names
-        .iter()
-        .map(|name| (*name).to_owned())
-        .collect::<std::collections::HashSet<String>>();
-    validate_declared_types(&app, &enum_names, &struct_types)?;
-    for declaration in &struct_declarations {
-        if enum_names.contains(declaration.name.as_str()) {
-            return Err(CompileError::new(
-                app.span,
-                format!(
-                    "struct `{}` conflicts with an enum of the same name",
-                    declaration.name
-                ),
-            ));
-        }
-    }
-    for declaration in &app.functions {
-        if struct_types.contains_key(&declaration.name) {
-            return Err(CompileError::new(
-                declaration.span,
-                format!(
-                    "function `{}` conflicts with a struct of the same name",
-                    declaration.name
-                ),
-            ));
-        }
-    }
-    for declaration in &app.components {
-        if struct_types.contains_key(&declaration.name) {
-            return Err(CompileError::new(
-                declaration.span,
-                format!(
-                    "component `{}` conflicts with a struct of the same name",
-                    declaration.name
-                ),
-            ));
-        }
-    }
-    let mut function_signatures = collect_function_signatures(&app.functions, &struct_types)?;
-    for (name, signature) in collect_plugin_signatures(&app.plugins)? {
-        if function_signatures.contains_key(&name) {
-            return Err(CompileError::new(
-                app.span,
-                format!("plugin method `{name}` conflicts with an app function"),
-            ));
-        }
-        function_signatures.insert(name, signature);
-    }
-    for declaration in &app.classes {
-        let Some(Type::Class {
-            name,
-            mut fields,
-            constructor_parameter_count,
-        }) = class_types.get(&declaration.name).cloned()
-        else {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("class type `{}` was not resolved", declaration.name),
-            ));
-        };
-        // A property initializer sees the constructor parameters and every
-        // property declared above it, mirroring the order they are assigned in
-        // the generated initializer. Without the running insert, `let doubled =
-        // base * 2` could not infer, and a class could not derive one value from
-        // another at all.
-        let mut property_symbols = fields
-            .iter()
-            .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
-            .collect::<HashMap<_, _>>();
-        for field in &declaration.fields {
-            let ty = match &field.ty {
-                Some(ty) => resolve_class_member_type(ty, &struct_types, &app.plugins, false)?,
-                None => {
-                    let inferred = infer_expr_type(&field.initial, &property_symbols, &function_signatures)
-                        .ok_or_else(|| CompileError::new(field.span, format!("cannot infer the type of class property `{}`; add a type annotation", field.name)))?;
-                    if generics::mentions_type_parameter(&inferred) {
-                        return Err(CompileError::new(
-                            field.span,
-                            format!(
-                                "cannot infer the type of class property `{}`; add a type annotation",
-                                field.name
-                            ),
-                        ));
-                    }
-                    resolve_struct_type(&inferred, &struct_types)
-                }
-            };
-            property_symbols.insert(field.name.clone(), (ty.clone(), false));
-            fields.push((field.name.clone(), ty));
-        }
-        class_types.insert(
-            declaration.name.clone(),
-            Type::Class {
-                name,
-                fields,
-                constructor_parameter_count,
-            },
-        );
-    }
-    struct_types.extend(class_types.clone());
-    let mut class_method_declarations = Vec::new();
-    for declaration in &app.classes {
-        let Some(receiver) = class_types.get(&declaration.name).cloned() else {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("class type `{}` was not resolved", declaration.name),
-            ));
-        };
-        let Type::Class { .. } = &receiver else {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("invalid class type for `{}`", declaration.name),
-            ));
-        };
-        let parameters = declaration
-            .constructor_parameters
-            .iter()
-            .map(|parameter| {
-                Ok((
-                    parameter.name.clone(),
-                    resolve_class_member_type(&parameter.ty, &struct_types, &app.plugins, false)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, CompileError>>()?;
-        if function_signatures.contains_key(&declaration.name) {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("class `{}` conflicts with a function", declaration.name),
-            ));
-        }
-        function_signatures.insert(
-            declaration.name.clone(),
-            FunctionSignature {
-                parameters: parameters.clone(),
-                type_parameters: Vec::new(),
-                return_type: receiver.clone(),
-                is_async: false,
-                is_throwing: false,
-                receiver: None,
-                is_constructor: true,
-                is_mutable_property: false,
-                error_handling_allowed: false,
-                error_type: None,
-            },
-        );
-        let mut method_names = HashSet::new();
-        for method in &declaration.methods {
-            if method.failure_type.is_some() {
+    let screen_env_matches = dev_function_cache
+        .as_ref()
+        .zip(screen_environment.as_ref())
+        .is_some_and(|(cache, environment)| cache.screen_environment.as_ref() == Some(environment));
+    let is_warm_decl = screen_env_matches
+        && dev_function_cache
+            .as_ref()
+            .and_then(|c| c.program_env.as_ref())
+            .is_some();
+    let decl_started = Instant::now();
+
+    let env = if is_warm_decl {
+        dev_function_cache
+            .as_ref()
+            .unwrap()
+            .program_env
+            .as_ref()
+            .unwrap()
+            .clone()
+    } else {
+        let themes = lower_theme(app.theme.as_ref())?;
+        let enum_declarations = lower_enum_declarations(&app.enums)?;
+        let (struct_declarations, mut struct_types) = lower_struct_declarations(&app.structs)?;
+        let mut class_types = HashMap::with_capacity(app.classes.len());
+        for declaration in &app.classes {
+            if class_types.contains_key(&declaration.name)
+                || struct_types.contains_key(&declaration.name)
+            {
                 return Err(CompileError::new(
-                    method.span,
-                    "typed `throws` is supported on reusable component ref methods only",
+                    declaration.span,
+                    format!("type `{}` is already declared", declaration.name),
                 ));
             }
-            if !method_names.insert(method.name.as_str()) {
+            class_types.insert(
+                declaration.name.clone(),
+                Type::Class {
+                    name: declaration.name.clone(),
+                    fields: Vec::new(),
+                    constructor_parameter_count: declaration.constructor_parameters.len(),
+                },
+            );
+        }
+        for declaration in &app.classes {
+            let fields = declaration
+                .constructor_parameters
+                .iter()
+                .map(|parameter| {
+                    Ok((
+                        parameter.name.clone(),
+                        resolve_class_member_type(&parameter.ty, &struct_types, &app.plugins, false)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, CompileError>>()?;
+            class_types.insert(
+                declaration.name.clone(),
+                Type::Class {
+                    name: declaration.name.clone(),
+                    fields,
+                    constructor_parameter_count: declaration.constructor_parameters.len(),
+                },
+            );
+        }
+        struct_types.extend(class_types.clone());
+        let mut enum_symbols = enum_symbols(&enum_declarations);
+        enum_symbols.extend(plugin_enum_symbols(&app.plugins));
+        let mut enum_names = enum_declarations
+            .iter()
+            .map(|declaration| declaration.name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        enum_names.extend(app.classes.iter().map(|class| class.name.as_str()));
+        enum_names.insert("JsonError");
+        for case in [
+            "invalidJson",
+            "typeMismatch",
+            "missingField",
+            "invalidValue",
+        ] {
+            enum_symbols.insert(
+                format!("JsonError.{case}"),
+                (Type::Enum("JsonError".to_owned()), false),
+            );
+        }
+        let owned_enum_names = enum_names
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<std::collections::HashSet<String>>();
+        let validate_types_started = Instant::now();
+        validate_declared_types(&app, &enum_names, &struct_types)?;
+        let validate_types_ms = validate_types_started.elapsed().as_millis();
+        for declaration in &struct_declarations {
+            if enum_names.contains(declaration.name.as_str()) {
                 return Err(CompileError::new(
-                    method.span,
+                    app.span,
                     format!(
-                        "class method `{}` is overloaded or declared more than once",
-                        method.name
+                        "struct `{}` conflicts with an enum of the same name",
+                        declaration.name
                     ),
                 ));
             }
-            let key = format!("{}.{}", declaration.name, method.name);
-            if function_signatures.contains_key(&key) {
+        }
+        for declaration in &app.functions {
+            if struct_types.contains_key(&declaration.name) {
                 return Err(CompileError::new(
-                    method.span,
-                    format!("method `{key}` conflicts with an existing declaration"),
+                    declaration.span,
+                    format!(
+                        "function `{}` conflicts with a struct of the same name",
+                        declaration.name
+                    ),
                 ));
             }
-            let method_parameters = method
-                .parameters
+        }
+        for declaration in &app.components {
+            if struct_types.contains_key(&declaration.name) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!(
+                        "component `{}` conflicts with a struct of the same name",
+                        declaration.name
+                    ),
+                ));
+            }
+        }
+        let fn_signatures_started = Instant::now();
+        let mut function_signatures = collect_function_signatures(&app.functions, &struct_types)?;
+        for (name, signature) in collect_plugin_signatures(&app.plugins)? {
+            if function_signatures.contains_key(&name) {
+                return Err(CompileError::new(
+                    app.span,
+                    format!("plugin method `{name}` conflicts with an app function"),
+                ));
+            }
+            function_signatures.insert(name, signature);
+        }
+        let fn_signatures_ms = fn_signatures_started.elapsed().as_millis();
+        let classes_started = Instant::now();
+        for declaration in &app.classes {
+            let Some(Type::Class {
+                name,
+                mut fields,
+                constructor_parameter_count,
+            }) = class_types.get(&declaration.name).cloned()
+            else {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!("class type `{}` was not resolved", declaration.name),
+                ));
+            };
+            let mut property_symbols = fields
                 .iter()
-                .map(|parameter| {
-                    Ok((
-                        parameter.name.clone(),
-                        resolve_class_member_type(
-                            &parameter.ty,
-                            &struct_types,
-                            &app.plugins,
-                            false,
-                        )?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, CompileError>>()?;
-            let return_type =
-                resolve_class_member_type(&method.return_type, &struct_types, &app.plugins, true)?;
-            function_signatures.insert(
-                key.clone(),
-                FunctionSignature {
-                    parameters: method_parameters,
-                    type_parameters: Vec::new(),
-                    return_type,
-                    is_async: method.is_async,
-                    is_throwing: method.is_throwing,
-                    receiver: Some(receiver.clone()),
-                    is_constructor: false,
-                    is_mutable_property: false,
-                    error_handling_allowed: false,
-                    error_type: None,
+                .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
+                .collect::<HashMap<_, _>>();
+            for field in &declaration.fields {
+                let ty = match &field.ty {
+                    Some(ty) => resolve_class_member_type(ty, &struct_types, &app.plugins, false)?,
+                    None => {
+                        let inferred = infer_expr_type(&field.initial, &property_symbols, &function_signatures)
+                            .ok_or_else(|| CompileError::new(field.span, format!("cannot infer the type of class property `{}`; add a type annotation", field.name)))?;
+                        if generics::mentions_type_parameter(&inferred) {
+                            return Err(CompileError::new(
+                                field.span,
+                                format!(
+                                    "cannot infer the type of class property `{}`; add a type annotation",
+                                    field.name
+                                ),
+                            ));
+                        }
+                        resolve_struct_type(&inferred, &struct_types)
+                    }
+                };
+                property_symbols.insert(field.name.clone(), (ty.clone(), false));
+                fields.push((field.name.clone(), ty));
+            }
+            class_types.insert(
+                declaration.name.clone(),
+                Type::Class {
+                    name,
+                    fields,
+                    constructor_parameter_count,
                 },
             );
-            let mut lowered_method = method.clone();
-            lowered_method.name = key;
-            class_method_declarations.push(lowered_method);
         }
-        for method in &declaration.static_methods {
-            if method.failure_type.is_some() {
+        struct_types.extend(class_types.clone());
+        let mut class_method_declarations = Vec::new();
+        for declaration in &app.classes {
+            let Some(receiver) = class_types.get(&declaration.name).cloned() else {
                 return Err(CompileError::new(
-                    method.span,
-                    "typed `throws` is supported on reusable component ref methods only",
+                    declaration.span,
+                    format!("class type `{}` was not resolved", declaration.name),
                 ));
-            }
-            let key = format!("{}.{}", declaration.name, method.name);
-            if function_signatures.contains_key(&key) {
+            };
+            let Type::Class { .. } = &receiver else {
                 return Err(CompileError::new(
-                    method.span,
-                    format!("class method `{key}` conflicts with an existing declaration"),
+                    declaration.span,
+                    format!("invalid class type for `{}`", declaration.name),
                 ));
-            }
-            let method_parameters = method
-                .parameters
+            };
+            let parameters = declaration
+                .constructor_parameters
                 .iter()
                 .map(|parameter| {
                     Ok((
                         parameter.name.clone(),
-                        resolve_class_member_type(
-                            &parameter.ty,
-                            &struct_types,
-                            &app.plugins,
-                            false,
-                        )?,
+                        resolve_class_member_type(&parameter.ty, &struct_types, &app.plugins, false)?,
                     ))
                 })
                 .collect::<Result<Vec<_>, CompileError>>()?;
-            let return_type =
-                resolve_class_member_type(&method.return_type, &struct_types, &app.plugins, true)?;
+            if function_signatures.contains_key(&declaration.name) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!("class `{}` conflicts with a function", declaration.name),
+                ));
+            }
             function_signatures.insert(
-                key.clone(),
+                declaration.name.clone(),
                 FunctionSignature {
-                    parameters: method_parameters,
+                    parameters: parameters.clone(),
                     type_parameters: Vec::new(),
-                    return_type,
-                    is_async: method.is_async,
-                    is_throwing: method.is_throwing,
+                    return_type: receiver.clone(),
+                    is_async: false,
+                    is_throwing: false,
                     receiver: None,
-                    is_constructor: false,
+                    is_constructor: true,
                     is_mutable_property: false,
                     error_handling_allowed: false,
                     error_type: None,
                 },
             );
-            let mut lowered_method = method.clone();
-            lowered_method.name = key;
-            class_method_declarations.push(lowered_method);
-        }
-    }
-    for declaration in &struct_declarations {
-        if function_signatures.contains_key(&declaration.name) {
-            return Err(CompileError::new(
-                app.span,
-                format!(
-                    "struct `{}` conflicts with a function of the same name",
-                    declaration.name
-                ),
-            ));
-        }
-        function_signatures.insert(
-            declaration.name.clone(),
-            FunctionSignature {
-                parameters: declaration
-                    .fields
+            let mut method_names = HashSet::new();
+            for method in &declaration.methods {
+                if method.failure_type.is_some() {
+                    return Err(CompileError::new(
+                        method.span,
+                        "typed `throws` is supported on reusable component ref methods only",
+                    ));
+                }
+                if !method_names.insert(method.name.as_str()) {
+                    return Err(CompileError::new(
+                        method.span,
+                        format!(
+                            "class method `{}` is overloaded or declared more than once",
+                            method.name
+                        ),
+                    ));
+                }
+                let key = format!("{}.{}", declaration.name, method.name);
+                if function_signatures.contains_key(&key) {
+                    return Err(CompileError::new(
+                        method.span,
+                        format!("method `{key}` conflicts with an existing declaration"),
+                    ));
+                }
+                let method_parameters = method
+                    .parameters
                     .iter()
-                    .map(|field| (field.name.clone(), field.ty.clone()))
-                    .collect(),
-                type_parameters: Vec::new(),
-                return_type: Type::Struct {
-                    name: declaration.name.clone(),
-                    fields: declaration
+                    .map(|parameter| {
+                        Ok((
+                            parameter.name.clone(),
+                            resolve_class_member_type(
+                                &parameter.ty,
+                                &struct_types,
+                                &app.plugins,
+                                false,
+                            )?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, CompileError>>()?;
+                let return_type =
+                    resolve_class_member_type(&method.return_type, &struct_types, &app.plugins, true)?;
+                function_signatures.insert(
+                    key.clone(),
+                    FunctionSignature {
+                        parameters: method_parameters,
+                        type_parameters: Vec::new(),
+                        return_type,
+                        is_async: method.is_async,
+                        is_throwing: method.is_throwing,
+                        receiver: Some(receiver.clone()),
+                        is_constructor: false,
+                        is_mutable_property: false,
+                        error_handling_allowed: false,
+                        error_type: None,
+                    },
+                );
+                let mut lowered_method = method.clone();
+                lowered_method.name = key;
+                class_method_declarations.push(lowered_method);
+            }
+            for method in &declaration.static_methods {
+                if method.failure_type.is_some() {
+                    return Err(CompileError::new(
+                        method.span,
+                        "typed `throws` is supported on reusable component ref methods only",
+                    ));
+                }
+                let key = format!("{}.{}", declaration.name, method.name);
+                if function_signatures.contains_key(&key) {
+                    return Err(CompileError::new(
+                        method.span,
+                        format!("class method `{key}` conflicts with an existing declaration"),
+                    ));
+                }
+                let method_parameters = method
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        Ok((
+                            parameter.name.clone(),
+                            resolve_class_member_type(
+                                &parameter.ty,
+                                &struct_types,
+                                &app.plugins,
+                                false,
+                            )?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, CompileError>>()?;
+                let return_type =
+                    resolve_class_member_type(&method.return_type, &struct_types, &app.plugins, true)?;
+                function_signatures.insert(
+                    key.clone(),
+                    FunctionSignature {
+                        parameters: method_parameters,
+                        type_parameters: Vec::new(),
+                        return_type,
+                        is_async: method.is_async,
+                        is_throwing: method.is_throwing,
+                        receiver: None,
+                        is_constructor: false,
+                        is_mutable_property: false,
+                        error_handling_allowed: false,
+                        error_type: None,
+                    },
+                );
+                let mut lowered_method = method.clone();
+                lowered_method.name = key;
+                class_method_declarations.push(lowered_method);
+            }
+        }
+        let classes_ms = classes_started.elapsed().as_millis();
+        if allow_nullable_generic_plugin_reads {
+            eprintln!(
+                "Nexa semantic {target:?} decl setup: validate types {validate_types_ms} ms, fn signatures {fn_signatures_ms} ms, classes {classes_ms} ms"
+            );
+        }
+        for declaration in &struct_declarations {
+            if function_signatures.contains_key(&declaration.name) {
+                return Err(CompileError::new(
+                    app.span,
+                    format!(
+                        "struct `{}` conflicts with a function of the same name",
+                        declaration.name
+                    ),
+                ));
+            }
+            function_signatures.insert(
+                declaration.name.clone(),
+                FunctionSignature {
+                    parameters: declaration
                         .fields
                         .iter()
                         .map(|field| (field.name.clone(), field.ty.clone()))
                         .collect(),
+                    type_parameters: Vec::new(),
+                    return_type: Type::Struct {
+                        name: declaration.name.clone(),
+                        fields: declaration
+                            .fields
+                            .iter()
+                            .map(|field| (field.name.clone(), field.ty.clone()))
+                            .collect(),
+                    },
+                    is_async: false,
+                    is_throwing: false,
+                    receiver: None,
+                    is_constructor: true,
+                    is_mutable_property: false,
+                    error_handling_allowed: false,
+                    error_type: None,
                 },
-                is_async: false,
-                is_throwing: false,
-                receiver: None,
-                is_constructor: true,
-                is_mutable_property: false,
-                error_handling_allowed: false,
-                error_type: None,
+            );
+        }
+        for declaration in &enum_declarations {
+            if function_signatures.contains_key(&declaration.name) {
+                return Err(CompileError::new(
+                    app.span,
+                    format!(
+                        "enum `{}` conflicts with a function of the same name",
+                        declaration.name
+                    ),
+                ));
+            }
+            if app
+                .components
+                .iter()
+                .any(|component| component.name == declaration.name)
+            {
+                return Err(CompileError::new(
+                    app.span,
+                    format!(
+                        "enum `{}` conflicts with a component of the same name",
+                        declaration.name
+                    ),
+                ));
+            }
+        }
+        let screen_signatures = collect_screen_signatures(&app.screens, &struct_types)?;
+        custom_components::collect_ref_method_signatures(
+            &app.components,
+            &struct_types,
+            &mut function_signatures,
+        )?;
+        let mut native_component_signatures = custom_components::ComponentSignatures::new();
+        for native in collect_plugin_components(&app.plugins)? {
+            let qualified_name = format!("{}.{}", native.namespace, native.name);
+            native_component_signatures.insert(
+                qualified_name,
+                custom_components::ComponentSignature {
+                    parameters: native.parameters,
+                    defaults: native.defaults,
+                    has_content_slot: native.has_content_slot,
+                    events: native
+                        .events
+                        .into_iter()
+                        .map(|event| custom_components::ComponentEventSignature {
+                            property: event.property,
+                            parameters: event.parameters,
+                        })
+                        .collect(),
+                    native: true,
+                    supports_ref: true,
+                },
+            );
+        }
+        let mut component_global_symbols = enum_symbols.clone();
+        for global in &app.globals {
+            let ty = resolve_declaration_type(
+                global,
+                &component_global_symbols,
+                &function_signatures,
+                &struct_types,
+            )?;
+            component_global_symbols.insert(global.name.clone(), (ty, false));
+        }
+        let component_lowering_started = Instant::now();
+        let (components, component_signatures) = lower_components(
+            std::mem::take(&mut app.components),
+            custom_components::ComponentLoweringContext {
+                screen_ids: &screen_signatures,
+                themes: &themes,
+                functions: &function_signatures,
+                structs: &struct_types,
+                enums: &owned_enum_names,
+                enum_symbols: &enum_symbols,
+                global_symbols: &component_global_symbols,
+                external_signatures: &native_component_signatures,
+                target,
+                allow_nullable_generic_plugin_reads,
+                custom_icons,
             },
+        )?;
+        if allow_nullable_generic_plugin_reads {
+            eprintln!(
+                "Nexa semantic {target:?} components: {} ms",
+                component_lowering_started.elapsed().as_millis()
+            );
+        }
+        let test_suite = tests::lower_tests(
+            std::mem::take(&mut app.tests),
+            &app.functions,
+            &app.structs,
+            &app.enums,
+            &components,
+        )?;
+        let background_tasks = app
+            .background_tasks
+            .into_iter()
+            .map(|task| {
+                if task.interval_minutes < 15 {
+                    return Err(CompileError::new(
+                        task.span,
+                        "background task interval must be at least 15 minutes on Android",
+                    ));
+                }
+                if !valid_background_task_identifier(&task.identifier) {
+                    return Err(CompileError::new(
+                        task.span,
+                        format!(
+                            "background task identifier `{}` must use reverse-domain notation, such as `dev.example.app.refresh`",
+                            task.identifier
+                        ),
+                    ));
+                }
+                let actions = lower_actions_with_aliases(
+                    task.body,
+                    &enum_symbols,
+                    &function_signatures,
+                    true,
+                    &HashMap::new(),
+                    TypeRegistries {
+                        structs: &struct_types,
+                        enums: &owned_enum_names,
+                        allow_nullable_generic_plugin_reads,
+                        screen_ids: None,
+                        allow_navigation_actions: false,
+                        source_file: task.source_file.as_deref(),
+                    },
+                )?;
+                Ok(BackgroundTask {
+                    name: task.name,
+                    identifier: task.identifier,
+                    interval_minutes: task.interval_minutes,
+                    actions,
+                })
+            })
+            .collect::<Result<Vec<_>, CompileError>>()?;
+
+        let global_names = app
+            .globals
+            .iter()
+            .map(|global| global.name.clone())
+            .collect::<HashSet<_>>();
+        let mut declarations = app.globals;
+        declarations.extend(app.states);
+        let mut symbols = enum_symbols.clone();
+        let mut states = Vec::with_capacity(declarations.len());
+        let mut native_aliases = HashMap::new();
+        for declaration in declarations {
+            if symbols.contains_key(&declaration.name) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!("`{}` is already declared", declaration.name),
+                ));
+            }
+            if function_signatures.contains_key(&declaration.name) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!("`{}` is already declared as a function", declaration.name),
+                ));
+            }
+            let ty =
+                resolve_declaration_type(&declaration, &symbols, &function_signatures, &struct_types)?;
+            validate_task_handle_state(
+                &ty,
+                declaration.mutable,
+                matches!(&declaration.initial, ast::Expr::Null(_)),
+                declaration.span,
+            )?;
+            let state_context = ExprContext::with_types(
+                &symbols,
+                &function_signatures,
+                false,
+                &struct_types,
+                &owned_enum_names,
+            )
+            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+            .with_source_file(declaration.source_file.as_deref());
+            let initial = lower_expr(&declaration.initial, Some(&ty), &state_context)?;
+            let mutable = declaration.mutable;
+            if mutable && references_mutable_state(&declaration.initial, &symbols) {
+                return Err(CompileError::new(
+                    declaration.initial.span(),
+                    "mutable state initializers cannot refer to mutable state values",
+                ));
+            }
+            record_native_alias(&declaration.name, &ty, &initial, &mut native_aliases);
+            symbols.insert(declaration.name.clone(), (ty.clone(), mutable));
+            states.push(State {
+                name: declaration.name,
+                ty,
+                initial,
+                mutable,
+            });
+        }
+        for class in &app.classes {
+            for field in &class.static_fields {
+                let qualified_name = format!("{}::{}", class.name, field.name);
+                if symbols.contains_key(&qualified_name)
+                    || function_signatures.contains_key(&qualified_name)
+                {
+                    return Err(CompileError::new(
+                        field.span,
+                        format!("class property `{}` is already declared", field.name),
+                    ));
+                }
+                let ty = match &field.ty {
+                    Some(ty) => resolve_class_member_type(ty, &struct_types, &app.plugins, false)?,
+                    None => {
+                        let inferred = infer_expr_type(&field.initial, &symbols, &function_signatures).ok_or_else(|| CompileError::new(
+                            field.span,
+                            format!("cannot infer the type of static class property `{}`; add a type annotation", field.name),
+                        ))?;
+                        if generics::mentions_type_parameter(&inferred) {
+                            return Err(CompileError::new(
+                                field.span,
+                                format!(
+                                    "cannot infer the type of static class property `{}`; add a type annotation",
+                                    field.name
+                                ),
+                            ));
+                        }
+                        resolve_struct_type(&inferred, &struct_types)
+                    }
+                };
+                let initial = lower_expr(
+                    &field.initial,
+                    Some(&ty),
+                    &ExprContext::with_types(
+                        &symbols,
+                        &function_signatures,
+                        false,
+                        &struct_types,
+                        &owned_enum_names,
+                    )
+                    .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
+                )?;
+                symbols.insert(qualified_name.clone(), (ty.clone(), false));
+                states.push(State {
+                    name: qualified_name,
+                    ty,
+                    initial,
+                    mutable: false,
+                });
+            }
+        }
+        let global_symbols = states
+            .iter()
+            .filter(|state| global_names.contains(&state.name) || state.name.contains("::"))
+            .map(|state| (state.name.clone(), (state.ty.clone(), false)))
+            .collect::<HashMap<_, _>>();
+        let mut class_initializers = HashMap::with_capacity(app.classes.len());
+        for declaration in &app.classes {
+            let mut initializers = Vec::with_capacity(declaration.fields.len());
+            let mut symbols = HashMap::new();
+            if let Some(Type::Class {
+                fields,
+                constructor_parameter_count,
+                ..
+            }) = class_types.get(&declaration.name)
+            {
+                for (name, ty) in fields.iter().take(*constructor_parameter_count) {
+                    symbols.insert(name.clone(), (ty.clone(), false));
+                }
+                for field in &declaration.fields {
+                    let Some((_, ty)) = fields.iter().find(|(name, _)| name == &field.name) else {
+                        return Err(CompileError::new(
+                            field.span,
+                            format!("class property `{}` has no resolved type", field.name),
+                        ));
+                    };
+                    let initial = lower_expr(
+                        &field.initial,
+                        Some(ty),
+                        &ExprContext::with_types(
+                            &symbols,
+                            &function_signatures,
+                            false,
+                            &struct_types,
+                            &owned_enum_names,
+                        )
+                        .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
+                    )?;
+                    symbols.insert(field.name.clone(), (ty.clone(), false));
+                    initializers.push(FunctionLocal {
+                        name: field.name.clone(),
+                        ty: ty.clone(),
+                        initial,
+                    });
+                }
+            }
+            class_initializers.insert(declaration.name.clone(), initializers);
+        }
+
+        let new_env = ProgramEnvironment {
+            themes,
+            enum_declarations,
+            struct_declarations,
+            struct_types,
+            class_types,
+            enum_symbols,
+            owned_enum_names,
+            function_signatures,
+            screen_signatures,
+            components,
+            component_signatures,
+            test_suite,
+            background_tasks,
+            states,
+            global_names,
+            symbols,
+            native_aliases,
+            global_symbols,
+            class_initializers,
+            class_method_declarations,
+        };
+        let env_arc = Arc::new(new_env);
+        if let Some(cache) = dev_function_cache.as_mut() {
+            cache.program_env = Some(env_arc.clone());
+        }
+        env_arc
+    };
+
+    let themes = &env.themes;
+    let enum_declarations = env.enum_declarations.clone();
+    let struct_declarations = env.struct_declarations.clone();
+    let struct_types = &env.struct_types;
+    let class_types = &env.class_types;
+    let enum_symbols = &env.enum_symbols;
+    let owned_enum_names = &env.owned_enum_names;
+    let function_signatures = &env.function_signatures;
+    let screen_signatures = &env.screen_signatures;
+    let components = env.components.clone();
+    let component_signatures = &env.component_signatures;
+    let mut test_suite = env.test_suite.clone();
+    let background_tasks = env.background_tasks.clone();
+    let mut states = env.states.clone();
+    let global_names = &env.global_names;
+    let symbols = &env.symbols;
+    let native_aliases = &env.native_aliases;
+    let global_symbols = &env.global_symbols;
+    let class_initializers = &env.class_initializers;
+    let class_method_declarations = env.class_method_declarations.clone();
+    if allow_nullable_generic_plugin_reads {
+        eprintln!(
+            "Nexa semantic {target:?} decl setup: {} ms (reused: {is_warm_decl})",
+            decl_started.elapsed().as_millis()
         );
     }
-    for declaration in &enum_declarations {
-        if function_signatures.contains_key(&declaration.name) {
-            return Err(CompileError::new(
-                app.span,
-                format!(
-                    "enum `{}` conflicts with a function of the same name",
-                    declaration.name
-                ),
-            ));
-        }
-        if app
-            .components
-            .iter()
-            .any(|component| component.name == declaration.name)
-        {
-            return Err(CompileError::new(
-                app.span,
-                format!(
-                    "enum `{}` conflicts with a component of the same name",
-                    declaration.name
-                ),
-            ));
-        }
-    }
+
     let mut screen_ids = HashMap::with_capacity(app.screens.len());
     for (index, screen) in app.screens.iter().enumerate() {
         if screen_ids
@@ -825,292 +1274,38 @@ fn lower_with_warnings_in_mode(
             ));
         }
     }
-    let screen_signatures = collect_screen_signatures(&app.screens, &struct_types)?;
     if !app.screens.is_empty() && target != Target::All && !has_navigation_root(&app.body, target) {
         return Err(CompileError::new(
             app.span,
-            "apps with screen declarations must have one top-level `NavigationStack(root: ScreenName)` in `body`",
+            "apps with screen declarations must provide one top-level `NavigationStack` root in every body branch",
         ));
     }
-
-    custom_components::collect_ref_method_signatures(
-        &app.components,
-        &struct_types,
-        &mut function_signatures,
-    )?;
-    let mut native_component_signatures = custom_components::ComponentSignatures::new();
-    for native in collect_plugin_components(&app.plugins)? {
-        let qualified_name = format!("{}.{}", native.namespace, native.name);
-        native_component_signatures.insert(
-            qualified_name,
-            custom_components::ComponentSignature {
-                parameters: native.parameters,
-                defaults: native.defaults,
-                has_content_slot: native.has_content_slot,
-                events: native
-                    .events
-                    .into_iter()
-                    .map(|event| custom_components::ComponentEventSignature {
-                        property: event.property,
-                        parameters: event.parameters,
-                    })
-                    .collect(),
-                native: true,
-                supports_ref: true,
-            },
-        );
-    }
-    let mut component_global_symbols = enum_symbols.clone();
-    for global in &app.globals {
-        let ty = resolve_declaration_type(
-            global,
-            &component_global_symbols,
-            &function_signatures,
-            &struct_types,
-        )?;
-        component_global_symbols.insert(global.name.clone(), (ty, false));
-    }
-    let (components, component_signatures) = lower_components(
-        std::mem::take(&mut app.components),
-        custom_components::ComponentLoweringContext {
-            screen_ids: &screen_signatures,
-            themes: &themes,
-            functions: &function_signatures,
-            structs: &struct_types,
-            enums: &owned_enum_names,
-            enum_symbols: &enum_symbols,
-            global_symbols: &component_global_symbols,
-            external_signatures: &native_component_signatures,
-            target,
-            allow_nullable_generic_plugin_reads,
-        },
-    )?;
-
-    let mut test_suite = tests::lower_tests(
-        std::mem::take(&mut app.tests),
-        &app.functions,
-        &app.structs,
-        &app.enums,
-        &components,
-    )?;
-    let background_tasks = app
-        .background_tasks
-        .into_iter()
-        .map(|task| {
-            if task.interval_minutes < 15 {
-                return Err(CompileError::new(
-                    task.span,
-                    "background task interval must be at least 15 minutes on Android",
-                ));
-            }
-            if !valid_background_task_identifier(&task.identifier) {
-                return Err(CompileError::new(
-                    task.span,
-                    format!(
-                        "background task identifier `{}` must use reverse-domain notation, such as `dev.example.app.refresh`",
-                        task.identifier
-                    ),
-                ));
-            }
-            let actions = lower_actions_with_aliases(
-                task.body,
-                &enum_symbols,
-                &function_signatures,
-                true,
-                &HashMap::new(),
-                TypeRegistries {
-                    structs: &struct_types,
-                    enums: &owned_enum_names,
-                    allow_nullable_generic_plugin_reads,
-                    screen_ids: None,
-                    allow_navigation_actions: false,
-                    source_file: task.source_file.as_deref(),
-                },
-            )?;
-            Ok(BackgroundTask {
-                name: task.name,
-                identifier: task.identifier,
-                interval_minutes: task.interval_minutes,
-                actions,
-            })
-        })
-        .collect::<Result<Vec<_>, CompileError>>()?;
-
-    let global_names = app
-        .globals
-        .iter()
-        .map(|global| global.name.clone())
-        .collect::<HashSet<_>>();
-    let mut declarations = app.globals;
-    declarations.extend(app.states);
-    let mut symbols = enum_symbols.clone();
-    let mut states = Vec::with_capacity(declarations.len());
-    let mut native_aliases = HashMap::new();
-    for declaration in declarations {
-        if symbols.contains_key(&declaration.name) {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("`{}` is already declared", declaration.name),
-            ));
-        }
-        if function_signatures.contains_key(&declaration.name) {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("`{}` is already declared as a function", declaration.name),
-            ));
-        }
-        let ty =
-            resolve_declaration_type(&declaration, &symbols, &function_signatures, &struct_types)?;
-        validate_task_handle_state(
-            &ty,
-            declaration.mutable,
-            matches!(&declaration.initial, ast::Expr::Null(_)),
-            declaration.span,
-        )?;
-        let state_context = ExprContext::with_types(
-            &symbols,
-            &function_signatures,
-            false,
-            &struct_types,
-            &owned_enum_names,
-        )
-        .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
-        .with_source_file(declaration.source_file.as_deref());
-        let initial = lower_expr(&declaration.initial, Some(&ty), &state_context)?;
-        let mutable = declaration.mutable;
-        if mutable && references_mutable_state(&declaration.initial, &symbols) {
-            return Err(CompileError::new(
-                declaration.initial.span(),
-                "mutable state initializers cannot refer to mutable state values",
-            ));
-        }
-        record_native_alias(&declaration.name, &ty, &initial, &mut native_aliases);
-        symbols.insert(declaration.name.clone(), (ty.clone(), mutable));
-        states.push(State {
-            name: declaration.name,
-            ty,
-            initial,
-            mutable,
-        });
-    }
-    // Class `static let` declarations are immutable module-lifetime values. Keep
-    // them in the same compact IR binding representation as globals while
-    // retaining a qualified storage name for native class/companion emission.
-    for class in &app.classes {
-        for field in &class.static_fields {
-            let qualified_name = format!("{}::{}", class.name, field.name);
-            if symbols.contains_key(&qualified_name)
-                || function_signatures.contains_key(&qualified_name)
-            {
-                return Err(CompileError::new(
-                    field.span,
-                    format!("class property `{}` is already declared", field.name),
-                ));
-            }
-            let ty = match &field.ty {
-                Some(ty) => resolve_class_member_type(ty, &struct_types, &app.plugins, false)?,
-                None => {
-                    let inferred = infer_expr_type(&field.initial, &symbols, &function_signatures).ok_or_else(|| CompileError::new(
-                        field.span,
-                        format!("cannot infer the type of static class property `{}`; add a type annotation", field.name),
-                    ))?;
-                    if generics::mentions_type_parameter(&inferred) {
-                        return Err(CompileError::new(
-                            field.span,
-                            format!(
-                                "cannot infer the type of static class property `{}`; add a type annotation",
-                                field.name
-                            ),
-                        ));
-                    }
-                    resolve_struct_type(&inferred, &struct_types)
-                }
-            };
-            let initial = lower_expr(
-                &field.initial,
-                Some(&ty),
-                &ExprContext::with_types(
-                    &symbols,
-                    &function_signatures,
-                    false,
-                    &struct_types,
-                    &owned_enum_names,
-                )
-                .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
-            )?;
-            symbols.insert(qualified_name.clone(), (ty.clone(), false));
-            states.push(State {
-                name: qualified_name,
-                ty,
-                initial,
-                mutable: false,
-            });
-        }
-    }
-    let global_symbols = states
-        .iter()
-        .filter(|state| global_names.contains(&state.name) || state.name.contains("::"))
-        .map(|state| (state.name.clone(), (state.ty.clone(), false)))
-        .collect::<HashMap<_, _>>();
     let mut function_declarations = std::mem::take(&mut app.functions);
     function_declarations.extend(class_method_declarations);
-    let mut class_initializers = HashMap::with_capacity(app.classes.len());
-    for declaration in &app.classes {
-        let mut initializers = Vec::with_capacity(declaration.fields.len());
-        let mut symbols = HashMap::new();
-        if let Some(Type::Class {
-            fields,
-            constructor_parameter_count,
-            ..
-        }) = class_types.get(&declaration.name)
-        {
-            for (name, ty) in fields.iter().take(*constructor_parameter_count) {
-                symbols.insert(name.clone(), (ty.clone(), false));
-            }
-            for field in &declaration.fields {
-                let Some((_, ty)) = fields.iter().find(|(name, _)| name == &field.name) else {
-                    return Err(CompileError::new(
-                        field.span,
-                        format!("class property `{}` has no resolved type", field.name),
-                    ));
-                };
-                let initial = lower_expr(
-                    &field.initial,
-                    Some(ty),
-                    &ExprContext::with_types(
-                        &symbols,
-                        &function_signatures,
-                        false,
-                        &struct_types,
-                        &owned_enum_names,
-                    )
-                    .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
-                )?;
-                // Later properties are lowered after this one is assigned, so
-                // this property is in scope for them. See the matching scope
-                // build in `resolve_class_types`.
-                symbols.insert(field.name.clone(), (ty.clone(), false));
-                initializers.push(FunctionLocal {
-                    name: field.name.clone(),
-                    ty: ty.clone(),
-                    initial,
-                });
-            }
-        }
-        class_initializers.insert(declaration.name.clone(), initializers);
-    }
+    let function_lowering_started = Instant::now();
     let mut functions = lower_functions(
         function_declarations,
         FunctionLoweringContext {
-            signatures: &function_signatures,
-            structs: &struct_types,
-            enums: &owned_enum_names,
-            enum_symbols: &enum_symbols,
-            global_symbols: &global_symbols,
-            class_initializers: &class_initializers,
+            signatures: function_signatures,
+            structs: struct_types,
+            enums: owned_enum_names,
+            enum_symbols,
+            global_symbols,
+            class_initializers,
             allow_nullable_generic_plugin_reads,
         },
+        is_warm_decl,
+        dev_function_cache
+            .as_mut()
+            .zip(function_sources)
+            .map(|(cache, sources)| (&mut **cache, sources)),
     )?;
+    if allow_nullable_generic_plugin_reads {
+        eprintln!(
+            "Nexa semantic {target:?} functions: {} ms",
+            function_lowering_started.elapsed().as_millis()
+        );
+    }
     for function in &mut functions {
         if function.receiver.is_some()
             && let Some((class_name, _)) = function.name.split_once('.')
@@ -1124,8 +1319,41 @@ fn lower_with_warnings_in_mode(
         .iter()
         .map(|state| state.name.clone())
         .collect::<HashSet<_>>();
+    let screen_widget_app_lowering_started = Instant::now();
+    let screen_env_matches = dev_function_cache
+        .as_ref()
+        .zip(screen_environment.as_ref())
+        .is_some_and(|(cache, environment)| cache.screen_environment.as_ref() == Some(environment));
+
+    let mut cached_screens = if screen_env_matches {
+        dev_function_cache
+            .as_mut()
+            .map(|cache| std::mem::take(&mut cache.screens))
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+
     let mut screens = Vec::with_capacity(app.screens.len());
+    let mut unchanged_screen_indices = Vec::new();
+    let mut next_cached_screens = HashMap::with_capacity(app.screens.len());
+
     for (index, screen) in app.screens.into_iter().enumerate() {
+        let current_source = screen_sources.and_then(|sources| sources.get(&screen.name));
+        if screen_env_matches
+            && let Some(mut cached) = cached_screens.remove(&screen.name)
+            && current_source.is_some_and(|source| *source == cached.source)
+        {
+            for state in &cached.screen.states {
+                all_state_names.insert(state.name.clone());
+            }
+            cached.screen.id = ScreenId(index);
+            unchanged_screen_indices.push(index);
+            screens.push(cached.screen.clone());
+            next_cached_screens.insert(screen.name, cached);
+            continue;
+        }
+
         let screen_source_file = screen.source_file.as_deref();
         macro_rules! screen_try {
             ($result:expr) => {
@@ -1193,8 +1421,8 @@ fn lower_with_warnings_in_mode(
             let ty = screen_try!(resolve_declaration_type(
                 &declaration,
                 &screen_symbols,
-                &function_signatures,
-                &struct_types,
+                function_signatures,
+                struct_types,
             ));
             screen_try!(validate_task_handle_state(
                 &ty,
@@ -1204,14 +1432,15 @@ fn lower_with_warnings_in_mode(
             ));
             let state_context = ExprContext::with_types(
                 &screen_symbols,
-                &function_signatures,
+                function_signatures,
                 false,
-                &struct_types,
-                &owned_enum_names,
+                struct_types,
+                owned_enum_names,
             )
             .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
             .with_source_file(screen_source_file);
-            let initial = screen_try!(lower_expr(&declaration.initial, Some(&ty), &state_context,));
+            let initial =
+                screen_try!(lower_expr(&declaration.initial, Some(&ty), &state_context,));
             let mutable = declaration.mutable;
             if mutable && references_mutable_state(&declaration.initial, &screen_symbols) {
                 return Err(with_screen_source(
@@ -1233,17 +1462,18 @@ fn lower_with_warnings_in_mode(
         }
         let cx = SemanticContext::new(
             &screen_symbols,
-            &screen_signatures,
-            &themes,
-            &component_signatures,
-            &function_signatures,
+            screen_signatures,
+            themes,
+            component_signatures,
+            function_signatures,
             &screen_native_aliases,
-            &struct_types,
-            &owned_enum_names,
+            struct_types,
+            owned_enum_names,
             target,
             allow_nullable_generic_plugin_reads,
         )
         .with_navigation(false, true)
+        .with_optional_custom_icons(custom_icons)
         .with_source_file(screen_source_file);
         let screen_body = screen_try!(lower_nodes(screen.body, &cx));
         let (status_bar, screen_body) =
@@ -1283,7 +1513,7 @@ fn lower_with_warnings_in_mode(
         let (on_disappear, screen_body) =
             screen_try!(extract_on_disappear(screen_body, screen.span, "screen"));
         let screen_name = screen.name;
-        screens.push(Screen {
+        let lowered_screen = Screen {
             id: ScreenId(index),
             name: screen_name.clone(),
             parameters: screen_signatures
@@ -1296,14 +1526,46 @@ fn lower_with_warnings_in_mode(
             on_appear,
             on_appear_async,
             on_disappear,
-        });
+        };
+        let mut struct_names = HashSet::new();
+        crate::optimize::collect_screen_struct_names(&lowered_screen, &mut struct_names);
+        screens.push(lowered_screen.clone());
+        if let Some(source) = current_source {
+            next_cached_screens.insert(
+                screen_name,
+                CachedScreen {
+                    source: source.to_owned(),
+                    screen: lowered_screen,
+                    struct_names,
+                },
+            );
+        }
+    }
+
+    if let Some(cache) = dev_function_cache.as_mut() {
+        cache.screen_environment = screen_environment;
+        cache.screen_struct_facts = next_cached_screens
+            .iter()
+            .map(|(name, cached)| (name.clone(), cached.struct_names.clone()))
+            .collect();
+        cache.screens = next_cached_screens;
+        cache.unchanged_screen_indices = unchanged_screen_indices.clone();
+    }
+
+    if allow_nullable_generic_plugin_reads {
+        let reused_count = unchanged_screen_indices.len();
+        let lowered_count = screens.len() - reused_count;
+        eprintln!(
+            "Nexa semantic {target:?} screen cache: {reused_count} reused, {lowered_count} lowered ({} ms)",
+            screen_widget_app_lowering_started.elapsed().as_millis()
+        );
     }
 
     let mut widget_names = HashSet::with_capacity(app.widgets.len());
     let mut widgets = Vec::with_capacity(app.widgets.len());
     for widget in app.widgets {
         let source_file = widget.source_file.as_deref();
-        let entry_type = infer_expr_type(&widget.entry_provider, &symbols, &function_signatures)
+        let entry_type = infer_expr_type(&widget.entry_provider, symbols, function_signatures)
             .ok_or_else(|| {
                 with_screen_source(
                     CompileError::new(
@@ -1416,7 +1678,7 @@ fn lower_with_warnings_in_mode(
                     source_file,
                 ));
             }
-            let ty = infer_expr_type(default, &widget_symbols, &function_signatures).ok_or_else(|| {
+            let ty = infer_expr_type(default, &widget_symbols, function_signatures).ok_or_else(|| {
                 with_screen_source(
                     CompileError::new(
                         default.span(),
@@ -1461,10 +1723,10 @@ fn lower_with_warnings_in_mode(
                 Some(&ty),
                 &ExprContext::with_types(
                     &widget_symbols,
-                    &function_signatures,
+                    function_signatures,
                     false,
-                    &struct_types,
-                    &owned_enum_names,
+                    struct_types,
+                    owned_enum_names,
                 )
                 .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
             )
@@ -1506,17 +1768,18 @@ fn lower_with_warnings_in_mode(
         }
         let widget_context = SemanticContext::new(
             &widget_symbols,
-            &screen_signatures,
-            &themes,
-            &component_signatures,
-            &function_signatures,
-            &native_aliases,
-            &struct_types,
-            &owned_enum_names,
+            screen_signatures,
+            themes,
+            component_signatures,
+            function_signatures,
+            native_aliases,
+            struct_types,
+            owned_enum_names,
             target,
             allow_nullable_generic_plugin_reads,
         )
         .with_navigation(false, false)
+        .with_optional_custom_icons(custom_icons)
         .with_source_file(source_file);
         let body = lower_nodes(widget.body, &widget_context)
             .map_err(|error| with_screen_source(error, source_file))?;
@@ -1531,7 +1794,7 @@ fn lower_with_warnings_in_mode(
                 source_file,
             ));
         }
-        let provider_functions = functions_with_error_handling(&function_signatures, true);
+        let provider_functions = functions_with_error_handling(function_signatures, true);
         let entry_provider = lower_expr(
             &widget.entry_provider,
             Some(&entry_type),
@@ -1539,8 +1802,8 @@ fn lower_with_warnings_in_mode(
                 &provider_symbols,
                 &provider_functions,
                 true,
-                &struct_types,
-                &owned_enum_names,
+                struct_types,
+                owned_enum_names,
             )
             .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
         )
@@ -1576,7 +1839,7 @@ fn lower_with_warnings_in_mode(
         }
         let placeholder_provider = if let Some(placeholder) = &widget.placeholder_provider {
             let placeholder_type =
-                infer_expr_type(placeholder, &provider_symbols, &function_signatures).ok_or_else(
+                infer_expr_type(placeholder, &provider_symbols, function_signatures).ok_or_else(
                     || {
                         with_screen_source(
                             CompileError::new(
@@ -1601,10 +1864,10 @@ fn lower_with_warnings_in_mode(
                 Some(&entry_type),
                 &ExprContext::with_types(
                     &provider_symbols,
-                    &function_signatures,
+                    function_signatures,
                     false,
-                    &struct_types,
-                    &owned_enum_names,
+                    struct_types,
+                    owned_enum_names,
                 )
                 .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
             )
@@ -1640,37 +1903,105 @@ fn lower_with_warnings_in_mode(
         });
     }
 
-    let cx = SemanticContext::new(
-        &symbols,
-        &screen_signatures,
-        &themes,
-        &component_signatures,
-        &function_signatures,
-        &native_aliases,
-        &struct_types,
-        &owned_enum_names,
-        target,
-        allow_nullable_generic_plugin_reads,
-    )
-    .with_navigation(true, false)
-    .with_source_file(app_source_file.as_deref());
-    let body = lower_nodes(app.body, &cx)?;
-    let (status_bar, body) = extract_status_bar(body, app.span, "app")?;
-    if body.iter().any(contains_content) {
-        return Err(CompileError::new(
-            app.span,
-            "Content() is only available inside a custom component declaration",
-        ));
-    }
-    let (direction, body) = extract_direction(body, app.span)?;
-    let (on_appear, on_appear_async, body) = extract_on_appear(body, app.span, "app")?;
-    let (on_disappear, body) = extract_on_disappear(body, app.span, "app")?;
-    let (on_active, body) = extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Active)?;
-    let (on_inactive, body) =
-        extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Inactive)?;
-    let (on_background, body) =
-        extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Background)?;
-    let components = retain_reachable(components, &body, &screens, &widgets);
+    let app_body_cached = if is_warm_decl
+        && let Some(cache) = dev_function_cache.as_ref()
+        && let Some(cached_app) = cache.cached_app_body.as_ref()
+        && let Some(current_source) = app_source
+        && cached_app.source_snippet == current_source
+    {
+        Some(cached_app.clone())
+    } else {
+        None
+    };
+
+    let (
+        body,
+        status_bar,
+        direction,
+        on_appear,
+        on_appear_async,
+        on_disappear,
+        on_active,
+        on_inactive,
+        on_background,
+    ) = if let Some(cached) = app_body_cached {
+        (
+            cached.body,
+            cached.status_bar,
+            cached.direction,
+            cached.on_appear,
+            cached.on_appear_async,
+            cached.on_disappear,
+            cached.on_active,
+            cached.on_inactive,
+            cached.on_background,
+        )
+    } else {
+        let cx = SemanticContext::new(
+            symbols,
+            screen_signatures,
+            themes,
+            component_signatures,
+            function_signatures,
+            native_aliases,
+            struct_types,
+            owned_enum_names,
+            target,
+            allow_nullable_generic_plugin_reads,
+        )
+        .with_navigation(true, false)
+        .with_optional_custom_icons(custom_icons)
+        .with_source_file(app_source_file.as_deref());
+        let body = lower_nodes(app.body, &cx)?;
+        let (status_bar, body) = extract_status_bar(body, app.span, "app")?;
+        if body.iter().any(contains_content) {
+            return Err(CompileError::new(
+                app.span,
+                "Content() is only available inside a custom component declaration",
+            ));
+        }
+        let (direction, body) = extract_direction(body, app.span)?;
+        let (on_appear, on_appear_async, body) = extract_on_appear(body, app.span, "app")?;
+        let (on_disappear, body) = extract_on_disappear(body, app.span, "app")?;
+        let (on_active, body) =
+            extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Active)?;
+        let (on_inactive, body) =
+            extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Inactive)?;
+        let (on_background, body) =
+            extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Background)?;
+        if let Some(cache) = dev_function_cache.as_mut()
+            && let Some(current_source) = app_source
+        {
+            cache.cached_app_body = Some(CachedAppBody {
+                source_snippet: current_source.to_owned(),
+                body: body.clone(),
+                status_bar,
+                direction,
+                on_appear: on_appear.clone(),
+                on_appear_async,
+                on_disappear: on_disappear.clone(),
+                on_active: on_active.clone(),
+                on_inactive: on_inactive.clone(),
+                on_background: on_background.clone(),
+            });
+        }
+        (
+            body,
+            status_bar,
+            direction,
+            on_appear,
+            on_appear_async,
+            on_disappear,
+            on_active,
+            on_inactive,
+            on_background,
+        )
+    };
+    let components = if dev_function_cache.is_some() {
+        components
+    } else {
+        retain_reachable(components, &body, &screens, &widgets)
+    };
     let plugins = app
         .plugins
         .iter()
@@ -1728,6 +2059,12 @@ fn lower_with_warnings_in_mode(
         on_inactive,
         on_background,
     };
+    if allow_nullable_generic_plugin_reads {
+        eprintln!(
+            "Nexa semantic {target:?} screens/widgets/app: {} ms",
+            screen_widget_app_lowering_started.elapsed().as_millis()
+        );
+    }
     if module_uses_json_error(&module) {
         module.enums.push(nexa_ir::EnumDecl {
             name: "JsonError".to_owned(),
@@ -1739,13 +2076,37 @@ fn lower_with_warnings_in_mode(
             ],
         });
     }
-    validate_module_callback_disposal(&module, &function_signatures)?;
+    let validation_started = Instant::now();
+    validate_module_callback_disposal(&module, function_signatures)?;
+    let validation_elapsed = validation_started.elapsed();
+    let optimization_started = Instant::now();
     let optimization_report = if include_optimization_report {
         Some(crate::optimize::optimize_with_report(&mut module))
+    } else if let Some(cache) = dev_function_cache.as_mut() {
+        let reused_count = cache.unchanged_function_names.len();
+        crate::optimize::optimize_with_cached_function_names(
+            &mut module,
+            &cache.unchanged_function_names,
+            &cache.optimization_facts,
+            Some(&cache.unchanged_screen_indices),
+            Some(&cache.screen_struct_facts),
+        );
+        cache.update_cached_functions(&module);
+        if allow_nullable_generic_plugin_reads {
+            eprintln!("Nexa semantic optimized function cache: {reused_count} reused");
+        }
+        None
     } else {
         crate::optimize::optimize(&mut module);
         None
     };
+    if allow_nullable_generic_plugin_reads {
+        eprintln!(
+            "Nexa semantic {target:?} callback validation: {} ms, optimization: {} ms",
+            validation_elapsed.as_millis(),
+            optimization_started.elapsed().as_millis()
+        );
+    }
     Ok((module, warnings, test_suite, optimization_report))
 }
 
@@ -2790,7 +3151,7 @@ fn validate_component_type_names(
             Ok(())
         }
         Type::ComponentRef { namespace, name }
-            if (namespace == "Nexa" && name == "FastList")
+            if (namespace == "Nexa" && matches!(name.as_str(), "FastList" | "BottomSheet"))
                 || plugin_types.contains(&format!("{namespace}.{name}.__component_ref")) =>
         {
             Ok(())
@@ -2884,6 +3245,7 @@ fn is_builtin_enum_name(name: &str) -> bool {
     matches!(name, "Permission" | "PermissionStatus" | "JsonError")
 }
 
+#[derive(Clone, Copy)]
 struct FunctionLoweringContext<'a> {
     signatures: &'a FunctionSignatures,
     structs: &'a StructTypes,
@@ -2894,10 +3256,356 @@ struct FunctionLoweringContext<'a> {
     allow_nullable_generic_plugin_reads: bool,
 }
 
+/// Reuses typed function bodies across DevRuntime reloads when their source
+/// and the declaration environment they resolve against remain unchanged.
+#[derive(Default)]
+pub(crate) struct DevFunctionLoweringCache {
+    environment: Option<FunctionLoweringEnvironment>,
+    functions: HashMap<String, CachedFunction>,
+    all_functions: Option<Vec<Function>>,
+    optimization_facts: HashMap<String, crate::optimize::FunctionOptimizationFacts>,
+    unchanged_function_names: HashSet<String>,
+    cached_function_sources: Option<HashMap<String, String>>,
+    screen_environment: Option<String>,
+    screens: HashMap<String, CachedScreen>,
+    unchanged_screen_indices: Vec<usize>,
+    screen_struct_facts: HashMap<String, HashSet<String>>,
+    cached_warnings: Option<Vec<CompileWarning>>,
+    program_env: Option<Arc<ProgramEnvironment>>,
+    cached_app_body: Option<CachedAppBody>,
+}
+
+#[derive(Clone)]
+pub(crate) struct CachedAppBody {
+    pub(crate) source_snippet: String,
+    pub(crate) body: Vec<Node>,
+    pub(crate) status_bar: Option<StatusBarConfig>,
+    pub(crate) direction: Option<DirectionConfig>,
+    pub(crate) on_appear: Option<Vec<Action>>,
+    pub(crate) on_appear_async: bool,
+    pub(crate) on_disappear: Option<Vec<Action>>,
+    pub(crate) on_active: Option<Vec<Action>>,
+    pub(crate) on_inactive: Option<Vec<Action>>,
+    pub(crate) on_background: Option<Vec<Action>>,
+}
+
+#[derive(Clone)]
+struct ProgramEnvironment {
+    themes: themes::ThemeSymbols,
+    enum_declarations: Vec<nexa_ir::EnumDecl>,
+    struct_declarations: Vec<nexa_ir::StructDecl>,
+    struct_types: StructTypes,
+    class_types: HashMap<String, Type>,
+    enum_symbols: HashMap<String, (Type, bool)>,
+    owned_enum_names: HashSet<String>,
+    function_signatures: FunctionSignatures,
+    screen_signatures: HashMap<String, ScreenSignature>,
+    components: Vec<nexa_ir::Component>,
+    component_signatures: custom_components::ComponentSignatures,
+    test_suite: crate::testing::TestSuite,
+    background_tasks: Vec<BackgroundTask>,
+    states: Vec<State>,
+    global_names: HashSet<String>,
+    symbols: HashMap<String, (Type, bool)>,
+    native_aliases: HashMap<String, String>,
+    global_symbols: HashMap<String, (Type, bool)>,
+    class_initializers: HashMap<String, Vec<FunctionLocal>>,
+    class_method_declarations: Vec<ast::FunctionDecl>,
+}
+
+#[derive(Clone, PartialEq)]
+struct FunctionLoweringEnvironment {
+    signatures: FunctionSignatures,
+    structs: StructTypes,
+    enums: HashSet<String>,
+    enum_symbols: HashMap<String, (Type, bool)>,
+    global_symbols: HashMap<String, (Type, bool)>,
+    class_initializers: HashMap<String, Vec<FunctionLocal>>,
+}
+
+struct CachedFunction {
+    source: String,
+    function: Option<Function>,
+}
+
+#[derive(Clone)]
+struct CachedScreen {
+    source: String,
+    screen: Screen,
+    struct_names: HashSet<String>,
+}
+
+impl DevFunctionLoweringCache {
+    pub(crate) fn change_hint(&self, module: &Module) -> crate::DevChangeHint {
+        crate::DevChangeHint {
+            unchanged_function_indices: module
+                .functions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, function)| {
+                    self.unchanged_function_names
+                        .contains(&function.name)
+                        .then_some(index)
+                })
+                .collect(),
+            unchanged_screen_indices: self.unchanged_screen_indices.clone(),
+        }
+    }
+
+    fn update_cached_functions(&mut self, module: &Module) {
+        if self.unchanged_function_names.len() == module.functions.len() {
+            return;
+        }
+        let all_module_names: HashSet<&str> =
+            module.functions.iter().map(|f| f.name.as_str()).collect();
+        let dirty_names: HashSet<&str> = module
+            .functions
+            .iter()
+            .filter_map(|f| {
+                (!self.unchanged_function_names.contains(&f.name)).then_some(f.name.as_str())
+            })
+            .collect();
+        let module_dirty_functions = module
+            .functions
+            .iter()
+            .filter(|f| dirty_names.contains(f.name.as_str()))
+            .map(|f| (f.name.as_str(), f))
+            .collect::<HashMap<_, _>>();
+        for (name, cached) in &mut self.functions {
+            if let Some(function) = module_dirty_functions.get(name.as_str()) {
+                cached.function = Some((*function).clone());
+            }
+        }
+        self.functions
+            .retain(|name, _| all_module_names.contains(name.as_str()));
+        self.unchanged_function_names
+            .retain(|name| all_module_names.contains(name.as_str()));
+        self.optimization_facts
+            .retain(|name, _| all_module_names.contains(name.as_str()));
+        let declared_functions = self
+            .functions
+            .keys()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        for name in dirty_names {
+            if let Some(cached) = self.functions.get(name)
+                && let Some(function) = cached.function.as_ref()
+            {
+                self.optimization_facts.insert(
+                    name.to_string(),
+                    crate::optimize::function_optimization_facts(function, &declared_functions),
+                );
+            }
+        }
+        self.all_functions = Some(module.functions.clone());
+    }
+}
+
+fn screen_lowering_environment_key(
+    app: &ast::App,
+    target: Target,
+    allow_nullable_generic_plugin_reads: bool,
+    custom_icons: Option<&HashMap<String, nexa_ir::SystemIcon>>,
+) -> String {
+    let function_signatures = app
+        .functions
+        .iter()
+        .map(|function| {
+            let parameters = function
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    (
+                        parameter.name.as_str(),
+                        type_syntax_cache_key(&parameter.ty),
+                    )
+                })
+                .collect::<Vec<_>>();
+            (
+                function.name.as_str(),
+                function.is_async,
+                function.is_throwing,
+                function.failure_type.as_ref().map(type_syntax_cache_key),
+                parameters,
+                type_syntax_cache_key(&function.return_type),
+            )
+        })
+        .collect::<Vec<_>>();
+    let screen_signatures = app
+        .screens
+        .iter()
+        .map(|screen| {
+            let parameters = screen
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    (
+                        parameter.name.as_str(),
+                        type_syntax_cache_key(&parameter.ty),
+                    )
+                })
+                .collect::<Vec<_>>();
+            (screen.name.as_str(), parameters)
+        })
+        .collect::<Vec<_>>();
+    let custom_icons = custom_icons
+        .map(|icons| {
+            let mut icons = icons.iter().collect::<Vec<_>>();
+            icons.sort_by(|left, right| left.0.cmp(right.0));
+            format!("{icons:?}")
+        })
+        .unwrap_or_default();
+    format!(
+        "{:?}",
+        (
+            (
+                target,
+                allow_nullable_generic_plugin_reads,
+                &app.name,
+                &app.plugins,
+                &app.enums,
+                &app.structs,
+                &app.classes,
+                &app.states,
+                &app.globals,
+                function_signatures,
+            ),
+            (
+                screen_signatures,
+                &app.components,
+                &app.theme,
+                &app.body,
+                custom_icons,
+            ),
+        )
+    )
+}
+
+fn type_syntax_cache_key(ty: &ast::TypeSyntax) -> String {
+    match ty {
+        ast::TypeSyntax::Named(name, _) => name.clone(),
+        ast::TypeSyntax::Generic(name, arguments, _) => format!(
+            "{name}<{}>",
+            arguments
+                .iter()
+                .map(type_syntax_cache_key)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        ast::TypeSyntax::Optional(inner, _) => format!("{}?", type_syntax_cache_key(inner)),
+    }
+}
+
 fn lower_functions(
     declarations: Vec<ast::FunctionDecl>,
     context: FunctionLoweringContext<'_>,
+    is_warm_decl: bool,
+    mut dev_cache: Option<(&mut DevFunctionLoweringCache, &HashMap<String, String>)>,
 ) -> Result<Vec<Function>, CompileError> {
+    if is_warm_decl
+        && let Some((cache, sources)) = &mut dev_cache
+        && cache.cached_function_sources.as_ref() == Some(*sources)
+        && let Some(all_funcs) = &cache.all_functions
+    {
+        cache.unchanged_function_names = all_funcs.iter().map(|f| f.name.clone()).collect();
+        eprintln!(
+            "Nexa semantic function cache: fast batch hit ({} functions)",
+            all_funcs.len()
+        );
+        return Ok(all_funcs.clone());
+    }
+
+    let (environment, can_reuse) = if let Some((cache, _)) = dev_cache.as_ref() {
+        if is_warm_decl {
+            (cache.environment.clone(), true)
+        } else {
+            let env = FunctionLoweringEnvironment {
+                signatures: context.signatures.clone(),
+                structs: context.structs.clone(),
+                enums: context.enums.clone(),
+                enum_symbols: context.enum_symbols.clone(),
+                global_symbols: context.global_symbols.clone(),
+                class_initializers: context.class_initializers.clone(),
+            };
+            let matches = cache.environment.as_ref() == Some(&env);
+            (Some(env), matches)
+        }
+    } else {
+        (None, false)
+    };
+    if !can_reuse && let Some((cache, _)) = dev_cache.as_mut() {
+        cache.functions.clear();
+        cache.optimization_facts.clear();
+        cache.all_functions = None;
+    }
+
+    let mut lowered = Vec::with_capacity(declarations.len());
+    let mut cache_hit_names = HashSet::new();
+    let mut cache_hits = 0usize;
+
+    if let Some((cache, sources)) = dev_cache {
+        for declaration in declarations {
+            let name = declaration.name.clone();
+            let source = sources
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| format!("{declaration:?}"));
+
+            let hit = if can_reuse {
+                cache.functions.get(&name).and_then(|c| {
+                    if c.source == source {
+                        c.function.clone()
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+
+            let function = match hit {
+                Some(func) => {
+                    cache_hits += 1;
+                    cache_hit_names.insert(name);
+                    func
+                }
+                None => {
+                    let func = lower_function(declaration, context)?;
+                    cache.functions.insert(
+                        name.clone(),
+                        CachedFunction {
+                            source,
+                            function: Some(func.clone()),
+                        },
+                    );
+                    cache.optimization_facts.remove(&name);
+                    func
+                }
+            };
+            lowered.push(function);
+        }
+
+        let current_names: HashSet<&str> = lowered.iter().map(|f| f.name.as_str()).collect();
+        cache.functions.retain(|name, _| current_names.contains(name.as_str()));
+        cache.cached_function_sources = Some((*sources).clone());
+        cache.environment = environment;
+        cache.unchanged_function_names = cache_hit_names;
+        eprintln!(
+            "Nexa semantic function cache: {cache_hits} reused, {} lowered",
+            lowered.len().saturating_sub(cache_hits)
+        );
+    } else {
+        for declaration in declarations {
+            lowered.push(lower_function(declaration, context)?);
+        }
+    }
+    Ok(lowered)
+}
+
+fn lower_function(
+    declaration: ast::FunctionDecl,
+    context: FunctionLoweringContext<'_>,
+) -> Result<Function, CompileError> {
     let FunctionLoweringContext {
         signatures,
         structs,
@@ -2907,226 +3615,237 @@ fn lower_functions(
         class_initializers,
         allow_nullable_generic_plugin_reads,
     } = context;
-    declarations
-        .into_iter()
-        .map(|declaration| {
-            let signature = signatures.get(&declaration.name).ok_or_else(|| {
-                CompileError::new(
-                    declaration.span,
-                    format!("function signature for `{}` was not collected", declaration.name),
-                )
-            })?;
-            let symbols = signature
+    let signature = signatures.get(&declaration.name).ok_or_else(|| {
+        CompileError::new(
+            declaration.span,
+            format!(
+                "function signature for `{}` was not collected",
+                declaration.name
+            ),
+        )
+    })?;
+    let symbols = signature
+        .parameters
+        .iter()
+        .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
+        .collect::<HashMap<_, _>>();
+    let mut symbols = symbols;
+    if let Some(receiver @ Type::Class { fields, .. }) = signature.receiver.as_ref() {
+        symbols.insert("this".to_owned(), (receiver.clone(), false));
+        for (name, ty) in fields {
+            symbols
+                .entry(name.clone())
+                .or_insert_with(|| (ty.clone(), false));
+        }
+    }
+    symbols.extend(
+        enum_symbols
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
+    symbols.extend(
+        global_symbols
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
+    let scoped_signatures = signature
+        .is_throwing
+        .then(|| functions_with_error_handling(signatures, true));
+    let lowering_signatures = scoped_signatures.as_ref().unwrap_or(signatures);
+    if !has_simple_function_body(&declaration.body) {
+        let (body_actions, returns) = lower_function_statements(
+            declaration.body.clone(),
+            &symbols,
+            lowering_signatures,
+            &signature.return_type,
+            signature.is_async,
+            structs,
+            enums,
+            allow_nullable_generic_plugin_reads,
+            declaration.span,
+            declaration.source_file.as_deref(),
+            0,
+        )?;
+        if !returns && signature.return_type != Type::Void {
+            return Err(CompileError::new(
+                declaration.span,
+                format!(
+                    "function `{}` must return a value of type `{}` on every path",
+                    declaration.name,
+                    type_name(&signature.return_type)
+                ),
+            ));
+        }
+        return Ok(Function {
+            class_initializers: signature
+                .receiver
+                .as_ref()
+                .and_then(|_| declaration.name.split_once('.'))
+                .and_then(|(class, _)| class_initializers.get(class).cloned())
+                .unwrap_or_default(),
+            name: declaration.name,
+            receiver: signature.receiver.clone(),
+            is_async: signature.is_async,
+            is_throwing: signature.is_throwing,
+            failure_type: None,
+            parameters: signature
                 .parameters
                 .iter()
-                .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
-                .collect::<HashMap<_, _>>();
-            let mut symbols = symbols;
-            if let Some(receiver @ Type::Class { fields, .. }) = signature.receiver.as_ref() {
-                symbols.insert("this".to_owned(), (receiver.clone(), false));
-                for (name, ty) in fields {
-                    symbols.entry(name.clone()).or_insert_with(|| (ty.clone(), false));
-                }
+                .map(|(name, ty)| FunctionParameter {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                })
+                .collect(),
+            locals: Vec::new(),
+            return_type: signature.return_type.clone(),
+            body: nexa_ir::Expr::Bool(false),
+            body_actions: Some(body_actions),
+        });
+    }
+    let mut locals = Vec::new();
+    let mut return_value = None;
+    for statement in declaration.body {
+        match statement {
+            ast::Stmt::Expression { span, .. } => {
+                return Err(CompileError::new(
+                    span,
+                    "expression statements are only allowed in event handlers",
+                ));
             }
-            symbols.extend(enum_symbols.iter().map(|(name, value)| (name.clone(), value.clone())));
-            symbols.extend(global_symbols.iter().map(|(name, value)| (name.clone(), value.clone())));
-            let scoped_signatures = if signature.is_throwing {
-                functions_with_error_handling(signatures, true)
-            } else {
-                signatures.clone()
-            };
-            if !has_simple_function_body(&declaration.body) {
-                let (body_actions, returns) = lower_function_statements(
-                    declaration.body.clone(),
-                    &symbols,
-                    &scoped_signatures,
-                    &signature.return_type,
-                    signature.is_async,
-                    structs,
-                    enums,
-                    allow_nullable_generic_plugin_reads,
-                    declaration.span,
-                    declaration.source_file.as_deref(),
-                    0,
-                )?;
-                if !returns && signature.return_type != Type::Void {
+            ast::Stmt::Let {
+                name,
+                ty,
+                initial,
+                span,
+            } => {
+                if return_value.is_some() {
                     return Err(CompileError::new(
-                        declaration.span,
+                        span,
                         format!(
-                            "function `{}` must return a value of type `{}` on every path",
-                            declaration.name,
-                            type_name(&signature.return_type)
+                            "function `{}` cannot declare a local after `return`",
+                            declaration.name
                         ),
                     ));
                 }
-                return Ok(Function {
-                    class_initializers: signature
-                        .receiver
-                        .as_ref()
-                        .and_then(|_| declaration.name.split_once('.'))
-                        .and_then(|(class, _)| class_initializers.get(class).cloned())
-                        .unwrap_or_default(),
-                    name: declaration.name,
-                    receiver: signature.receiver.clone(),
-                    is_async: signature.is_async,
-                    is_throwing: signature.is_throwing,
-                    failure_type: None,
-                    parameters: signature
-                        .parameters
-                        .iter()
-                        .map(|(name, ty)| FunctionParameter {
-                            name: name.clone(),
-                            ty: ty.clone(),
-                        })
-                        .collect(),
-                    locals: Vec::new(),
-                    return_type: signature.return_type.clone(),
-                    body: nexa_ir::Expr::Bool(false),
-                    body_actions: Some(body_actions),
-                });
-            }
-            let mut locals = Vec::new();
-            let mut return_value = None;
-            for statement in declaration.body {
-                match statement {
-                    ast::Stmt::Expression { span, .. } => {
-                        return Err(CompileError::new(
-                            span,
-                            "expression statements are only allowed in event handlers",
-                        ));
-                    }
-                    ast::Stmt::Let {
-                        name,
-                        ty,
-                        initial,
+                if symbols.contains_key(&name) {
+                    return Err(CompileError::new(
                         span,
-                    } => {
-                        if return_value.is_some() {
-                            return Err(CompileError::new(
-                                span,
-                                format!(
-                                    "function `{}` cannot declare a local after `return`",
-                                    declaration.name
-                                ),
-                            ));
-                        }
-                        if symbols.contains_key(&name) {
-                            return Err(CompileError::new(
-                                span,
-                                format!(
-                                    "local constant `{name}` is already declared in function `{}`",
-                                    declaration.name
-                                ),
-                            ));
-                        }
-                        let local_type = resolve_value_type(
-                            &name,
-                            ty.as_ref(),
-                            &initial,
-                            &symbols,
-                            signatures,
-                            structs,
-                        )?;
-                        let lowered = lower_expr(
-                            &initial,
-                            Some(&local_type),
-                            &ExprContext::with_types(
-                                &symbols,
-                                &scoped_signatures,
-                                signature.is_async,
-                                structs,
-                                enums,
-                            )
-                            .with_nullable_generic_plugin_reads(
-                                allow_nullable_generic_plugin_reads,
-                            )
-                            .with_source_file(declaration.source_file.as_deref()),
-                        )?;
-                        symbols.insert(name.clone(), (local_type.clone(), false));
-                        locals.push(FunctionLocal {
-                            name,
-                            ty: local_type,
-                            initial: lowered,
-                        });
-                    }
-                    ast::Stmt::Return { value, span: _ } => {
-                        if return_value.replace(value).is_some() {
-                            return Err(CompileError::new(
-                                declaration.span,
-                                format!(
-                                    "function `{}` must contain exactly one `return` statement",
-                                    declaration.name
-                                ),
-                            ));
-                        }
-                    }
-                    ast::Stmt::Assign { span, .. }
-                    | ast::Stmt::NativePropertyAssign { span, .. }
-                    | ast::Stmt::NativeEventSubscribe { span, .. }
-                    | ast::Stmt::CollectionMutation { span, .. }
-                    | ast::Stmt::TaskLaunch { span, .. }
-                    | ast::Stmt::TaskCancel { span, .. }
-                    | ast::Stmt::WithAnimation { span, .. }
-                    | ast::Stmt::If { span, .. }
-                    | ast::Stmt::For { span, .. }
-                    | ast::Stmt::ForMap { span, .. }
-                    | ast::Stmt::While { span, .. }
-                    | ast::Stmt::TryCatch { span, .. }
-                    | ast::Stmt::Break { span }
-                    | ast::Stmt::Continue { span } => {
-                        return Err(CompileError::new(
-                            span,
-                            format!(
-                                "function `{}` supports only `let` declarations and one `return` statement",
-                                declaration.name
-                            ),
-                        ));
-                    }
+                        format!(
+                            "local constant `{name}` is already declared in function `{}`",
+                            declaration.name
+                        ),
+                    ));
                 }
-            }
-            let value = return_value.ok_or_else(|| {
-                CompileError::new(
-                    declaration.span,
-                    format!(
-                        "function `{}` must contain exactly one `return` statement",
-                        declaration.name
-                    ),
-                )
-            })?;
-            let body = lower_expr(
-                &value,
-                Some(&signature.return_type),
-                &ExprContext::with_types(&symbols, &scoped_signatures, signature.is_async, structs, enums)
+                let local_type = resolve_value_type(
+                    &name,
+                    ty.as_ref(),
+                    &initial,
+                    &symbols,
+                    signatures,
+                    structs,
+                )?;
+                let lowered = lower_expr(
+                    &initial,
+                    Some(&local_type),
+                    &ExprContext::with_types(
+                        &symbols,
+                        lowering_signatures,
+                        signature.is_async,
+                        structs,
+                        enums,
+                    )
                     .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
                     .with_source_file(declaration.source_file.as_deref()),
-            )?;
-            Ok(Function {
-                class_initializers: signature
-                    .receiver
-                    .as_ref()
-                    .and_then(|_| declaration.name.split_once('.'))
-                    .and_then(|(class, _)| class_initializers.get(class).cloned())
-                    .unwrap_or_default(),
-                name: declaration.name,
-                receiver: signature.receiver.clone(),
-                is_async: signature.is_async,
-                is_throwing: signature.is_throwing,
-                failure_type: None,
-                parameters: signature
-                    .parameters
-                    .iter()
-                    .map(|(name, ty)| FunctionParameter {
-                        name: name.clone(),
-                        ty: ty.clone(),
-                    })
-                    .collect(),
-                locals,
-                return_type: signature.return_type.clone(),
-                body,
-                body_actions: None,
+                )?;
+                symbols.insert(name.clone(), (local_type.clone(), false));
+                locals.push(FunctionLocal {
+                    name,
+                    ty: local_type,
+                    initial: lowered,
+                });
+            }
+            ast::Stmt::Return { value, span: _ } => {
+                if return_value.replace(value).is_some() {
+                    return Err(CompileError::new(
+                        declaration.span,
+                        format!(
+                            "function `{}` must contain exactly one `return` statement",
+                            declaration.name
+                        ),
+                    ));
+                }
+            }
+            ast::Stmt::Assign { span, .. }
+            | ast::Stmt::NativePropertyAssign { span, .. }
+            | ast::Stmt::NativeEventSubscribe { span, .. }
+            | ast::Stmt::CollectionMutation { span, .. }
+            | ast::Stmt::TaskLaunch { span, .. }
+            | ast::Stmt::TaskCancel { span, .. }
+            | ast::Stmt::WithAnimation { span, .. }
+            | ast::Stmt::If { span, .. }
+            | ast::Stmt::For { span, .. }
+            | ast::Stmt::ForMap { span, .. }
+            | ast::Stmt::While { span, .. }
+            | ast::Stmt::TryCatch { span, .. }
+            | ast::Stmt::Break { span }
+            | ast::Stmt::Continue { span } => {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "function `{}` supports only `let` declarations and one `return` statement",
+                        declaration.name
+                    ),
+                ));
+            }
+        }
+    }
+    let value = return_value.ok_or_else(|| {
+        CompileError::new(
+            declaration.span,
+            format!(
+                "function `{}` must contain exactly one `return` statement",
+                declaration.name
+            ),
+        )
+    })?;
+    let body = lower_expr(
+        &value,
+        Some(&signature.return_type),
+        &ExprContext::with_types(
+            &symbols,
+            lowering_signatures,
+            signature.is_async,
+            structs,
+            enums,
+        )
+        .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+        .with_source_file(declaration.source_file.as_deref()),
+    )?;
+    Ok(Function {
+        class_initializers: signature
+            .receiver
+            .as_ref()
+            .and_then(|_| declaration.name.split_once('.'))
+            .and_then(|(class, _)| class_initializers.get(class).cloned())
+            .unwrap_or_default(),
+        name: declaration.name,
+        receiver: signature.receiver.clone(),
+        is_async: signature.is_async,
+        is_throwing: signature.is_throwing,
+        failure_type: None,
+        parameters: signature
+            .parameters
+            .iter()
+            .map(|(name, ty)| FunctionParameter {
+                name: name.clone(),
+                ty: ty.clone(),
             })
-        })
-        .collect()
+            .collect(),
+        locals,
+        return_type: signature.return_type.clone(),
+        body,
+        body_actions: None,
+    })
 }
 
 fn has_simple_function_body(statements: &[ast::Stmt]) -> bool {
@@ -3689,10 +4408,31 @@ fn function_statement_name(statement: &ast::Stmt) -> &'static str {
 fn has_navigation_root(nodes: &[ast::Node], target: Target) -> bool {
     let mut active = Vec::new();
     collect_active_nodes(nodes, target, &mut active);
-    matches!(
-        active.as_slice(),
-        [ast::Node::ComponentInvocation(inv)] if inv.name == "NavigationStack"
-    )
+    match active.as_slice() {
+        [ast::Node::ComponentInvocation(inv)] => inv.name == "NavigationStack",
+        [
+            ast::Node::If {
+                then_body,
+                else_body: Some(else_body),
+                ..
+            },
+        ] => has_navigation_root(then_body, target) && has_navigation_root(else_body, target),
+        [
+            ast::Node::When {
+                cases,
+                else_body,
+                has_else: true,
+                ..
+            },
+        ] => {
+            !cases.is_empty()
+                && cases
+                    .iter()
+                    .all(|case| has_navigation_root(&case.body, target))
+                && has_navigation_root(else_body, target)
+        }
+        _ => false,
+    }
 }
 
 fn collect_screen_signatures(

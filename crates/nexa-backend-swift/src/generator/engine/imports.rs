@@ -34,7 +34,9 @@ pub(crate) fn render_with_dev_runtime(features: &Features, dev_runtime: bool) ->
     let mut imports = ImportSet::default();
     imports.add(true, "SwiftUI");
     imports.add(true, "Foundation");
+    imports.add(true, "UIKit");
     imports.add(features.facts.ui.bottom_sheet.present, "Combine");
+    imports.add(features.uses_scroll_header || dev_runtime, "Combine");
     imports.add(features.uses_widgets, "WidgetKit");
     imports.add(features.facts.ui.lists.reorderable, "Combine");
     crate::generator::components::controls::imports(features, &mut imports);
@@ -50,21 +52,6 @@ pub(crate) fn render_with_dev_runtime(features: &Features, dev_runtime: bool) ->
     crate::generator::api::secure_storage::imports(features, &mut imports);
     crate::generator::api::storage::imports(features, &mut imports);
     crate::generator::api::time::imports(features, &mut imports);
-    imports.add(
-        features.facts.capabilities.uses_keyboard_api
-            || features.facts.capabilities.uses_haptics_api
-            || features.facts.capabilities.uses_screen_orientation_api
-            || features.facts.capabilities.uses_app_icon_api
-            || features.uses_remote_image
-            || features.facts.ui.bottom_sheet.present
-            || features.facts.ui.button.present
-            || features.facts.ui.text.line_height
-            || dev_runtime
-            || features.facts.ui.page_pager
-            || (features.facts.ui.bottom_bar.present && features.facts.ui.layout.form)
-            || features.facts.ui.style.dynamic_color,
-        "UIKit",
-    );
     imports.render()
 }
 
@@ -74,10 +61,10 @@ mod tests {
     use crate::generator::engine::features::Features;
 
     #[test]
-    fn minimal_app_imports_only_the_native_ui_module() {
+    fn minimal_app_imports_root_safe_area_support() {
         assert_eq!(
             render(&Features::default()),
-            "import Foundation\nimport SwiftUI\n\n"
+            "import Foundation\nimport SwiftUI\nimport UIKit\n\n"
         );
     }
 
@@ -101,7 +88,7 @@ mod tests {
 
         assert_eq!(imports.matches("import UIKit\n").count(), 1);
         assert!(imports.contains("import SwiftUI\n"));
-        assert!(!render(&Features::default()).contains("import UIKit\n"));
+        assert!(render(&Features::default()).contains("import UIKit\n"));
     }
 
     #[test]
@@ -114,21 +101,21 @@ mod tests {
     }
 
     #[test]
-    fn text_line_height_imports_uikit_only_when_its_legacy_metric_fallback_is_needed() {
+    fn text_line_height_and_root_safe_area_support_import_uikit() {
         let mut features = Features::default();
         features.facts.ui.text.line_height = true;
 
         assert!(render(&features).contains("import UIKit\n"));
-        assert!(!render(&Features::default()).contains("import UIKit\n"));
+        assert!(render(&Features::default()).contains("import UIKit\n"));
         assert!(render_with_dev_runtime(&Features::default(), true).contains("import UIKit\n"));
     }
 
     #[test]
-    fn minimal_apps_import_foundation_for_shared_url_primitives() {
+    fn minimal_apps_import_foundation_and_uikit_for_root_support() {
         let imports = render(&Features::default());
 
         assert!(imports.contains("import Foundation\n"));
-        assert!(!imports.contains("import UIKit\n"));
+        assert!(imports.contains("import UIKit\n"));
     }
 
     #[test]

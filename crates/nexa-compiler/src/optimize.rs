@@ -1,15 +1,16 @@
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     rc::Rc,
+    time::Instant,
 };
 
 use nexa_ir::walk::{
     IrFolder, IrVisitor, fold_expr_children, fold_node_children, walk_action_children,
 };
 use nexa_ir::{
-    Action, ArithmeticOp, BinaryOp, CollectionUtilityKind, Expr, LayoutKind, Module, Node,
-    NumericType, ViewStyle,
+    Action, ArithmeticOp, BinaryOp, CollectionUtilityKind, Expr, Function, LayoutKind, Module,
+    Node, NumericType, ViewStyle,
 };
 
 /// Summary of the optimizations applied to a typed IR module.
@@ -19,6 +20,51 @@ pub struct OptimizationReport {
     pub constant_branches_removed: usize,
     pub simplified_layouts: usize,
     pub removed_items: BTreeMap<&'static str, Vec<String>>,
+}
+
+/// Function dependencies kept beside cached DevRuntime function IR so module
+/// pruning can avoid walking every unchanged function body after each edit.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct FunctionOptimizationFacts {
+    pub(crate) called_functions: HashSet<String>,
+    pub(crate) struct_names: HashSet<String>,
+}
+
+pub(crate) fn function_optimization_facts(
+    function: &Function,
+    declared_functions: &HashSet<&str>,
+) -> FunctionOptimizationFacts {
+    let mut facts = FunctionOptimizationFacts::default();
+    for local in &function.locals {
+        collect_expression_function_references(
+            &local.initial,
+            declared_functions,
+            &mut facts.called_functions,
+        );
+    }
+    for initializer in &function.class_initializers {
+        collect_expression_function_references(
+            &initializer.initial,
+            declared_functions,
+            &mut facts.called_functions,
+        );
+    }
+    collect_expression_function_references(
+        &function.body,
+        declared_functions,
+        &mut facts.called_functions,
+    );
+    if let Some(actions) = &function.body_actions {
+        nexa_ir::walk::walk_actions(actions, &mut |expression| {
+            collect_expression_function_references(
+                expression,
+                declared_functions,
+                &mut facts.called_functions,
+            );
+        });
+    }
+    collect_function_struct_names(function, &mut facts.struct_names);
+    facts
 }
 
 #[derive(Clone, Default)]
@@ -91,20 +137,53 @@ impl OptimizationRecorder {
 /// their initializers are pure.
 pub(crate) fn optimize(module: &mut Module) {
     let recorder = OptimizationRecorder::default();
-    optimize_with_recorder(module, &recorder);
+    optimize_with_recorder(module, &recorder, None, None, None);
+}
+
+/// Skips folding function bodies that came from the semantic cache while
+/// retaining module-wide pruning and animation analysis.
+pub(crate) fn optimize_with_cached_function_names(
+    module: &mut Module,
+    unchanged_functions: &HashSet<String>,
+    cached_function_facts: &HashMap<String, FunctionOptimizationFacts>,
+    unchanged_screens: Option<&[usize]>,
+    cached_screen_facts: Option<&HashMap<String, HashSet<String>>>,
+) {
+    let recorder = OptimizationRecorder::default();
+    optimize_with_recorder(
+        module,
+        &recorder,
+        Some((unchanged_functions, cached_function_facts)),
+        unchanged_screens,
+        cached_screen_facts,
+    );
 }
 
 pub(crate) fn optimize_with_report(module: &mut Module) -> OptimizationReport {
     let recorder = OptimizationRecorder::new(true);
-    optimize_with_recorder(module, &recorder);
+    optimize_with_recorder(module, &recorder, None, None, None);
     recorder.finish().unwrap_or_default()
 }
 
-fn optimize_with_recorder(module: &mut Module, recorder: &OptimizationRecorder) {
+fn optimize_with_recorder(
+    module: &mut Module,
+    recorder: &OptimizationRecorder,
+    cached_functions: Option<(
+        &HashSet<String>,
+        &HashMap<String, FunctionOptimizationFacts>,
+    )>,
+    unchanged_screens: Option<&[usize]>,
+    cached_screen_facts: Option<&HashMap<String, HashSet<String>>>,
+) {
+    let profile = cached_functions.is_some();
     let before = recorder
         .is_enabled()
         .then(|| OptimizationInventory::capture(module));
+    let functions_started = profile.then(Instant::now);
     for function in &mut module.functions {
+        if cached_functions.is_some_and(|(functions, _)| functions.contains(&function.name)) {
+            continue;
+        }
         for local in &mut function.locals {
             local.initial = fold_expression(
                 std::mem::replace(&mut local.initial, Expr::Bool(false)),
@@ -121,51 +200,58 @@ fn optimize_with_recorder(module: &mut Module, recorder: &OptimizationRecorder) 
             .map(|actions| optimize_actions(actions, recorder));
         prune_unused_function_locals(function);
     }
-    for task in &mut module.background_tasks {
-        task.actions = optimize_actions(std::mem::take(&mut task.actions), recorder);
+    log_profile_elapsed("function bodies", functions_started);
+    let tree_started = profile.then(Instant::now);
+    if unchanged_screens.is_none() {
+        for task in &mut module.background_tasks {
+            task.actions = optimize_actions(std::mem::take(&mut task.actions), recorder);
+        }
+        module.states.iter_mut().for_each(|state| {
+            optimize_state_expressions(state, recorder);
+        });
+        module.globals.iter_mut().for_each(|state| {
+            optimize_state_expressions(state, recorder);
+        });
+        // Both backends wrap a multi-node app body in an implicit
+        // `Column { spacing: 0 }` before rendering it, so two adjacent
+        // zero-spaced plain columns at the top level merge into exactly that
+        // wrapper and the wrapper disappears with them.
+        let optimized_body = optimize_nodes(std::mem::take(&mut module.body), recorder);
+        let simplified_body_layouts = subsumed_layout_count(
+            &optimized_body,
+            LayoutKind::Column,
+            0.0,
+            &ViewStyle::default(),
+        );
+        module.body = hoist_nested_layouts(
+            optimized_body,
+            LayoutKind::Column,
+            0.0,
+            &ViewStyle::default(),
+        );
+        for _ in 0..simplified_body_layouts {
+            recorder.simplified_layout();
+        }
+        if let Some(actions) = &mut module.on_appear {
+            *actions = optimize_actions(std::mem::take(actions), recorder);
+        }
+        if let Some(actions) = &mut module.on_disappear {
+            *actions = optimize_actions(std::mem::take(actions), recorder);
+        }
+        if let Some(actions) = &mut module.on_active {
+            *actions = optimize_actions(std::mem::take(actions), recorder);
+        }
+        if let Some(actions) = &mut module.on_inactive {
+            *actions = optimize_actions(std::mem::take(actions), recorder);
+        }
+        if let Some(actions) = &mut module.on_background {
+            *actions = optimize_actions(std::mem::take(actions), recorder);
+        }
     }
-    module.states.iter_mut().for_each(|state| {
-        optimize_state_expressions(state, recorder);
-    });
-    module.globals.iter_mut().for_each(|state| {
-        optimize_state_expressions(state, recorder);
-    });
-    // Both backends wrap a multi-node app body in an implicit
-    // `Column { spacing: 0 }` before rendering it, so two adjacent
-    // zero-spaced plain columns at the top level merge into exactly that
-    // wrapper and the wrapper disappears with them.
-    let optimized_body = optimize_nodes(std::mem::take(&mut module.body), recorder);
-    let simplified_body_layouts = subsumed_layout_count(
-        &optimized_body,
-        LayoutKind::Column,
-        0.0,
-        &ViewStyle::default(),
-    );
-    module.body = hoist_nested_layouts(
-        optimized_body,
-        LayoutKind::Column,
-        0.0,
-        &ViewStyle::default(),
-    );
-    for _ in 0..simplified_body_layouts {
-        recorder.simplified_layout();
-    }
-    if let Some(actions) = &mut module.on_appear {
-        *actions = optimize_actions(std::mem::take(actions), recorder);
-    }
-    if let Some(actions) = &mut module.on_disappear {
-        *actions = optimize_actions(std::mem::take(actions), recorder);
-    }
-    if let Some(actions) = &mut module.on_active {
-        *actions = optimize_actions(std::mem::take(actions), recorder);
-    }
-    if let Some(actions) = &mut module.on_inactive {
-        *actions = optimize_actions(std::mem::take(actions), recorder);
-    }
-    if let Some(actions) = &mut module.on_background {
-        *actions = optimize_actions(std::mem::take(actions), recorder);
-    }
-    for screen in &mut module.screens {
+    for (index, screen) in module.screens.iter_mut().enumerate() {
+        if unchanged_screens.is_some_and(|indices| indices.contains(&index)) {
+            continue;
+        }
         for state in &mut screen.states {
             optimize_state_expressions(state, recorder);
         }
@@ -177,57 +263,94 @@ fn optimize_with_recorder(module: &mut Module, recorder: &OptimizationRecorder) 
             *actions = optimize_actions(std::mem::take(actions), recorder);
         }
     }
-    for widget in &mut module.widgets {
-        widget.entry_provider = fold_expression(
-            std::mem::replace(&mut widget.entry_provider, Expr::Bool(false)),
-            recorder,
-        );
-        if let Some(placeholder) = &mut widget.placeholder_provider {
-            *placeholder =
-                fold_expression(std::mem::replace(placeholder, Expr::Bool(false)), recorder);
-        }
-        if let Some(configuration) = &mut widget.configuration {
-            configuration.default = fold_expression(
-                std::mem::replace(&mut configuration.default, Expr::Bool(false)),
+    if unchanged_screens.is_none() {
+        for widget in &mut module.widgets {
+            widget.entry_provider = fold_expression(
+                std::mem::replace(&mut widget.entry_provider, Expr::Bool(false)),
                 recorder,
             );
-        }
-        widget.body = optimize_nodes(std::mem::take(&mut widget.body), recorder);
-    }
-    for component in &mut module.components {
-        component.body = optimize_nodes(std::mem::take(&mut component.body), recorder);
-        for method in &mut component.ref_methods {
-            method.body = fold_expression(
-                std::mem::replace(&mut method.body, Expr::Bool(false)),
-                recorder,
-            );
-            if let Some(actions) = &mut method.body_actions {
-                *actions = optimize_actions(std::mem::take(actions), recorder);
+            if let Some(placeholder) = &mut widget.placeholder_provider {
+                *placeholder =
+                    fold_expression(std::mem::replace(placeholder, Expr::Bool(false)), recorder);
             }
-            for local in &mut method.locals {
-                local.initial = fold_expression(
-                    std::mem::replace(&mut local.initial, Expr::Bool(false)),
+            if let Some(configuration) = &mut widget.configuration {
+                configuration.default = fold_expression(
+                    std::mem::replace(&mut configuration.default, Expr::Bool(false)),
                     recorder,
                 );
             }
-        }
-        if let Some(actions) = &mut component.on_appear {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
-        }
-        if let Some(actions) = &mut component.on_disappear {
-            *actions = optimize_actions(std::mem::take(actions), recorder);
-        }
-        for state in &mut component.states {
-            optimize_state_expressions(state, recorder);
+            widget.body = optimize_nodes(std::mem::take(&mut widget.body), recorder);
         }
     }
-    prune_unused_functions(module);
-    prune_unused_states(module);
-    prune_unused_structs(module);
-    prune_unused_plugins(module);
-    mark_animated_presentation_reads(module);
+    if unchanged_screens.is_none() {
+        for component in &mut module.components {
+            component.body = optimize_nodes(std::mem::take(&mut component.body), recorder);
+            for method in &mut component.ref_methods {
+                method.body = fold_expression(
+                    std::mem::replace(&mut method.body, Expr::Bool(false)),
+                    recorder,
+                );
+                if let Some(actions) = &mut method.body_actions {
+                    *actions = optimize_actions(std::mem::take(actions), recorder);
+                }
+                for local in &mut method.locals {
+                    local.initial = fold_expression(
+                        std::mem::replace(&mut local.initial, Expr::Bool(false)),
+                        recorder,
+                    );
+                }
+            }
+            if let Some(actions) = &mut component.on_appear {
+                *actions = optimize_actions(std::mem::take(actions), recorder);
+            }
+            if let Some(actions) = &mut component.on_disappear {
+                *actions = optimize_actions(std::mem::take(actions), recorder);
+            }
+            for state in &mut component.states {
+                optimize_state_expressions(state, recorder);
+            }
+        }
+    }
+    log_profile_elapsed("app/screens/components", tree_started);
+    let analysis_started = profile.then(Instant::now);
+    let stage_started = profile.then(Instant::now);
+    let (unchanged_functions, cached_function_facts) = cached_functions
+        .map(|(functions, facts)| (Some(functions), Some(facts)))
+        .unwrap_or((None, None));
+    if cached_functions.is_none() && unchanged_screens.is_none() {
+        prune_unused_functions(module, unchanged_functions, cached_function_facts);
+        log_profile_elapsed("prune functions", stage_started);
+        let stage_started = profile.then(Instant::now);
+        prune_unused_states(module);
+        log_profile_elapsed("prune states", stage_started);
+        let stage_started = profile.then(Instant::now);
+        prune_unused_structs(
+            module,
+            unchanged_functions,
+            cached_function_facts,
+            unchanged_screens,
+            cached_screen_facts,
+        );
+        log_profile_elapsed("prune structs", stage_started);
+        let stage_started = profile.then(Instant::now);
+        prune_unused_plugins(module);
+        log_profile_elapsed("prune plugins", stage_started);
+    }
+    let stage_started = profile.then(Instant::now);
+    mark_animated_presentation_reads(module, unchanged_screens);
+    log_profile_elapsed("mark animations", stage_started);
+    log_profile_elapsed("reachability/animation", analysis_started);
     if let Some(before) = before {
         before.record_removed(module, recorder);
+    }
+}
+
+fn log_profile_elapsed(stage: &str, started: Option<Instant>) {
+    if let Some(started) = started {
+        eprintln!(
+            "Nexa optimize {stage}: {} ms",
+            started.elapsed().as_millis()
+        );
     }
 }
 
@@ -307,7 +430,7 @@ fn optimize_state_expressions(state: &mut nexa_ir::State, recorder: &Optimizatio
     );
 }
 
-fn mark_animated_presentation_reads(module: &mut Module) {
+fn mark_animated_presentation_reads(module: &mut Module, unchanged_screens: Option<&[usize]>) {
     let mut app_targets = HashSet::new();
     collect_animated_targets(&module.body, &mut app_targets);
     collect_actions_targets(
@@ -349,7 +472,10 @@ fn mark_animated_presentation_reads(module: &mut Module) {
     mark_nodes(&mut module.body, &app_targets);
     let mut app_reads = animated_presentation_reads(&module.body);
 
-    for screen in &mut module.screens {
+    for (index, screen) in module.screens.iter_mut().enumerate() {
+        if unchanged_screens.is_some_and(|indices| indices.contains(&index)) {
+            continue;
+        }
         let mut screen_targets = app_targets.clone();
         collect_animated_targets(&screen.body, &mut screen_targets);
         collect_actions_targets(
@@ -443,19 +569,16 @@ fn mark_nodes(nodes: &mut Vec<Node>, targets: &HashSet<String>) {
     impl IrFolder for Marker<'_> {
         fn fold_node(&mut self, node: Node) -> Option<Node> {
             match node {
-                Node::Slider {
-                    state,
-                    min,
-                    max,
-                    step,
-                    ..
-                } if self.0.contains(&state) => Some(Node::Slider {
-                    state,
-                    animated: true,
-                    min,
-                    max,
-                    step,
-                }),
+                mut node @ Node::Slider { .. } => {
+                    if let Node::Slider {
+                        state, animated, ..
+                    } = &mut node
+                        && self.0.contains(state)
+                    {
+                        *animated = true;
+                    }
+                    Some(node)
+                }
                 node => fold_node_children(node, self),
             }
         }
@@ -709,6 +832,9 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight
+        | Expr::ScreenWidth
+        | Expr::ScreenHeight
+        | Expr::SafeAreaTop
         | Expr::This(_)
         | Expr::TimeCall {
             method:
@@ -724,7 +850,11 @@ fn is_pure_expression(expression: &Expr) -> bool {
     }
 }
 
-fn prune_unused_functions(module: &mut Module) {
+fn prune_unused_functions(
+    module: &mut Module,
+    unchanged_functions: Option<&HashSet<String>>,
+    cached_function_facts: Option<&HashMap<String, FunctionOptimizationFacts>>,
+) {
     let declared = module
         .functions
         .iter()
@@ -797,36 +927,55 @@ fn prune_unused_functions(module: &mut Module) {
         }
     }
 
-    let mut expanded = HashSet::new();
+    let functions_by_name = module
+        .functions
+        .iter()
+        .map(|function| (function.name.as_str(), function))
+        .collect::<HashMap<_, _>>();
+    let mut expanded = HashSet::with_capacity(used.len());
     let mut pending = used.iter().cloned().collect::<Vec<_>>();
     while let Some(name) = pending.pop() {
         if !expanded.insert(name.clone()) {
             continue;
         }
-        let Some(function) = module
-            .functions
-            .iter()
-            .find(|function| function.name == name)
-        else {
+        let cached_facts = unchanged_functions
+            .is_some_and(|functions| functions.contains(&name))
+            .then(|| cached_function_facts.and_then(|facts| facts.get(&name)))
+            .flatten();
+        let references = if let Some(facts) = cached_facts {
+            &facts.called_functions
+        } else if let Some(function) = functions_by_name.get(name.as_str()) {
+            let mut references = HashSet::new();
+            for local in &function.locals {
+                collect_expression_function_references(&local.initial, &declared, &mut references);
+            }
+            for initializer in &function.class_initializers {
+                collect_expression_function_references(
+                    &initializer.initial,
+                    &declared,
+                    &mut references,
+                );
+            }
+            collect_expression_function_references(&function.body, &declared, &mut references);
+            if let Some(actions) = &function.body_actions {
+                nexa_ir::walk::walk_actions(actions, &mut |expression| {
+                    collect_expression_function_references(expression, &declared, &mut references)
+                });
+            }
+            for reference in references {
+                if used.insert(reference.clone()) {
+                    pending.push(reference);
+                }
+            }
+            continue;
+        } else {
             continue;
         };
-        for local in &function.locals {
-            collect_expression_function_references(&local.initial, &declared, &mut used);
+        for reference in references {
+            if used.insert(reference.clone()) {
+                pending.push(reference.clone());
+            }
         }
-        for initializer in &function.class_initializers {
-            collect_expression_function_references(&initializer.initial, &declared, &mut used);
-        }
-        collect_expression_function_references(&function.body, &declared, &mut used);
-        if let Some(actions) = &function.body_actions {
-            nexa_ir::walk::walk_actions(actions, &mut |expression| {
-                collect_expression_function_references(expression, &declared, &mut used)
-            });
-        }
-        pending.extend(
-            used.iter()
-                .filter(|name| !expanded.contains(*name))
-                .cloned(),
-        );
     }
     module
         .functions
@@ -960,7 +1109,13 @@ fn prune_unused_states(module: &mut Module) {
     }
 }
 
-fn prune_unused_structs(module: &mut Module) {
+fn prune_unused_structs(
+    module: &mut Module,
+    unchanged_functions: Option<&HashSet<String>>,
+    cached_function_facts: Option<&HashMap<String, FunctionOptimizationFacts>>,
+    unchanged_screens: Option<&[usize]>,
+    cached_screen_facts: Option<&HashMap<String, HashSet<String>>>,
+) {
     let declarations = module
         .structs
         .iter()
@@ -976,28 +1131,14 @@ fn prune_unused_structs(module: &mut Module) {
         collect_expression_struct_names(&state.initial, &mut used);
     }
     for function in &module.functions {
-        for parameter in &function.parameters {
-            collect_type_struct_names(&parameter.ty, &mut used);
-        }
-        collect_type_struct_names(&function.return_type, &mut used);
-        for local in &function.locals {
-            collect_type_struct_names(&local.ty, &mut used);
-            collect_expression_struct_names(&local.initial, &mut used);
-        }
-        for initializer in &function.class_initializers {
-            collect_type_struct_names(&initializer.ty, &mut used);
-            collect_expression_struct_names(&initializer.initial, &mut used);
-        }
-        collect_expression_struct_names(&function.body, &mut used);
-        if let Some(actions) = &function.body_actions {
-            nexa_ir::walk::walk_action_tree(actions, &mut |action| {
-                if let Action::Let { ty, .. } = action {
-                    collect_type_struct_names(ty, &mut used);
-                }
-            });
-            nexa_ir::walk::walk_actions(actions, &mut |expression| {
-                collect_expression_struct_names(expression, &mut used)
-            });
+        let cached_facts = unchanged_functions
+            .is_some_and(|functions| functions.contains(&function.name))
+            .then(|| cached_function_facts.and_then(|facts| facts.get(&function.name)))
+            .flatten();
+        if let Some(facts) = cached_facts {
+            used.extend(facts.struct_names.iter().cloned());
+        } else {
+            collect_function_struct_names(function, &mut used);
         }
     }
     for component in &module.components {
@@ -1058,18 +1199,14 @@ fn prune_unused_structs(module: &mut Module) {
         }
         collect_node_struct_names(&widget.body, &mut used);
     }
-    for screen in &module.screens {
-        for state in &screen.states {
-            collect_type_struct_names(&state.ty, &mut used);
-            collect_expression_struct_names(&state.initial, &mut used);
+    for (index, screen) in module.screens.iter().enumerate() {
+        if unchanged_screens.is_some_and(|indices| indices.contains(&index))
+            && let Some(facts) = cached_screen_facts.and_then(|facts| facts.get(&screen.name))
+        {
+            used.extend(facts.iter().cloned());
+            continue;
         }
-        collect_node_struct_names(&screen.body, &mut used);
-        if let Some(actions) = &screen.on_appear {
-            collect_action_struct_names(actions, &mut used);
-        }
-        if let Some(actions) = &screen.on_disappear {
-            collect_action_struct_names(actions, &mut used);
-        }
+        collect_screen_struct_names(screen, &mut used);
     }
     if let Some(actions) = &module.on_appear {
         collect_action_struct_names(actions, &mut used);
@@ -1110,6 +1247,46 @@ fn prune_unused_structs(module: &mut Module) {
     module
         .structs
         .retain(|declaration| used.contains(declaration.name.as_str()));
+}
+
+pub(crate) fn collect_screen_struct_names(screen: &nexa_ir::Screen, used: &mut HashSet<String>) {
+    for state in &screen.states {
+        collect_type_struct_names(&state.ty, used);
+        collect_expression_struct_names(&state.initial, used);
+    }
+    collect_node_struct_names(&screen.body, used);
+    if let Some(actions) = &screen.on_appear {
+        collect_action_struct_names(actions, used);
+    }
+    if let Some(actions) = &screen.on_disappear {
+        collect_action_struct_names(actions, used);
+    }
+}
+
+fn collect_function_struct_names(function: &Function, used: &mut HashSet<String>) {
+    for parameter in &function.parameters {
+        collect_type_struct_names(&parameter.ty, used);
+    }
+    collect_type_struct_names(&function.return_type, used);
+    for local in &function.locals {
+        collect_type_struct_names(&local.ty, used);
+        collect_expression_struct_names(&local.initial, used);
+    }
+    for initializer in &function.class_initializers {
+        collect_type_struct_names(&initializer.ty, used);
+        collect_expression_struct_names(&initializer.initial, used);
+    }
+    collect_expression_struct_names(&function.body, used);
+    if let Some(actions) = &function.body_actions {
+        nexa_ir::walk::walk_action_tree(actions, &mut |action| {
+            if let Action::Let { ty, .. } = action {
+                collect_type_struct_names(ty, used);
+            }
+        });
+        nexa_ir::walk::walk_actions(actions, &mut |expression| {
+            collect_expression_struct_names(expression, used)
+        });
+    }
 }
 
 fn prune_unused_plugins(module: &mut Module) {
@@ -1361,7 +1538,10 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
-        | Expr::IsCompactHeight => {}
+        | Expr::IsCompactHeight
+        | Expr::ScreenWidth
+        | Expr::ScreenHeight
+        | Expr::SafeAreaTop => {}
         Expr::ComponentRefCreate { .. } => {}
         Expr::ResultOk {
             value_type,
@@ -1440,10 +1620,14 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
                 state,
                 focused,
                 actions,
+                on_focus,
                 on_change,
                 ..
             } => {
                 collect_action_bindings(actions, &mut bindings);
+                if let Some(actions) = on_focus {
+                    collect_action_bindings(actions, &mut bindings);
+                }
                 if let Some(change) = on_change {
                     collect_action_bindings(&change.actions, &mut bindings);
                 }
@@ -1452,8 +1636,15 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
                     bindings.push(focused.clone());
                 }
             }
-            Node::Switch { state, .. }
-            | Node::Slider { state, .. }
+            Node::Switch {
+                state, on_change, ..
+            } => {
+                if let Some(change) = on_change {
+                    collect_action_bindings(&change.actions, &mut bindings);
+                }
+                bindings.push(state.clone());
+            }
+            Node::Slider { state, .. }
             | Node::SegmentedControl { state, .. }
             | Node::Picker { state, .. }
             | Node::Dialog { state, .. }

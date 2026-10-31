@@ -719,6 +719,9 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             super::project::run(&project_args)?;
             return build_platforms(&output, &project_name, &platform, BuildMode::Dev, None);
         }
+        let _dev_session_lock = (!compile_only)
+            .then(|| acquire_dev_session_lock(&root))
+            .transpose()?;
         let dependencies = crate::config::load_plugin_dependencies(&root.join("nexa.config.nx"))?;
         let mut plugin_roots = crate::dependencies::resolve(&root, &dependencies)?.plugin_roots;
         let mut dev_compiler = nexa_compiler::IncrementalProjectCompiler::default();
@@ -1041,6 +1044,8 @@ fn watch_sources(
     let (command_sender, console_commands, _raw_terminal) = start_dev_console_input();
     let _source_watcher =
         start_dev_source_watcher(context.root, plugin_roots, command_sender.clone())?;
+    let translation_catalog_path = context.root.join("locales/translations.json");
+    let mut translation_catalog_snapshot = read_translation_catalog(&translation_catalog_path);
     let mut pending_commands = VecDeque::new();
     loop {
         while let Ok(event) = device_log_receiver.try_recv() {
@@ -1081,6 +1086,8 @@ fn watch_sources(
                     reload_or_rebuild_dev_app(context, background_tasks, compiler, plugin_roots)
                 }) {
                     Ok(true) => {
+                        translation_catalog_snapshot =
+                            read_translation_catalog(&translation_catalog_path);
                         dashboard.info("Native app rebuilt for background task changes.");
                         refresh_device_log_streams(
                             context,
@@ -1091,6 +1098,8 @@ fn watch_sources(
                         dashboard.set_status("Watching .nx sources".to_owned());
                     }
                     Ok(false) => {
+                        translation_catalog_snapshot =
+                            read_translation_catalog(&translation_catalog_path);
                         dashboard.info("Nexa source reloaded in the running app.");
                         dashboard.set_status("Watching .nx sources".to_owned());
                     }
@@ -1108,6 +1117,8 @@ fn watch_sources(
                     reload_or_rebuild_dev_app(context, background_tasks, compiler, plugin_roots)
                 }) {
                     Ok(rebuilt) => {
+                        translation_catalog_snapshot =
+                            read_translation_catalog(&translation_catalog_path);
                         if !rebuilt {
                             context.server.publish_restart("hot restart requested");
                         } else {
@@ -1146,6 +1157,8 @@ fn watch_sources(
                     }
                 };
                 if rebuilt {
+                    translation_catalog_snapshot =
+                        read_translation_catalog(&translation_catalog_path);
                     refresh_device_log_streams(
                         context,
                         &device_log_sender,
@@ -1210,6 +1223,11 @@ fn watch_sources(
             Some(DevConsoleCommand::SourceChanges(paths)) => {
                 let changed =
                     coalesce_source_changes(paths, &console_commands, &mut pending_commands);
+                let changed = discard_unchanged_translation_catalog_event(
+                    changed,
+                    &translation_catalog_path,
+                    translation_catalog_snapshot.as_deref(),
+                );
                 if changed.is_empty() {
                     continue;
                 }
@@ -1232,6 +1250,8 @@ fn watch_sources(
                         reload_or_rebuild_dev_app(context, background_tasks, compiler, plugin_roots)
                     }) {
                         Ok(true) => {
+                            translation_catalog_snapshot =
+                                read_translation_catalog(&translation_catalog_path);
                             native_rebuild_pending = false;
                             dashboard.info(
                                 "Background task changes rebuilt and relaunched the native app.",
@@ -1245,6 +1265,8 @@ fn watch_sources(
                             dashboard.set_status("Watching .nx sources".to_owned());
                         }
                         Ok(false) => {
+                            translation_catalog_snapshot =
+                                read_translation_catalog(&translation_catalog_path);
                             dashboard.info("Nexa source reloaded in the running app.");
                             dashboard.set_status("Watching .nx sources".to_owned());
                         }
@@ -1739,7 +1761,7 @@ fn start_device_log_stream(
                 "--style",
                 "compact",
                 "--level",
-                "debug",
+                "info",
                 "--predicate",
                 &predicate,
             ]);
@@ -2249,9 +2271,19 @@ fn coalesce_source_changes(
     receiver: &Receiver<DevConsoleCommand>,
     pending: &mut VecDeque<DevConsoleCommand>,
 ) -> Vec<PathBuf> {
-    const QUIET_WINDOW: Duration = Duration::from_millis(40);
+    let quiet_window = std::env::var("NEXA_DEV_DEBOUNCE_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| {
+            if paths.len() == 1 {
+                Duration::from_millis(5)
+            } else {
+                Duration::from_millis(40)
+            }
+        });
     let mut changed = paths.into_iter().collect::<BTreeSet<_>>();
-    let mut deadline = Instant::now() + QUIET_WINDOW;
+    let mut deadline = Instant::now() + quiet_window;
     loop {
         let now = Instant::now();
         if now >= deadline {
@@ -2260,13 +2292,35 @@ fn coalesce_source_changes(
         match receiver.recv_timeout(deadline - now) {
             Ok(DevConsoleCommand::SourceChanges(paths)) => {
                 changed.extend(paths);
-                deadline = Instant::now() + QUIET_WINDOW;
+                deadline = Instant::now() + quiet_window;
             }
             Ok(command) => pending.push_back(command),
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
     changed.into_iter().collect()
+}
+
+fn read_translation_catalog(path: &Path) -> Option<Vec<u8>> {
+    fs::read(path).ok()
+}
+
+fn discard_unchanged_translation_catalog_event(
+    paths: Vec<PathBuf>,
+    catalog_path: &Path,
+    compiled_snapshot: Option<&[u8]>,
+) -> Vec<PathBuf> {
+    let Some(compiled_snapshot) = compiled_snapshot else {
+        return paths;
+    };
+
+    paths
+        .into_iter()
+        .filter(|path| {
+            path != catalog_path
+                || fs::read(path).map_or(true, |current| current.as_slice() != compiled_snapshot)
+        })
+        .collect()
 }
 
 fn reload_or_rebuild_dev_app(
@@ -2478,6 +2532,40 @@ fn is_relevant_dev_path(path: &Path, project_root: &Path, plugin_roots: &[PathBu
                 .and_then(Path::file_name)
                 .is_some_and(|name| name == "locales"))
         || is_native_asset(path)
+}
+
+fn acquire_dev_session_lock(project_root: &Path) -> Result<fs::File, String> {
+    let directory = project_root.join(".nexa");
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "cannot create Nexa dev session lock directory {}: {error}",
+            directory.display()
+        )
+    })?;
+    let path = directory.join("dev-session.lock");
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| {
+            format!(
+                "cannot open Nexa dev session lock {}: {error}",
+                path.display()
+            )
+        })?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(fs::TryLockError::WouldBlock) => Err(format!(
+            "another Nexa dev session is already active for this project ({}); stop it before starting a second host",
+            path.display()
+        )),
+        Err(fs::TryLockError::Error(error)) => Err(format!(
+            "cannot acquire Nexa dev session lock {}: {error}",
+            path.display()
+        )),
+    }
 }
 
 fn has_excluded_dev_component(path: &Path, base: &Path) -> bool {
@@ -3404,15 +3492,15 @@ fn find_entry(root: &Path) -> Result<PathBuf, String> {
 }
 
 fn launch_ios_simulator(root: &Path, app_name: &str) -> Result<(), String> {
-    let devices = available_ios_devices()?;
-    let device = devices
-        .iter()
-        .find(|device| device.booted)
-        .or_else(|| devices.first())
+    let booted_devices = booted_ios_devices().unwrap_or_default();
+    let device = booted_devices
+        .first()
+        .cloned()
+        .or_else(|| available_ios_devices().ok()?.into_iter().next())
         .ok_or_else(|| {
             "no available iOS Simulator found; install an iOS Simulator runtime in Xcode".to_owned()
         })?;
-    launch_ios_simulator_on_device(root, app_name, device)
+    launch_ios_simulator_on_device(root, app_name, &device)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3478,6 +3566,22 @@ fn available_ios_devices() -> Result<Vec<DevDevice>, String> {
     if !output.status.success() {
         return Err(format!(
             "xcrun simctl could not list available iOS simulators: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(parse_ios_simulator_devices(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
+}
+
+fn booted_ios_devices() -> Result<Vec<DevDevice>, String> {
+    let output = Command::new("xcrun")
+        .args(["simctl", "list", "devices", "booted"])
+        .output()
+        .map_err(|error| format!("cannot list booted iOS simulators with xcrun: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "xcrun simctl could not list booted iOS simulators: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
@@ -3769,7 +3873,7 @@ fn preflight_native_toolchains_with(
         if launches_device {
             check(
                 "xcrun",
-                &["simctl", "list", "devices", "available"],
+                &["--find", "simctl"],
                 "Install an iOS Simulator runtime with Xcode.",
             )?;
         }
@@ -3986,7 +4090,7 @@ mod tests {
                 false,
                 vec![
                     ("xcodebuild", vec!["-version"]),
-                    ("xcrun", vec!["simctl", "list", "devices", "available"]),
+                    ("xcrun", vec!["--find", "simctl"]),
                 ],
             ),
             (
@@ -3995,7 +4099,7 @@ mod tests {
                 false,
                 vec![
                     ("xcodebuild", vec!["-version"]),
-                    ("xcrun", vec!["simctl", "list", "devices", "available"]),
+                    ("xcrun", vec!["--find", "simctl"]),
                     ("java", vec!["-version"]),
                     ("adb", vec!["version"]),
                 ],

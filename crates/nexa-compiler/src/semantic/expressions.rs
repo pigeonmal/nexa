@@ -10,7 +10,7 @@ use nexa_syntax::ast;
 
 use super::context::{ExprContext, TypeRegistries};
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct FunctionSignature {
     pub(super) parameters: Vec<(String, Type)>,
     /// Declared plugin value type parameters, in declaration order. A call
@@ -26,14 +26,14 @@ pub(super) struct FunctionSignature {
     pub(super) error_type: Option<PluginErrorType>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct PluginErrorType {
     pub(super) namespace: String,
     pub(super) name: String,
     pub(super) variants: Vec<PluginErrorVariant>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct PluginErrorVariant {
     pub(super) name: String,
     pub(super) parameters: Vec<(String, Type)>,
@@ -1719,6 +1719,18 @@ fn lower_expr_inner(
             optional,
             span,
         } => {
+            if !*optional && let ast::Expr::Name(namespace, _) = base.as_ref() {
+                let geometry = match (namespace.as_str(), name.as_str()) {
+                    ("Layout", "screenWidth") => Some(Expr::ScreenWidth),
+                    ("Layout", "screenHeight") => Some(Expr::ScreenHeight),
+                    ("SafeArea", "top") => Some(Expr::SafeAreaTop),
+                    _ => None,
+                };
+                if let Some(geometry) = geometry {
+                    require_expected(expected, &Type::Numeric(NumericType::Float64), *span)?;
+                    return Ok(geometry);
+                }
+            }
             if !*optional
                 && let ast::Expr::Name(class_name, _) = base.as_ref()
                 && let Some((field_type, _)) = ctx.symbols.get(&format!("{class_name}::{name}"))
@@ -2225,11 +2237,18 @@ fn lower_collection_transform(
     let inferred_body_type = body_expected
         .clone()
         .or_else(|| infer_expr_type(body, &scoped_symbols, ctx.functions));
+    let closure_context = ExprContext {
+        symbols: &scoped_symbols,
+        // Collection callbacks are synchronous. Preserve the remaining type
+        // registries and feature flags so class statics and typed plugin calls
+        // resolve the same way inside callbacks as they do in their caller.
+        allow_await: false,
+        ..*ctx
+    };
     let lowered_body = lower_expr(
         body,
         body_expected.as_ref().or(inferred_body_type.as_ref()),
-        &ExprContext::new(&scoped_symbols, ctx.functions, false)
-            .with_nullable_generic_plugin_reads(ctx.allow_nullable_generic_plugin_reads),
+        &closure_context,
     )?;
     let Some(body_type) = inferred_body_type else {
         return Err(CompileError::new(
@@ -2297,7 +2316,7 @@ fn lower_string_method(
     ctx: &ExprContext<'_>,
 ) -> Result<Expr, CompileError> {
     let (return_type, expected_arg_count) = match name {
-        "trim" | "toLowercase" | "toUppercase" => (Type::String, 0),
+        "trim" | "toLowercase" | "toUppercase" | "normalizeNFKD" => (Type::String, 0),
         "split" => (Type::Array(Box::new(Type::String)), 1),
         "contains" | "startsWith" | "endsWith" => (Type::Bool, 1),
         _ => {
@@ -3671,6 +3690,10 @@ fn native_plan(
             nexa_ir::TimeMethod::LocalizedDate,
             vec![take("timestamp")?],
         )),
+        "Time.localizedLongDate" => Ok(time_call(
+            nexa_ir::TimeMethod::LocalizedLongDate,
+            vec![take("timestamp")?, take("locale")?],
+        )),
         "Time.localizedTime" => Ok(time_call(
             nexa_ir::TimeMethod::LocalizedTime,
             vec![take("timestamp")?],
@@ -3682,6 +3705,10 @@ fn native_plan(
         "Time.format" => Ok(time_call(
             nexa_ir::TimeMethod::Format,
             vec![take("timestamp")?, take("pattern")?],
+        )),
+        "Time.formatDuration" => Ok(time_call(
+            nexa_ir::TimeMethod::FormatDuration,
+            vec![take("seconds")?],
         )),
         _ if api.receiver.is_some() => Err(CompileError::new(
             span,
@@ -4919,6 +4946,8 @@ pub(super) fn infer_expr_type(
                 Some(api.result.to_ir())
             } else {
                 match (namespace.as_str(), name.as_str()) {
+                    ("Locale", "displayName") => Some(Type::Optional(Box::new(Type::String))),
+                    ("Locale", "localized") => Some(Type::String),
                     ("Regex", "isMatch") => Some(Type::Bool),
                     ("Regex", "matches") => Some(Type::Array(Box::new(Type::String))),
                     ("Regex", "replace") => Some(Type::String),
@@ -4961,6 +4990,15 @@ pub(super) fn infer_expr_type(
             optional,
             ..
         } => {
+            if !*optional
+                && let ast::Expr::Name(namespace, _) = base.as_ref()
+                && matches!(
+                    (namespace.as_str(), name.as_str()),
+                    ("Layout", "screenWidth" | "screenHeight") | ("SafeArea", "top")
+                )
+            {
+                return Some(Type::Numeric(NumericType::Float64));
+            }
             if !*optional
                 && let ast::Expr::Name(class_name, _) = base.as_ref()
                 && let Some((ty, _)) = symbols.get(&format!("{class_name}::{name}"))
@@ -5080,7 +5118,9 @@ pub(super) fn infer_expr_type(
             } else {
                 if let Some(Type::String) = infer_expr_type(base, symbols, functions) {
                     return match name.as_str() {
-                        "trim" | "toLowercase" | "toUppercase" if arguments.is_empty() => {
+                        "trim" | "toLowercase" | "toUppercase" | "normalizeNFKD"
+                            if arguments.is_empty() =>
+                        {
                             Some(Type::String)
                         }
                         "split" if arguments.len() == 1 => {
@@ -5923,6 +5963,9 @@ pub(super) fn lowered_type(expr: &Expr) -> Option<Type> {
         | Expr::PluginEnumOptionalConstructor { return_type, .. } => Some(return_type.clone()),
         Expr::Await(value) | Expr::TryAwait(value) => lowered_type(value),
         Expr::State(_, ty) => Some(ty.clone()),
+        Expr::ScreenWidth | Expr::ScreenHeight | Expr::SafeAreaTop => {
+            Some(Type::Numeric(NumericType::Float64))
+        }
         Expr::Null(ty) => Some(ty.clone()),
         Expr::Member { field_type, .. } => Some(field_type.clone()),
         Expr::Index { element_type, .. } => Some(element_type.clone()),
@@ -6068,6 +6111,7 @@ mod tests {
             android_firebase_messaging_service: None,
             android_picture_in_picture: false,
             android_media_playback_service: None,
+            requires_network: false,
         }
     }
 
@@ -6213,7 +6257,9 @@ mod tests {
             "AppIcon.set",
             "Number.formatCurrency",
             "Locale.currentLanguageCode",
+            "Locale.setLanguageOverride",
             "Locale.preferredLanguageCodes",
+            "Crypto.sha1",
             "Crypto.sha256",
             "Crypto.sha512",
             "Crypto.hmacSha256",

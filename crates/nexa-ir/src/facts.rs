@@ -154,6 +154,8 @@ pub struct ScopeUi {
     pub adaptive_border: bool,
     pub adaptive_text: bool,
     pub size_class: bool,
+    pub screen_geometry: bool,
+    pub safe_area_top: bool,
     pub link: bool,
     pub navigation: bool,
     pub navigation_back: bool,
@@ -166,6 +168,8 @@ pub struct ScopeUi {
 pub struct UiFacts {
     /// Observations over the app body and all screen bodies.
     pub app: ScopeUi,
+    /// Observations per named screen body.
+    pub screens: BTreeMap<String, ScopeUi>,
     /// Observations per named component.
     pub components: BTreeMap<String, ScopeUi>,
     /// A status bar is configured on the app or any screen (structural).
@@ -183,6 +187,8 @@ pub struct UiFacts {
     pub image: ImageFacts,
     /// Native system icons used anywhere in generated UI.
     pub system_icons: BTreeSet<SystemIcon>,
+    /// Registered font glyphs are rendered by shared native text primitives.
+    pub font_icons: bool,
     /// Native linear gradient nodes used anywhere in generated UI.
     pub linear_gradient: bool,
     pub lists: ListFacts,
@@ -328,6 +334,10 @@ pub struct PressableFacts {
 #[derive(Clone, Debug, Default)]
 pub struct LayoutFacts {
     pub form: bool,
+    pub safe_area_padding: bool,
+    pub safe_area_inset: bool,
+    pub safe_area_endpoint: bool,
+    pub scroll_header: bool,
     pub column: bool,
     pub row: bool,
     /// Stack (overlay) layouts.
@@ -344,13 +354,18 @@ pub struct StyleFacts {
     pub alignment: bool,
     pub padding: bool,
     pub width: bool,
+    pub fill_max_width: bool,
     pub height: bool,
+    pub screen_height_fraction: bool,
+    pub screen_width_fraction: bool,
+    pub fill_max_height: bool,
     pub width_in: bool,
     pub height_in: bool,
     pub background: bool,
     pub border: bool,
     pub corner_radius: bool,
     pub opacity: bool,
+    pub translation: bool,
     pub scale: bool,
     pub rotation: bool,
     pub shadow: bool,
@@ -611,6 +626,8 @@ impl ModuleFacts {
         // Bodies: one walk per scope observes nodes and expressions together.
         {
             let mut size_hit = false;
+            let mut screen_geometry_hit = false;
+            let mut safe_area_top_hit = false;
             let mut remote_hit = false;
             walk_callback_actions(&module.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
@@ -635,6 +652,11 @@ impl ModuleFacts {
                     );
                 },
                 &mut |expression| {
+                    observe_geometry_expr(
+                        expression,
+                        &mut screen_geometry_hit,
+                        &mut safe_area_top_hit,
+                    );
                     observe_expr(
                         expression,
                         &mut facts.capabilities,
@@ -644,10 +666,14 @@ impl ModuleFacts {
                 },
             );
             facts.ui.app.size_class |= size_hit;
+            facts.ui.app.screen_geometry |= screen_geometry_hit;
+            facts.ui.app.safe_area_top |= safe_area_top_hit;
             facts.capabilities.uses_remote_image |= remote_hit;
         }
         for screen in &module.screens {
             let mut size_hit = false;
+            let mut screen_geometry_hit = false;
+            let mut safe_area_top_hit = false;
             let mut remote_hit = false;
             walk_callback_actions(&screen.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
@@ -682,6 +708,11 @@ impl ModuleFacts {
                     );
                 },
                 &mut |expression| {
+                    observe_geometry_expr(
+                        expression,
+                        &mut screen_geometry_hit,
+                        &mut safe_area_top_hit,
+                    );
                     observe_expr(
                         expression,
                         &mut facts.capabilities,
@@ -691,10 +722,16 @@ impl ModuleFacts {
                 },
             );
             facts.ui.app.size_class |= size_hit;
+            let screen_ui = facts.ui.screens.entry(screen.name.clone()).or_default();
+            screen_ui.size_class |= size_hit;
+            screen_ui.screen_geometry |= screen_geometry_hit;
+            screen_ui.safe_area_top |= safe_area_top_hit;
             facts.capabilities.uses_remote_image |= remote_hit;
         }
         for component in &module.components {
             let mut size_hit = false;
+            let mut screen_geometry_hit = false;
+            let mut safe_area_top_hit = false;
             let mut remote_hit = false;
             walk_callback_actions(&component.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
@@ -759,6 +796,11 @@ impl ModuleFacts {
                     );
                 },
                 &mut |expression| {
+                    observe_geometry_expr(
+                        expression,
+                        &mut screen_geometry_hit,
+                        &mut safe_area_top_hit,
+                    );
                     observe_expr(
                         expression,
                         &mut facts.capabilities,
@@ -770,6 +812,11 @@ impl ModuleFacts {
             for method in &component.ref_methods {
                 if let Some(actions) = &method.body_actions {
                     walk_actions(actions, &mut |expression| {
+                        observe_geometry_expr(
+                            expression,
+                            &mut screen_geometry_hit,
+                            &mut safe_area_top_hit,
+                        );
                         observe_expr(
                             expression,
                             &mut facts.capabilities,
@@ -804,6 +851,13 @@ impl ModuleFacts {
                     .or_default()
                     .size_class = true;
             }
+            let component_ui = facts
+                .ui
+                .components
+                .entry(component.name.clone())
+                .or_default();
+            component_ui.screen_geometry |= screen_geometry_hit;
+            component_ui.safe_area_top |= safe_area_top_hit;
             facts.capabilities.uses_remote_image |= remote_hit;
         }
 
@@ -929,6 +983,23 @@ fn observe_node(
         scope_of(ui, scope).navigation_actions = true;
     }
     match node {
+        Node::SafeAreaPadding { .. } => {
+            ui.layout.safe_area_padding = true;
+            ui.style.modifier = true;
+        }
+        Node::SafeAreaInset { plan, .. } => {
+            ui.layout.safe_area_inset = true;
+            ui.layout.safe_area_endpoint |= matches!(
+                plan.scroll_owner,
+                crate::adaptive_layout::ScrollOwnerResolution::Unique(_)
+                    | crate::adaptive_layout::ScrollOwnerResolution::RouteHost
+            );
+            ui.style.modifier = true;
+        }
+        Node::ScrollHeader { .. } => {
+            ui.layout.scroll_header = true;
+            ui.style.modifier = true;
+        }
         Node::Appearance { .. } => ui.appearance = true,
         Node::StatusBar { .. }
         | Node::Direction { .. }
@@ -1022,8 +1093,23 @@ fn observe_node(
                 )
             });
         }
-        Node::Spacer => ui.layout.spacer = true,
+        Node::Spacer { .. } => ui.layout.spacer = true,
         Node::Divider { .. } => ui.layout.divider = true,
+        Node::Shape {
+            fill, animation, ..
+        } => {
+            ui.layout.spacer = true;
+            ui.style.width = true;
+            ui.style.height = true;
+            ui.style.background = true;
+            ui.style.color = true;
+            ui.style.dp = true;
+            ui.style.modifier = true;
+            scope_of(ui, scope).adaptive_background |= matches!(fill, ColorValue::Adaptive { .. });
+            if let Some(animation) = animation {
+                observe_animation(*animation, &mut ui.style);
+            }
+        }
         Node::Button {
             icon,
             loading,
@@ -1083,8 +1169,16 @@ fn observe_node(
         Node::Switch { .. } => {
             ui.switch_present = true;
         }
-        Node::Slider { .. } => {
+        Node::Slider {
+            tint,
+            track_color,
+            thumb_color,
+            ..
+        } => {
             ui.slider_present = true;
+            ui.style.dynamic_color |= [tint, track_color, thumb_color]
+                .into_iter()
+                .any(|color| matches!(color, Some(crate::ColorExpression::Dynamic(_))));
         }
         Node::ProgressBar { style, .. } => {
             ui.progress_bar_present = true;
@@ -1183,6 +1277,11 @@ fn observe_node(
         }
         Node::SystemIcon { icon, tint, .. } => {
             ui.system_icons.insert(icon.clone());
+            ui.style.dynamic_color |= matches!(tint, crate::ColorExpression::Dynamic(_));
+        }
+        Node::FontIcon { glyph, tint, .. } => {
+            let _ = glyph;
+            ui.font_icons = true;
             ui.style.dynamic_color |= matches!(tint, crate::ColorExpression::Dynamic(_));
         }
         Node::LinearGradient { .. } => ui.linear_gradient = true,
@@ -1355,7 +1454,7 @@ fn observe_node(
                 ui.lists.scroll_position |= !grid;
                 ui.lists.scroll_position_grid |= grid;
             }
-            if plan.on_scroll().is_some() {
+            if plan.on_scroll().is_some() || plan.on_scroll_begin_drag().is_some() {
                 ui.lists.scroll_events |= !grid;
                 ui.lists.scroll_events_grid |= grid;
             }
@@ -1414,9 +1513,13 @@ fn node_uses_navigation_actions(node: &Node) -> bool {
         | Node::Button { actions, .. }
         | Node::RefreshControl { actions, .. } => actions_use_navigation(actions),
         Node::TextInput {
-            actions, on_change, ..
+            actions,
+            on_focus,
+            on_change,
+            ..
         } => {
             actions_use_navigation(actions)
+                || on_focus.as_deref().is_some_and(actions_use_navigation)
                 || on_change
                     .as_ref()
                     .is_some_and(|change| actions_use_navigation(&change.actions))
@@ -1442,6 +1545,9 @@ fn node_uses_navigation_actions(node: &Node) -> bool {
             plan.on_end_reached().is_some_and(actions_use_navigation)
                 || plan.on_scroll().is_some_and(actions_use_navigation)
                 || plan
+                    .on_scroll_begin_drag()
+                    .is_some_and(actions_use_navigation)
+                || plan
                     .refresh()
                     .is_some_and(|refresh| actions_use_navigation(&refresh.actions))
         }
@@ -1463,52 +1569,68 @@ fn record_child_layout(children: &[Node], ui: &mut UiFacts) {
 fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
     facts.alignment |= style.alignment.is_some();
     facts.padding |= style.padding.is_some();
-    facts.width |= style.width.is_some();
-    facts.height |= style.height.is_some();
+    facts.width |= style.width.is_some() || style.screen_width_fraction.is_some();
+    facts.screen_width_fraction |= style.screen_width_fraction.is_some();
+    facts.fill_max_width |= style.fill_max_width;
+    facts.height |= style.height.is_some() || style.screen_height_fraction.is_some();
+    facts.screen_height_fraction |= style.screen_height_fraction.is_some();
+    facts.fill_max_height |= style.fill_max_height;
     facts.width_in |= style.min_width.is_some() || style.max_width.is_some();
     facts.height_in |= style.min_height.is_some() || style.max_height.is_some();
     facts.background |= style.background.is_some();
     facts.border |= style.border_color.is_some();
-    facts.corner_radius |= style.corner_radius.is_some();
+    facts.corner_radius |= style.corner_radius.is_some() || style.corner_radius_bottom.is_some();
     facts.corner_radius |= style.border_color.is_some();
     facts.opacity |= style.opacity.is_some();
     observe_effects(&style.effects, facts);
     if let Some(animation) = style.animation {
-        facts.animation = true;
-        match animation {
-            AnimationSpec::Spring { .. } => facts.spring = true,
-            AnimationSpec::Tween { easing, .. } => match easing {
-                AnimationEasing::Linear => facts.linear = true,
-                AnimationEasing::EaseIn => facts.ease_in = true,
-                AnimationEasing::EaseOut => facts.ease_out = true,
-                AnimationEasing::EaseInOut => facts.ease_in_out = true,
-                AnimationEasing::CubicBezier { .. } => {}
-            },
-            AnimationSpec::EaseIn => facts.ease_in = true,
-            AnimationSpec::EaseOut => facts.ease_out = true,
-            AnimationSpec::EaseInOut => facts.ease_in_out = true,
-            AnimationSpec::Linear => facts.linear = true,
-        }
+        observe_animation(animation, facts);
     }
     facts.modifier |= style.has_modifiers();
     facts.color |= style.background.is_some() || style.border_color.is_some();
     facts.glass |= style.effects.glass.is_some();
     facts.dp |= style.padding.is_some()
         || style.width.is_some()
+        || style.screen_width_fraction.is_some()
         || style.height.is_some()
+        || style.screen_height_fraction.is_some()
         || style.min_width.is_some()
         || style.max_width.is_some()
         || style.min_height.is_some()
         || style.max_height.is_some()
         || style.corner_radius.is_some()
+        || style.corner_radius_bottom.is_some()
         || style.border_width.is_some()
         || style.effects.blur.is_some()
         || style.effects.shadow.is_some()
         || style.effects.clip_rounded.is_some();
 }
 
+fn observe_animation(animation: AnimationSpec, facts: &mut StyleFacts) {
+    facts.animation = true;
+    match animation {
+        AnimationSpec::Spring { .. } => facts.spring = true,
+        AnimationSpec::Tween { easing, .. } => match easing {
+            AnimationEasing::Linear => facts.linear = true,
+            AnimationEasing::EaseIn => facts.ease_in = true,
+            AnimationEasing::EaseOut => facts.ease_out = true,
+            AnimationEasing::EaseInOut => facts.ease_in_out = true,
+            AnimationEasing::CubicBezier { .. } => {}
+        },
+        AnimationSpec::EaseIn => facts.ease_in = true,
+        AnimationSpec::EaseOut => facts.ease_out = true,
+        AnimationSpec::EaseInOut => facts.ease_in_out = true,
+        AnimationSpec::Linear => facts.linear = true,
+    }
+}
+
 fn observe_effects(effects: &crate::ViewEffects, facts: &mut StyleFacts) {
-    facts.scale |= effects.scale.is_some();
+    facts.scale |= effects.scale.is_some()
+        || effects.scale_expression.is_some()
+        || effects.scale_y.is_some()
+        || effects.scale_y_expression.is_some();
+    facts.opacity |= effects.opacity_expression.is_some();
+    facts.translation |= effects.offset_y_expression.is_some();
     facts.rotation |= effects.rotation.is_some();
     facts.shadow |= effects.shadow.is_some();
     facts.blur |= effects.blur.is_some();
@@ -1517,8 +1639,10 @@ fn observe_effects(effects: &crate::ViewEffects, facts: &mut StyleFacts) {
     facts.corner_radius |= effects.clip_rounded.is_some();
     facts.color |= effects.shadow.is_some();
     facts.glass |= effects.glass.is_some();
-    facts.dp |=
-        effects.shadow.is_some() || effects.blur.is_some() || effects.clip_rounded.is_some();
+    facts.dp |= effects.offset_y_expression.is_some()
+        || effects.shadow.is_some()
+        || effects.blur.is_some()
+        || effects.clip_rounded.is_some();
 }
 
 /// Expression observations: capability signals, permission signals, and
@@ -1565,6 +1689,14 @@ fn actions_contain_with_animation(actions: &[crate::Action]) -> bool {
         found |= matches!(action, crate::Action::WithAnimation { .. });
     });
     found
+}
+
+fn observe_geometry_expr(expression: &Expr, screen_geometry: &mut bool, safe_area_top: &mut bool) {
+    match expression {
+        Expr::ScreenWidth | Expr::ScreenHeight => *screen_geometry = true,
+        Expr::SafeAreaTop => *safe_area_top = true,
+        _ => {}
+    }
 }
 
 fn observe_expr(
@@ -2223,10 +2355,16 @@ mod tests {
                 focused: Some("query".to_owned()),
                 max_length: None,
                 font: None,
+                font_size: None,
+                font_family: None,
+                text_color: None,
+                placeholder_color: None,
+                clearable: false,
                 min_lines: None,
                 max_lines: None,
                 searchable: false,
                 actions: Vec::new(),
+                on_focus: None,
                 on_change: None,
             }],
             on_appear: None,

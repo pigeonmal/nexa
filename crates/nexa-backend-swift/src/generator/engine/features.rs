@@ -37,8 +37,13 @@ pub(crate) struct Features {
     pub(crate) app_uses_adaptive_color: bool,
     pub(crate) app_uses_size_class: bool,
     pub(crate) uses_widgets: bool,
+    pub(crate) uses_safe_area_padding: bool,
+    pub(crate) uses_safe_area_inset: bool,
+    pub(crate) uses_scroll_header: bool,
     components_using_adaptive_color: HashSet<String>,
     components_using_size_class: HashSet<String>,
+    components_using_screen_geometry: HashSet<String>,
+    components_using_safe_area_top: HashSet<String>,
 }
 
 impl Features {
@@ -71,6 +76,9 @@ impl Features {
         features.uses_scroll_events = lists.scroll_events || lists.scroll_events_grid;
 
         let ui = &facts.ui;
+        features.uses_safe_area_padding = ui.layout.safe_area_padding;
+        features.uses_safe_area_inset = ui.layout.safe_area_inset;
+        features.uses_scroll_header = ui.layout.scroll_header;
         features.uses_link = ui.app.link || ui.components.values().any(|scope| scope.link);
         features.uses_navigation_back = ui.app.navigation_back
             || ui.app.navigation_actions
@@ -105,6 +113,18 @@ impl Features {
             .filter(|(_, scope)| scope.size_class)
             .map(|(name, _)| name.clone())
             .collect();
+        features.components_using_screen_geometry = ui
+            .components
+            .iter()
+            .filter(|(_, scope)| scope.screen_geometry)
+            .map(|(name, _)| name.clone())
+            .collect();
+        features.components_using_safe_area_top = ui
+            .components
+            .iter()
+            .filter(|(_, scope)| scope.safe_area_top)
+            .map(|(name, _)| name.clone())
+            .collect();
 
         features.uses_permissions = facts.permissions.present;
         features.uses_permission_request = facts.permissions.request;
@@ -128,6 +148,14 @@ impl Features {
 
     pub(crate) fn component_uses_size_class(&self, name: &str) -> bool {
         self.components_using_size_class.contains(name)
+    }
+
+    pub(crate) fn component_uses_screen_geometry(&self, name: &str) -> bool {
+        self.components_using_screen_geometry.contains(name)
+    }
+
+    pub(crate) fn component_uses_safe_area_top(&self, name: &str) -> bool {
+        self.components_using_safe_area_top.contains(name)
     }
 
     pub(crate) fn component_uses_navigation(&self, name: &str) -> bool {

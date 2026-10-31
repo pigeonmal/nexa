@@ -7,6 +7,7 @@ use nexa_codegen::{GeneratedSources, SourceUnit, SourceWriter};
 use nexa_ir::{Expr, LayoutKind, ListPlan, Module, Node, Widget, WidgetFamily};
 
 use super::engine::{expressions, features::Features};
+use crate::generator::utils::number;
 
 type WidgetConfigurationParts<'a> = (&'a str, &'a [(String, nexa_ir::Type)], Vec<&'a str>);
 
@@ -253,7 +254,7 @@ fn validate_widget(widget: &Widget) -> Result<(), crate::WidgetGenerationError> 
                         ));
                     }
                 }
-                Node::Spacer | Node::Divider { .. } => {}
+                Node::Spacer { .. } | Node::Divider { .. } | Node::Shape { .. } => {}
                 Node::SystemIcon { icon, .. } => {
                     if icon.android_widget_drawable().is_none() {
                         return Err(fail(
@@ -750,6 +751,12 @@ fn render_widget(
     ));
     out.line(format_args!("    override suspend fun provideGlance(context: android.content.Context, id: androidx.glance.GlanceId) {{"));
     out.line(format_args!("{}", "        NexaRuntime.bind(context)"));
+    out.line(format_args!(
+        "        val nexa_screen_height_dp = context.resources.configuration.screenHeightDp"
+    ));
+    out.line(format_args!(
+        "        val nexa_screen_width_dp = context.resources.configuration.screenWidthDp"
+    ));
     if let Some(configuration) = &widget.configuration {
         let preferences = render_preference_configuration(widget, module, configuration)?;
         out.line(format_args!(
@@ -783,11 +790,11 @@ fn render_widget(
     ));
     if widget.configuration.is_some() {
         out.line(format_args!(
-            "            {widget_type}Content(nexa_entry, nexa_configuration, nexa_family)"
+            "            {widget_type}Content(nexa_entry, nexa_configuration, nexa_screen_height_dp, nexa_screen_width_dp, nexa_family)"
         ));
     } else {
         out.line(format_args!(
-            "            {widget_type}Content(nexa_entry, nexa_family)"
+            "            {widget_type}Content(nexa_entry, nexa_screen_height_dp, nexa_screen_width_dp, nexa_family)"
         ));
     }
     out.line(format_args!("{}", "        }"));
@@ -812,7 +819,7 @@ fn render_widget(
             )
         })
         .unwrap_or_default();
-    out.line(format_args!("@Composable\nprivate fun {widget_type}Content(nexa_entry: {entry_type}{configuration_parameter}, nexa_family: NexaWidgetFamily) {{"));
+    out.line(format_args!("@Composable\nprivate fun {widget_type}Content(nexa_entry: {entry_type}{configuration_parameter}, nexa_screen_height_dp: Int, nexa_screen_width_dp: Int, nexa_family: NexaWidgetFamily) {{"));
     out.line(format_args!("{}", "    GlanceBox(modifier = GlanceModifier.fillMaxSize().clickable(actionStartActivity(Intent(NexaRuntime.context(), MainActivity::class.java)))) {"));
     render_nodes(&widget.body, 2, out, widget)?;
     out.line(format_args!("{}", "    }"));
@@ -898,8 +905,33 @@ fn render_node(
             let max_lines = style.line_limit.map(|limit| format!(", maxLines = {limit}")).unwrap_or_default();
             out.line_at(depth, format_args!("androidx.glance.text.Text(text = {}{}{})", expressions::expression(value), suffix, max_lines));
         }
-        Node::Spacer => out.line_at(depth, format_args!("GlanceSpacer(modifier = GlanceModifier.defaultWeight())")),
+        Node::Spacer { width, height } => {
+            let modifier = match (width, height) {
+                (Some(width), Some(height)) => format!("GlanceModifier.width({}.dp).height({}.dp)", number(*width), number(*height)),
+                (Some(width), None) => format!("GlanceModifier.width({}.dp)", number(*width)),
+                (None, Some(height)) => format!("GlanceModifier.height({}.dp)", number(*height)),
+                (None, None) => "GlanceModifier.defaultWeight()".to_owned(),
+            };
+            out.line_at(depth, format_args!("GlanceSpacer(modifier = {modifier})"));
+        }
         Node::Divider { thickness, color } => out.line_at(depth, format_args!("GlanceBox(modifier = GlanceModifier.fillMaxWidth().height({thickness}.dp).background({})) {{}}", glance_color(*color))),
+        Node::Shape { shape, width, height, fill, .. } => {
+            let radius = match shape {
+                nexa_ir::ButtonShape::Capsule => *height / 2.0,
+                nexa_ir::ButtonShape::Circle => (*width).min(*height) / 2.0,
+                nexa_ir::ButtonShape::Rounded(radius) => *radius,
+            };
+            out.line_at(
+                depth,
+                format_args!(
+                    "GlanceBox(modifier = GlanceModifier.width({}.dp).height({}.dp).background({}).cornerRadius({}.dp)) {{}}",
+                    number(*width),
+                    number(*height),
+                    glance_color(*fill),
+                    number(radius),
+                ),
+            );
+        }
         Node::Layout { kind, children, spacing, style } => render_layout(*kind, children, *spacing, style, depth, out, widget)?,
         Node::If { condition, then_body, else_body, .. } => {
             out.line_at(depth, format_args!("if ({}) {{", expressions::expression(condition)));
@@ -1016,9 +1048,17 @@ fn render_layout(
     }
     if let Some(width) = style.width {
         modifiers.push(format!("width({width}.dp)"));
+    } else if let Some(fraction) = style.screen_width_fraction {
+        modifiers.push(format!(
+            "width((nexa_screen_width_dp.toFloat() * {fraction}f).dp)"
+        ));
     }
     if let Some(height) = style.height {
         modifiers.push(format!("height({height}.dp)"));
+    } else if let Some(fraction) = style.screen_height_fraction {
+        modifiers.push(format!(
+            "height((nexa_screen_height_dp.toFloat() * {fraction}f).dp)"
+        ));
     }
     if let Some(background) = style.background {
         modifiers.push(format!("background({})", glance_color(background)));
@@ -1026,7 +1066,11 @@ fn render_layout(
     if let Some(radius) = style.corner_radius {
         modifiers.push(format!("cornerRadius({radius}.dp)"));
     }
-    if kind == LayoutKind::Row && style.horizontal_arrangement.is_some() && style.width.is_none() {
+    if kind == LayoutKind::Row
+        && style.horizontal_arrangement.is_some()
+        && style.width.is_none()
+        && style.screen_width_fraction.is_none()
+    {
         modifiers.insert(0, "fillMaxWidth()".to_owned());
     }
     let mut arguments = Vec::new();

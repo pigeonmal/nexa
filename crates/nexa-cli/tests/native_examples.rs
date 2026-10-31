@@ -150,13 +150,60 @@ fn android_keyboard_aware_scroll_preserves_drag_focus_guard_in_aot_output() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(kotlin.contains("NexaKeyboardAwareColumnPrimitive(interactiveDismiss = true)"));
+    assert!(
+        kotlin.contains(
+            "NexaKeyboardAwareColumnPrimitive(interactiveDismiss = true, avoidIme = false)"
+        )
+    );
     assert!(kotlin.contains("internal fun NexaKeyboardAwareColumnPrimitive("));
     assert!(kotlin.contains("val keyboardWasVisible = imeVisible.value"));
+    assert!(kotlin.contains("if (avoidIme) modifier = modifier.imePadding()"));
     assert!(kotlin.contains(
         "if (interactiveDismiss && imeVisible.value) modifier = modifier.imeNestedScroll()"
     ));
     assert!(kotlin.contains("focusManager.clearFocus()"));
+    let manifest = fs::read_to_string(output.join("android/app/src/main/AndroidManifest.xml"))
+        .expect("read generated Android manifest");
+    assert!(manifest.contains("android:windowSoftInputMode=\"adjustNothing\""));
+}
+
+#[test]
+fn keyboard_aware_reuses_existing_scroll_owners_and_exposes_avoid_behavior() {
+    let project = TestProject::new("nexa-keyboard-aware-scroll-owner");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app KeyboardOwner {
+    body {
+        KeyboardAware(behavior: Avoid) {
+            Form {
+                Text("Account")
+            }
+        }
+    }
+}"#,
+    )
+    .expect("write keyboard-aware scroll-owner fixture");
+    let output = project.join("android");
+    nexa_cli::generate_project(&entry, "android", &output, "KeyboardOwner")
+        .expect("generate Android keyboard-aware owner app");
+    let kotlin = kotlin_sources(&output)
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Kotlin"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        kotlin.contains(
+            "NexaKeyboardAwareOwnerPrimitive(interactiveDismiss = true, avoidIme = true)"
+        )
+    );
+    assert!(kotlin.contains("internal fun NexaKeyboardAwareOwnerPrimitive("));
+    assert!(
+        !kotlin.contains(
+            "NexaKeyboardAwareColumnPrimitive(interactiveDismiss = true, avoidIme = true)"
+        )
+    );
 }
 
 #[test]
