@@ -12,7 +12,7 @@ fn filled_shapes_lower_to_native_primitives_on_both_targets() {
         &entry,
         r##"app ShapeParity {
     body {
-        Row(spacing: 4) {
+        Row(gap: 4) {
             Shape(shape: Capsule, width: 29.25, height: 3.51, fill: "#FFFFFF")
             Shape(shape: Rounded(2), width: 16, height: 4, fill: "#CA2828")
         }

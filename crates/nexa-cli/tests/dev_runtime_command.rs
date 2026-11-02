@@ -236,6 +236,33 @@ fn dev_runtime_removes_completed_task_records_without_removing_replacements() {
 }
 
 #[test]
+fn android_dev_navigation_keeps_root_route_stable_across_recomposition() {
+    let navigation = include_str!("../../../runtime/android/NexaDevNavigation.kt");
+
+    assert!(navigation.contains("remember(stackIdentity, rootScreenName, store.navigationEpoch)"));
+    assert!(navigation.contains(
+        "val (rootEntryId, route) = remember(stackIdentity, rootScreenName, store.navigationEpoch) {"
+    ));
+    assert!(navigation.contains("entryId to encodedRoute"));
+    assert!(navigation.contains("val rootRouteData = route.removePrefix(\"nexa/\")"));
+    assert!(
+        !navigation.contains("store.decodeScreenRoute(route)"),
+        "root identity must come from the same value encoded into the start route"
+    );
+    assert!(navigation.contains("entryId == rootEntryId"));
+    assert!(
+        !navigation.contains("navController.previousBackStackEntry == null"),
+        "root identity must not depend on the active back stack during transitions"
+    );
+    assert!(
+        navigation.contains("entryId = \"root_${java.util.UUID.randomUUID().toString().take(8)}\"")
+    );
+    assert!(navigation.contains(
+        "val id = entryId ?: (\"entry_\" + java.util.UUID.randomUUID().toString().take(8))"
+    ));
+}
+
+#[test]
 fn dev_runtime_reserves_safe_area_endpoints_for_navigation_hosts() {
     let ios_renderer = include_str!("../../../runtime/ios/NexaDevRenderer.swift");
     assert!(ios_renderer.contains(
@@ -299,6 +326,7 @@ const ANDROID_DEV_RUNTIME_MODULES: &[&str] = &[
     "NexaDevValueCodec.kt",
     "NexaDevSchema.kt",
     "NexaDevProtocol.kt",
+    "NexaDevPatch.kt",
     "NexaDevState.kt",
     "NexaDevActions.kt",
     "NexaDevNavigation.kt",
@@ -540,7 +568,7 @@ fn optional_generic_compound_values_generate_aot_and_dev_codecs() {
     );
     project.write(
         "App.nx",
-        "plugin \"dev.nexa.codec-probe\" as CodecProbe\napp OptionalCodec { enum CodecError { Missing } state maybe: String? = null state values: Array<String?> = [\"one\", null] state outcome: Result<String?, CodecError> = Ok(if true { \"present\" } else { null }) body { Button(\"Save\") { CodecProbe.store<String?>(maybe)\n CodecProbe.load<String?>(\"nullable\")\n values = CodecProbe.load<Array<String?>>(\"values\") ?? []\n CodecProbe.store<Result<String?, CodecError>>(outcome)\n CodecProbe.load<Result<String?, CodecError>>(\"outcome\") } } }\n",
+        "plugin \"dev.nexa.codec-probe\" as CodecProbe\napp OptionalCodec { enum CodecError { Missing } state maybe: String? = null state values: Array<String?> = [\"one\", null] state outcome: Result<String?, CodecError> = Ok(if true { \"present\" } else { null }) body { Button(\"Save\") { CodecProbe.store<String?>(maybe)\n values = CodecProbe.load<Array<String?>>(\"values\") ?? []\n CodecProbe.store<Result<String?, CodecError>>(outcome)\n CodecProbe.load<Result<String?, CodecError>>(\"outcome\") } } }\n",
     );
 
     let entry = project.path().join("App.nx");
@@ -1774,8 +1802,10 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
     assert!(swift.contains("screen/\\(name)"));
 
     let kotlin = read_android_dev_runtime(&output);
+    let kotlin_normalized = kotlin.lines().map(str::trim).collect::<Vec<_>>().join("\n");
     assert!(kotlin.contains("rememberNavController()"));
-    assert!(kotlin.contains("NavHost(\n            navController = navController"));
+    assert!(kotlin.contains("NavHost("));
+    assert!(kotlin.contains("navController = navController"));
     assert!(kotlin.contains("modifier = modifier.fillMaxSize()"));
     assert!(kotlin.contains("navigationEpoch"));
     for (parameter, transition, direction) in [
@@ -1784,8 +1814,8 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
         ("popEnterTransition", "slideIntoContainer", "End"),
         ("popExitTransition", "slideOutOfContainer", "End"),
     ] {
-        assert!(kotlin.contains(&format!(
-            "{parameter} = {{\n                {transition}(\n                    towards = AnimatedContentTransitionScope.SlideDirection.{direction},\n                    animationSpec = tween(durationMillis = 350),"
+        assert!(kotlin_normalized.contains(&format!(
+            "{parameter} = {{\n{transition}(\ntowards = AnimatedContentTransitionScope.SlideDirection.{direction},\nanimationSpec = tween(durationMillis = 350),"
         )));
     }
     assert!(

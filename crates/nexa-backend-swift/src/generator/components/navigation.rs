@@ -185,7 +185,7 @@ pub(crate) fn render_navigation_stack(
         } else {
             out.push_str(&destination);
             out.push_str(
-                "\n    .toolbar(.hidden, for: .navigationBar)\n    .ignoresSafeArea(.container, edges: .all)",
+                "\n    .toolbar(.hidden, for: .navigationBar)\n    .modifier(NexaHideTabBarModifier())\n    .ignoresSafeArea(.container, edges: .all)",
             );
         }
         out.push('\n');
@@ -206,7 +206,7 @@ pub(crate) fn render_navigation_stack(
     }
     if !show_native_bar {
         out.push_str(
-            ".toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .all)",
+            ".toolbar(.hidden, for: .navigationBar).modifier(NexaHideTabBarModifier()).ignoresSafeArea(.container, edges: .all)",
         );
     } else if !root_has_toolbar {
         out.push_str(
@@ -353,13 +353,9 @@ pub(crate) fn render_screen_view(
     ));
     out.push_str("    @Environment(\\.nexaNavigationPath) private var nexaNavigationPath\n");
     let screen_ui = features.facts.ui.screens.get(&screen.name);
-    if screen_ui.is_some_and(|scope| scope.screen_geometry) {
-        out.push_str("    @Environment(\\.nexaViewportSize) private var nexaViewportSize\n");
-    }
-    if screen_ui.is_some_and(|scope| scope.safe_area_top) {
-        out.push_str(
-            "    @Environment(\\.nexaVisualSafeAreaInsets) private var nexaVisualSafeAreaInsets\n",
-        );
+    if screen_ui.is_some_and(|scope| scope.window_metrics) {
+        out.push_str("    @Environment(\\.nexaWindowMetrics) private var nexaWindowMetrics\n");
+        out.push_str("    @Environment(\\.layoutDirection) private var layoutDirection\n");
     }
     let cancel_task_scope = features
         .facts

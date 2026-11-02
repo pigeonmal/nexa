@@ -177,8 +177,7 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
 
 fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
     let effects = &style.effects;
-    let has_modifier = style.padding.is_some()
-        || style.opacity.is_some()
+    let has_modifier = style.opacity.is_some()
         || effects.scale.is_some()
         || effects.scale_expression.is_some()
         || effects.scale_y.is_some()
@@ -207,9 +206,6 @@ fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
     }
     if let Some(radius) = effects.clip_rounded {
         out.push_str(&format!(".clip(RoundedCornerShape({}.dp))", number(radius)));
-    }
-    if let Some(padding) = style.padding {
-        out.push_str(&format!(".padding({}.dp)", number(padding)));
     }
     if let Some(z_index) = effects.z_index {
         out.push_str(&format!(".zIndex({}f)", z_index));

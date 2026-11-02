@@ -1,7 +1,7 @@
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
-    Alignment, AnimationEasing, AnimationSpec, Color, ColorValue, Expr, HorizontalArrangement,
-    NumericType, Type, ViewEffects, ViewShadow, ViewStyle,
+    Alignment, AnimationEasing, AnimationSpec, Color, ColorValue, Dimension, EdgeInsets, Expr,
+    HorizontalArrangement, NumericType, Type, ViewEffects, ViewShadow, ViewStyle,
 };
 use nexa_syntax::ast;
 
@@ -13,78 +13,34 @@ pub(super) fn lower_style(
     expr_context: &ExprContext<'_>,
 ) -> Result<ViewStyle, CompileError> {
     let width_span = style.width.as_ref().map(ast::Expr::span);
-    let screen_width_fraction_span = style.screen_width_fraction.as_ref().map(ast::Expr::span);
     let height_span = style.height.as_ref().map(ast::Expr::span);
-    let screen_height_fraction_span = style.screen_height_fraction.as_ref().map(ast::Expr::span);
     let min_width_span = style.min_width.as_ref().map(ast::Expr::span);
     let max_width_span = style.max_width.as_ref().map(ast::Expr::span);
     let min_height_span = style.min_height.as_ref().map(ast::Expr::span);
     let max_height_span = style.max_height.as_ref().map(ast::Expr::span);
-    let padding = optional_dimension(
-        style.padding,
-        "padding",
-        Some(ast::ThemeTokenKind::Spacing),
-        themes,
-    )?;
-    let width = optional_dimension(style.width, "width", None, themes)?;
-    let screen_width_fraction = style
-        .screen_width_fraction
-        .map(|expr| {
-            let fraction = number_value(&expr, "screenWidthFraction")?;
-            if !(0.0..=1.0).contains(&fraction) {
-                return Err(CompileError::new(
-                    expr.span(),
-                    "screenWidthFraction must be between 0 and 1",
-                ));
-            }
-            Ok(fraction)
-        })
-        .transpose()?;
-    if width.is_some() && screen_width_fraction.is_some() {
-        return Err(CompileError::new(
-            screen_width_fraction_span.unwrap_or_default(),
-            "`width` and `screenWidthFraction` cannot be used together",
-        ));
-    }
-    let height = optional_dimension(style.height, "height", None, themes)?;
-    let screen_height_fraction = style
-        .screen_height_fraction
-        .map(|expr| {
-            let fraction = number_value(&expr, "screenHeightFraction")?;
-            if !(0.0..=1.0).contains(&fraction) {
-                return Err(CompileError::new(
-                    expr.span(),
-                    "screenHeightFraction must be between 0 and 1",
-                ));
-            }
-            Ok(fraction)
-        })
-        .transpose()?;
-    if height.is_some() && screen_height_fraction.is_some() {
-        return Err(CompileError::new(
-            screen_height_fraction_span.unwrap_or_default(),
-            "`height` and `screenHeightFraction` cannot be used together",
-        ));
-    }
-    let min_width = optional_dimension(style.min_width, "minWidth", None, themes)?;
-    let max_width = optional_dimension(style.max_width, "maxWidth", None, themes)?;
-    let min_height = optional_dimension(style.min_height, "minHeight", None, themes)?;
-    let max_height = optional_dimension(style.max_height, "maxHeight", None, themes)?;
-    validate_bounds(
+    let width = optional_layout_dimension(style.width, "width", DimensionAxis::Width)?;
+    let height = optional_layout_dimension(style.height, "height", DimensionAxis::Height)?;
+    let min_width = optional_layout_dimension(style.min_width, "minWidth", DimensionAxis::Width)?;
+    let max_width = optional_layout_dimension(style.max_width, "maxWidth", DimensionAxis::Width)?;
+    let min_height =
+        optional_layout_dimension(style.min_height, "minHeight", DimensionAxis::Height)?;
+    let max_height =
+        optional_layout_dimension(style.max_height, "maxHeight", DimensionAxis::Height)?;
+    validate_layout_bounds(
         min_width,
         max_width,
         min_width_span.or(max_width_span).unwrap_or_default(),
         "minWidth",
         "maxWidth",
     )?;
-    validate_bounds(
+    validate_layout_bounds(
         min_height,
         max_height,
         min_height_span.or(max_height_span).unwrap_or_default(),
         "minHeight",
         "maxHeight",
     )?;
-    validate_fixed_dimension_bounds(
+    validate_fixed_layout_dimension_bounds(
         width,
         min_width,
         max_width,
@@ -93,7 +49,7 @@ pub(super) fn lower_style(
         "minWidth",
         "maxWidth",
     )?;
-    validate_fixed_dimension_bounds(
+    validate_fixed_layout_dimension_bounds(
         height,
         min_height,
         max_height,
@@ -181,13 +137,8 @@ pub(super) fn lower_style(
     Ok(ViewStyle {
         alignment,
         horizontal_arrangement,
-        padding,
         width,
-        screen_width_fraction,
-        fill_max_width: false,
         height,
-        screen_height_fraction,
-        fill_max_height: false,
         min_width,
         max_width,
         min_height,
@@ -201,6 +152,283 @@ pub(super) fn lower_style(
         opacity,
         effects,
         animation,
+    })
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum DimensionAxis {
+    Width,
+    Height,
+}
+
+pub(super) fn optional_layout_dimension(
+    expression: Option<ast::Expr>,
+    field: &str,
+    axis: DimensionAxis,
+) -> Result<Option<Dimension>, CompileError> {
+    expression
+        .map(|expression| layout_dimension(&expression, field, axis))
+        .transpose()
+}
+
+fn layout_dimension(
+    expression: &ast::Expr,
+    field: &str,
+    axis: DimensionAxis,
+) -> Result<Dimension, CompileError> {
+    match expression {
+        ast::Expr::Number(raw, span) => {
+            let value = raw.parse::<f32>().map_err(|_| {
+                CompileError::new(
+                    *span,
+                    format!("`{field}` is outside the supported dimension range"),
+                )
+            })?;
+            if !value.is_finite() || value < 0.0 {
+                return Err(CompileError::new(
+                    *span,
+                    format!("`{field}` must be finite and non-negative"),
+                ));
+            }
+            Ok(Dimension::Fixed(value))
+        }
+        ast::Expr::Name(name, _) if name == "Fill" => {
+            // On a size constraint, `Fill` means the full finite parent extent.
+            // This is the same value represented by `100%`; for an unbounded
+            // parent the parent-relative layout pass preserves intrinsic size.
+            if field.starts_with("min") || field.starts_with("max") {
+                Ok(Dimension::ParentFraction(1.0))
+            } else {
+                Ok(Dimension::Fill)
+            }
+        }
+        ast::Expr::Call(name, type_arguments, arguments, span)
+            if name == "__NexaParentFraction"
+                && type_arguments.is_empty()
+                && arguments.len() == 1 =>
+        {
+            let percent = number_value(&arguments[0], field)?;
+            if percent > 100.0 {
+                return Err(CompileError::new(
+                    *span,
+                    format!("`{field}` percentage cannot exceed 100%"),
+                ));
+            }
+            let fraction = percent / 100.0;
+            Ok(Dimension::ParentFraction(fraction))
+        }
+        ast::Expr::Call(name, type_arguments, arguments, span)
+            if matches!(
+                name.as_str(),
+                "screenWidthFraction" | "screenHeightFraction"
+            ) =>
+        {
+            if !type_arguments.is_empty() || arguments.len() != 1 {
+                return Err(CompileError::new(
+                    *span,
+                    format!("`{name}` requires one numeric literal between 0 and 1"),
+                ));
+            }
+            let matches_axis = matches!(
+                (name.as_str(), axis),
+                ("screenWidthFraction", DimensionAxis::Width)
+                    | ("screenHeightFraction", DimensionAxis::Height)
+            );
+            if !matches_axis {
+                let axis_name = match axis {
+                    DimensionAxis::Width => "width",
+                    DimensionAxis::Height => "height",
+                };
+                let function_name = match axis {
+                    DimensionAxis::Width => "screenWidthFraction",
+                    DimensionAxis::Height => "screenHeightFraction",
+                };
+                return Err(CompileError::new(
+                    *span,
+                    format!(
+                        "`{name}` cannot size `{field}`; use `{function_name}` for {axis_name}"
+                    ),
+                ));
+            }
+            let fraction = number_value(&arguments[0], name)?;
+            if fraction > 1.0 {
+                return Err(CompileError::new(
+                    arguments[0].span(),
+                    format!("`{name}` must be between 0 and 1"),
+                ));
+            }
+            Ok(match axis {
+                DimensionAxis::Width => Dimension::ScreenWidthFraction(fraction),
+                DimensionAxis::Height => Dimension::ScreenHeightFraction(fraction),
+            })
+        }
+        _ => Err(CompileError::new(
+            expression.span(),
+            format!(
+                "`{field}` must be a fixed value, parent percentage, `Fill`, or the matching screen-fraction function"
+            ),
+        )),
+    }
+}
+
+fn comparable_dimension_value(value: Dimension) -> Option<(u8, f32)> {
+    match value {
+        Dimension::Fixed(value) => Some((0, value)),
+        Dimension::ParentFraction(value) => Some((1, value)),
+        Dimension::Fill => Some((1, 1.0)),
+        Dimension::ScreenWidthFraction(value) => Some((2, value)),
+        Dimension::ScreenHeightFraction(value) => Some((3, value)),
+    }
+}
+
+fn validate_layout_bounds(
+    minimum: Option<Dimension>,
+    maximum: Option<Dimension>,
+    span: Span,
+    minimum_name: &str,
+    maximum_name: &str,
+) -> Result<(), CompileError> {
+    if let (Some(minimum), Some(maximum)) = (minimum, maximum)
+        && let (Some((minimum_axis, minimum)), Some((maximum_axis, maximum))) = (
+            comparable_dimension_value(minimum),
+            comparable_dimension_value(maximum),
+        )
+        && minimum_axis == maximum_axis
+        && minimum > maximum
+    {
+        return Err(CompileError::new(
+            span,
+            format!("`{minimum_name}` cannot be greater than `{maximum_name}`"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_fixed_layout_dimension_bounds(
+    value: Option<Dimension>,
+    minimum: Option<Dimension>,
+    maximum: Option<Dimension>,
+    span: Span,
+    value_name: &str,
+    minimum_name: &str,
+    maximum_name: &str,
+) -> Result<(), CompileError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let Some((value_axis, numeric_value)) = comparable_dimension_value(value) else {
+        return Ok(());
+    };
+    if minimum
+        .and_then(comparable_dimension_value)
+        .is_some_and(|(minimum_axis, minimum)| {
+            minimum_axis == value_axis && numeric_value < minimum
+        })
+    {
+        return Err(CompileError::new(
+            span,
+            format!("`{value_name}` cannot be less than `{minimum_name}`"),
+        ));
+    }
+    if maximum
+        .and_then(comparable_dimension_value)
+        .is_some_and(|(maximum_axis, maximum)| {
+            maximum_axis == value_axis && numeric_value > maximum
+        })
+    {
+        return Err(CompileError::new(
+            span,
+            format!("`{value_name}` cannot be greater than `{maximum_name}`"),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn lower_edge_insets(
+    expression: ast::Expr,
+    field: &str,
+    themes: &ThemeSymbols,
+    expr_context: &ExprContext<'_>,
+) -> Result<EdgeInsets, CompileError> {
+    let mut edges: [Option<Box<Expr>>; 4] = [None, None, None, None];
+    match expression {
+        ast::Expr::Number(_, _) | ast::Expr::ThemeToken(_, _) => {
+            let value = match &expression {
+                ast::Expr::ThemeToken(name, span) => {
+                    let value = themes.metric(name, *span, ast::ThemeTokenKind::Spacing, field)?;
+                    Expr::Number {
+                        raw: value.to_string(),
+                        ty: NumericType::Float64,
+                    }
+                }
+                _ => lower_expr(
+                    &expression,
+                    Some(&Type::Numeric(NumericType::Float64)),
+                    expr_context,
+                )?,
+            };
+            for edge in &mut edges {
+                *edge = Some(Box::new(value.clone()));
+            }
+        }
+        ast::Expr::CallNamed {
+            name,
+            type_arguments,
+            mut arguments,
+            span,
+        } if name == "Insets" && type_arguments.is_empty() => {
+            let all_value = arguments.remove("all");
+            if all_value.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "`Insets` uses `top`, `bottom`, `leading`, `trailing`, `horizontal`, and `vertical`; use a number for all edges",
+                ));
+            }
+            let horizontal = arguments.remove("horizontal");
+            let vertical = arguments.remove("vertical");
+            let values = [
+                ("top", 0usize, vertical.as_ref()),
+                ("bottom", 1usize, vertical.as_ref()),
+                ("leading", 2usize, horizontal.as_ref()),
+                ("trailing", 3usize, horizontal.as_ref()),
+            ];
+            for (name, index, shorthand) in values {
+                let explicit = arguments.remove(name);
+                if explicit.is_some() && shorthand.is_some() {
+                    return Err(CompileError::new(
+                        explicit.as_ref().map(ast::Expr::span).unwrap_or(span),
+                        format!("`Insets` cannot combine `{name}` with its axis shorthand"),
+                    ));
+                }
+                let Some(value) = explicit.or_else(|| shorthand.cloned()) else {
+                    continue;
+                };
+                let lowered = lower_expr(
+                    &value,
+                    Some(&Type::Numeric(NumericType::Float64)),
+                    expr_context,
+                )?;
+                edges[index] = Some(Box::new(lowered));
+            }
+            if let Some((unknown, value)) = arguments.into_iter().next() {
+                return Err(CompileError::new(
+                    value.span(),
+                    format!("unknown `Insets` edge `{unknown}`"),
+                ));
+            }
+        }
+        other => {
+            return Err(CompileError::new(
+                other.span(),
+                format!("`{field}` must be a number or `Insets(...)`"),
+            ));
+        }
+    }
+    Ok(EdgeInsets {
+        top: edges[0].take(),
+        bottom: edges[1].take(),
+        leading: edges[2].take(),
+        trailing: edges[3].take(),
     })
 }
 
@@ -500,51 +728,6 @@ fn finite_number_value(expr: &ast::Expr, field: &str) -> Result<f32, CompileErro
         ));
     }
     Ok(value)
-}
-
-fn validate_bounds(
-    minimum: Option<f32>,
-    maximum: Option<f32>,
-    span: Span,
-    minimum_name: &str,
-    maximum_name: &str,
-) -> Result<(), CompileError> {
-    if let (Some(minimum), Some(maximum)) = (minimum, maximum)
-        && minimum > maximum
-    {
-        return Err(CompileError::new(
-            span,
-            format!("`{minimum_name}` cannot be greater than `{maximum_name}`"),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_fixed_dimension_bounds(
-    value: Option<f32>,
-    minimum: Option<f32>,
-    maximum: Option<f32>,
-    span: Span,
-    value_name: &str,
-    minimum_name: &str,
-    maximum_name: &str,
-) -> Result<(), CompileError> {
-    let Some(value) = value else {
-        return Ok(());
-    };
-    if minimum.is_some_and(|minimum| value < minimum) {
-        return Err(CompileError::new(
-            span,
-            format!("`{value_name}` cannot be less than `{minimum_name}`"),
-        ));
-    }
-    if maximum.is_some_and(|maximum| value > maximum) {
-        return Err(CompileError::new(
-            span,
-            format!("`{value_name}` cannot be greater than `{maximum_name}`"),
-        ));
-    }
-    Ok(())
 }
 
 pub(super) fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileError> {

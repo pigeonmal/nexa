@@ -154,8 +154,7 @@ pub struct ScopeUi {
     pub adaptive_border: bool,
     pub adaptive_text: bool,
     pub size_class: bool,
-    pub screen_geometry: bool,
-    pub safe_area_top: bool,
+    pub window_metrics: bool,
     pub link: bool,
     pub navigation: bool,
     pub navigation_back: bool,
@@ -334,7 +333,6 @@ pub struct PressableFacts {
 #[derive(Clone, Debug, Default)]
 pub struct LayoutFacts {
     pub form: bool,
-    pub safe_area_padding: bool,
     pub safe_area_inset: bool,
     pub safe_area_endpoint: bool,
     pub scroll_header: bool,
@@ -626,8 +624,8 @@ impl ModuleFacts {
         // Bodies: one walk per scope observes nodes and expressions together.
         {
             let mut size_hit = false;
-            let mut screen_geometry_hit = false;
-            let mut safe_area_top_hit = false;
+            let mut window_metrics_hit = false;
+            let mut style_geometry_hit = false;
             let mut remote_hit = false;
             walk_callback_actions(&module.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
@@ -649,14 +647,11 @@ impl ModuleFacts {
                         &mut facts.focus_bindings.app,
                         None,
                         &mut remote_hit,
+                        &mut style_geometry_hit,
                     );
                 },
                 &mut |expression| {
-                    observe_geometry_expr(
-                        expression,
-                        &mut screen_geometry_hit,
-                        &mut safe_area_top_hit,
-                    );
+                    observe_geometry_expr(expression, &mut window_metrics_hit);
                     observe_expr(
                         expression,
                         &mut facts.capabilities,
@@ -666,14 +661,13 @@ impl ModuleFacts {
                 },
             );
             facts.ui.app.size_class |= size_hit;
-            facts.ui.app.screen_geometry |= screen_geometry_hit;
-            facts.ui.app.safe_area_top |= safe_area_top_hit;
+            facts.ui.app.window_metrics |= window_metrics_hit || style_geometry_hit;
             facts.capabilities.uses_remote_image |= remote_hit;
         }
         for screen in &module.screens {
             let mut size_hit = false;
-            let mut screen_geometry_hit = false;
-            let mut safe_area_top_hit = false;
+            let mut window_metrics_hit = false;
+            let mut style_geometry_hit = false;
             let mut remote_hit = false;
             walk_callback_actions(&screen.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
@@ -705,14 +699,11 @@ impl ModuleFacts {
                             .or_default(),
                         None,
                         &mut remote_hit,
+                        &mut style_geometry_hit,
                     );
                 },
                 &mut |expression| {
-                    observe_geometry_expr(
-                        expression,
-                        &mut screen_geometry_hit,
-                        &mut safe_area_top_hit,
-                    );
+                    observe_geometry_expr(expression, &mut window_metrics_hit);
                     observe_expr(
                         expression,
                         &mut facts.capabilities,
@@ -724,14 +715,13 @@ impl ModuleFacts {
             facts.ui.app.size_class |= size_hit;
             let screen_ui = facts.ui.screens.entry(screen.name.clone()).or_default();
             screen_ui.size_class |= size_hit;
-            screen_ui.screen_geometry |= screen_geometry_hit;
-            screen_ui.safe_area_top |= safe_area_top_hit;
+            screen_ui.window_metrics |= window_metrics_hit || style_geometry_hit;
             facts.capabilities.uses_remote_image |= remote_hit;
         }
         for component in &module.components {
             let mut size_hit = false;
-            let mut screen_geometry_hit = false;
-            let mut safe_area_top_hit = false;
+            let mut window_metrics_hit = false;
+            let mut style_geometry_hit = false;
             let mut remote_hit = false;
             walk_callback_actions(&component.body, &mut |actions| {
                 facts.capabilities.uses_network_connectivity |=
@@ -793,14 +783,11 @@ impl ModuleFacts {
                             .or_default(),
                         Some(calls),
                         &mut remote_hit,
+                        &mut style_geometry_hit,
                     );
                 },
                 &mut |expression| {
-                    observe_geometry_expr(
-                        expression,
-                        &mut screen_geometry_hit,
-                        &mut safe_area_top_hit,
-                    );
+                    observe_geometry_expr(expression, &mut window_metrics_hit);
                     observe_expr(
                         expression,
                         &mut facts.capabilities,
@@ -812,11 +799,7 @@ impl ModuleFacts {
             for method in &component.ref_methods {
                 if let Some(actions) = &method.body_actions {
                     walk_actions(actions, &mut |expression| {
-                        observe_geometry_expr(
-                            expression,
-                            &mut screen_geometry_hit,
-                            &mut safe_area_top_hit,
-                        );
+                        observe_geometry_expr(expression, &mut window_metrics_hit);
                         observe_expr(
                             expression,
                             &mut facts.capabilities,
@@ -856,8 +839,7 @@ impl ModuleFacts {
                 .components
                 .entry(component.name.clone())
                 .or_default();
-            component_ui.screen_geometry |= screen_geometry_hit;
-            component_ui.safe_area_top |= safe_area_top_hit;
+            component_ui.window_metrics |= window_metrics_hit || style_geometry_hit;
             facts.capabilities.uses_remote_image |= remote_hit;
         }
 
@@ -971,6 +953,7 @@ fn observe_node(
     focus: &mut BTreeSet<String>,
     calls: Option<&mut Vec<String>>,
     remote_hit: &mut bool,
+    style_geometry_hit: &mut bool,
 ) {
     fn scope_of<'a>(ui: &'a mut UiFacts, scope: Scope<'_>) -> &'a mut ScopeUi {
         match scope {
@@ -983,9 +966,12 @@ fn observe_node(
         scope_of(ui, scope).navigation_actions = true;
     }
     match node {
-        Node::SafeAreaPadding { .. } => {
-            ui.layout.safe_area_padding = true;
-            ui.style.modifier = true;
+        Node::ViewInsets {
+            padding, margin, ..
+        } => {
+            ui.style.padding |= padding.is_some() || margin.is_some();
+            ui.style.modifier |= padding.is_some() || margin.is_some();
+            ui.style.dp |= padding.is_some() || margin.is_some();
         }
         Node::SafeAreaInset { plan, .. } => {
             ui.layout.safe_area_inset = true;
@@ -1009,17 +995,14 @@ fn observe_node(
         | Node::OnInactive { .. }
         | Node::OnBackground { .. } => {}
         Node::Layout {
-            kind,
-            spacing,
-            style,
-            ..
+            kind, gap, style, ..
         } => {
             match kind {
                 crate::LayoutKind::Column => ui.layout.column = true,
                 crate::LayoutKind::Row => ui.layout.row = true,
                 crate::LayoutKind::Stack => ui.layout.box_ = true,
             }
-            if *spacing > 0.0 {
+            if *gap > 0.0 {
                 ui.layout.spacing = true;
             }
             {
@@ -1035,6 +1018,7 @@ fn observe_node(
                     .shadow
                     .is_some_and(|shadow| matches!(shadow.color, ColorValue::Adaptive { .. }));
             }
+            *style_geometry_hit |= style_uses_screen_fraction(style);
             observe_style(style, &mut ui.style);
         }
         Node::Text { style, .. } => {
@@ -1046,7 +1030,6 @@ fn observe_node(
                 || style.letter_spacing.is_some();
             ui.text.selectable |= style.selectable;
             ui.text.color |= style.color.is_some();
-            ui.text.padding |= style.padding.is_some();
             ui.style.opacity |= style.opacity.is_some();
             observe_effects(&style.effects, &mut ui.style);
             ui.style.modifier |= style.opacity.is_some() || style.effects.has_modifiers();
@@ -1497,7 +1480,9 @@ fn actions_use_navigation(actions: &[crate::Action]) -> bool {
     crate::walk::walk_action_tree(actions, &mut |action| {
         found |= matches!(
             action,
-            crate::Action::NavigationPush { .. } | crate::Action::NavigationBack
+            crate::Action::NavigationPush { .. }
+                | crate::Action::NavigationBack
+                | crate::Action::NavigationCommand(_)
         );
     });
     found
@@ -1568,13 +1553,30 @@ fn record_child_layout(children: &[Node], ui: &mut UiFacts) {
 /// View-style observations shared by every layout node.
 fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
     facts.alignment |= style.alignment.is_some();
-    facts.padding |= style.padding.is_some();
-    facts.width |= style.width.is_some() || style.screen_width_fraction.is_some();
-    facts.screen_width_fraction |= style.screen_width_fraction.is_some();
-    facts.fill_max_width |= style.fill_max_width;
-    facts.height |= style.height.is_some() || style.screen_height_fraction.is_some();
-    facts.screen_height_fraction |= style.screen_height_fraction.is_some();
-    facts.fill_max_height |= style.fill_max_height;
+    facts.width |= style.width.is_some();
+    facts.height |= style.height.is_some();
+    facts.screen_width_fraction |=
+        matches!(style.width, Some(crate::Dimension::ScreenWidthFraction(_)))
+            || matches!(
+                style.min_width,
+                Some(crate::Dimension::ScreenWidthFraction(_))
+            )
+            || matches!(
+                style.max_width,
+                Some(crate::Dimension::ScreenWidthFraction(_))
+            );
+    facts.screen_height_fraction |= matches!(
+        style.height,
+        Some(crate::Dimension::ScreenHeightFraction(_))
+    ) || matches!(
+        style.min_height,
+        Some(crate::Dimension::ScreenHeightFraction(_))
+    ) || matches!(
+        style.max_height,
+        Some(crate::Dimension::ScreenHeightFraction(_))
+    );
+    facts.fill_max_width |= matches!(style.width, Some(crate::Dimension::Fill));
+    facts.fill_max_height |= matches!(style.height, Some(crate::Dimension::Fill));
     facts.width_in |= style.min_width.is_some() || style.max_width.is_some();
     facts.height_in |= style.min_height.is_some() || style.max_height.is_some();
     facts.background |= style.background.is_some();
@@ -1589,11 +1591,8 @@ fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
     facts.modifier |= style.has_modifiers();
     facts.color |= style.background.is_some() || style.border_color.is_some();
     facts.glass |= style.effects.glass.is_some();
-    facts.dp |= style.padding.is_some()
-        || style.width.is_some()
-        || style.screen_width_fraction.is_some()
+    facts.dp |= style.width.is_some()
         || style.height.is_some()
-        || style.screen_height_fraction.is_some()
         || style.min_width.is_some()
         || style.max_width.is_some()
         || style.min_height.is_some()
@@ -1604,6 +1603,30 @@ fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
         || style.effects.blur.is_some()
         || style.effects.shadow.is_some()
         || style.effects.clip_rounded.is_some();
+}
+
+fn style_uses_screen_fraction(style: &ViewStyle) -> bool {
+    matches!(style.width, Some(crate::Dimension::ScreenWidthFraction(_)))
+        || matches!(
+            style.min_width,
+            Some(crate::Dimension::ScreenWidthFraction(_))
+        )
+        || matches!(
+            style.max_width,
+            Some(crate::Dimension::ScreenWidthFraction(_))
+        )
+        || matches!(
+            style.height,
+            Some(crate::Dimension::ScreenHeightFraction(_))
+        )
+        || matches!(
+            style.min_height,
+            Some(crate::Dimension::ScreenHeightFraction(_))
+        )
+        || matches!(
+            style.max_height,
+            Some(crate::Dimension::ScreenHeightFraction(_))
+        )
 }
 
 fn observe_animation(animation: AnimationSpec, facts: &mut StyleFacts) {
@@ -1691,10 +1714,9 @@ fn actions_contain_with_animation(actions: &[crate::Action]) -> bool {
     found
 }
 
-fn observe_geometry_expr(expression: &Expr, screen_geometry: &mut bool, safe_area_top: &mut bool) {
+fn observe_geometry_expr(expression: &Expr, window_metrics: &mut bool) {
     match expression {
-        Expr::ScreenWidth | Expr::ScreenHeight => *screen_geometry = true,
-        Expr::SafeAreaTop => *safe_area_top = true,
+        Expr::ScreenWidth | Expr::ScreenHeight | Expr::SystemInset(_) => *window_metrics = true,
         _ => {}
     }
 }
@@ -1979,7 +2001,7 @@ mod tests {
         };
         let module = empty_module(vec![Node::Layout {
             kind: LayoutKind::Column,
-            spacing: 0.0,
+            gap: 0.0,
             style: ViewStyle::default(),
             children: vec![Node::Button {
                 label: Expr::String("Load".to_owned()),
@@ -2191,7 +2213,7 @@ mod tests {
                 section_header: None,
                 swipe_actions: None,
                 refresh: None,
-                spacing: 0.0,
+                gap: 0.0,
                 scroll_enabled: None,
             },
         };

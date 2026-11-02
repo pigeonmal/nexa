@@ -1,0 +1,23 @@
+app NavigationDuplicatePush {
+    state globalPushes: Int32 = 0
+
+    screen CounterScreen(step: Int32) {
+        state count: Int32 = 0
+
+        Column(gap: 12, padding: 16) {
+            Text("Step: $step")
+            Text("Local count: $count")
+            Button("Increment local") {
+                count = count + 1
+            }
+            NavigationLink(destination: CounterScreen(step + 1)) {
+                Text("Push next counter")
+            }
+            NavigationBack(label: "Back")
+        }
+    }
+
+    body {
+        NavigationStack(root: CounterScreen(1))
+    }
+}

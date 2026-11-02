@@ -1,0 +1,38 @@
+app NavigationTabBack {
+    state selectedTab: Int32 = 0
+
+    screen TabAHome {
+        Column(gap: 8, padding: 16) {
+            Text("Tab A Home")
+            NavigationLink(destination: TabADetails) {
+                Text("Open Tab A Details")
+            }
+        }
+    }
+
+    screen TabADetails {
+        state note: String = "Tab A Note"
+        Column(gap: 8, padding: 16) {
+            Text("Tab A Details")
+            Text("Note: $note")
+            NavigationBack(label: "Back to Tab A Home")
+        }
+    }
+
+    screen TabBHome {
+        Column(gap: 8, padding: 16) {
+            Text("Tab B Home")
+        }
+    }
+
+    body {
+        AppBottomBar(selected: selectedTab) {
+            Tab(index: 0, label: "Tab A", icon: "home", title: "Tab A") {
+                NavigationStack(root: TabAHome)
+            }
+            Tab(index: 1, label: "Tab B", icon: "folder", title: "Tab B") {
+                NavigationStack(root: TabBHome)
+            }
+        }
+    }
+}

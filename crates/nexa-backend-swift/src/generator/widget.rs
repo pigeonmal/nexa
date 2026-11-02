@@ -4,8 +4,9 @@
 //! project generation can compile these units in an extension target.
 
 use nexa_codegen::{GeneratedSources, SourceUnit, SourceWriter};
-use nexa_ir::{LayoutKind, ListPlan, Module, Node, Widget, WidgetFamily};
+use nexa_ir::{Dimension, LayoutKind, ListPlan, Module, Node, Widget, WidgetFamily};
 
+use crate::generator::utils::number;
 use crate::generator::{
     components::{self, node_renderer},
     engine::{expressions, features::Features, utils::swift_string},
@@ -126,11 +127,64 @@ fn validate_widget(module: &Module, widget: &Widget) -> Result<(), crate::Widget
         for node in children {
             match node {
                 Node::Text { .. }
-                | Node::Spacer { .. }
                 | Node::Divider { .. }
                 | Node::Shape { .. }
                 | Node::SystemIcon { .. } => {}
-                Node::Layout { children, .. } => nodes(widget, children)?,
+                Node::Spacer { width, height } => {
+                    if matches!(width, Some(Dimension::ParentFraction(_)))
+                        || matches!(height, Some(Dimension::ParentFraction(_)))
+                    {
+                        return Err(fail(widget, "parent-relative percentage Spacer dimensions"));
+                    }
+                }
+                Node::Layout {
+                    style, children, ..
+                } => {
+                    if [
+                        style.width,
+                        style.height,
+                        style.min_width,
+                        style.max_width,
+                        style.min_height,
+                        style.max_height,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .any(|dimension| matches!(dimension, Dimension::ParentFraction(_)))
+                    {
+                        return Err(fail(widget, "parent-relative percentage layout dimensions"));
+                    }
+                    nodes(widget, children)?
+                }
+                Node::ViewInsets {
+                    padding,
+                    margin,
+                    child,
+                } => {
+                    let has_system_inset = [padding.as_ref(), margin.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .flat_map(|insets| {
+                            [
+                                &insets.top,
+                                &insets.bottom,
+                                &insets.leading,
+                                &insets.trailing,
+                            ]
+                        })
+                        .flatten()
+                        .any(|expression| {
+                            let mut found = false;
+                            nexa_ir::walk::walk_expression(expression, &mut |value| {
+                                found |= matches!(value, nexa_ir::Expr::SystemInset(_));
+                            });
+                            found
+                        });
+                    if has_system_inset {
+                        return Err(fail(widget, "SystemInsets in a WidgetKit extension"));
+                    }
+                    nodes(widget, std::slice::from_ref(child.as_ref()))?;
+                }
                 Node::Accessibility { children, .. } => nodes(widget, children)?,
                 Node::Link { url, children } => {
                     if !matches!(url, nexa_ir::Expr::String(_)) {
@@ -957,20 +1011,76 @@ fn render_widget_node(
     out: &mut SourceWriter,
 ) {
     match node {
+        Node::ViewInsets {
+            padding,
+            margin,
+            child,
+        } => {
+            render_widget_node(child, module, features, depth, out);
+            if let Some(padding) = padding {
+                out.line_at(
+                    depth,
+                    format_args!(".padding({})", swift_widget_insets(padding)),
+                );
+            }
+            if let Some(margin) = margin {
+                out.line_at(
+                    depth,
+                    format_args!(".padding({})", swift_widget_insets(margin)),
+                );
+            }
+        }
+        Node::Spacer { width, height } => {
+            out.line_at(depth, format_args!("Spacer(minLength: 0)"));
+            if let Some(width) = width {
+                match width {
+                    Dimension::Fixed(value) => {
+                        out.line_at(depth, format_args!(".frame(width: {})", number(*value)))
+                    }
+                    Dimension::ScreenWidthFraction(fraction) => out.line_at(
+                        depth,
+                        format_args!(
+                            ".frame(width: UIScreen.main.bounds.width * {})",
+                            number(*fraction)
+                        ),
+                    ),
+                    Dimension::Fill => {
+                        out.line_at(depth, format_args!(".frame(maxWidth: .infinity)"))
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(height) = height {
+                match height {
+                    Dimension::Fixed(value) => {
+                        out.line_at(depth, format_args!(".frame(height: {})", number(*value)))
+                    }
+                    Dimension::ScreenHeightFraction(fraction) => out.line_at(
+                        depth,
+                        format_args!(
+                            ".frame(height: UIScreen.main.bounds.height * {})",
+                            number(*fraction)
+                        ),
+                    ),
+                    Dimension::Fill => {
+                        out.line_at(depth, format_args!(".frame(maxHeight: .infinity)"))
+                    }
+                    _ => {}
+                }
+            }
+        }
         Node::Layout {
             kind,
-            spacing,
+            gap,
             style,
             children,
         } => {
             if contains_custom_widget_node(children) {
-                render_widget_layout(
-                    *kind, *spacing, style, children, module, features, depth, out,
-                );
+                render_widget_layout(*kind, *gap, style, children, module, features, depth, out);
             } else {
                 components::layout::render_layout(
                     *kind,
-                    *spacing,
+                    *gap,
                     style,
                     children,
                     &components::RenderScope { module, features },
@@ -1152,9 +1262,6 @@ fn render_widget_layout(
         }
     }
     out.line_at(depth, format_args!("}}"));
-    if let Some(value) = style.padding {
-        out.line_at(depth, format_args!(".padding({value})"));
-    }
     if style.min_width.is_some()
         || style.max_width.is_some()
         || style.min_height.is_some()
@@ -1164,28 +1271,44 @@ fn render_widget_layout(
             depth,
             format_args!(
                 ".frame(minWidth: {}, maxWidth: {}, minHeight: {}, maxHeight: {})",
-                swift_optional_number(style.min_width),
-                swift_optional_number(style.max_width),
-                swift_optional_number(style.min_height),
-                swift_optional_number(style.max_height)
+                swift_optional_dimension(style.min_width, true, true),
+                swift_optional_dimension(style.max_width, true, false),
+                swift_optional_dimension(style.min_height, false, true),
+                swift_optional_dimension(style.max_height, false, false)
             ),
         );
     }
     if let Some(width) = style.width {
-        out.line_at(depth, format_args!(".frame(width: {width})"));
-    } else if let Some(fraction) = style.screen_width_fraction {
-        out.line_at(
-            depth,
-            format_args!(".frame(width: UIScreen.main.bounds.width * {fraction})"),
-        );
+        match width {
+            Dimension::Fixed(value) => {
+                out.line_at(depth, format_args!(".frame(width: {})", number(value)))
+            }
+            Dimension::ScreenWidthFraction(fraction) => out.line_at(
+                depth,
+                format_args!(
+                    ".frame(width: UIScreen.main.bounds.width * {})",
+                    number(fraction)
+                ),
+            ),
+            Dimension::Fill => out.line_at(depth, format_args!(".frame(maxWidth: .infinity)")),
+            _ => {}
+        }
     }
     if let Some(height) = style.height {
-        out.line_at(depth, format_args!(".frame(height: {height})"));
-    } else if let Some(fraction) = style.screen_height_fraction {
-        out.line_at(
-            depth,
-            format_args!(".frame(height: UIScreen.main.bounds.height * {fraction})"),
-        );
+        match height {
+            Dimension::Fixed(value) => {
+                out.line_at(depth, format_args!(".frame(height: {})", number(value)))
+            }
+            Dimension::ScreenHeightFraction(fraction) => out.line_at(
+                depth,
+                format_args!(
+                    ".frame(height: UIScreen.main.bounds.height * {})",
+                    number(fraction)
+                ),
+            ),
+            Dimension::Fill => out.line_at(depth, format_args!(".frame(maxHeight: .infinity)")),
+            _ => {}
+        }
     }
     if let Some(background) = style.background {
         out.line_at(
@@ -1207,10 +1330,37 @@ fn render_widget_layout(
     }
 }
 
-fn swift_optional_number(value: Option<f32>) -> String {
-    value
-        .map(|number| number.to_string())
-        .unwrap_or_else(|| "nil".to_owned())
+fn swift_optional_dimension(value: Option<Dimension>, width_axis: bool, minimum: bool) -> String {
+    value.map_or_else(
+        || "nil".to_owned(),
+        |dimension| match dimension {
+            Dimension::Fixed(value) => number(value),
+            Dimension::Fill if minimum => "0".to_owned(),
+            Dimension::Fill => ".infinity".to_owned(),
+            Dimension::ScreenWidthFraction(fraction) if width_axis => {
+                format!("UIScreen.main.bounds.width * {}", number(fraction))
+            }
+            Dimension::ScreenHeightFraction(fraction) if !width_axis => {
+                format!("UIScreen.main.bounds.height * {}", number(fraction))
+            }
+            _ => "nil".to_owned(),
+        },
+    )
+}
+
+fn swift_widget_insets(insets: &nexa_ir::EdgeInsets) -> String {
+    let value = |expression: Option<&Box<nexa_ir::Expr>>| {
+        expression
+            .map(|expression| format!("CGFloat({})", expressions::expression(expression)))
+            .unwrap_or_else(|| "0".to_owned())
+    };
+    format!(
+        "EdgeInsets(top: {}, leading: {}, bottom: {}, trailing: {})",
+        value(insets.top.as_ref()),
+        value(insets.leading.as_ref()),
+        value(insets.bottom.as_ref()),
+        value(insets.trailing.as_ref()),
+    )
 }
 
 fn swift_family(family: &WidgetFamily) -> &'static str {

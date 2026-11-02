@@ -695,7 +695,7 @@ fn fast_list_show_dividers_is_typed_and_reaches_both_native_backends() {
             let groups: Array<Array<String>> = [["First", "Second"], ["Third"]]
 
             body {
-                FastList(sections: groups, rowHeight: 48, spacing: 4, showDividers: true) { item, index, section in
+                FastList(sections: groups, rowHeight: 48, gap: 4, showDividers: true) { item, index, section in
                     Text(item)
                 }.sectionHeader {
                     Text("Section")
@@ -794,7 +794,7 @@ fn fast_list_page_snap_is_typed_and_requires_viewport_sized_vertical_rows() {
         r#"
         app InvalidPagedSpacing {
             body {
-                FastList(count: 3, pageSnap: true, spacing: 8) { index in
+                FastList(count: 3, pageSnap: true, gap: 8) { index in
                     Text(index)
                 }
             }
@@ -815,7 +815,7 @@ fn fast_list_auto_grid_uses_a_positive_minimum_cell_width() {
         r#"
         app ResponsiveVideoGrid {
             body {
-                FastList(count: 6, axis: AutoGrid(168), rowHeight: 220, spacing: 12) { index in
+                FastList(count: 6, axis: AutoGrid(168), rowHeight: 220, gap: 12) { index in
                     Text(index)
                 }
             }
@@ -836,7 +836,7 @@ fn fast_list_auto_grid_uses_a_positive_minimum_cell_width() {
             min_cell_width: 168
         }
     );
-    assert_eq!(common.spacing, 12.0);
+    assert_eq!(common.gap, 12.0);
     assert!(nexa_ir::facts::ModuleFacts::analyze(&module).ui.lists.grid);
 
     let invalid = compile(
@@ -857,7 +857,7 @@ fn fast_list_auto_grid_uses_a_positive_minimum_cell_width() {
         r#"
         app InvalidGridSpacing {
             body {
-                FastList(count: 6, axis: AutoGrid(168), spacing: -2) { index in
+                FastList(count: 6, axis: AutoGrid(168), gap: -2) { index in
                     Text(index)
                 }
             }
@@ -1916,7 +1916,7 @@ fn documented_fast_list_component_ref_example_compiles() {
             ]
 
             body {
-                Column(spacing: 8) {
+                Column(gap: 8) {
                     Button("Show the last order") {
                         queueRef.scrollToIndex(index: orders.count - 1)
                     }
@@ -1924,7 +1924,7 @@ fn documented_fast_list_component_ref_example_compiles() {
                         queueRef.scrollToTop()
                     }
                     FastList(orders, key: .id, ref: queueRef) { order, index in
-                        Row(spacing: 8) {
+                        Row(gap: 8) {
                             Text("\\(index + 1). \\(order.itemName)")
                             Spacer()
                             Text(order.status)
@@ -4673,14 +4673,14 @@ fn text_style_arguments_lower_to_native_text_style_fields() {
 
     assert!(matches!(
         &module.body[0],
-        Node::Text { value, style, .. }
+        Node::ViewInsets { padding: Some(_), child, .. }
+            if matches!(child.as_ref(), Node::Text { value, style, .. }
             if source_text(value) == Some("Hi")
                 && style.font_size == Some(18.0)
                 && style.font_weight == Some(nexa_ir::FontWeight::Bold)
                 && style.italic
                 && style.underline
-                && style.font_design == Some(nexa_ir::TextFontDesign::Rounded)
-                && style.padding == Some(12.0)
+                && style.font_design == Some(nexa_ir::TextFontDesign::Rounded))
     ));
 }
 

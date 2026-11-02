@@ -23,8 +23,8 @@ app ECommerceArchetype {
     state syncTask: TaskHandle? = null
 
     body {
-        Column(spacing: 12, padding: 16) {
-            Row(spacing: 8) {
+        Column(gap: 12, padding: 16) {
+            Row(gap: 8) {
                 Text("Nexa Market")
                 Spacer()
                 Button("Cart (\(cartCount))") {
@@ -36,7 +36,7 @@ app ECommerceArchetype {
             Text("Showing \(selectedCategory) products")
 
             FastList(count: products.count, axis: Grid(2), rowHeight: 240) { index in
-                Column(spacing: 6, padding: 8) {
+                Column(gap: 6, padding: 8) {
                     Image(url: productImages[index], description: "Product photo", scale: Fill)
                     Text(products[index])
                     Text(Number.formatCurrency(amount: prices[index], currencyCode: "EUR"))
@@ -73,7 +73,7 @@ app ECommerceArchetype {
             }
 
             BottomSheet(ref: cartSheetRef, detents: [0.5, 1.0]) {
-                Column(spacing: 12, padding: 20) {
+                Column(gap: 12, padding: 20) {
                     Text("Your cart")
                     Text("Items: \(cartCount)")
                     Button("Continue shopping") {

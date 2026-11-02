@@ -101,6 +101,26 @@ private func nexaFastListIsOverscrolling(_ scrollView: UIScrollView, horizontal:
     return offset < minimumOffset - 1 || offset > maximumOffset + 1
 }
 
+func nexaConfigureEdgeToEdgeScrollView(
+    _ scrollView: UIScrollView,
+    environment: EnvironmentValues,
+    reverseLayout: Bool = false
+) {
+    scrollView.contentInsetAdjustmentBehavior = .never
+    let padding = environment.nexaScrollContentPadding
+    let rtl = environment.layoutDirection == .rightToLeft
+    let insets = UIEdgeInsets(top: reverseLayout ? padding.bottom : padding.top,
+        left: rtl ? padding.trailing : padding.leading,
+        bottom: reverseLayout ? padding.top : padding.bottom, right: rtl ? padding.leading : padding.trailing)
+    let previous = scrollView.contentInset
+    guard previous != insets else { return }
+    let atTop = scrollView.contentOffset.y <= -previous.top + 1
+    let atLeading = scrollView.contentOffset.x <= -previous.left + 1
+    scrollView.contentInset = insets
+    if atTop { scrollView.contentOffset.y = -insets.top }
+    if atLeading { scrollView.contentOffset.x = -insets.left }
+}
+
 // <nexa:list-runtime-sectioned:begin>
 private let nexaFastSectionedCellReuseIdentifier = "NexaFastSectionedCell"
 private let nexaFastSectionedHeaderReuseIdentifier = "NexaFastSectionedHeader"
@@ -162,6 +182,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
 
     func makeUIView(context: Context) -> UITableView {
         let tableView = UITableView(frame: .zero, style: .plain)
+        nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment)
         tableView.separatorStyle = showDividers ? .singleLine : .none
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
@@ -208,6 +229,7 @@ private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIV
     }
 
     func updateUIView(_ tableView: UITableView, context: Context) {
+        nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment)
         let coordinator = context.coordinator
         let previousSectionCount = coordinator.sectionCount
         let previousSectionCounts = coordinator.sectionCounts
@@ -505,13 +527,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         tableView.isPagingEnabled = pageSnap
         tableView.isScrollEnabled = scrollEnabled
         tableView.alwaysBounceVertical = onRefresh != nil
-        if pageSnap || reverseLayout {
-            // A vertically flipped table view turns the system's automatic top
-            // inset into a leading offset inside the reversed content. That
-            // hides the first logical rows underneath Nexa's own screen header,
-            // while Compose LazyColumn does not add such an inset.
-            tableView.contentInsetAdjustmentBehavior = .never
-        }
+        nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment, reverseLayout: reverseLayout)
         if reverseLayout {
             tableView.transform = CGAffineTransform(scaleX: 1, y: -1)
         }
@@ -631,7 +647,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             ? CGAffineTransform(scaleX: 1, y: -1)
             : .identity
         tableView.isPagingEnabled = pageSnap
-        tableView.contentInsetAdjustmentBehavior = pageSnap || reverseLayout ? .never : .automatic
+        nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment, reverseLayout: reverseLayout)
         if pageSnap {
             coordinator.updatePageHeight(tableView.bounds.height, in: tableView)
         } else if previousPageSnap {
@@ -1349,6 +1365,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         layout.minimumLineSpacing = spacing
         layout.minimumInteritemSpacing = 0
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        nexaConfigureEdgeToEdgeScrollView(collectionView, environment: context.environment)
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
         nexaUpdateRefreshControl(
@@ -1400,6 +1417,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
+        nexaConfigureEdgeToEdgeScrollView(collectionView, environment: context.environment)
         let coordinator = context.coordinator
         let previousRowCount = coordinator.rowCount
         let previousItemExtent = coordinator.itemExtent
@@ -1982,6 +2000,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             ? NexaFastMasonryLayout(columns: columns, spacing: spacing)
             : nexaFastGridLayout(columns: columns, minCellWidth: minCellWidth, itemHeight: itemHeight, spacing: spacing)
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        nexaConfigureEdgeToEdgeScrollView(collectionView, environment: context.environment)
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
         nexaUpdateRefreshControl(
@@ -2016,6 +2035,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
+        nexaConfigureEdgeToEdgeScrollView(collectionView, environment: context.environment)
         let coordinator = context.coordinator
         let previousRowCount = coordinator.rowCount
         let previousScrollPosition = coordinator.scrollPosition
@@ -2911,6 +2931,7 @@ private final class NexaSwiftUIPageSnapCallbackState {
 @available(iOS 17.0, *)
 @MainActor
 private struct NexaSwiftUIPageSnapList<RowContent: View>: View {
+    @Environment(\.nexaScrollContentPadding) private var contentPadding
     let rowCount: Int
     let scrollPosition: Int?
     let scrollEnabled: Bool
@@ -2978,11 +2999,13 @@ private struct NexaSwiftUIPageSnapList<RowContent: View>: View {
                 ForEach(0..<rowCount, id: \.self) { index in
                     rowContent(index)
                         .frame(width: size.width, height: size.height, alignment: .topLeading)
+                        .environment(\.nexaScrollContentPadding, EdgeInsets())
                         .id(index)
                 }
             }
             .scrollTargetLayout()
         }
+        .contentMargins(.all, contentPadding, for: .scrollContent)
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $selectedPage, anchor: .top)
         .scrollDisabled(!scrollEnabled)

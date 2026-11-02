@@ -15,7 +15,7 @@ app ArchitectureExample {
     state completedReviews: Int32 = 2
 
     body {
-        Column(spacing: 8, padding: 16) {
+        Column(gap: 8, padding: 16) {
             Text("Reviews completed: \(completedReviews)")
             Button("Record a review") {
                 completedReviews = completedReviews + 1
@@ -124,7 +124,7 @@ Nexa **never emits `AnyView`**. Instead, component hierarchies and containers em
 
 ```swift
 // Emitted by Nexa: Preserves concrete structural identity
-VStack(alignment: .leading, spacing: 12) {
+VStack(alignment: .leading, gap: 12) {
     Text(item.title)
         .font(.headline)
     Text(item.subtitle)
@@ -193,7 +193,7 @@ component CounterCard(title: String, initialCount: Int32) {
     state count: Int32 = initialCount
 
     body {
-        Column(spacing: 8, padding: 16, background: "#F1F5F9", cornerRadius: 12) {
+        Column(gap: 8, padding: 16, background: "#F1F5F9", cornerRadius: 12) {
             Text(title, fontSize: 18, fontWeight: Bold)
             Text("Count: \(count)", fontSize: 14)
             Button("Increment") {
@@ -228,7 +228,7 @@ public struct CounterCard: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
+        VStack(gap: 8) {
             Text(title)
                 .font(.system(size: 18, weight: .bold))
             Text("Count: \(count)")

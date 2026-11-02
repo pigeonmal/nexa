@@ -43,19 +43,19 @@ pub const BUTTON_LARGE_HORIZONTAL_PADDING: u8 = 20;
 pub const BUTTON_LARGE_VERTICAL_PADDING: u8 = 12;
 /// Grouped Form geometry shared by the SwiftUI and Compose renderers.
 pub const FORM_SECTION_HORIZONTAL_INSET: u8 = 16;
-pub const FORM_SECTION_TOP_PADDING: u8 = 8;
-pub const FORM_SECTION_BOTTOM_PADDING: u8 = 20;
-/// Standalone Android Form inset that matches SwiftUI's native Form top margin.
-/// Navigation destinations suppress it because Scaffold already places content below the app bar.
-pub const ANDROID_FORM_CONTENT_TOP_INSET: u8 = 24;
+pub const FORM_SECTION_BOTTOM_PADDING: u8 = 12;
 pub const FORM_ROW_HORIZONTAL_INSET: u8 = 16;
-/// Shared baseline row size; content and explicit padding may expand it.
+/// Android section headings align with the row content inside the section surface.
+pub const FORM_SECTION_HEADER_INSET: u8 = FORM_ROW_HORIZONTAL_INSET;
+/// SwiftUI's inset-grouped Form adds four points to section headings relative to row content.
+pub const IOS_FORM_SECTION_HEADER_LEADING_CORRECTION: u8 = 4;
+/// SwiftUI Form row baseline; content and explicit padding may expand it.
 pub const FORM_ROW_MIN_HEIGHT: u8 = 56;
-/// Both native Form renderers use the same minimum row height.
-pub const ANDROID_FORM_ROW_MIN_HEIGHT: u8 = FORM_ROW_MIN_HEIGHT;
+/// Compose Forms use 50dp rows while preserving Android's 48dp interactive minimum.
+pub const ANDROID_FORM_ROW_MIN_HEIGHT: u8 = 50;
 /// Compose draws separators inside the rounded section surface, so this inset is local to a row.
 pub const FORM_DIVIDER_START_INSET: u8 = FORM_ROW_HORIZONTAL_INSET;
-pub const FORM_DIVIDER_END_INSET: u8 = 16;
+pub const FORM_DIVIDER_END_INSET: u8 = 20;
 pub const FORM_FOOTER_START_INSET: u8 = 16;
 pub const FORM_FOOTER_FONT_SIZE: u8 = 13;
 pub const FORM_LARGE_TITLE_TOP_PADDING: u8 = 20;
@@ -135,7 +135,7 @@ pub const NATIVE_LIST_ROW_HORIZONTAL_INSET: u8 = ANDROID_NATIVE_LIST_ROW_HORIZON
 pub const FORM_LIGHT_SECTION_ARGB: u32 = 0xFFFF_FFFF;
 pub const FORM_DARK_SECTION_ARGB: u32 = 0xFF1C_1C1E;
 pub const SYSTEM_SEPARATOR_LIGHT_ARGB: u32 = 0x493C_3C43;
-pub const SYSTEM_SEPARATOR_DARK_ARGB: u32 = 0xFF38_383A;
+pub const SYSTEM_SEPARATOR_DARK_ARGB: u32 = 0xFF40_4042;
 pub const FORM_SWITCH_OFF_TRACK_ARGB: u32 = 0xFF5E_5E62;
 /// Shared gap between a system icon and its adjacent label.
 pub const ICON_LABEL_SPACING: u8 = 8;

@@ -11,7 +11,7 @@ use nexa_ir::walk::IrFolder;
 use nexa_ir::{Action, Expr, Function, Module, Node, State, walk};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 77;
+pub const DEV_IR_FORMAT_VERSION: u16 = 79;
 
 /// Template token for native DevRuntime schemas. Native hosts receive this
 /// value from the same constant used to encode and validate Dev IR modules.
@@ -324,6 +324,138 @@ fn escape_pointer_segment(segment: &str) -> String {
     segment.replace('~', "~0").replace('/', "~1")
 }
 
+pub fn unescape_pointer_segment(segment: &str) -> String {
+    segment.replace("~1", "/").replace("~0", "~")
+}
+
+/// Applies a `DevModulePatch` to a JSON representation of a module in-place.
+pub fn apply_patch(target: &mut serde_json::Value, patch: &DevModulePatch) -> Result<(), String> {
+    for op in &patch.operations {
+        apply_operation(target, op)?;
+    }
+    Ok(())
+}
+
+/// Applies a single `JsonPatchOperation` to a target JSON value.
+pub fn apply_operation(
+    root: &mut serde_json::Value,
+    op: &JsonPatchOperation,
+) -> Result<(), String> {
+    if op.path.is_empty() {
+        if let (JsonPatchKind::Set, Some(val)) = (&op.op, &op.value) {
+            *root = val.clone();
+            return Ok(());
+        }
+        return Err("invalid root operation".to_string());
+    }
+
+    if !op.path.starts_with('/') {
+        return Err(format!("JSON pointer must start with '/': {}", op.path));
+    }
+
+    let tokens: Vec<String> = op.path[1..]
+        .split('/')
+        .map(unescape_pointer_segment)
+        .collect();
+
+    if tokens.is_empty() {
+        return Err("empty tokens in pointer".to_string());
+    }
+
+    let (parent_tokens, last_token) = tokens.split_at(tokens.len() - 1);
+    let mut current = root;
+    for token in parent_tokens {
+        match current {
+            serde_json::Value::Object(map) => {
+                current = map
+                    .get_mut(token)
+                    .ok_or_else(|| format!("path segment not found: {} in {}", token, op.path))?;
+            }
+            serde_json::Value::Array(arr) => {
+                let idx: usize = token
+                    .parse()
+                    .map_err(|_| format!("invalid array index {} in {}", token, op.path))?;
+                current = arr
+                    .get_mut(idx)
+                    .ok_or_else(|| format!("array index out of bounds: {} in {}", idx, op.path))?;
+            }
+            _ => {
+                return Err(format!(
+                    "cannot traverse through primitive at segment {}",
+                    token
+                ));
+            }
+        }
+    }
+
+    let target_key = &last_token[0];
+    match op.op {
+        JsonPatchKind::Set => {
+            let val = op
+                .value
+                .clone()
+                .ok_or_else(|| "missing value for set".to_string())?;
+            match current {
+                serde_json::Value::Object(map) => {
+                    map.insert(target_key.clone(), val);
+                }
+                serde_json::Value::Array(arr) => {
+                    if target_key == "-" {
+                        arr.push(val);
+                    } else {
+                        let idx: usize = target_key.parse().map_err(|_| {
+                            format!("invalid array index {} in {}", target_key, op.path)
+                        })?;
+                        if idx < arr.len() {
+                            arr[idx] = val;
+                        } else if idx == arr.len() {
+                            arr.push(val);
+                        } else {
+                            return Err(format!(
+                                "array index out of bounds for set: {} (len {})",
+                                idx,
+                                arr.len()
+                            ));
+                        }
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "cannot set property on non-container at {}",
+                        op.path
+                    ));
+                }
+            }
+        }
+        JsonPatchKind::Remove => match current {
+            serde_json::Value::Object(map) => {
+                map.remove(target_key);
+            }
+            serde_json::Value::Array(arr) => {
+                let idx: usize = target_key
+                    .parse()
+                    .map_err(|_| format!("invalid array index {} in {}", target_key, op.path))?;
+                if idx < arr.len() {
+                    arr.remove(idx);
+                } else {
+                    return Err(format!(
+                        "array index out of bounds for remove: {} (len {})",
+                        idx,
+                        arr.len()
+                    ));
+                }
+            }
+            _ => {
+                return Err(format!(
+                    "cannot remove property from non-container at {}",
+                    op.path
+                ));
+            }
+        },
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StableIdentity {
     pub id: String,
@@ -464,12 +596,10 @@ impl IrFolder for DevSourceOffsetStripper {
 fn strip_source_offsets(module: &mut Module, change_hint: Option<&DevModuleChangeHint>) {
     let mut folder = DevSourceOffsetStripper;
 
-    let unchanged_funcs: Option<HashSet<usize>> = change_hint.map(|hint| {
-        hint.unchanged_function_indices.iter().copied().collect()
-    });
-    let unchanged_screens: Option<HashSet<usize>> = change_hint.map(|hint| {
-        hint.unchanged_screen_indices.iter().copied().collect()
-    });
+    let unchanged_funcs: Option<HashSet<usize>> =
+        change_hint.map(|hint| hint.unchanged_function_indices.iter().copied().collect());
+    let unchanged_screens: Option<HashSet<usize>> =
+        change_hint.map(|hint| hint.unchanged_screen_indices.iter().copied().collect());
 
     for (index, function) in module.functions.iter_mut().enumerate() {
         if let Some(unchanged) = &unchanged_funcs
@@ -584,7 +714,7 @@ fn collect_nodes(identities: &mut Vec<StableIdentity>, parent: &str, nodes: &[No
 
 fn node_kind(node: &Node) -> &'static str {
     match node {
-        Node::SafeAreaPadding { .. } => "SafeAreaPadding",
+        Node::ViewInsets { .. } => "ViewInsets",
         Node::SafeAreaInset { .. } => "SafeAreaInset",
         Node::ScrollHeader { .. } => "ScrollHeader",
         Node::StatusBar { .. } => "StatusBar",
@@ -646,8 +776,7 @@ fn node_kind(node: &Node) -> &'static str {
 
 fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
     match node {
-        Node::SafeAreaPadding { children, .. }
-        | Node::Appearance { children, .. }
+        Node::Appearance { children, .. }
         | Node::Layout { children, .. }
         | Node::Form { children, .. }
         | Node::FormSection { children, .. }
@@ -660,6 +789,9 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
         | Node::Dialog { children, .. }
         | Node::ConfirmationDialog { children, .. }
         | Node::RefreshControl { children, .. } => vec![("body".to_owned(), children)],
+        Node::ViewInsets { child, .. } => {
+            vec![("body".to_owned(), std::slice::from_ref(child.as_ref()))]
+        }
         Node::SafeAreaInset {
             content, children, ..
         } => vec![

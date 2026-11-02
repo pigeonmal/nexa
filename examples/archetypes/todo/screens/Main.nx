@@ -9,17 +9,17 @@ screen Main {
     if showingOnboarding {
         PagePager(selected: currentOnboardingPage) {
             Tab(index: 0) {
-                Column(spacing: 32, padding: 16, alignment: Center) {
+                Column(gap: 32, padding: 16, alignment: Center) {
                     Spacer()
                     Icon(system: "checklist", size: 80, tint: themeTint(selectedTheme), description: "")
-                    Column(spacing: 12, alignment: Center) {
+                    Column(gap: 12, alignment: Center) {
                         Text("Welcome to ToDoList", alignment: Center, fontSize: 28, fontWeight: Bold)
                         Row(padding: 16) {
                             Text("A simple, beautiful way to manage your tasks and stay organized.", alignment: Center, fontSize: 17, color: "#8E8E93")
                         }
                     }
                     Spacer()
-                    Column(spacing: 12) {
+                    Column(gap: 12) {
                         Button("Continue", style: BorderedProminent, size: Large, tint: themeTint(selectedTheme)) {
                             currentOnboardingPage = 1
                         }
@@ -29,17 +29,17 @@ screen Main {
                 }
             }
             Tab(index: 1) {
-                Column(spacing: 32, padding: 16, alignment: Center) {
+                Column(gap: 32, padding: 16, alignment: Center) {
                     Spacer()
                     Icon(system: "notifications_active", size: 80, tint: themeTint(selectedTheme), description: "")
-                    Column(spacing: 12, alignment: Center) {
+                    Column(gap: 12, alignment: Center) {
                         Text("Stay on Track", alignment: Center, fontSize: 28, fontWeight: Bold)
                         Row(padding: 16) {
                             Text("Enable notifications to get reminded about your tasks and never miss a deadline.", alignment: Center, fontSize: 17, color: "#8E8E93")
                         }
                     }
                     Spacer()
-                    Column(spacing: 12) {
+                    Column(gap: 12) {
                         Button("Enable Notifications", style: BorderedProminent, size: Large, tint: themeTint(selectedTheme)) {
                             Task.launch(handle: notificationTask, executor: TaskExecutor.Main) {
                                 await Permissions.request(permission: Notifications)
@@ -55,17 +55,17 @@ screen Main {
                 }
             }
             Tab(index: 2) {
-                Column(spacing: 32, padding: 16, alignment: Center) {
+                Column(gap: 32, padding: 16, alignment: Center) {
                     Spacer()
                     Icon(system: "check_circle", size: 80, tint: themeTint(selectedTheme), description: "")
-                    Column(spacing: 12, alignment: Center) {
+                    Column(gap: 12, alignment: Center) {
                         Text("You're All Set!", alignment: Center, fontSize: 28, fontWeight: Bold)
                         Row(padding: 16) {
                             Text("Start adding tasks and take control of your day.", alignment: Center, fontSize: 17, color: "#8E8E93")
                         }
                     }
                     Spacer()
-                    Column(spacing: 12) {
+                    Column(gap: 12) {
                         Button("Get Started", style: BorderedProminent, size: Large, tint: themeTint(selectedTheme)) {
                             Storage.setString("onboarding.launchedBefore", "true")
                             showingOnboarding = false
@@ -81,7 +81,7 @@ screen Main {
             Column {
                 AppBottomBar(selected: selectedTab, tint: themeTint(selectedTheme)) {
                     Tab(index: 0, label: "Inbox", icon: "inbox", title: "Inbox", largeTitle: true) {
-                        Column(spacing: 8) {
+                        Column(gap: 8) {
                             Toolbar(placement: Trailing) {
                                 Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
                                 NavigationLink(destination: Completed) {
@@ -108,7 +108,7 @@ screen Main {
                                 FastList(todoSort(todoFilter(tasks, 0, ""), sortSelection), key:.id) {
                                     task, index in
                                     TaskListRow() {
-                                        Row(spacing: 12) {
+                                        Row(gap: 12) {
                                             if task.isCompleted {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
@@ -137,7 +137,7 @@ screen Main {
                                                 }
                                             }.transition(.scale)
                                             Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
-                                                Row(spacing: 12) {
+                                                Row(gap: 12) {
                                                     TaskRowContent(task: task)
                                                     Spacer()
                                                 }
@@ -208,7 +208,7 @@ screen Main {
                         }
                     }
                     Tab(index: 1, label: "Today", icon: "sun", title: "Today", largeTitle: true) {
-                        Column(spacing: 8) {
+                        Column(gap: 8) {
                             Toolbar(placement: Trailing) {
                                 Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
                                 NavigationLink(destination: Completed) {
@@ -235,7 +235,7 @@ screen Main {
                                 FastList(todoSort(todoFilter(tasks, 1, ""), sortSelection), key:.id) {
                                     task, index in
                                     TaskListRow() {
-                                        Row(spacing: 12) {
+                                        Row(gap: 12) {
                                             if task.isCompleted {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
@@ -264,7 +264,7 @@ screen Main {
                                                 }
                                             }.transition(.scale)
                                             Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
-                                                Row(spacing: 12) {
+                                                Row(gap: 12) {
                                                     TaskRowContent(task: task)
                                                     Spacer()
                                                 }
@@ -335,7 +335,7 @@ screen Main {
                         }
                     }
                     Tab(index: 2, label: "Upcoming", icon: "calendar", title: "Upcoming", largeTitle: true) {
-                        Column(spacing: 8) {
+                        Column(gap: 8) {
                             Toolbar(placement: Trailing) {
                                 Picker(items: TodoOptions.sortOptions, selected: sortSelection, icon: "sort", accessibilityLabel: "Sort", accessibilityValue: sortSelection)
                                 NavigationLink(destination: Completed) {
@@ -364,7 +364,7 @@ screen Main {
                                 }, key:.id) {
                                     task, index, section in
                                     TaskListRow() {
-                                        Row(spacing: 12) {
+                                        Row(gap: 12) {
                                             if task.isCompleted {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
@@ -393,7 +393,7 @@ screen Main {
                                                 }
                                             }.transition(.scale)
                                             Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
-                                                Row(spacing: 12) {
+                                                Row(gap: 12) {
                                                     TaskRowContent(task: task)
                                                     Spacer()
                                                 }
@@ -462,7 +462,7 @@ screen Main {
                             Section {
                                 Picker(items: TodoOptions.startPageOptions, selected: startPageSelection, icon: "star", label: "Start Page")
                                 NavigationLink(destination: Theme) {
-                                    Row(spacing: 8) {
+                                    Row(gap: 8) {
                                         Icon(system: "palette", size: 20, tint: themeTint(selectedTheme), description: "")
                                         Text("Theme")
                                         Spacer()
@@ -541,7 +541,7 @@ screen Main {
                                 }
                             }
                             Section {
-                                Row(spacing: 8) {
+                                Row(gap: 8) {
                                     Button("System", style: Bordered, disabled: appearanceMode == "system") {
                                         appearanceMode = "system"
                                         Storage.setString("settings.appearance", "system")
@@ -559,7 +559,7 @@ screen Main {
                         }
                     }
                     Tab(index: 4, label: "Search", icon: "search", role: "search", title: "Search", largeTitle: true, searchable: searchQuery, searchPrompt: "Search tasks...") {
-                        Column(spacing: 8) {
+                        Column(gap: 8) {
                             if searchQuery == "" {
                                 ContentUnavailable(title: "Search Tasks", icon: "search", description: "Search across all your tasks")
                             } else if todoFilter(tasks, 4, searchQuery).isEmpty {
@@ -568,7 +568,7 @@ screen Main {
                                 FastList(todoSort(todoFilter(tasks, 4, searchQuery), sortSelection), key:.id) {
                                     task, index in
                                     TaskListRow() {
-                                        Row(spacing: 12) {
+                                        Row(gap: 12) {
                                             if task.isCompleted {
                                                 Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                                                     Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
@@ -597,7 +597,7 @@ screen Main {
                                                 }
                                             }.transition(.scale)
                                             Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
-                                                Row(spacing: 12) {
+                                                Row(gap: 12) {
                                                     TaskRowContent(task: task)
                                                     Spacer()
                                                 }
@@ -664,7 +664,7 @@ screen Main {
                     if showingDatePicker {
                         Column {
                             Text("Pick Date", fontSize: 20, fontWeight: Semibold)
-                            Row(spacing: 8) {
+                            Row(gap: 8) {
                                 Button("Cancel", style: Borderless) {
                                     showingDatePicker = false
                                 }
@@ -687,9 +687,9 @@ screen Main {
                         }
                     } else {
                         KeyboardAware {
-                            Column(spacing: 12, padding: 16) {
+                            Column(gap: 12, padding: 16) {
                                 Text("Task details", fontSize: 20, fontWeight: Semibold)
-                                Row(spacing: 12, alignment: Center) {
+                                Row(gap: 12, alignment: Center) {
                                     Picker(items: ["None", "Highest", "High", "Normal", "Low"], selected: priority, icon: "flag_filled", tint: priority == "None"?"#8E8E93": taskPriorityTint(priority), accessibilityLabel: "Priority", accessibilityValue: priority)
                                     Spacer()
                                     Button("", icon: "submit", style: Plain, size: Large, accessibilityLabel: "Save task", disabled: taskTitle.trimmed == "") {
@@ -740,7 +740,7 @@ screen Main {
                                     }
                                 }
                                 if dateMatchLabel(detectedDate) != "" &&!hasDueDate &&!dateSuggestionDismissed {
-                                    Row(spacing: 8, padding: 12, background: "#F5EDFF", cornerRadius: 18) {
+                                    Row(gap: 8, padding: 12, background: "#F5EDFF", cornerRadius: 18) {
                                         Icon(system: "star", size: 16, tint: "#8E44AD", description: "")
                                         SuggestedDateLabel(label: dateMatchLabel(detectedDate))
                                         Spacer()
@@ -764,7 +764,7 @@ screen Main {
                                 TextInput(value: taskDescription, placeholder: "Description", multiline: true, maxLength: 1200, font: Body, minLines: 1, maxLines: 3)
                                 FastList(count: 1, axis: Horizontal) {
                                     index in
-                                    Row(spacing: 8) {
+                                    Row(gap: 8) {
                                             Button("Today", icon: "calendar", style: Bordered, shape: Capsule, tint: isTodoTodaySelected(hasDueDate, dueTimestamp)?"#20BF6B": "#8E8E93", accessibilityLabel: "Today", accessibilityValue: isTodoTodaySelected(hasDueDate, dueTimestamp)?"Selected": "") {
                                                 hasDueDate = true
                                                 dueTimestamp = todoTodayStart()
@@ -804,7 +804,7 @@ screen Main {
                                             }
                                     }
                                 }
-                                Row(spacing: 8) {
+                                Row(gap: 8) {
                                     Spacer()
                                     Button(taskCommentButtonLabel(tasks, editingID), icon: "comment", style: Bordered) {
                                         if editingID < 0 {
@@ -850,7 +850,7 @@ screen Main {
 
                 BottomSheet(ref: commentsSheetRef, detents: [0.5, 1.0]) {
                     Column {
-                        Row(spacing: 8, alignment: Center) {
+                        Row(gap: 8, alignment: Center) {
                             Text("Comments", fontSize: 20, fontWeight: Semibold)
                             Spacer()
                             Button("Done", style: Borderless) {
@@ -874,7 +874,7 @@ screen Main {
                     if addingReminder {
                         Column {
                             Text("Add Reminder", fontSize: 20, fontWeight: Semibold)
-                            Row(spacing: 12, alignment: Center) {
+                            Row(gap: 12, alignment: Center) {
                                 Button("Cancel", style: Borderless) {
                                     addingReminder = false
                                     reminderStatus = ""
@@ -938,7 +938,7 @@ screen Main {
                         }
                     } else {
                         Column {
-                            Row(spacing: 12, alignment: Center) {
+                            Row(gap: 12, alignment: Center) {
                                 Button("Back", icon: "back", style: Borderless) {
                                     Task.launch(executor: TaskExecutor.Main) {
                                         tasks = await todoPersistence.loadTasks()
@@ -962,7 +962,7 @@ screen Main {
                                 }
                             }
                             if activeTaskReminders(reminders, selectedTaskID).isEmpty {
-                                Column(spacing: 8, padding: 32, alignment: Center) {
+                                Column(gap: 8, padding: 32, alignment: Center) {
                                     Icon(system: "notifications", size: 36, tint: "#8E8E93", description: "")
                                     Text("No reminders", fontSize: 20)
                                     Text("Tap + to add a reminder", fontSize: 16, color: "#8E8E93")
@@ -972,8 +972,8 @@ screen Main {
                                     reminder - > reminder.timestamp
                                 }) {
                                     reminder, index in
-                                    Row(spacing: 8, padding: 8) {
-                                        Column(spacing: 4, accessibilityLabel: reminderAccessibilityLabel(reminder)) {
+                                    Row(gap: 8, padding: 8) {
+                                        Column(gap: 4, accessibilityLabel: reminderAccessibilityLabel(reminder)) {
                                             Text(Time.format(reminder.timestamp, "d MMM, HH:mm"))
                                             if reminder.title != "" {
                                                 Text(reminder.title, fontSize: 14, color: "#8E8E93")

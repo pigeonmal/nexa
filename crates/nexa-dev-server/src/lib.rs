@@ -55,6 +55,7 @@ struct SharedState {
     clients: HashMap<u64, Client>,
     performance_overlay_enabled: bool,
     runtime_trace_enabled: bool,
+    frame_fence_enabled: bool,
 }
 
 /// Owns a local development server and its ephemeral authorization token.
@@ -362,6 +363,20 @@ impl DevServer {
             let _ = broadcast(&mut state, None, message);
         }
     }
+
+    /// Enable or disable the test-only presented-frame fence.
+    ///
+    /// The fence never carries production payload: it is a harness handshake
+    /// that tells the native host to report the revision of a frame it has
+    /// actually rendered, so capture tooling never reads a stale frame after a
+    /// module acknowledgement.
+    pub fn set_frame_fence(&self, enabled: bool) {
+        let message = ServerMessage::FrameFence { enabled };
+        if let Ok(mut state) = self.state.lock() {
+            state.frame_fence_enabled = enabled;
+            let _ = broadcast(&mut state, None, message);
+        }
+    }
 }
 
 impl Drop for DevServer {
@@ -441,6 +456,7 @@ fn serve_client(
                     protocol_version,
                     session_token: supplied_token,
                     target,
+                    ..
                 }) => {
                     let version_ok = protocol_version == PROTOCOL_VERSION;
                     let token_ok = token_matches(&session_token, &supplied_token);
@@ -495,7 +511,13 @@ fn serve_client(
     eprintln!("Nexa dev client connected for {target:?}");
 
     let (updates_tx, updates_rx) = mpsc::channel::<Arc<ClientUpdate>>();
-    let (module, diagnostics, performance_overlay_enabled, runtime_trace_enabled) = {
+    let (
+        module,
+        diagnostics,
+        performance_overlay_enabled,
+        runtime_trace_enabled,
+        frame_fence_enabled,
+    ) = {
         let Ok(mut shared) = state.lock() else {
             let _ = websocket.close(None);
             return;
@@ -533,6 +555,7 @@ fn serve_client(
             shared.diagnostics.get(&target).cloned().unwrap_or_default(),
             shared.performance_overlay_enabled,
             shared.runtime_trace_enabled,
+            shared.frame_fence_enabled,
         )
     };
 
@@ -569,6 +592,12 @@ fn serve_client(
             &ServerMessage::RuntimeTrace { enabled: true },
         )
         .is_err()
+    {
+        unregister(&state, client_id);
+        return;
+    }
+    if frame_fence_enabled
+        && send(&mut websocket, &ServerMessage::FrameFence { enabled: true }).is_err()
     {
         unregister(&state, client_id);
         return;
@@ -629,6 +658,12 @@ fn serve_client(
                             elapsed.map_or_else(String::new, |millis| format!(" in {millis} ms"))
                         );
                     }
+                }
+                Ok(ClientMessage::FramePresented { revision, frame_id }) => {
+                    println!(
+                        "Nexa {} dev runtime presented frame {frame_id} for {revision}.",
+                        target_name(target)
+                    );
                 }
                 Ok(ClientMessage::RequestFullModule) => {
                     let module = state.lock().ok().and_then(|shared| {

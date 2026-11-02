@@ -2,6 +2,28 @@ import Foundation
 import SwiftUI
 import UIKit
 
+private enum NexaDevDimension: Equatable {
+    case fixed(CGFloat)
+    case parentFraction(CGFloat)
+    case fill
+    case screenWidthFraction(CGFloat)
+    case screenHeightFraction(CGFloat)
+}
+
+private func nexaDevDimension(_ raw: Any?) -> NexaDevDimension? {
+    if let value = raw as? NSNumber { return .fixed(CGFloat(value.doubleValue)) }
+    if let value = raw as? String, value == "Fill" { return .fill }
+    guard let tagged = raw as? [String: Any], let (kind, payload) = tagged.first else { return nil }
+    let value = (payload as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+    switch kind {
+    case "Fixed": return .fixed(value)
+    case "ParentFraction": return .parentFraction(value)
+    case "ScreenWidthFraction": return .screenWidthFraction(value)
+    case "ScreenHeightFraction": return .screenHeightFraction(value)
+    default: return nil
+    }
+}
+
 private func nexaDevContainsNativeScrollOwner(_ nodes: [Any]) -> Bool {
     for value in nodes {
         guard let node = value as? [String: Any],
@@ -1223,7 +1245,7 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
         tableView.delegate = coordinator
         tableView.isPagingEnabled = true
         tableView.isScrollEnabled = scrollEnabled
-        tableView.contentInsetAdjustmentBehavior = .never
+        nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment)
         tableView.separatorStyle = .none
         tableView.allowsSelection = false
         tableView.showsVerticalScrollIndicator = false
@@ -1236,6 +1258,7 @@ private struct NexaDevPageSnapList<RowContent: View>: UIViewRepresentable {
     }
 
     func updateUIView(_ tableView: UITableView, context: Context) {
+        nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment)
         let coordinator = context.coordinator
         let previousCount = coordinator.count
         let previousPosition = coordinator.scrollPosition
@@ -1491,6 +1514,7 @@ struct NexaDevNodeList: View {
     var rendersFormRows = false
     var appliesFormRowMetrics = false
     var formShowDividers = true
+    var firstFormSection = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.nexaSharedNamespace) private var nexaSharedNamespace
@@ -1500,6 +1524,8 @@ struct NexaDevNodeList: View {
     @Environment(\.nexaDevNavigationPath) private var navigationPath
     @Environment(\.nexaDevVisualSafeInsets) private var visualSafeInsets
     @Environment(\.nexaDevViewportSize) private var viewportSize
+    @Environment(\.nexaWindowMetrics) private var windowMetrics
+    @Environment(\.layoutDirection) private var layoutDirection
 
     var body: some View {
         NexaDevScopedRevisionView(revision: store.revisionObserver(for: stateScope)) {
@@ -1516,9 +1542,13 @@ struct NexaDevNodeList: View {
         var locals = stateDeclarations.map {
             store.bindings($0, parameters: parameters, scope: stateScope)
         } ?? store.locals(scope: stateScope, parameters: parameters)
-        locals["__nexa_screen_width"] = Double(viewportSize.width)
-        locals["__nexa_screen_height"] = Double(viewportSize.height)
-        locals["__nexa_safe_area_top"] = Double(visualSafeInsets.top)
+        locals["__nexa_screen_width"] = Double(windowMetrics.viewportSize.width)
+        locals["__nexa_screen_height"] = Double(windowMetrics.viewportSize.height)
+        let safeInsets = windowMetrics.safeInsets.logical(layoutDirection)
+        locals["__nexa_system_inset_top"] = Double(safeInsets.top)
+        locals["__nexa_system_inset_bottom"] = Double(safeInsets.bottom)
+        locals["__nexa_system_inset_leading"] = Double(safeInsets.leading)
+        locals["__nexa_system_inset_trailing"] = Double(safeInsets.trailing)
         if let navigationStackIdentity {
             locals["__nexa_navigation_stack_identity"] = navigationStackIdentity
         }
@@ -1544,7 +1574,13 @@ struct NexaDevNodeList: View {
                         renderNode(nodes[index], locals: locals, scope: stateScope, identity: "\(nodeIdentity)/\(index)")
                     }
                 } else {
-                    renderNode(nodes[index], locals: locals, scope: stateScope, identity: "\(nodeIdentity)/\(index)")
+                    renderNode(
+                        nodes[index],
+                        locals: locals,
+                        scope: stateScope,
+                        identity: "\(nodeIdentity)/\(index)",
+                        isFirstFormSection: firstFormSection && index == 0
+                    )
                 }
             }
         } else if nodes.count == 1 {
@@ -1562,10 +1598,17 @@ struct NexaDevNodeList: View {
         _ rawNode: Any,
         locals: [String: Any],
         scope: String,
-        identity: String
+        identity: String,
+        isFirstFormSection: Bool = false
     ) -> AnyView {
         AnyView(
-            renderNodeContent(rawNode, locals: locals, scope: scope, identity: identity)
+            renderNodeContent(
+                rawNode,
+                locals: locals,
+                scope: scope,
+                identity: identity,
+                isFirstFormSection: isFirstFormSection
+            )
                 .environment(\.nexaDevNodeIdentity, identity)
         )
     }
@@ -1574,7 +1617,10 @@ struct NexaDevNodeList: View {
         _ rawNode: Any,
         locals: [String: Any],
         scope: String,
-        identity: String
+        identity: String,
+        formContentPadding: EdgeInsets = .init(),
+        formMargin: EdgeInsets = .init(),
+        isFirstFormSection: Bool = false
     ) -> AnyView {
         let kind: String
         let fields: [String: Any]
@@ -1588,22 +1634,36 @@ struct NexaDevNodeList: View {
             return AnyView(EmptyView())
         }
         switch kind {
-        case "SafeAreaPadding":
-            let plan = fields["plan"] as? [String: Any] ?? [:]
-            var edges = Edge.Set()
-            for value in plan["edges"] as? [String] ?? [] {
-                switch value {
-                case "Top": edges.insert(.top)
-                case "Bottom": edges.insert(.bottom)
-                case "Leading": edges.insert(.leading)
-                case "Trailing": edges.insert(.trailing)
-                default: break
+        case "ViewInsets":
+            func resolvedInsets(_ raw: Any?) -> EdgeInsets {
+                let values = raw as? [String: Any] ?? [:]
+                func value(_ edge: String) -> CGFloat {
+                    guard let expression = values[edge], !(expression is NSNull) else { return 0 }
+                    return CGFloat((store.evaluate(expression, locals: locals, scope: scope) as? NSNumber)?.doubleValue ?? 0)
                 }
+                return EdgeInsets(top: value("top"), leading: value("leading"), bottom: value("bottom"), trailing: value("trailing"))
             }
-            let spacing = CGFloat(plan["spacing"] as? Double ?? 0)
-            let children = fields["children"] as? [Any] ?? []
-            return AnyView(NexaDevSafeAreaPaddingPrimitive(edges: edges, spacing: spacing) {
-                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
+            let child = fields["child"] ?? NSNull()
+            let padding = resolvedInsets(fields["padding"])
+            let margin = resolvedInsets(fields["margin"])
+            if let taggedChild = child as? [String: Any], taggedChild["Form"] != nil {
+                return renderNodeContent(
+                    child,
+                    locals: locals,
+                    scope: scope,
+                    identity: "\(identity)/form",
+                    formContentPadding: padding,
+                    formMargin: margin
+                )
+            }
+            return AnyView(NexaViewInsetsPrimitive(
+                padding: padding,
+                margin: margin,
+                scrollContent: (child as? [String: Any]).map { node in
+                    node["FastList"] != nil || node["KeyboardAware"] != nil || node["RefreshControl"] != nil
+                } ?? false
+            ) {
+                renderNode(child, locals: locals, scope: scope, identity: "\(identity)/insets")
             })
         case "SafeAreaInset":
             let plan = fields["plan"] as? [String: Any] ?? [:]
@@ -1613,7 +1673,6 @@ struct NexaDevNodeList: View {
             case "Trailing": .trailing
             default: .bottom
             }
-            let spacing = CGFloat(plan["spacing"] as? Double ?? 0)
             let scrollOwner = plan["scroll_owner"]
             let isUniqueOwner = (scrollOwner as? [String: Any])?["Unique"] != nil
             let accommodatesEndpoint = isUniqueOwner || (scrollOwner as? String) == "RouteHost"
@@ -1621,7 +1680,6 @@ struct NexaDevNodeList: View {
             let attached = fields["content"] as? [Any] ?? []
             return AnyView(NexaDevSafeAreaInsetPrimitive(
                 edge: edge,
-                spacing: spacing,
                 accommodatesEndpoint: accommodatesEndpoint
             ) {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
@@ -1655,16 +1713,36 @@ struct NexaDevNodeList: View {
             return AnyView(content.preferredColorScheme(mode == "dark" ? .dark : mode == "light" ? .light : nil))
         case "Form":
             let children = fields["children"] as? [Any] ?? []
+            let firstChildIsSection = (children.first as? [String: Any])?["FormSection"] != nil
             let showDividers = fields["show_dividers"] as? Bool ?? true
             let background = devColor(fields["background"], isDark: colorScheme == .dark)
-            return AnyView(NexaFormPrimitive(background: background) {
-                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true, appliesFormRowMetrics: true, formShowDividers: showDividers)
+            return AnyView(NexaFormPrimitive(
+                background: background,
+                contentPadding: formContentPadding,
+                margin: formMargin,
+                firstChildIsSection: firstChildIsSection
+            ) {
+                NexaDevNodeList(
+                    nodes: children,
+                    module: module,
+                    store: store,
+                    focusedField: focusedField,
+                    parameters: locals,
+                    stateScope: scope,
+                    rendersFormRows: true,
+                    appliesFormRowMetrics: true,
+                    formShowDividers: showDividers,
+                    firstFormSection: firstChildIsSection
+                )
             })
         case "FormSection":
             let children = fields["children"] as? [Any] ?? []
             let showDividers = fields["show_dividers"] as? Bool ?? formShowDividers
             let background = devColor(fields["background"], isDark: colorScheme == .dark)
-            let section = NexaFormSectionPrimitive(background: background, content: {
+            let section = NexaFormSectionPrimitive(
+                background: background,
+                isFirstSection: isFirstFormSection,
+                content: {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope, rendersFormRows: true, appliesFormRowMetrics: true, formShowDividers: showDividers)
             }, header: {
                 if let rawTitle = fields["title"], !(rawTitle is NSNull) {
@@ -1696,7 +1774,7 @@ struct NexaDevNodeList: View {
                 guard let node = rawNode as? [String: Any] else { return true }
                 return node.keys.first != "Toolbar" && node.keys.first != "BottomSheet"
             }
-            let spacing = fields["spacing"] as? Double ?? 0
+            let spacing = fields["gap"] as? Double ?? 0
             let style = fields["style"] as? [String: Any] ?? [:]
             let rawAlignment = fields["alignment"]
             let alignment = rawAlignment as? String
@@ -1789,36 +1867,65 @@ struct NexaDevNodeList: View {
                     })
                 }
             }
-            let width = style["width"] as? Double
-                ?? (style["screen_width_fraction"] as? Double).map { Double(UIScreen.main.bounds.width) * $0 }
-            let height = style["height"] as? Double
-                ?? (style["screen_height_fraction"] as? Double).map { Double(UIScreen.main.bounds.height) * $0 }
-            let minWidth = style["min_width"] as? Double
-            let maxWidth = style["max_width"] as? Double
-            let minHeight = style["min_height"] as? Double
-            let maxHeight = style["max_height"] as? Double
-            let fillMaxWidth = style["fill_max_width"] as? Bool ?? false
-            let fillMaxHeight = style["fill_max_height"] as? Bool ?? false
-            if width != nil || height != nil || minWidth != nil || maxWidth != nil || minHeight != nil || maxHeight != nil || fillMaxWidth || fillMaxHeight {
-                if minWidth != nil || maxWidth != nil || minHeight != nil || maxHeight != nil || fillMaxWidth || fillMaxHeight {
-                    styled = AnyView(styled.frame(
-                        minWidth: minWidth.map { CGFloat($0) } ?? (fillMaxWidth ? 0 : nil), maxWidth: maxWidth.map { CGFloat($0) } ?? (fillMaxWidth ? .infinity : nil),
-                        minHeight: minHeight.map { CGFloat($0) } ?? (fillMaxHeight ? 0 : nil), maxHeight: maxHeight.map { CGFloat($0) } ?? (fillMaxHeight ? .infinity : nil),
-                        alignment: frameAlignment
-                    ))
-                }
-                // Put the flexible range inside fixed dimensions. SwiftUI's flexible
-                // frame can expand to its proposal, otherwise overriding width/height.
-                if let width, let height {
-                    styled = AnyView(styled.frame(width: width, height: height, alignment: frameAlignment))
-                } else if let width {
-                    styled = AnyView(styled.frame(width: width, alignment: frameAlignment))
-                } else if let height {
-                    styled = AnyView(styled.frame(height: height, alignment: frameAlignment))
+            let widthDimension = nexaDevDimension(style["width"])
+            let heightDimension = nexaDevDimension(style["height"])
+            let minWidthDimension = nexaDevDimension(style["min_width"])
+            let maxWidthDimension = nexaDevDimension(style["max_width"])
+            let minHeightDimension = nexaDevDimension(style["min_height"])
+            let maxHeightDimension = nexaDevDimension(style["max_height"])
+            func boundValue(_ raw: NexaDevDimension?, widthAxis: Bool, minimum: Bool) -> CGFloat? {
+                guard let raw else { return nil }
+                switch raw {
+                case .fixed(let value): return value
+                case .fill: return minimum ? 0 : .infinity
+                case .screenWidthFraction(let fraction) where widthAxis: return windowMetrics.viewportSize.width * fraction
+                case .screenHeightFraction(let fraction) where !widthAxis: return windowMetrics.viewportSize.height * fraction
+                case .parentFraction, .screenWidthFraction, .screenHeightFraction: return nil
                 }
             }
+            func fixedSize(_ raw: NexaDevDimension?, widthAxis: Bool) -> CGFloat? {
+                guard let raw else { return nil }
+                switch raw {
+                case .fixed(let value): return value
+                case .screenWidthFraction(let fraction) where widthAxis: return windowMetrics.viewportSize.width * fraction
+                case .screenHeightFraction(let fraction) where !widthAxis: return windowMetrics.viewportSize.height * fraction
+                case .parentFraction, .fill, .screenWidthFraction, .screenHeightFraction: return nil
+                }
+            }
+            let minWidth = boundValue(minWidthDimension, widthAxis: true, minimum: true)
+                ?? (widthDimension == .fill ? 0 : nil)
+            let maxWidth = boundValue(maxWidthDimension, widthAxis: true, minimum: false)
+                ?? (widthDimension == .fill ? .infinity : nil)
+            let minHeight = boundValue(minHeightDimension, widthAxis: false, minimum: true)
+                ?? (heightDimension == .fill ? 0 : nil)
+            let maxHeight = boundValue(maxHeightDimension, widthAxis: false, minimum: false)
+                ?? (heightDimension == .fill ? .infinity : nil)
+            if minWidth != nil || maxWidth != nil || minHeight != nil || maxHeight != nil {
+                styled = AnyView(styled.frame(minWidth: minWidth, maxWidth: maxWidth, minHeight: minHeight, maxHeight: maxHeight, alignment: frameAlignment))
+            }
+            let width = fixedSize(widthDimension, widthAxis: true)
+            let height = fixedSize(heightDimension, widthAxis: false)
+            if let width, let height {
+                styled = AnyView(styled.frame(width: width, height: height, alignment: frameAlignment))
+            } else if let width {
+                styled = AnyView(styled.frame(width: width, alignment: frameAlignment))
+            } else if let height {
+                styled = AnyView(styled.frame(height: height, alignment: frameAlignment))
+            }
+            func parentFraction(_ raw: NexaDevDimension?) -> CGFloat? {
+                guard let raw, case .parentFraction(let value) = raw else { return nil }
+                return value
+            }
+            let parentWidth = parentFraction(widthDimension)
+            let parentHeight = parentFraction(heightDimension)
+            let parentMinWidth = parentFraction(minWidthDimension)
+            let parentMaxWidth = parentFraction(maxWidthDimension)
+            let parentMinHeight = parentFraction(minHeightDimension)
+            let parentMaxHeight = parentFraction(maxHeightDimension)
+            if parentWidth != nil || parentHeight != nil || parentMinWidth != nil || parentMaxWidth != nil || parentMinHeight != nil || parentMaxHeight != nil {
+                styled = AnyView(styled.modifier(NexaParentRelativeDimensionModifier(width: parentWidth, height: parentHeight, minWidth: parentMinWidth, maxWidth: parentMaxWidth, minHeight: parentMinHeight, maxHeight: parentMaxHeight)))
+            }
             if maxHeight != nil { styled = AnyView(styled.clipped()) }
-            if let padding = style["padding"] as? Double { styled = AnyView(styled.padding(padding)) }
             if let rawAnimation = style["animation"],
                !(rawAnimation is NSNull),
                let value = nexaDevAnimation(rawAnimation) {
@@ -2234,6 +2341,12 @@ struct NexaDevNodeList: View {
                 $0["name"] as? String == name
             }) else { return AnyView(EmptyView()) }
             var componentParameters: [String: Any] = [:]
+            if let navId = locals["__nexa_navigation_stack_identity"] {
+                componentParameters["__nexa_navigation_stack_identity"] = navId
+            }
+            if let entryId = locals["__nexa_navigation_entry_id"] {
+                componentParameters["__nexa_navigation_entry_id"] = entryId
+            }
             for argument in fields["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
                 guard let parameter = argument[0] as? String else { continue }
                 componentParameters[parameter] = store.evaluate(argument[1], locals: locals, scope: scope)
@@ -2667,7 +2780,7 @@ struct NexaDevNodeList: View {
             let sectionName = listFields["section"] as? String ?? "section"
             let children = listFields["children"] as? [Any] ?? []
             let itemExtent = listFields["item_extent"] as? Double
-            let spacing = listFields["spacing"] as? Double ?? 0
+            let spacing = listFields["gap"] as? Double ?? 0
             let scrollPositionName = listFields["scroll_position"] as? String
             let requestedIndex = scrollPositionName.flatMap { name in
                 (store.value(name, scope: scope) as? NSNumber)?.intValue
@@ -3142,7 +3255,7 @@ struct NexaDevNodeList: View {
             let state = fields["state"] as? String ?? ""
             let actions = fields["actions"] as? [Any] ?? []
             let children = fields["children"] as? [Any] ?? []
-            return AnyView(ScrollView(.vertical) {
+            return AnyView(NexaRefreshPrimitive(hasNativeScrollOwner: nexaDevContainsNativeScrollOwner(children)) {
                 NexaDevNodeList(
                     nodes: children,
                     module: module,
@@ -3257,19 +3370,11 @@ struct NexaDevNodeList: View {
             let behavior = fields["behavior"] as? String == "Avoid" ? "avoid" : "stay"
             let hasNativeScrollOwner = nexaDevContainsNativeScrollOwner(children)
             let renderedChildren = NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
-            if hasNativeScrollOwner {
-                let owner = renderedChildren.scrollDismissesKeyboard(dismissMode)
-                if behavior == "stay" {
-                    return AnyView(owner.ignoresSafeArea(.keyboard, edges: .bottom))
-                }
-                return AnyView(owner)
-            }
-            let scrollView = ScrollView(.vertical) { renderedChildren }
-                .scrollDismissesKeyboard(dismissMode)
-            if behavior == "stay" {
-                return AnyView(scrollView.ignoresSafeArea(.keyboard, edges: .bottom))
-            }
-            return AnyView(scrollView)
+            return AnyView(NexaKeyboardAwarePrimitive(
+                behavior: behavior == "stay" ? .stay : .avoid,
+                hasNativeScrollOwner: hasNativeScrollOwner,
+                dismissMode: dismissMode
+            ) { renderedChildren })
         case "AppBottomBar":
             let state = fields["state"] as? String ?? ""
             let tabs = fields["tabs"] as? [[String: Any]] ?? []
@@ -3424,6 +3529,23 @@ struct NexaDevNodeList: View {
                     activatesSearchTab: false
                 )))
             }
+            tabView = AnyView(tabView.onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NexaSelectTab"))) { note in
+                guard let target = (note.object as? String)?.lowercased() else { return }
+                for (index, tab) in tabs.enumerated() {
+                    let tag = tab["index"] as? Int ?? index
+                    let label = (tab["label"] as? String ?? "").lowercased().replacingOccurrences(of: " ", with: "_")
+                    let role = (tab["role"] as? String ?? "").lowercased()
+                    let matches = [
+                        "\(tag)", "tab_\(tag)", "tab\(tag)",
+                        "\(index)", "tab_\(index)", "tab\(index)",
+                        label, "tab_\(label)", role
+                    ].filter { !$0.isEmpty }
+                    if matches.contains(target) {
+                        selection.wrappedValue = tag
+                        break
+                    }
+                }
+            })
             if let customBar {
                 var barView: AnyView = tabView
                 if #available(iOS 18.0, *) {
@@ -3655,7 +3777,9 @@ struct NexaDevNodeList: View {
                 return (name, store.evaluate(expression, locals: locals, scope: scope))
             })
             let signature = NexaDevStateStore.canonicalSignature(parameters)
-            let route = store.navigationRoute(screen: screenName, values: argumentValues, signature: signature)
+            let navId = (locals["__nexa_navigation_stack_identity"] as? String)
+                ?? store.resolveNavigatorId(stackIdentity: nil, locals: locals, scope: scope)
+            let route = store.navigationRoute(screen: screenName, values: argumentValues, signature: signature, navigatorId: navId)
             return AnyView(NexaNavigationLinkPrimitive(value: route, enabled: enabled) {
                 NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             })
@@ -3701,11 +3825,10 @@ private struct NexaDevTabBarHiddenProbe: UIViewRepresentable {
 @MainActor
 private struct NexaDevNavigationBackSwipeModifier: ViewModifier {
     @Binding var path: [NexaDevRoute]
-    var onPop: (() -> Void)? = nil
 
     func body(content: Content) -> some View {
         content.background(
-            NexaDevNavigationBackGestureProbe(path: $path, onPop: onPop)
+            NexaDevNavigationBackGestureProbe(path: $path)
                 .frame(width: 1, height: 1)
                 .allowsHitTesting(false)
         )
@@ -3715,10 +3838,9 @@ private struct NexaDevNavigationBackSwipeModifier: ViewModifier {
 @MainActor
 private struct NexaDevNavigationBackGestureProbe: UIViewRepresentable {
     @Binding var path: [NexaDevRoute]
-    var onPop: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(path: $path, onPop: onPop)
+        Coordinator(path: $path)
     }
 
     func makeUIView(context: Context) -> ProbeView {
@@ -3729,7 +3851,6 @@ private struct NexaDevNavigationBackGestureProbe: UIViewRepresentable {
 
     func updateUIView(_ view: ProbeView, context: Context) {
         context.coordinator.path = $path
-        context.coordinator.onPop = onPop
         view.coordinator = context.coordinator
         view.installGesture()
     }
@@ -3737,12 +3858,9 @@ private struct NexaDevNavigationBackGestureProbe: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var path: Binding<[NexaDevRoute]>
-        var onPop: (() -> Void)?
-        private weak var edgeGesture: UIScreenEdgePanGestureRecognizer?
 
-        init(path: Binding<[NexaDevRoute]>, onPop: (() -> Void)? = nil) {
+        init(path: Binding<[NexaDevRoute]>) {
             self.path = path
-            self.onPop = onPop
         }
 
         func install(from view: UIView) {
@@ -3753,6 +3871,7 @@ private struct NexaDevNavigationBackGestureProbe: UIViewRepresentable {
                    let popGesture = navigationController.interactivePopGestureRecognizer {
                     popGesture.delegate = self
                     popGesture.isEnabled = true
+                    return
                 }
                 responder = current.next
             }
@@ -3760,32 +3879,6 @@ private struct NexaDevNavigationBackGestureProbe: UIViewRepresentable {
                 if let nav = findNavController(in: root) {
                     nav.interactivePopGestureRecognizer?.delegate = self
                     nav.interactivePopGestureRecognizer?.isEnabled = true
-                }
-            }
-            if let targetView = view.window ?? view.superview, edgeGesture == nil {
-                let isRTL = targetView.effectiveUserInterfaceLayoutDirection == .rightToLeft
-                let edge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleEdgePan(_:)))
-                edge.edges = isRTL ? .right : .left
-                edge.delegate = self
-                targetView.addGestureRecognizer(edge)
-                self.edgeGesture = edge
-            }
-        }
-
-        @objc private func handleEdgePan(_ recognizer: UIScreenEdgePanGestureRecognizer) {
-            guard !path.wrappedValue.isEmpty else { return }
-            if recognizer.state == .ended {
-                let velocity = recognizer.velocity(in: recognizer.view)
-                let translation = recognizer.translation(in: recognizer.view)
-                let isRTL = recognizer.view?.effectiveUserInterfaceLayoutDirection == .rightToLeft
-                let movedEnough = isRTL ? (translation.x < -30 || velocity.x < -200) : (translation.x > 30 || velocity.x > 200)
-                if movedEnough {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        if !path.wrappedValue.isEmpty {
-                            path.wrappedValue.removeLast()
-                        }
-                        onPop?()
-                    }
                 }
             }
         }
@@ -3803,11 +3896,14 @@ private struct NexaDevNavigationBackGestureProbe: UIViewRepresentable {
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            return !path.wrappedValue.isEmpty
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            return true
+            guard !path.wrappedValue.isEmpty else { return false }
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+                  let view = gestureRecognizer.view else { return true }
+            let velocity = pan.velocity(in: view)
+            let isLeadingEdgeSwipe = view.effectiveUserInterfaceLayoutDirection == .rightToLeft
+                ? velocity.x < 0
+                : velocity.x > 0
+            return isLeadingEdgeSwipe && abs(velocity.x) > abs(velocity.y)
         }
     }
 
@@ -3828,6 +3924,19 @@ private struct NexaDevNavigationBackGestureProbe: UIViewRepresentable {
     }
 }
 
+private struct NexaHideTabBarModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+                .toolbarVisibility(.hidden, for: .tabBar)
+                .toolbar(.hidden, for: .tabBar)
+        } else {
+            content
+                .toolbar(.hidden, for: .tabBar)
+        }
+    }
+}
+
 private struct NexaDevNavigationStackHostView: View {
     @ObservedObject var store: NexaDevStateStore
     let stackIdentity: String
@@ -3837,7 +3946,7 @@ private struct NexaDevNavigationStackHostView: View {
     let titleAlignment: String
     let rootContent: AnyView
     let screens: [[String: Any]]
-    let renderScreen: ([String: Any], [String: Any]) -> AnyView
+    let renderScreen: ([String: Any], [String: Any], String, String, String) -> AnyView
 
     var body: some View {
         let leadingTitle: Bool
@@ -3865,22 +3974,10 @@ private struct NexaDevNavigationStackHostView: View {
                     guard let destination = store.routeDestination(route),
                           let screen = screens.first(where: { $0["name"] as? String == destination.screen })
                     else { return AnyView(EmptyView()) }
-                    let screenContent = renderScreen(screen, destination.values)
+                    let scope = "navigator/\(route.navigatorId)/entry/\(route.entryId)/screen/\(destination.screen)"
+                    let screenContent = renderScreen(screen, destination.values, scope, route.entryId, route.navigatorId)
                         .environment(\.nexaDevNavigationPath, path)
                         .environment(\.nexaDevNavigationStackIdentity, stackIdentity)
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 20, coordinateSpace: .global)
-                                .onEnded { value in
-                                    guard !path.wrappedValue.isEmpty else { return }
-                                    let startedAtEdge = value.startLocation.x < 60
-                                    let swipedBack = value.translation.width > 40
-                                    if startedAtEdge && swipedBack {
-                                        withAnimation(.easeInOut(duration: 0.25)) {
-                                            popAction()
-                                        }
-                                    }
-                                }
-                        )
 
                     if showNavigationBar {
                         return AnyView(
@@ -3895,8 +3992,8 @@ private struct NexaDevNavigationStackHostView: View {
                     }
                     return AnyView(
                         screenContent
-                            .modifier(NexaDevNavigationBackSwipeModifier(path: path, onPop: popAction))
                             .toolbar(.hidden, for: .navigationBar)
+                            .modifier(NexaHideTabBarModifier())
                             .ignoresSafeArea(.container, edges: .all)
                     )
                 }
@@ -3904,42 +4001,27 @@ private struct NexaDevNavigationStackHostView: View {
         .environment(\.nexaDevNavigationPath, path)
         .environment(\.nexaDevNavigationStackIdentity, stackIdentity)
 
-        let backSwipeGesture = DragGesture(minimumDistance: 20, coordinateSpace: .global)
-            .onEnded { value in
-                guard !path.wrappedValue.isEmpty else { return }
-                let screenWidth = UIScreen.main.bounds.width
-                let startedAtEdge = value.startLocation.x < 60
-                let swipedBack = value.translation.width > 40
-                if startedAtEdge && swipedBack {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        popAction()
-                    }
-                }
+        let styledStack = stack
+            .onOpenURL { url in
+                store.handleDeepLink(url: url, screens: screens, stackIdentity: stackIdentity)
             }
-
-        let interactiveStack = stack.simultaneousGesture(backSwipeGesture)
+            .modifier(NexaDevNavigationBackSwipeModifier(path: path))
 
         if !showNavigationBar {
             return AnyView(
-                interactiveStack
-                    .modifier(NexaDevNavigationBackSwipeModifier(path: path, onPop: popAction))
+                styledStack
                     .toolbar(.hidden, for: .navigationBar)
-                    .background(Color(red: 15/255.0, green: 15/255.0, blue: 15/255.0).ignoresSafeArea())
+                    .modifier(NexaHideTabBarModifier())
                     .ignoresSafeArea(.container, edges: .all)
             )
         } else if !hasRootToolbar {
             return AnyView(
-                interactiveStack
-                    .modifier(NexaDevNavigationBackSwipeModifier(path: path, onPop: popAction))
+                styledStack
                     .toolbar(.hidden, for: .navigationBar)
-                    .background(Color(red: 15/255.0, green: 15/255.0, blue: 15/255.0).ignoresSafeArea())
                     .ignoresSafeArea(.container, edges: .top)
             )
         } else {
-            return AnyView(
-                interactiveStack
-                    .modifier(NexaDevNavigationBackSwipeModifier(path: path, onPop: popAction))
-            )
+            return AnyView(styledStack)
         }
     }
 }
@@ -3961,7 +4043,7 @@ private struct NexaDevNavigationStackHostView: View {
         let rootScreenName = rootScreen["name"] as? String ?? ""
         let stackIdentity = "\(identity)/root/\(rootScreenName)"
         let rootValues = argumentValues(rootScreen, expressions: rootArguments, locals: locals, scope: scope)
-        let content = renderScreen(rootScreen, parameters: rootValues)
+        let content = renderScreen(rootScreen, parameters: rootValues, scope: "screen/\(rootScreenName)", entryId: "root", navigatorId: stackIdentity)
         let hasRootToolbar = !nexaDevTabToolbars(rootScreen["body"] as? [Any] ?? []).isEmpty
         let rootContent: AnyView = if !showNavigationBar {
             AnyView(content.ignoresSafeArea(.container, edges: .all))
@@ -3978,7 +4060,9 @@ private struct NexaDevNavigationStackHostView: View {
                 titleAlignment: titleAlignment,
                 rootContent: rootContent,
                 screens: screens,
-                renderScreen: { [self] screen, params in renderScreen(screen, parameters: params) }
+                renderScreen: { [self] screen, params, sc, entryId, navId in
+                    renderScreen(screen, parameters: params, scope: sc, entryId: entryId, navigatorId: navId)
+                }
             )
         )
     }
@@ -3996,33 +4080,51 @@ private struct NexaDevNavigationStackHostView: View {
         })
     }
 
-    private func renderScreen(_ screen: [String: Any], parameters: [String: Any]) -> AnyView {
+    private func renderScreen(
+        _ screen: [String: Any],
+        parameters: [String: Any],
+        scope: String? = nil,
+        entryId: String = "root",
+        navigatorId: String = "app/root"
+    ) -> AnyView {
         let name = screen["name"] as? String ?? ""
         let currentScreen = store.screen(named: name) ?? screen
-        let scope = "screen/\(name)"
+        let effectiveScope = scope ?? (entryId == "root" ? "screen/\(name)" : "navigator/\(navigatorId)/entry/\(entryId)/screen/\(name)")
         let stateDeclarations = currentScreen["states"] as? [[String: Any]] ?? []
+        var screenParameters = parameters
+        screenParameters["__nexa_navigation_stack_identity"] = navigatorId
+        screenParameters["__nexa_navigation_entry_id"] = entryId
+        let screenStatusBar = (currentScreen["status_bar"] as? [String: Any])
+            ?? (module["status_bar"] as? [String: Any])
         return AnyView(NexaDevNodeList(
             nodes: currentScreen["body"] as? [Any] ?? [],
             module: store.currentModule,
             store: store,
             focusedField: focusedField,
-            parameters: parameters,
+            parameters: screenParameters,
             stateDeclarations: stateDeclarations,
-            stateScope: scope
+            stateScope: effectiveScope
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .modifier(NexaDevStatusBarConfigurationModifier(
+            config: screenStatusBar,
+            safeInsets: visualSafeInsets,
+            isDark: colorScheme == .dark
+        ))
         .onAppear {
-            let screenBindings = store.bindings(
+            var screenBindings = store.bindings(
                 stateDeclarations,
-                parameters: parameters,
-                scope: scope
+                parameters: screenParameters,
+                scope: effectiveScope
             )
-            store.screenDidAppear(scope: scope, parameters: screenBindings)
+            screenBindings["__nexa_navigation_stack_identity"] = navigatorId
+            screenBindings["__nexa_navigation_entry_id"] = entryId
+            store.screenDidAppear(scope: effectiveScope, parameters: screenBindings)
             let actions = currentScreen["on_appear"] as? [Any] ?? []
             if currentScreen["on_appear_async"] as? Bool == true {
                 Task { @MainActor in
                     do {
-                        _ = try await store.performAsync(actions, scope: scope, locals: screenBindings)
+                        _ = try await store.performAsync(actions, scope: effectiveScope, locals: screenBindings)
                     } catch is CancellationError {
                         return
                     } catch {
@@ -4030,17 +4132,19 @@ private struct NexaDevNavigationStackHostView: View {
                     }
                 }
             } else {
-                store.perform(actions, scope: scope, locals: screenBindings)
+                store.perform(actions, scope: effectiveScope, locals: screenBindings)
             }
         }
         .onDisappear {
-            let screenBindings = store.bindings(
+            var screenBindings = store.bindings(
                 stateDeclarations,
-                parameters: parameters,
-                scope: scope
+                parameters: screenParameters,
+                scope: effectiveScope
             )
-            store.perform(currentScreen["on_disappear"] as? [Any] ?? [], scope: scope, locals: screenBindings)
-            store.screenDidDisappear(scope: scope)
+            screenBindings["__nexa_navigation_stack_identity"] = navigatorId
+            screenBindings["__nexa_navigation_entry_id"] = entryId
+            store.perform(currentScreen["on_disappear"] as? [Any] ?? [], scope: effectiveScope, locals: screenBindings)
+            store.screenDidDisappear(scope: effectiveScope, navigationStackIdentity: navigatorId, routeIdentity: entryId)
         })
     }
 }

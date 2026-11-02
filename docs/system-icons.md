@@ -17,7 +17,7 @@ The mapping table is maintained as the single source of truth in `crates/nexa-ir
 ```nx
 app SearchHeader {
     body {
-        Row(spacing: 8) {
+        Row(gap: 8) {
             Icon(system: "search", description: "Search", size: 20, tint: "#2563EB")
             Text("Search products")
         }
@@ -34,7 +34,7 @@ app SearchHeader {
     state searchSubmitted: Bool = false
 
     body {
-        Column(spacing: 8) {
+        Column(gap: 8) {
             Icon(system: "search", description: "Search", size: 24, tint: "#007AFF")
             Button("Search catalog", icon: "search") {
                 searchSubmitted = true
@@ -66,7 +66,7 @@ When a screen requires a platform-exclusive icon that does not have a cross-plat
 ```nx
 app PlatformIcons {
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             platform ios {
                 Icon(sfsymbol: "apple.logo", description: "Apple", size: 28, tint: "#1C1C1E")
             }

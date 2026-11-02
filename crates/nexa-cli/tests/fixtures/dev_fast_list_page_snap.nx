@@ -4,7 +4,7 @@ app PageSnapSmoke {
 
     body {
         FastList(count: 4, pageSnap: true, scrollPosition: currentPage) { index in
-            Column(spacing: 24, padding: 32) {
+            Column(gap: 24, padding: 32) {
                 Text("Feed page $index")
                 Text("Current page $currentPage")
                 Text("Settled events $settledEvents")

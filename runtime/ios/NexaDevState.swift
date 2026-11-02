@@ -113,11 +113,15 @@ final class NexaDevStateStore: ObservableObject {
         "horizontal_arrangement", "vertical_arrangement", "font_size", "font_weight",
         "font_family", "font_style", "font_design", "line_limit", "line_height",
         "letter_spacing", "strikethrough", "italic", "underline", "text_alignment",
-        "fill_max_width", "screen_width_fraction", "scale", "scale_y", "rotation",
-        "offset_y", "accessibility_label", "style",
+        "scale", "scale_y", "rotation",
+        "offset_y", "accessibility_label", "style", "value",
     ]
     var onRuntimeFailure: ((Error, String) -> Void)?
     @Published var revision = 0
+    /// Advances only when a new module revision is installed. The test-only
+    /// frame fence uses it so ordinary state mutations cannot masquerade as a
+    /// rendered module update.
+    @Published private(set) var moduleGeneration = 0
     @Published private(set) var appLifecycleEpoch = 0
     @Published var languageOverride: String? = UserDefaults.standard.string(forKey: "dev.nexa.locale.override")
     @Published private var navigationPaths: [String: [NexaDevRoute]] = [:]
@@ -410,6 +414,7 @@ final class NexaDevStateStore: ObservableObject {
     ) -> NexaDevPatchInstallResult {
         if operations.isEmpty || isPresentationPatch(operations) {
             currentModule = module
+            moduleGeneration += 1
             return .render
         }
         if isFunctionBodyPatch(operations) {
@@ -417,11 +422,13 @@ final class NexaDevStateStore: ObservableObject {
                 installFunctionRegistry(module)
             }
             currentModule = module
+            moduleGeneration += 1
             return .functionsOnly
         }
         if let affectedScreens = screenScopedIndices(operations) {
             installPatchedScreens(module, screenIndices: affectedScreens)
             currentModule = module
+            moduleGeneration += 1
             return .screenOnly
         }
         return .fullInstallRequired
@@ -464,9 +471,11 @@ final class NexaDevStateStore: ObservableObject {
             case "components" where segments.count > 2 && segments[2] == "body": bodyIndex = 2
             default: return false
             }
+            let nodePropertiesStart = bodyIndex + 3
             guard segments.count >= bodyIndex + 4,
-                  let leaf = segments.last,
-                  Self.presentationPatchFields.contains(leaf)
+                  segments.dropFirst(nodePropertiesStart).contains(where: {
+                      Self.presentationPatchFields.contains($0)
+                  })
             else { return false }
         }
         return true
@@ -524,7 +533,15 @@ final class NexaDevStateStore: ObservableObject {
                 values.removeValue(forKey: key)
                 typeSignatures.removeValue(forKey: key)
             }
-            invalidateScope(scope)
+            invalidateScreenScopes(named: name)
+        }
+    }
+
+    private func invalidateScreenScopes(named name: String) {
+        let rootScope = "screen/\(name)"
+        for (scope, observer) in scopeRevisions
+        where scope == rootScope || scope.hasSuffix("/\(rootScope)") {
+            observer.invalidate()
         }
     }
 
@@ -620,6 +637,22 @@ final class NexaDevStateStore: ObservableObject {
                 nextValues[identity] = value
                 nextTypes[identity] = signature
             }
+            for (identity, value) in values where identity.hasPrefix("navigator/") || identity.hasPrefix("entry/") {
+                let parts = identity.components(separatedBy: "/state/")
+                guard parts.count == 2 else { continue }
+                let stateName = parts[1]
+                guard let screenRange = parts[0].range(of: "/screen/") else { continue }
+                let screenName = String(parts[0][screenRange.upperBound...])
+                guard let screen = screens.first(where: { $0["name"] as? String == screenName }),
+                      let declaration = (screen["states"] as? [[String: Any]])?.first(where: {
+                          $0["name"] as? String == stateName
+                      })
+                else { continue }
+                let signature = Self.stateShapeSignature(declaration["ty"], enumCases: installedEnumCases)
+                guard typeSignatures[identity] == signature else { continue }
+                nextValues[identity] = value
+                nextTypes[identity] = signature
+            }
         }
         values = nextValues
         stateReaders.removeAll(keepingCapacity: true)
@@ -681,21 +714,39 @@ final class NexaDevStateStore: ObservableObject {
     }
 
     func setNavigationPath(_ path: [NexaDevRoute], for stackIdentity: String) {
-        var seenTokens = Set<String>()
-        var uniquePath = path
-        for index in uniquePath.indices {
-            let token = uniquePath[index].token
-            guard !seenTokens.insert(token).inserted,
-                  let destination = routeArguments[token]
-            else { continue }
-
-            let instanceToken = "\(token)#\(UUID().uuidString)"
-            routeArguments[instanceToken] = destination
-            routeInstanceTokens.insert(instanceToken)
-            uniquePath[index] = NexaDevRoute(token: instanceToken)
-            seenTokens.insert(instanceToken)
+        let previous = navigationPaths[stackIdentity] ?? []
+        navigationPaths[stackIdentity] = path
+        for oldRoute in previous {
+            if !path.contains(where: { $0.entryId == oldRoute.entryId }) {
+                routeArguments.removeValue(forKey: oldRoute.entryId)
+                clearScope(scope: "navigator/\(stackIdentity)/entry/\(oldRoute.entryId)/screen/\(oldRoute.screen)")
+            }
         }
-        navigationPaths[stackIdentity] = uniquePath
+    }
+
+    func resolveNavigatorId(stackIdentity: String? = nil, locals: [String: Any]? = nil, scope: String) -> String {
+        if let stackIdentity {
+            return navigationPaths.keys.contains(stackIdentity) ? stackIdentity : ""
+        }
+        if let localId = locals?["__nexa_navigation_stack_identity"] as? String {
+            return navigationPaths.keys.contains(localId) ? localId : ""
+        }
+        if scope.hasPrefix("navigator/") {
+            let afterPrefix = scope.dropFirst("navigator/".count)
+            if let entryRange = afterPrefix.range(of: "/entry/") {
+                let navId = String(afterPrefix[..<entryRange.lowerBound])
+                return navigationPaths.keys.contains(navId) ? navId : ""
+            }
+            let navId = String(afterPrefix)
+            return navigationPaths.keys.contains(navId) ? navId : ""
+        }
+        if navigationPaths.keys.contains(scope) {
+            return scope
+        }
+        if scope == "app" && navigationPaths.keys.contains("app") {
+            return "app"
+        }
+        return ""
     }
 
     func pushNavigation(destination: Int, expressions: [Any], locals: [String: Any], scope: String) {
@@ -713,10 +764,12 @@ final class NexaDevStateStore: ObservableObject {
             values[name] = evaluate(expression, locals: locals, scope: scope)
         }
         let signature = Self.canonicalSignature(parameters)
-        let route = navigationRoute(screen: screenName, values: values, signature: signature)
-        let stackIdentity = locals["__nexa_navigation_stack_identity"] as? String
-            ?? navigationPaths.keys.first
-            ?? "app"
+        let stackIdentity = resolveNavigatorId(
+            stackIdentity: locals["__nexa_navigation_stack_identity"] as? String,
+            locals: locals,
+            scope: scope
+        )
+        let route = navigationRoute(screen: screenName, values: values, signature: signature, navigatorId: stackIdentity)
         if let binding = locals["__nexa_navigation_path_binding"] as? Binding<[NexaDevRoute]> {
             binding.wrappedValue.append(route)
             invalidateScope(scope)
@@ -734,16 +787,55 @@ final class NexaDevStateStore: ObservableObject {
         objectWillChange.send()
     }
 
+    func pushNavigation(screenName: String, expressions: [Any], locals: [String: Any], scope: String, stackIdentity: String? = nil) {
+        let screens = currentModule["screens"] as? [[String: Any]] ?? []
+        guard let screen = screens.first(where: { $0["name"] as? String == screenName }) else { return }
+        let parameters = screen["parameters"] as? [[String: Any]] ?? []
+        var values: [String: Any] = [:]
+        for (parameter, expression) in zip(parameters, expressions) {
+            guard let name = parameter["name"] as? String else { continue }
+            values[name] = evaluate(expression, locals: locals, scope: scope)
+        }
+        let signature = Self.canonicalSignature(parameters)
+        let resolvedStack = stackIdentity ?? resolveNavigatorId(
+            stackIdentity: locals["__nexa_navigation_stack_identity"] as? String,
+            locals: locals,
+            scope: scope
+        )
+        let route = navigationRoute(screen: screenName, values: values, signature: signature, navigatorId: resolvedStack)
+        if let binding = locals["__nexa_navigation_path_binding"] as? Binding<[NexaDevRoute]> {
+            binding.wrappedValue.append(route)
+            invalidateScope(scope)
+            invalidateScope(resolvedStack)
+            objectWillChange.send()
+            return
+        }
+        var path = navigationPath(for: resolvedStack)
+        path.append(route)
+        setNavigationPath(path, for: resolvedStack)
+        invalidateScope(scope)
+        invalidateScope(resolvedStack)
+        objectWillChange.send()
+    }
+
+    func resetNavigation(screenName: String, expressions: [Any], locals: [String: Any], scope: String, stackIdentity: String? = nil) {
+        let resolvedStack = stackIdentity ?? resolveNavigatorId(
+            stackIdentity: locals["__nexa_navigation_stack_identity"] as? String,
+            locals: locals,
+            scope: scope
+        )
+        setNavigationPath([], for: resolvedStack)
+        pushNavigation(screenName: screenName, expressions: expressions, locals: locals, scope: scope, stackIdentity: resolvedStack)
+    }
+
     func popNavigation(stackIdentity: String?, scope: String, locals: [String: Any]? = nil) {
-        let effectiveStack = stackIdentity
-            ?? (locals?["__nexa_navigation_stack_identity"] as? String)
-            ?? navigationPaths.keys.first(where: { !(navigationPaths[$0]?.isEmpty ?? true) })
-            ?? navigationPaths.keys.first
-            ?? "app"
+        let effectiveStack = resolveNavigatorId(stackIdentity: stackIdentity, locals: locals, scope: scope)
 
         if let binding = locals?["__nexa_navigation_path_binding"] as? Binding<[NexaDevRoute]> {
             if !binding.wrappedValue.isEmpty {
-                binding.wrappedValue.removeLast()
+                let popped = binding.wrappedValue.removeLast()
+                clearScope(scope: "navigator/\(effectiveStack)/entry/\(popped.entryId)/screen/\(popped.screen)")
+                routeArguments.removeValue(forKey: popped.entryId)
             }
             invalidateScope(scope)
             invalidateScope(effectiveStack)
@@ -753,11 +845,53 @@ final class NexaDevStateStore: ObservableObject {
 
         var path = navigationPath(for: effectiveStack)
         guard !path.isEmpty else { return }
-        path.removeLast()
+        let popped = path.removeLast()
+        clearScope(scope: "navigator/\(effectiveStack)/entry/\(popped.entryId)/screen/\(popped.screen)")
+        routeArguments.removeValue(forKey: popped.entryId)
         setNavigationPath(path, for: effectiveStack)
         invalidateScope(scope)
         invalidateScope(effectiveStack)
         objectWillChange.send()
+    }
+
+    func popToNavigation(targetEntryId: String, inclusive: Bool, stackIdentity: String? = nil, scope: String = "app", locals: [String: Any]? = nil) {
+        let effectiveStack = resolveNavigatorId(stackIdentity: stackIdentity, locals: locals, scope: scope)
+        guard !effectiveStack.isEmpty else { return }
+
+        if let binding = locals?["__nexa_navigation_path_binding"] as? Binding<[NexaDevRoute]> {
+            var current = binding.wrappedValue
+            if let index = current.firstIndex(where: { $0.entryId == targetEntryId }) {
+                let cutoff = inclusive ? index : index + 1
+                if cutoff < current.count {
+                    for entry in current[cutoff...] {
+                        clearScope(scope: "navigator/\(effectiveStack)/entry/\(entry.entryId)/screen/\(entry.screen)")
+                        routeArguments.removeValue(forKey: entry.entryId)
+                    }
+                    current.removeSubrange(cutoff...)
+                    binding.wrappedValue = current
+                    invalidateScope(scope)
+                    invalidateScope(effectiveStack)
+                    objectWillChange.send()
+                }
+            }
+            return
+        }
+
+        var path = navigationPath(for: effectiveStack)
+        if let index = path.firstIndex(where: { $0.entryId == targetEntryId }) {
+            let cutoff = inclusive ? index : index + 1
+            if cutoff < path.count {
+                for entry in path[cutoff...] {
+                    clearScope(scope: "navigator/\(effectiveStack)/entry/\(entry.entryId)/screen/\(entry.screen)")
+                    routeArguments.removeValue(forKey: entry.entryId)
+                }
+                path.removeSubrange(cutoff...)
+                setNavigationPath(path, for: effectiveStack)
+                invalidateScope(scope)
+                invalidateScope(effectiveStack)
+                objectWillChange.send()
+            }
+        }
     }
 
     func hotRestart(module: [String: Any]) {
@@ -927,6 +1061,41 @@ final class NexaDevStateStore: ObservableObject {
         invalidateScope(scope)
     }
 
+    func clearScope(scope: String) {
+        activeScreenParameters.removeValue(forKey: scope)
+        for key in Array(stateReaders.keys) {
+            stateReaders[key]?.remove(scope)
+            if stateReaders[key]?.isEmpty == true { stateReaders.removeValue(forKey: key) }
+        }
+        clearNativeEventSubscriptions(scope: scope)
+        clearNativeTasks(scope: scope)
+        let statePrefix = "\(scope)/"
+        for key in Array(values.keys) where key.hasPrefix(statePrefix) {
+            values.removeValue(forKey: key)
+        }
+        for key in Array(typeSignatures.keys) where key.hasPrefix(statePrefix) {
+            typeSignatures.removeValue(forKey: key)
+        }
+        for key in Array(stateCommandRevisions.keys) where key.hasPrefix(statePrefix) {
+            stateCommandRevisions.removeValue(forKey: key)
+        }
+        let listPrefix = "\(scope)|"
+        for key in Array(fastListEndReachedCounts.keys) where key.hasPrefix(listPrefix) {
+            fastListEndReachedCounts.removeValue(forKey: key)
+            fastListEndReachedKeys.remove(key)
+        }
+        scopeRevisions.removeValue(forKey: scope)
+        let removedFocusKeys = focusBindings.compactMap { entry in
+            entry.value.scope == scope ? entry.key : nil
+        }
+        for key in removedFocusKeys {
+            focusBindings.removeValue(forKey: key)
+        }
+        if let focusedFieldKey, removedFocusKeys.contains(focusedFieldKey) {
+            self.focusedFieldKey = nil
+        }
+    }
+
     func screenDidDisappear(
         scope: String,
         navigationStackIdentity: String = "app",
@@ -941,39 +1110,11 @@ final class NexaDevStateStore: ObservableObject {
         clearNativeTasks(scope: scope)
 
         guard routeIdentity != "root",
-              !navigationPath(for: navigationStackIdentity).contains(where: { $0.token == routeIdentity })
+              !navigationPath(for: navigationStackIdentity).contains(where: { $0.entryId == routeIdentity })
         else { return }
 
-        let statePrefix = "\(scope)/"
-        for key in Array(values.keys) where key.hasPrefix(statePrefix) {
-            values.removeValue(forKey: key)
-        }
-        for key in Array(stateCommandRevisions.keys) where key.hasPrefix(statePrefix) {
-            stateCommandRevisions.removeValue(forKey: key)
-        }
-        let listPrefix = "\(scope)|"
-        for key in Array(fastListEndReachedCounts.keys) where key.hasPrefix(listPrefix) {
-            fastListEndReachedCounts.removeValue(forKey: key)
-            fastListEndReachedKeys.remove(key)
-        }
-        scopeRevisions.removeValue(forKey: scope)
-
-        let removedFocusKeys = focusBindings.compactMap { entry in
-            entry.value.scope == scope ? entry.key : nil
-        }
-        for key in removedFocusKeys {
-            focusBindings.removeValue(forKey: key)
-        }
-        if let focusedFieldKey, removedFocusKeys.contains(focusedFieldKey) {
-            self.focusedFieldKey = nil
-        }
-
-        if routeInstanceTokens.remove(routeIdentity) != nil,
-           !navigationPaths.values.contains(where: { path in
-               path.contains(where: { route in route.token == routeIdentity })
-           }) {
-            routeArguments.removeValue(forKey: routeIdentity)
-        }
+        clearScope(scope: scope)
+        routeArguments.removeValue(forKey: routeIdentity)
     }
 
     static func collectFocusBindings(
@@ -1009,7 +1150,6 @@ final class NexaDevStateStore: ObservableObject {
             switch unit {
             case "ScreenWidth": return locals["__nexa_screen_width"] ?? Double(UIScreen.main.bounds.width)
             case "ScreenHeight": return locals["__nexa_screen_height"] ?? Double(UIScreen.main.bounds.height)
-            case "SafeAreaTop": return locals["__nexa_safe_area_top"] ?? 0.0
             case "IsRegularWidth": return UIScreen.main.bounds.width >= 600
             case "IsCompactWidth": return UIScreen.main.bounds.width < 600
             case "IsRegularHeight": return UIScreen.main.bounds.height >= 600
@@ -1021,6 +1161,14 @@ final class NexaDevStateStore: ObservableObject {
             return NSNull()
         }
         switch kind {
+        case "SystemInset":
+            switch payload as? String {
+            case "Top": return locals["__nexa_system_inset_top"] ?? 0.0
+            case "Bottom": return locals["__nexa_system_inset_bottom"] ?? 0.0
+            case "Leading": return locals["__nexa_system_inset_leading"] ?? 0.0
+            case "Trailing": return locals["__nexa_system_inset_trailing"] ?? 0.0
+            default: return 0.0
+            }
         case "ComponentRefCreate":
             let fields = payload as? [String: Any] ?? [:]
             let namespace = fields["namespace"] as? String ?? "Nexa"

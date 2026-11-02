@@ -444,8 +444,8 @@
       "source": "Center",
       "translations": {}
     },
-    "Center · spacing 8": {
-      "source": "Center · spacing 8",
+    "Center · gap 8": {
+      "source": "Center · gap 8",
       "translations": {}
     },
     "Centered alignment\nshort": {
@@ -508,8 +508,8 @@
       "source": "Column default: centered, top-first",
       "translations": {}
     },
-    "Column spacing and padding": {
-      "source": "Column spacing and padding",
+    "Column gap and padding": {
+      "source": "Column gap and padding",
       "translations": {}
     },
     "Column · start / center / end": {
@@ -578,6 +578,10 @@
     },
     "Content unavailable": {
       "source": "Content unavailable",
+      "translations": {}
+    },
+    "Content-sized sheet · compact default inset": {
+      "source": "Content-sized sheet · compact default inset",
       "translations": {}
     },
     "ContentUnavailable": {
@@ -884,14 +888,16 @@
       "source": "Effects and behavior tests",
       "translations": {}
     },
-    "Email focused: {emailFocused} · last submitted: {lastSubmitted}": {
-      "source": "Email focused: {emailFocused} · last submitted: {lastSubmitted}",
+    "Email focused: {emailFocused} · focus entries: {emailFocusCount} · last submitted: {lastSubmitted}": {
+      "source": "Email focused: {emailFocused} · focus entries: {emailFocusCount} · last submitted: {lastSubmitted}",
       "arguments": [
         "emailFocused",
+        "emailFocusCount",
         "lastSubmitted"
       ],
       "argument_types": [
         "Bool",
+        "Int32",
         "String"
       ],
       "translations": {}
@@ -922,8 +928,8 @@
       "source": "End",
       "translations": {}
     },
-    "End · spacing 20": {
-      "source": "End · spacing 20",
+    "End · gap 20": {
+      "source": "End · gap 20",
       "translations": {}
     },
     "Enter a task": {
@@ -1124,8 +1130,8 @@
       "source": "Fixed height: 56",
       "translations": {}
     },
-    "Fixed row height 56 dp · spacing 8 dp · 12 rows": {
-      "source": "Fixed row height 56 dp · spacing 8 dp · 12 rows",
+    "Fixed row height 56 dp · gap 8 dp · 12 rows": {
+      "source": "Fixed row height 56 dp · gap 8 dp · 12 rows",
       "translations": {}
     },
     "Fixed size within 220–260 × 64–80 bounds": {
@@ -1196,8 +1202,16 @@
       "source": "Fourth line",
       "translations": {}
     },
+    "Fractional viewport height with bottom-only corners": {
+      "source": "Fractional viewport height with bottom-only corners",
+      "translations": {}
+    },
     "Full-size pressable": {
       "source": "Full-size pressable",
+      "translations": {}
+    },
+    "Gilroy custom face": {
+      "source": "Gilroy custom face",
       "translations": {}
     },
     "Glass": {
@@ -1231,10 +1245,6 @@
     },
     "Hairline · 0.5 dp": {
       "source": "Hairline · 0.5 dp",
-      "translations": {}
-    },
-    "Half-height · compact default inset": {
-      "source": "Half-height · compact default inset",
       "translations": {}
     },
     "Headline": {
@@ -1335,12 +1345,12 @@
       "source": "Increment context action",
       "translations": {}
     },
-    "Inner spacing stays local": {
-      "source": "Inner spacing stays local",
+    "Inner gap stays local": {
+      "source": "Inner gap stays local",
       "translations": {}
     },
-    "Inner spacing: 18": {
-      "source": "Inner spacing: 18",
+    "Inner gap: 18": {
+      "source": "Inner gap: 18",
       "translations": {}
     },
     "Input · date and time input style": {
@@ -1678,6 +1688,10 @@
       "source": "Native default range",
       "translations": {}
     },
+    "Native shape primitives": {
+      "source": "Native shape primitives",
+      "translations": {}
+    },
     "Native title behavior": {
       "source": "Native title behavior",
       "translations": {}
@@ -1803,8 +1817,8 @@
       "source": "Open actions",
       "translations": {}
     },
-    "Open compact half-height sheet": {
-      "source": "Open compact half-height sheet",
+    "Open content-sized sheet": {
+      "source": "Open content-sized sheet",
       "translations": {}
     },
     "Open custom map sheet": {
@@ -1856,12 +1870,12 @@
       "source": "Outer 4",
       "translations": {}
     },
-    "Outer spacing resumes": {
-      "source": "Outer spacing resumes",
+    "Outer margin resumes": {
+      "source": "Outer margin resumes",
       "translations": {}
     },
-    "Outer spacing: 4": {
-      "source": "Outer spacing: 4",
+    "Outer margin: 4": {
+      "source": "Outer margin: 4",
       "translations": {}
     },
     "Overflow clamps to complete": {
@@ -2167,16 +2181,16 @@
       "source": "Row flow parameter tests",
       "translations": {}
     },
+    "Row gap and alignment": {
+      "source": "Row gap and alignment",
+      "translations": {}
+    },
     "Row horizontal arrangement tests": {
       "source": "Row horizontal arrangement tests",
       "translations": {}
     },
     "Row size and bounds tests": {
       "source": "Row size and bounds tests",
-      "translations": {}
-    },
-    "Row spacing and alignment": {
-      "source": "Row spacing and alignment",
       "translations": {}
     },
     "Row surface and padding tests": {
@@ -2717,8 +2731,8 @@
       "source": "Start",
       "translations": {}
     },
-    "Start · spacing 0": {
-      "source": "Start · spacing 0",
+    "Start · gap 0": {
+      "source": "Start · gap 0",
       "translations": {}
     },
     "Status bar": {
@@ -2909,6 +2923,11 @@
     },
     "Time · 24-hour display": {
       "source": "Time · 24-hour display",
+      "translations": {}
+    },
+    "Timed text": {
+      "source": "Timed text",
+      "comment": "Timed text rendering",
       "translations": {}
     },
     "Tint-only range": {
@@ -3153,8 +3172,8 @@
       ],
       "translations": {}
     },
-    "Two columns · 92 dp cells · 4 dp spacing": {
-      "source": "Two columns · 92 dp cells · 4 dp spacing",
+    "Two columns · 92 dp cells · 4 dp gap": {
+      "source": "Two columns · 92 dp cells · 4 dp gap",
       "translations": {}
     },
     "Two columns · variable-height cards · 12 dp gap": {
@@ -3266,12 +3285,24 @@
       "source": "Words · Title 3",
       "translations": {}
     },
+    "Write a note": {
+      "source": "Write a note",
+      "translations": {}
+    },
     "Zero padding": {
       "source": "Zero padding",
       "translations": {}
     },
     "Zero · 0 dp": {
       "source": "Zero · 0 dp",
+      "translations": {}
+    },
+    "gap 0 · padding 0": {
+      "source": "gap 0 · padding 0",
+      "translations": {}
+    },
+    "gap 12 · padding 16": {
+      "source": "gap 12 · padding 16",
       "translations": {}
     },
     "left": {
@@ -3292,14 +3323,6 @@
     },
     "second child starts below first": {
       "source": "second child starts below first",
-      "translations": {}
-    },
-    "spacing 0 · padding 0": {
-      "source": "spacing 0 · padding 0",
-      "translations": {}
-    },
-    "spacing 12 · padding 16": {
-      "source": "spacing 12 · padding 16",
       "translations": {}
     },
     "{value1}. {title}": {

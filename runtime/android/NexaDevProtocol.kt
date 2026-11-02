@@ -138,6 +138,17 @@ internal class NexaDevSocketClient(
                 }
             }
             store.openEditorHandler = editorHandler
+            val frameHandler: (String, Long) -> Unit = { revision, frameId ->
+                runCatching {
+                    sendFrame(output, 0x1, JSONObject()
+                        .put(NexaDevKeys.TYPE, NexaDevKeys.MSG_FRAME_PRESENTED)
+                        .put(NexaDevKeys.PAYLOAD, JSONObject()
+                            .put(NexaDevKeys.REVISION, revision)
+                            .put(NexaDevKeys.FRAME_ID, frameId))
+                        .toString())
+                }
+            }
+            store.frameFence.onPresented = frameHandler
             try {
                 while (active.get()) {
                     val frame = readFrame(input) ?: break
@@ -149,6 +160,7 @@ internal class NexaDevSocketClient(
                 }
             } finally {
                 if (store.openEditorHandler === editorHandler) store.openEditorHandler = null
+                if (store.frameFence.onPresented === frameHandler) store.frameFence.onPresented = null
             }
         } finally {
             synchronized(connectionLock) {
@@ -168,11 +180,14 @@ internal class NexaDevSocketClient(
                 currentRevision = devModule.optString(NexaDevKeys.REVISION).takeIf(String::isNotEmpty)
                 val revision = currentRevision ?: return
                 val translations = devModule.optJSONObject("translations")
+                var committedGeneration = 0
                 onMainAndWait {
                     store.installTranslations(translations)
                     store.install(module)
                     store.publishDiagnostics(emptyList())
+                    committedGeneration = store.moduleRevision
                 }
+                store.frameFence.arm(revision, committedGeneration)
                 acknowledge(output, revision)
                 android.util.Log.i("NexaDevRuntime", "Applied module $revision")
             }
@@ -184,23 +199,35 @@ internal class NexaDevSocketClient(
                     return
                 }
                 val revision = patch.optString(NexaDevKeys.REVISION).takeIf(String::isNotEmpty) ?: return
-                val applied = AtomicBoolean(false)
                 val patchStarted = SystemClock.elapsedRealtimeNanos()
-                if (store.applyPatch(patch)) {
-                    if (patch.has("translations")) {
-                        store.installTranslations(patch.optJSONObject("translations"))
-                    }
-                    store.publishDiagnostics(emptyList())
-                    applied.set(true)
-                }
-                if (!applied.get()) {
+                val base = store.snapshotModule()
+                val operations = patch.optJSONArray("operations")
+                if (base == null || operations == null) {
                     sendFrame(output, 0x1, JSONObject().put(NexaDevKeys.TYPE, NexaDevKeys.MSG_REQUEST_FULL_MODULE).toString())
                     return
                 }
-                if (patch.has("translations")) {
-                    store.installTranslations(patch.optJSONObject("translations"))
+                // Preparation is side-effect free and runs here on the worker:
+                // it validates JSON pointers and builds a copy-on-write
+                // candidate without touching the installed module.
+                val prepared = NexaDevJsonPatch.prepare(base, operations)
+                if (prepared == null) {
+                    sendFrame(output, 0x1, JSONObject().put(NexaDevKeys.TYPE, NexaDevKeys.MSG_REQUEST_FULL_MODULE).toString())
+                    return
                 }
-                store.publishDiagnostics(emptyList())
+                val translations = patch.optJSONObject("translations")
+                val committed = AtomicBoolean(false)
+                var committedGeneration = 0
+                onMainAndWait {
+                    if (store.commitPreparedPatch(prepared, translations)) {
+                        committedGeneration = store.moduleRevision
+                        committed.set(true)
+                    }
+                }
+                if (!committed.get()) {
+                    sendFrame(output, 0x1, JSONObject().put(NexaDevKeys.TYPE, NexaDevKeys.MSG_REQUEST_FULL_MODULE).toString())
+                    return
+                }
+                store.frameFence.arm(revision, committedGeneration)
                 currentRevision = revision
                 acknowledge(output, revision)
                 val patchNanos = SystemClock.elapsedRealtimeNanos() - patchStarted
@@ -231,6 +258,13 @@ internal class NexaDevSocketClient(
             NexaDevKeys.MSG_RUNTIME_TRACE -> {
                 val enabled = payload.optBoolean(NexaDevKeys.ENABLED, false)
                 mainHandler.post { store.runtimeTraceEnabled = enabled }
+            }
+            NexaDevKeys.MSG_FRAME_FENCE -> {
+                val enabled = payload.optBoolean(NexaDevKeys.ENABLED, false)
+                mainHandler.post {
+                    store.frameFence.enabled = enabled
+                    if (!enabled) store.frameFence.reset()
+                }
             }
         }
     }

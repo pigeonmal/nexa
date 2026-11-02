@@ -44,7 +44,7 @@ component Card(title: String, done: Bool) {
     state expanded: Bool = false
 
     body {
-        Column(spacing: 8, padding: 12, background: "#EEEEEE", cornerRadius: 8) {
+        Column(gap: 8, padding: 12, background: "#EEEEEE", cornerRadius: 8) {
             Text(title)
             if done {
                 Text("done")
@@ -104,7 +104,7 @@ app KitchenSink {
         Direction(value: RTL)
 
         KeyboardAware(dismiss: Interactive) {
-            Column(spacing: 16, padding: 20, background: "#F4F5F7", cornerRadius: 16) {
+            Column(gap: 16, padding: 20, background: "#F4F5F7", cornerRadius: 16) {
                 Text("Kitchen Sink", color: "#111111", fontSize: 22, fontWeight: Bold, selectable: true)
                 Text(result?)
                 TextInput(value: label, placeholder: "Name", keyboardType: Email, autocorrect: false, capitalization: Sentences, multiline: true, maxLength: 120)
@@ -165,7 +165,7 @@ app KitchenSink {
         }
 
         BottomSheet(ref: sheetRef, detents: [0.5, 1.0]) {
-            Column(spacing: 8) {
+            Column(gap: 8) {
                 Text("Sheet")
                 Button("Close") {
                     sheetRef.dismiss()

@@ -8,8 +8,8 @@ use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
 use nexa_ir::{
-    AccessibilityRole, Alignment, Expr, LayoutKind, ListAxis, ListCommon, ListPlan, Module, Node,
-    NumericType, Screen, ScreenId, ViewStyle,
+    AccessibilityRole, Alignment, Dimension, Expr, LayoutKind, ListAxis, ListCommon, ListPlan,
+    Module, Node, NumericType, Screen, ScreenId, ViewStyle,
 };
 use nexa_syntax::catalog;
 use serde_json::Value;
@@ -895,10 +895,10 @@ fn component_parity_app_exercises_every_catalog_component() {
 
 #[test]
 fn status_bar_static_style_and_visibility_options_compile_for_all_runtimes() {
-    let source = r#"
+    let source = r##"
 app StatusBarOptionCoverage {
     screen DefaultVisible {
-        StatusBar(style: Default, hidden: false)
+        StatusBar(style: Default, hidden: false, background: "#047df6")
         Column { Text("Default visible") }
     }
     screen LightVisible {
@@ -923,7 +923,7 @@ app StatusBarOptionCoverage {
     }
     body { NavigationStack(root: DefaultVisible) }
 }
-"#;
+"##;
 
     let swift =
         nexa_compiler::compile_with_warnings_for_target(source, nexa_compiler::Target::Swift)
@@ -940,10 +940,13 @@ app StatusBarOptionCoverage {
 
     for output in [&swift_aot, &swift_dev] {
         assert_eq!(output.matches(".statusBarHidden(true)").count(), 3);
-        assert!(output.contains(".preferredColorScheme(.dark)"));
-        assert!(output.contains(".preferredColorScheme(.light)"));
+        assert!(output.contains(".modifier(NexaStatusBarStylePrimitive(colorScheme: .dark))"));
+        assert!(output.contains(".modifier(NexaStatusBarStylePrimitive(colorScheme: .light))"));
+        assert!(!output.contains(".preferredColorScheme(.dark)"));
+        assert!(!output.contains(".preferredColorScheme(.light)"));
     }
     for output in [&kotlin_aot, &kotlin_dev] {
+        assert!(output.contains("nexaStatusBarContext is android.content.ContextWrapper"));
         assert_eq!(
             output
                 .matches("nexaController.hide(WindowInsetsCompat.Type.statusBars())")
@@ -953,6 +956,37 @@ app StatusBarOptionCoverage {
         assert!(output.contains("nexaController.isAppearanceLightStatusBars = false"));
         assert!(output.contains("nexaController.isAppearanceLightStatusBars = true"));
     }
+
+    assert_eq!(
+        swift_aot
+            .matches("NexaStatusBarBackgroundPrimitive(color:")
+            .count(),
+        1
+    );
+    assert_eq!(
+        kotlin_aot
+            .matches("NexaStatusBarBackgroundPrimitive(statusBarBackground =")
+            .count(),
+        1
+    );
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ios_dev_renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS DevRuntime renderer");
+    assert!(ios_dev_renderer.contains("currentScreen[\"status_bar\"]"));
+    assert!(ios_dev_renderer.contains("NexaDevStatusBarConfigurationModifier("));
+
+    let android_dev_navigation =
+        fs::read_to_string(root.join("../../runtime/android/NexaDevNavigation.kt"))
+            .expect("read Android DevRuntime navigation renderer");
+    assert!(android_dev_navigation.contains("activeScreen.optJSONObject(\"status_bar\")"));
+    assert!(android_dev_navigation.contains("NexaDevStatusBarContent("));
+    let android_dev_overlay =
+        fs::read_to_string(root.join("../../runtime/android/NexaDevOverlay.kt"))
+            .expect("read Android DevRuntime overlay");
+    assert!(
+        android_dev_overlay.contains("while (context is ContextWrapper && context !is Activity)")
+    );
 }
 
 #[test]
@@ -1315,7 +1349,11 @@ fn component_parity_app_generates_release_code_for_both_targets() {
             "NexaColumnPrimitive(alignment: .trailing, textAlignment: .trailing, spacing: 20)",
             "horizontalAlignment = Alignment.End",
         ),
-        ("padding", ".padding(12)", ".padding(12.dp)"),
+        (
+            "padding",
+            "NexaViewInsetsPrimitive(padding: EdgeInsets(top: CGFloat(Double(12))",
+            "NexaViewInsetsPrimitive(paddingTop = ",
+        ),
         (
             "width",
             ".frame(width: 220, alignment: .top)",
@@ -1348,11 +1386,7 @@ fn component_parity_app_generates_release_code_for_both_targets() {
             ".compositingGroup().opacity(0.45)",
             ".graphicsLayer(alpha = 0.45f, compositingStrategy = CompositingStrategy.Offscreen)",
         ),
-        (
-            "scale",
-            ".scaleEffect(1.2)",
-            "scaleX = 1.2f",
-        ),
+        ("scale", ".scaleEffect(1.2)", "scaleX = 1.2f"),
         (
             "rotation",
             ".rotationEffect(.degrees(12))",
@@ -1487,10 +1521,10 @@ fn ios_dev_runtime_keeps_fixed_dimensions_outside_flexible_bounds() {
     let renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
         .expect("read iOS DevRuntime renderer");
     let size_styles = renderer
-        .split_once("let minWidth = style[\"min_width\"]")
+        .split_once("let widthDimension = nexaDevDimension(style[\"width\"])")
         .expect("find iOS style sizing")
         .1
-        .split_once("if let padding = style[\"padding\"]")
+        .split_once("if let background = devColor(style[\"background\"]")
         .expect("find end of iOS style sizing")
         .0;
     let bounds = size_styles
@@ -1537,7 +1571,7 @@ fn ios_dev_runtime_keeps_bottom_sheets_out_of_layout_spacing() {
 fn row_horizontal_arrangement_is_present_in_aot_and_both_dev_runtimes() {
     let module = empty_module(vec![Node::Layout {
         kind: LayoutKind::Row,
-        spacing: 8.0,
+        gap: 8.0,
         style: ViewStyle {
             horizontal_arrangement: Some(nexa_ir::HorizontalArrangement::Center),
             ..ViewStyle::default()
@@ -1583,21 +1617,19 @@ fn fixed_width_rows_preserve_intrinsic_widths_in_aot_and_devruntime() {
             .into_iter()
             .map(|alignment| Node::Layout {
                 kind: LayoutKind::Row,
-                spacing: 8.0,
+                gap: 8.0,
                 style: ViewStyle {
-                    width: Some(320.0),
-                    height: Some(60.0),
-                    padding: Some(6.0),
+                    width: Some(Dimension::Fixed(320.0)),
+                    height: Some(Dimension::Fixed(60.0)),
                     alignment: Some(alignment),
                     ..ViewStyle::default()
                 },
                 children: (0..3)
                     .map(|_| Node::Layout {
                         kind: LayoutKind::Column,
-                        spacing: 0.0,
+                        gap: 0.0,
                         style: ViewStyle {
-                            width: Some(96.0),
-                            padding: Some(6.0),
+                            width: Some(Dimension::Fixed(96.0)),
                             ..ViewStyle::default()
                         },
                         children: Vec::new(),
@@ -1627,13 +1659,12 @@ fn fixed_width_rows_preserve_intrinsic_widths_in_aot_and_devruntime() {
 }
 
 #[test]
-fn explicit_width_and_padding_keep_the_same_outer_frame_in_aot_and_devruntime() {
+fn explicit_width_and_insets_compile_in_aot_and_devruntime() {
     let module = empty_module(vec![Node::Layout {
         kind: LayoutKind::Column,
-        spacing: 0.0,
+        gap: 0.0,
         style: ViewStyle {
-            width: Some(320.0),
-            padding: Some(8.0),
+            width: Some(Dimension::Fixed(320.0)),
             ..ViewStyle::default()
         },
         children: Vec::new(),
@@ -1643,8 +1674,9 @@ fn explicit_width_and_padding_keep_the_same_outer_frame_in_aot_and_devruntime() 
     let kotlin_runtime = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime renderer");
 
-    assert!(kotlin_aot.contains("Modifier\n            .requiredWidth(336.dp)"));
-    assert!(kotlin_runtime.contains("modifier.requiredWidth(outerWidth.dp)"));
+    assert!(kotlin_aot.contains(".width(320.dp)"));
+    assert!(kotlin_runtime.contains("\"ViewInsets\" -> {"));
+    assert!(!kotlin_runtime.contains("outerWidth"));
 }
 
 #[test]
@@ -1663,11 +1695,12 @@ fn android_dev_runtime_animates_content_before_size_modifiers() {
         .find("if (!style.isNull(\"animation\"))")
         .expect("apply layout content-size animation");
     for sizing_modifier in [
-        "if (!style.isNull(\"padding\"))",
-        "if (!style.isNull(\"width\"))",
-        "if (!style.isNull(\"height\"))",
-        "if (!style.isNull(\"min_width\")",
-        "if (!style.isNull(\"min_height\")",
+        "resolve(width)?.let",
+        "resolve(height)?.let",
+        "width?.kind == \"fill\"",
+        "height?.kind == \"fill\"",
+        "modifier.widthIn(min = widthMinimum, max = widthMaximum)",
+        "modifier.heightIn(min = heightMinimum, max = heightMaximum)",
     ] {
         let sizing = layout
             .find(sizing_modifier)
@@ -1677,6 +1710,15 @@ fn android_dev_runtime_animates_content_before_size_modifiers() {
             "content-size animation must precede {sizing_modifier}"
         );
     }
+    let insets = renderer
+        .split_once("\"ViewInsets\" -> {")
+        .expect("find Android DevRuntime view inset rendering")
+        .1
+        .split_once("\"SafeAreaInset\" -> {")
+        .expect("find end of Android DevRuntime view inset rendering")
+        .0;
+    assert!(insets.contains("fields.optJSONObject(\"padding\")"));
+    assert!(insets.contains("fields.optJSONObject(\"margin\")"));
 }
 
 #[test]
@@ -1718,11 +1760,9 @@ fn ios_dev_runtime_inherits_column_text_alignment_when_unset() {
     assert!(renderer.contains(
         "NexaColumnPrimitive(alignment: .center, textAlignment: .center, spacing: 0) {\n                ForEach(nodes.indices"
     ));
-    assert!(renderer.contains(
-        "private func renderScreen(_ screen: [String: Any], parameters: [String: Any]) -> AnyView {"
-    ));
+    assert!(renderer.contains("private func renderScreen("));
     let screen_renderer = renderer
-        .split_once("private func renderScreen(_ screen: [String: Any], parameters: [String: Any]) -> AnyView {")
+        .split_once("private func renderScreen(")
         .expect("find per-screen renderer")
         .1;
     assert!(screen_renderer.contains("return AnyView(NexaDevNodeList("));
@@ -1761,13 +1801,16 @@ fn android_dev_runtime_maps_glass_effect_to_material_surface() {
     assert!(layout.contains("?: MaterialTheme.colorScheme.surface"));
     assert!(layout.contains(".clip(glassShape)"));
     assert!(layout.contains(".background(surfaceColor, glassShape)"));
-    let glass = layout
-        .find("effects.optJSONObject(\"glass\")")
-        .expect("apply glass surface");
-    let padding = layout
-        .find("if (!style.isNull(\"padding\")) modifier = modifier.padding")
-        .expect("apply layout padding");
-    assert!(glass < padding, "glass bounds must include layout padding");
+    assert!(layout.contains("effects.optJSONObject(\"glass\")"));
+    assert!(!layout.contains("style.optDouble(\"padding\")"));
+    let insets = renderer
+        .split_once("\"ViewInsets\" -> {")
+        .expect("find Android DevRuntime view inset rendering")
+        .1
+        .split_once("\"SafeAreaInset\" -> {")
+        .expect("find end of Android DevRuntime view inset rendering")
+        .0;
+    assert!(insets.contains("inset(padding, \"top\")"));
     assert!(
         !layout.contains(".border(1.dp, MaterialTheme.colorScheme.outlineVariant, glassShape)")
     );
@@ -1994,7 +2037,7 @@ fn keyed_fast_list_module(with_reordering: bool) -> Module {
                 refresh: None,
                 scroll_position: None,
                 component_ref: None,
-                spacing: 0.0,
+                gap: 0.0,
             },
         }),
     }])
@@ -2193,7 +2236,7 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
         },
         Node::Layout {
             kind: LayoutKind::Column,
-            spacing: 8.0,
+            gap: 8.0,
             style: ViewStyle::default(),
             children: vec![Node::Text {
                 value: Expr::String("Shared layout".to_owned()),
@@ -2528,7 +2571,9 @@ fn aot_and_dev_renderers_call_the_same_native_component_primitives() {
     assert!(swift.contains("NexaTextPrimitive("));
     assert!(swift.contains("Image(systemName: \"plus\").font(.system(size: 17))"));
     assert!(swift.contains("NexaFormPrimitive(background:"));
-    assert!(swift_runtime.contains("NexaFormPrimitive(background:"));
+    assert!(swift_runtime.contains("NexaFormPrimitive("));
+    assert!(swift_runtime.contains("contentPadding: formContentPadding"));
+    assert!(swift_runtime.contains("margin: formMargin"));
     assert!(swift.contains("NexaAppBottomBarPrimitive("));
     assert!(swift_runtime.contains("NexaAppBottomBarPrimitive("));
     assert!(swift_runtime.contains("nexaDevUsesIconOnlyButtonLabel"));
@@ -4223,6 +4268,11 @@ fn android_dev_navigation_leaves_grouped_surfaces_with_their_components() {
         .expect("read Android DevRuntime navigation");
     let renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
         .expect("read Android DevRuntime renderer");
+    let navigation_normalized = navigation
+        .lines()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n");
 
     assert!(navigation.contains("NexaNavigationScreenPrimitive("));
     for (parameter, transition, direction) in [
@@ -4231,8 +4281,8 @@ fn android_dev_navigation_leaves_grouped_surfaces_with_their_components() {
         ("popEnterTransition", "slideIntoContainer", "End"),
         ("popExitTransition", "slideOutOfContainer", "End"),
     ] {
-        assert!(navigation.contains(&format!(
-            "{parameter} = {{\n                {transition}(\n                    towards = AnimatedContentTransitionScope.SlideDirection.{direction},\n                    animationSpec = tween(durationMillis = 350),"
+        assert!(navigation_normalized.contains(&format!(
+            "{parameter} = {{\n{transition}(\ntowards = AnimatedContentTransitionScope.SlideDirection.{direction},\nanimationSpec = tween(durationMillis = 350),"
         )));
     }
     assert!(!navigation.contains("groupedSurface ="));
@@ -4697,27 +4747,52 @@ fn hot_reload_patch_application_avoids_full_module_clones_and_long_retry_waits()
     let (root, _) = fixture();
     let android_state = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
         .expect("read Android dev state store");
+    let android_patch = fs::read_to_string(root.join("../../runtime/android/NexaDevPatch.kt"))
+        .expect("read Android dev patch engine");
     let android_protocol =
         fs::read_to_string(root.join("../../runtime/android/NexaDevProtocol.kt"))
             .expect("read Android dev protocol");
     let ios_protocol = fs::read_to_string(root.join("../../runtime/ios/NexaDevProtocol.swift"))
         .expect("read iOS dev protocol");
 
-    assert!(android_state.contains("val updated = shallowCopy(root)"));
-    assert!(android_state.contains("private fun shallowCopy(value: Any): Any?"));
-    let patch_apply = android_state
-        .split_once("fun applyPatch(patch: JSONObject): Boolean {")
-        .expect("find Android patch application")
-        .1
-        .split_once("private fun shallowCopy(")
-        .expect("find end of Android patch application")
-        .0;
-    assert!(patch_apply.contains("val root = currentModule ?: module ?: return false"));
+    // Android patch preparation is side-effect free and copy-on-write: it
+    // builds a candidate module without touching the installed one.
+    assert!(android_patch.contains("internal object NexaDevJsonPatch"));
+    assert!(android_patch.contains("fun prepare(base: JSONObject, operations: JSONArray)"));
+    assert!(android_patch.contains("val baseModule: JSONObject,"));
+    assert!(android_patch.contains("val candidate: JSONObject,"));
     assert!(
-        patch_apply.contains("val operations = patch.optJSONArray(\"operations\") ?: return false")
+        android_patch.contains("private fun update(node: Any, operation: Operation, depth: Int)")
     );
-    assert!(patch_apply.contains("if (!applyOperation(root, operation)) return false"));
-    assert!(patch_apply.contains("install(updated)\n        return true"));
+    assert!(android_patch.contains("shallowCopyObject(node)"));
+    assert!(android_patch.contains("shallowCopyArray(node)"));
+    assert!(
+        !android_patch.contains("base.put(") && !android_patch.contains("base.remove("),
+        "patch preparation must never mutate the frozen base module"
+    );
+
+    // Commit happens on the main thread and verifies the identity of the base
+    // module so a racing full install rejects the stale candidate.
+    let commit = android_state
+        .split_once("fun commitPreparedPatch(")
+        .expect("find Android patch commit")
+        .1
+        .split_once("fun publishDiagnostics(")
+        .expect("find end of Android patch commit")
+        .0;
+    assert!(commit.contains("Looper.myLooper() == Looper.getMainLooper()"));
+    assert!(commit.contains("if (installed !== prepared.baseModule) return false"));
+    assert!(commit.contains("prepared.presentationOnly -> true"));
+    assert!(commit.contains("prepared.functionBodiesOnly -> installPatchedFunctions(candidate)"));
+    assert!(commit.contains(
+        "prepared.screenIndices != null -> installPatchedScreens(candidate, prepared.screenIndices)"
+    ));
+    assert!(commit.contains("currentModule = candidate"));
+    assert!(commit.contains("moduleRevision += 1"));
+    assert!(
+        !android_state.contains("fun applyPatch(patch: JSONObject): Boolean"),
+        "the mutating patch entry point must be deleted, not kept as legacy code"
+    );
 
     let patch_handler = android_protocol
         .split_once("NexaDevKeys.MSG_PATCH -> {")
@@ -4726,19 +4801,23 @@ fn hot_reload_patch_application_avoids_full_module_clones_and_long_retry_waits()
         .split_once("NexaDevKeys.MSG_DIAGNOSTICS -> {")
         .expect("find end of Android patch handler")
         .0;
-    let patch_applied = patch_handler
-        .find("store.applyPatch(patch)")
-        .expect("apply patch before acknowledging it");
+    let prepared = patch_handler
+        .find("val prepared = NexaDevJsonPatch.prepare(base, operations)")
+        .expect("prepare the patch on the worker thread");
+    let committed = patch_handler
+        .find("store.commitPreparedPatch(prepared, translations)")
+        .expect("commit the prepared patch on the main thread");
     let rejected_patch = patch_handler
-        .find("if (!applied.get())")
+        .find("if (!committed.get())")
         .expect("request a full module when Android rejects a patch");
     let advanced_revision = patch_handler
         .find("currentRevision = revision")
         .expect("advance revision after successful patch application");
     assert!(
-        patch_applied < rejected_patch && rejected_patch < advanced_revision,
-        "Android must keep the last good revision when a patch cannot be applied"
+        prepared < committed && committed < rejected_patch && rejected_patch < advanced_revision,
+        "Android must prepare, commit, and only then acknowledge a patch"
     );
+    assert!(patch_handler.contains("onMainAndWait {"));
     assert!(
         patch_handler[rejected_patch..advanced_revision]
             .contains("NexaDevKeys.MSG_REQUEST_FULL_MODULE")
@@ -4766,24 +4845,19 @@ fn hot_reload_patch_application_avoids_full_module_clones_and_long_retry_waits()
     );
     assert!(ios_patch_handler.contains("requestFullModule()"));
 
-    let patch_path_handling = android_state
-        .split_once(
-            "private fun applyOperation(root: JSONObject, operation: JSONObject): Boolean {",
-        )
-        .expect("find Android patch path handling")
-        .1
-        .split_once("fun publishDiagnostics(")
-        .expect("find end of Android patch path handling")
-        .0;
-    assert!(patch_path_handling.contains("updateContainer(root, path, 0, kind, value)"));
-    assert!(patch_path_handling.contains("path.indexOf('/', segmentStart)"));
+    // The patch engine parses each JSON pointer exactly once and then walks
+    // the pre-split segments, so a styling patch never re-scans path strings.
+    assert!(android_patch.contains("private fun parsePointer(raw: String): List<String>?"));
     assert!(
-        !patch_path_handling.contains("path.split('/')")
-            && !patch_path_handling.contains("filter(String::isNotEmpty).map"),
-        "patch traversal should avoid allocating and transforming a path-segment list"
+        android_patch.contains("private fun update(node: Any, operation: Operation, depth: Int)")
     );
     assert!(
-        !android_state.contains("JSONObject(root.toString())"),
+        !android_patch.contains("path.split('/')"),
+        "patch preparation should split a JSON pointer once, not per traversal step"
+    );
+    assert!(
+        !android_state.contains("JSONObject(root.toString())")
+            && !android_patch.contains("JSONObject(base.toString())"),
         "an ordinary Android patch must not serialize and reparse the full Dev IR module"
     );
     assert!(android_protocol.contains("var retryDelayMs = 50L"));
@@ -4838,7 +4912,7 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
                 refresh: None,
                 scroll_position: None,
                 component_ref: None,
-                spacing: 4.0,
+                gap: 4.0,
             },
         }),
     }]);
@@ -4906,10 +4980,10 @@ fn android_fast_list_rows_use_one_native_primitive_in_aot_and_devruntime() {
     assert!(renderer.contains("if (distance < targetDistance)"));
     assert!(renderer.contains("reorderOffset.floatValue = dragDistance"));
     assert!(!renderer.contains("rowExtentPx"));
-    assert!(renderer.contains("options.optDouble(\"spacing\", 0.0).coerceAtLeast(0.0).dp"));
+    assert!(renderer.contains("options.optDouble(\"gap\", 0.0).coerceAtLeast(0.0).dp"));
     assert!(renderer.contains("options?.opt(\"scroll_enabled\")"));
     assert!(renderer.contains("userScrollEnabled = scrollEnabled &&"));
-    assert!(renderer.contains("verticalArrangement = Arrangement.spacedBy(spacing)"));
+    assert!(renderer.contains("verticalArrangement = Arrangement.spacedBy(gap)"));
     assert!(renderer.contains("val keyExpression = options?.opt(\"key\")"));
     assert!(renderer.contains("animateStableRows && !pageSnap"));
     assert!(renderer.contains("placementSpec = if ((reorderActiveIndex?.intValue ?: -1) < 0)"));
@@ -4986,7 +5060,7 @@ fn divider_preferences_reach_dev_ir_and_both_runtime_renderers() {
                     reverse_layout: false,
                     page_snap: false,
                     item_extent: None,
-                    spacing: 0.0,
+                    gap: 0.0,
                     scroll_enabled: None,
                     index: "index".to_owned(),
                     key: None,
@@ -5083,7 +5157,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 refresh: None,
                 scroll_position: None,
                 component_ref: None,
-                spacing: 4.0,
+                gap: 4.0,
             },
         }),
     }]);
@@ -5122,7 +5196,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
     assert!(dev_host.contains("maxHeight: itemExtent"));
     assert!(dev_host.contains(".fixedSize(horizontal: true, vertical: false)"));
     assert!(renderer.contains("NexaFastListPrimitive("));
-    assert!(renderer.contains("listFields[\"spacing\"] as? Double ?? 0"));
+    assert!(renderer.contains("listFields[\"gap\"] as? Double ?? 0"));
     assert!(renderer.contains("listFields[\"scroll_enabled\"]"));
     assert!(renderer.contains(".scrollDisabled(!scrollEnabled)"));
     assert!(renderer.contains(
@@ -5248,7 +5322,7 @@ fn ios_fast_list_uses_the_same_uikit_primitive_in_aot_and_devruntime() {
                 refresh: None,
                 scroll_position: None,
                 component_ref: None,
-                spacing: 0.0,
+                gap: 0.0,
             },
         }),
     }]));
@@ -5346,7 +5420,7 @@ fn horizontal_fast_list_row_height_does_not_constrain_width_in_android() {
                 refresh: None,
                 scroll_position: None,
                 component_ref: None,
-                spacing: 12.0,
+                gap: 12.0,
             },
         }),
     }]);
@@ -5834,9 +5908,8 @@ fn navigation_destinations_use_the_same_native_screen_shell_in_aot_and_devruntim
         "module install replaces type signatures, so navigation structure needs its own retained signature"
     );
     assert!(kotlin_state.contains("private var navigationScreensSignature: String? = null"));
-    assert!(kotlin_state.contains(
-        "if (navigationRoot != currentRoot || navigationScreensSignature != currentScreensSignature)"
-    ));
+    assert!(kotlin_state.contains("if (navigationRoot != currentRoot)"));
+    assert!(kotlin_state.contains("navigationScreensSignature = currentScreensSignature"));
 
     assert!(kotlin.contains("internal fun NexaNavigationScreenPrimitive("));
     assert!(kotlin.contains("LargeFlexibleTopAppBar("));

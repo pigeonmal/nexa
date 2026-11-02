@@ -14,7 +14,7 @@ app ReadingQueue {
     state booksRead: Int32 = 4
 
     body {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Books read: \(booksRead)", fontSize: 22, fontWeight: Bold)
             Button("Finish a book") {
                 booksRead = booksRead + 1

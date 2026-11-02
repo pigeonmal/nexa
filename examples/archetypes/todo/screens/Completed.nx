@@ -6,7 +6,7 @@ screen Completed {
             FastList(todoSort(todoFilter(tasks, 3, ""), sortSelection), key:.id) {
             task, index in
             TaskListRow() {
-                Row(spacing: 12) {
+                Row(gap: 12) {
                     Column(maxWidth: 34, animation: Spring(response: 0.35, damping: 0.8)) {
                         Pressable(accessibilityLabel: "Completed", accessibilityHint: "Double tap to toggle", accessibilityRole: Button) {
                             Icon(system: "check_circle", size: 28, tint: themeTint(selectedTheme), description: "")
@@ -20,7 +20,7 @@ screen Completed {
                         }
                     }
                     Pressable(accessibilityLabel: task.title, accessibilityHint: "Double tap to edit task", accessibilityValue: taskAccessibilityValue(task), accessibilityRole: Button) {
-                        Row(spacing: 12) {
+                        Row(gap: 12) {
                             TaskRowContent(task: task)
                             Spacer()
                         }

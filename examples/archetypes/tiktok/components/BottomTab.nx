@@ -2,7 +2,7 @@ component BottomTab(label: String, icon: String, active: Bool) {
     let tint = if active { "#FFFFFF" } else { "#9B9BA0" }
 
     body {
-        Column(spacing: 3, alignment: Center, padding: 4) {
+        Column(gap: 3, alignment: Center, padding: 4) {
             if icon == "home" {
                 Icon(system: "home", description: "", size: 21, tint: tint)
             } else if icon == "search" {

@@ -218,7 +218,7 @@ fn fast_list_auto_grid_generates_adaptive_native_grids_for_both_targets() {
         FastList(count: 3, pageSnap: true) { index in
             Text("Page \(index)")
         }
-        FastList(count: 12, axis: AutoGrid(112), rowHeight: 140, spacing: 4, ref: galleryRef) { index in
+        FastList(count: 12, axis: AutoGrid(112), rowHeight: 140, gap: 4, ref: galleryRef) { index in
             Text("Clip \(index)")
         }
         Button("Show clip") {
@@ -779,7 +779,7 @@ fn copy_generated_kotlin_from(root: &Path, source: &Path, destination: &Path) {
 fn generated_ios_example_hosts_build_with_xcode_when_available() {
     std::thread::Builder::new()
         .name("generated-ios-example-hosts".to_owned())
-        .stack_size(4 * 1024 * 1024)
+        .stack_size(16 * 1024 * 1024)
         .spawn(generated_ios_example_hosts_build_with_xcode_when_available_inner)
         .expect("iOS example build test thread should start")
         .join()

@@ -148,6 +148,10 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.foundation.layout.ime");
     imports.add(true, "androidx.compose.foundation.layout.navigationBars");
     imports.add(true, "androidx.compose.foundation.layout.statusBars");
+    imports.add(true, "androidx.compose.foundation.layout.systemBars");
+    imports.add(true, "androidx.compose.foundation.layout.displayCutout");
+    imports.add(true, "androidx.compose.foundation.layout.waterfall");
+    imports.add(true, "androidx.compose.foundation.layout.union");
     imports.add(true, "androidx.compose.foundation.layout.wrapContentWidth");
     imports.add(
         true,
@@ -173,10 +177,21 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(true, "androidx.compose.foundation.layout.heightIn");
     imports.add(true, "androidx.compose.foundation.layout.offset");
     imports.add(true, "androidx.compose.foundation.layout.padding");
+    imports.add(
+        true,
+        "androidx.compose.foundation.layout.calculateStartPadding",
+    );
+    imports.add(
+        true,
+        "androidx.compose.foundation.layout.calculateEndPadding",
+    );
     imports.add(true, "androidx.compose.foundation.layout.requiredWidth");
+    imports.add(true, "androidx.compose.foundation.layout.requiredHeight");
+    imports.add(true, "androidx.compose.foundation.layout.wrapContentHeight");
     imports.add(true, "androidx.compose.foundation.layout.size");
     imports.add(true, "androidx.compose.foundation.layout.width");
     imports.add(true, "androidx.compose.ui.unit.sp");
+    imports.add(true, "androidx.compose.ui.unit.dp");
     imports.add(true, "androidx.compose.ui.semantics.semantics");
     imports.add(true, "androidx.compose.ui.semantics.contentDescription");
     imports.add(true, "androidx.compose.ui.semantics.stateDescription");
@@ -278,6 +293,8 @@ mod tests {
         assert!(!imports.contains("androidx.compose.material.icons.automirrored.filled.ArrowBack"));
         assert!(imports.contains("import androidx.compose.foundation.layout.ime\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.navigationBars\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.requiredHeight\n"));
+        assert!(imports.contains("import androidx.compose.foundation.layout.wrapContentHeight\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.statusBars\n"));
         assert!(imports.contains("import androidx.compose.foundation.layout.wrapContentWidth\n"));
         assert!(

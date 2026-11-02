@@ -17,7 +17,10 @@ use self::{
     components::{
         contains_content, lower_actions_with_aliases, lower_nodes, validate_typed_error_recovery,
     },
-    context::{ExprContext, ScreenSignature, ScreenSignatures, SemanticContext, TypeRegistries},
+    context::{
+        ExprContext, ScreenSignature, ScreenSignatures, SemanticCapabilities, SemanticContext,
+        TypeRegistries,
+    },
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
@@ -147,7 +150,7 @@ mod widget_capability_tests {
         let styled_text = Node::Text {
             value: Expr::String("Task".to_owned()),
             style: TextStyle {
-                padding: Some(4.0),
+                opacity: Some(0.8),
                 ..TextStyle::default()
             },
         };
@@ -188,8 +191,7 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
         for node in nodes {
             match node {
                 Node::Text { style, .. } => {
-                    if style.padding.is_some()
-                        || style.opacity.is_some()
+                    if style.opacity.is_some()
                         || style.effects.has_modifiers()
                         || style.line_height.is_some()
                         || style.letter_spacing.is_some()
@@ -235,6 +237,38 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                         ));
                     }
                     visit(children, span)?;
+                }
+                Node::ViewInsets {
+                    padding,
+                    margin,
+                    child,
+                } => {
+                    let uses_system_inset = [padding.as_ref(), margin.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .flat_map(|insets| {
+                            [
+                                &insets.top,
+                                &insets.bottom,
+                                &insets.leading,
+                                &insets.trailing,
+                            ]
+                        })
+                        .flatten()
+                        .any(|expression| {
+                            let mut found = false;
+                            nexa_ir::walk::walk_expression(expression, &mut |nested| {
+                                found |= matches!(nested, nexa_ir::Expr::SystemInset(_));
+                            });
+                            found
+                        });
+                    if uses_system_inset {
+                        return Err(CompileError::new(
+                            span,
+                            "widget content does not support SystemInsets",
+                        ));
+                    }
+                    visit(std::slice::from_ref(child.as_ref()), span)?;
                 }
                 Node::Accessibility {
                     hint,
@@ -339,7 +373,6 @@ fn validate_widget_body(nodes: &[Node], span: nexa_diagnostics::Span) -> Result<
                 Node::Appearance { .. }
                 | Node::Form { .. }
                 | Node::FormSection { .. }
-                | Node::SafeAreaPadding { .. }
                 | Node::SafeAreaInset { .. }
                 | Node::ScrollHeader { .. } => {
                     return Err(unsupported("platform-specific container", span));
@@ -491,7 +524,7 @@ pub(super) fn lower_with_project_targets_and_optimization_report(
 fn lower_with_warnings_in_mode(
     mut app: ast::App,
     target: Target,
-    allow_nullable_generic_plugin_reads: bool,
+    dev_runtime: bool,
     include_optimization_report: bool,
     custom_icons: Option<&HashMap<String, nexa_ir::SystemIcon>>,
     mut dev_function_cache: Option<&mut DevFunctionLoweringCache>,
@@ -507,6 +540,8 @@ fn lower_with_warnings_in_mode(
     ),
     CompileError,
 > {
+    let capabilities = SemanticCapabilities::for_target(target);
+    let allow_nullable_generic_plugin_reads = capabilities.nullable_generic_plugin_reads;
     let screen_environment = dev_function_cache.as_ref().map(|_| {
         screen_lowering_environment_key(
             &app,
@@ -528,7 +563,7 @@ fn lower_with_warnings_in_mode(
     } else {
         warnings::analyze(&app, target)
     };
-    if allow_nullable_generic_plugin_reads {
+    if dev_runtime {
         eprintln!(
             "Nexa semantic {target:?} warnings: {} ms",
             warnings_started.elapsed().as_millis()
@@ -583,7 +618,12 @@ fn lower_with_warnings_in_mode(
                 .map(|parameter| {
                     Ok((
                         parameter.name.clone(),
-                        resolve_class_member_type(&parameter.ty, &struct_types, &app.plugins, false)?,
+                        resolve_class_member_type(
+                            &parameter.ty,
+                            &struct_types,
+                            &app.plugins,
+                            false,
+                        )?,
                     ))
                 })
                 .collect::<Result<Vec<_>, CompileError>>()?;
@@ -736,7 +776,12 @@ fn lower_with_warnings_in_mode(
                 .map(|parameter| {
                     Ok((
                         parameter.name.clone(),
-                        resolve_class_member_type(&parameter.ty, &struct_types, &app.plugins, false)?,
+                        resolve_class_member_type(
+                            &parameter.ty,
+                            &struct_types,
+                            &app.plugins,
+                            false,
+                        )?,
                     ))
                 })
                 .collect::<Result<Vec<_>, CompileError>>()?;
@@ -800,8 +845,12 @@ fn lower_with_warnings_in_mode(
                         ))
                     })
                     .collect::<Result<Vec<_>, CompileError>>()?;
-                let return_type =
-                    resolve_class_member_type(&method.return_type, &struct_types, &app.plugins, true)?;
+                let return_type = resolve_class_member_type(
+                    &method.return_type,
+                    &struct_types,
+                    &app.plugins,
+                    true,
+                )?;
                 function_signatures.insert(
                     key.clone(),
                     FunctionSignature {
@@ -850,8 +899,12 @@ fn lower_with_warnings_in_mode(
                         ))
                     })
                     .collect::<Result<Vec<_>, CompileError>>()?;
-                let return_type =
-                    resolve_class_member_type(&method.return_type, &struct_types, &app.plugins, true)?;
+                let return_type = resolve_class_member_type(
+                    &method.return_type,
+                    &struct_types,
+                    &app.plugins,
+                    true,
+                )?;
                 function_signatures.insert(
                     key.clone(),
                     FunctionSignature {
@@ -990,7 +1043,7 @@ fn lower_with_warnings_in_mode(
                 global_symbols: &component_global_symbols,
                 external_signatures: &native_component_signatures,
                 target,
-                allow_nullable_generic_plugin_reads,
+                nullable_generic_plugin_reads: allow_nullable_generic_plugin_reads,
                 custom_icons,
             },
         )?;
@@ -1035,7 +1088,7 @@ fn lower_with_warnings_in_mode(
                     TypeRegistries {
                         structs: &struct_types,
                         enums: &owned_enum_names,
-                        allow_nullable_generic_plugin_reads,
+                        nullable_generic_plugin_reads: allow_nullable_generic_plugin_reads,
                         screen_ids: None,
                         allow_navigation_actions: false,
                         source_file: task.source_file.as_deref(),
@@ -1073,8 +1126,12 @@ fn lower_with_warnings_in_mode(
                     format!("`{}` is already declared as a function", declaration.name),
                 ));
             }
-            let ty =
-                resolve_declaration_type(&declaration, &symbols, &function_signatures, &struct_types)?;
+            let ty = resolve_declaration_type(
+                &declaration,
+                &symbols,
+                &function_signatures,
+                &struct_types,
+            )?;
             validate_task_handle_state(
                 &ty,
                 declaration.mutable,
@@ -1439,8 +1496,7 @@ fn lower_with_warnings_in_mode(
             )
             .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
             .with_source_file(screen_source_file);
-            let initial =
-                screen_try!(lower_expr(&declaration.initial, Some(&ty), &state_context,));
+            let initial = screen_try!(lower_expr(&declaration.initial, Some(&ty), &state_context,));
             let mutable = declaration.mutable;
             if mutable && references_mutable_state(&declaration.initial, &screen_symbols) {
                 return Err(with_screen_source(
@@ -3586,7 +3642,9 @@ fn lower_functions(
         }
 
         let current_names: HashSet<&str> = lowered.iter().map(|f| f.name.as_str()).collect();
-        cache.functions.retain(|name, _| current_names.contains(name.as_str()));
+        cache
+            .functions
+            .retain(|name, _| current_names.contains(name.as_str()));
         cache.cached_function_sources = Some((*sources).clone());
         cache.environment = environment;
         cache.unchanged_function_names = cache_hit_names;
@@ -4110,7 +4168,7 @@ pub(in crate::semantic) fn lower_function_statements(
                     TypeRegistries {
                         structs,
                         enums,
-                        allow_nullable_generic_plugin_reads,
+                        nullable_generic_plugin_reads: allow_nullable_generic_plugin_reads,
                         screen_ids: None,
                         allow_navigation_actions: false,
                         source_file,
@@ -4162,7 +4220,7 @@ pub(in crate::semantic) fn lower_function_statements(
                     TypeRegistries {
                         structs,
                         enums,
-                        allow_nullable_generic_plugin_reads,
+                        nullable_generic_plugin_reads: allow_nullable_generic_plugin_reads,
                         screen_ids: None,
                         allow_navigation_actions: false,
                         source_file,
@@ -4409,7 +4467,34 @@ fn has_navigation_root(nodes: &[ast::Node], target: Target) -> bool {
     let mut active = Vec::new();
     collect_active_nodes(nodes, target, &mut active);
     match active.as_slice() {
-        [ast::Node::ComponentInvocation(inv)] => inv.name == "NavigationStack",
+        [ast::Node::ComponentInvocation(inv)] => {
+            if inv.name == "NavigationStack" {
+                true
+            } else if inv.name == "AppBottomBar" {
+                match &inv.children {
+                    ast::ChildBody::Tabs(tabs) => {
+                        !tabs.is_empty()
+                            && tabs
+                                .iter()
+                                .all(|tab| has_navigation_root(&tab.children, target))
+                    }
+                    ast::ChildBody::AppBottomBar { tabs, .. } => {
+                        !tabs.is_empty()
+                            && tabs
+                                .iter()
+                                .all(|tab| has_navigation_root(&tab.children, target))
+                    }
+                    _ => false,
+                }
+            } else if inv.name == "Appearance" {
+                match &inv.children {
+                    ast::ChildBody::Nodes(children) => has_navigation_root(children, target),
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        }
         [
             ast::Node::If {
                 then_body,

@@ -69,21 +69,21 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Column",
-        summary: "Vertical layout container with zero gap by default and optional spacing",
-        snippet: "Column(spacing: ${1:0}) {\n    $0\n}",
-        probe: "app P { body { Column(spacing: 8) { Text(\"a\") } } }",
+        summary: "Vertical layout container with configurable child gap, padding, and outer margin",
+        snippet: "Column(gap: ${1:0}, padding: ${2:16}) {\n    $0\n}",
+        probe: "app P { body { Column(gap: 8, padding: Insets(top: 16)) { Text(\"a\") } } }",
     },
     ComponentEntry {
         name: "Row",
-        summary: "Horizontal layout container with zero gap by default, optional spacing, and main-axis arrangement",
-        snippet: "Row(spacing: ${1:0}) {\n    $0\n}",
-        probe: "app P { body { Row(spacing: 8, horizontalArrangement: Center) { Text(\"a\") } } }",
+        summary: "Horizontal layout container with configurable child gap, padding, and outer margin",
+        snippet: "Row(gap: ${1:0}, horizontalArrangement: ${2:Start}) {\n    $0\n}",
+        probe: "app P { body { Row(gap: 8, horizontalArrangement: Center) { Text(\"a\") } } }",
     },
     ComponentEntry {
         name: "Stack",
         summary: "Overlapping layout container",
-        snippet: "Stack(screenHeightFraction: ${1:0.5}, cornerRadiusBottom: ${2:24}) {\n    $0\n}",
-        probe: "app P { body { Stack(screenHeightFraction: 0.5, cornerRadiusBottom: 24) { Text(\"a\") } } }",
+        snippet: "Stack(height: screenHeightFraction(${1:0.5}), cornerRadiusBottom: ${2:24}) {\n    $0\n}",
+        probe: "app P { body { Stack(height: screenHeightFraction(0.5), cornerRadiusBottom: 24) { Text(\"a\") } } }",
     },
     ComponentEntry {
         name: "Form",
@@ -274,7 +274,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "AppBottomBar",
         summary: "Bottom tab bar bound to a selected-tab binding",
-        snippet: "AppBottomBar(selected: ${1:selectedTab}) {\n    Tab(index: 0, label: \"${2:Home}\", icon: \"home\") {\n        $0\n    }\n    TabBar {\n        Row(alignment: Center) {\n            Pressable(accessibilityLabel: \"Home tab\", accessibilityRole: Button) {\n                Column(spacing: 4, alignment: Center) {\n                    Icon(system: \"home\", description: \"Home\", size: 20)\n                    Text(\"Home\")\n                }\n            }.onTap { selectedTab = 0 }\n        }\n    }\n}",
+        snippet: "AppBottomBar(selected: ${1:selectedTab}) {\n    Tab(index: 0, label: \"${2:Home}\", icon: \"home\") {\n        $0\n    }\n    TabBar {\n        Row(alignment: Center) {\n            Pressable(accessibilityLabel: \"Home tab\", accessibilityRole: Button) {\n                Column(gap: 4, alignment: Center) {\n                    Icon(system: \"home\", description: \"Home\", size: 20)\n                    Text(\"Home\")\n                }\n            }.onTap { selectedTab = 0 }\n        }\n    }\n}",
         probe: "app P { state tab: Int32 = 0\n body { AppBottomBar(selected: tab) { Tab(index: 0, label: \"Home\", icon: \"home\") { Text(\"x\") } TabBar { Text(\"custom\") } } } }",
     },
     ComponentEntry {
@@ -741,14 +741,9 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         snippet: "swipeActions {\n    Button(\"Delete\", icon: \"trash\") {\n        $0\n    }\n}",
     },
     DotModifierEntry {
-        name: "safeAreaPadding",
-        summary: "Protect selected edges with remaining system safe insets and optional design spacing",
-        snippet: "safeAreaPadding(edges: [Top, Bottom], spacing: ${1:0})",
-    },
-    DotModifierEntry {
         name: "safeAreaInset",
         summary: "Attach content to a safe edge and accommodate one unambiguous scroll endpoint",
-        snippet: "safeAreaInset(edge: Bottom, spacing: ${1:0}) {\n    $0\n}",
+        snippet: "safeAreaInset(edge: Bottom) {\n    $0\n}",
     },
     DotModifierEntry {
         name: "scrollHeader",
@@ -948,39 +943,12 @@ pub struct ComponentSchema {
 pub const SHARED_VIEW_MODIFIERS: &[SharedViewModifierSchema] = &[
     SharedViewModifierSchema {
         modifier: ModifierSchema {
-            name: "safeAreaPadding",
-            arguments: &[
-                ArgSchema {
-                    name: "edges",
-                    required: false,
-                    required_message: None,
-                },
-                ArgSchema {
-                    name: "spacing",
-                    required: false,
-                    required_message: None,
-                },
-            ],
-            body: ModifierBody::None,
-            required: false,
-        },
-        target: ViewModifierTarget::AnyView,
-    },
-    SharedViewModifierSchema {
-        modifier: ModifierSchema {
             name: "safeAreaInset",
-            arguments: &[
-                ArgSchema {
-                    name: "edge",
-                    required: true,
-                    required_message: Some("modifier `.safeAreaInset` requires `edge`"),
-                },
-                ArgSchema {
-                    name: "spacing",
-                    required: false,
-                    required_message: None,
-                },
-            ],
+            arguments: &[ArgSchema {
+                name: "edge",
+                required: true,
+                required_message: Some("modifier `.safeAreaInset` requires `edge`"),
+            }],
             body: ModifierBody::Nodes,
             required: false,
         },
@@ -1541,15 +1509,12 @@ const fn req_msg(name: &'static str, message: &'static str) -> ArgSchema {
 
 /// Layout style options shared by `Column`, `Row`, and `Stack`.
 const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
-    opt("spacing"),
+    opt("gap"),
+    opt("margin"),
     opt("alignment"),
     opt("padding"),
     opt("width"),
-    opt("fillMaxWidth"),
-    opt("screenWidthFraction"),
     opt("height"),
-    opt("fillMaxHeight"),
-    opt("screenHeightFraction"),
     opt("minWidth"),
     opt("maxWidth"),
     opt("minHeight"),
@@ -1575,16 +1540,13 @@ const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
 /// Row shares the layout styling options but also exposes placement along its
 /// horizontal main axis. `alignment` remains the vertical cross-axis option.
 const ROW_LAYOUT_ARGUMENTS: &[ArgSchema] = &[
-    opt("spacing"),
+    opt("gap"),
+    opt("margin"),
     opt("alignment"),
     opt("horizontalArrangement"),
     opt("padding"),
     opt("width"),
-    opt("fillMaxWidth"),
-    opt("screenWidthFraction"),
     opt("height"),
-    opt("fillMaxHeight"),
-    opt("screenHeightFraction"),
     opt("minWidth"),
     opt("maxWidth"),
     opt("minHeight"),
@@ -1607,17 +1569,13 @@ const ROW_LAYOUT_ARGUMENTS: &[ArgSchema] = &[
     opt("animation"),
 ];
 
-/// Visual layout options accepted by overlapping `Stack` containers. Stack
-/// has no spacing parameter because its children overlap instead of flowing.
+/// Visual layout options accepted by overlapping `Stack` containers.
 const STACK_ARGUMENTS: &[ArgSchema] = &[
     opt("alignment"),
+    opt("margin"),
     opt("padding"),
     opt("width"),
-    opt("fillMaxWidth"),
-    opt("screenWidthFraction"),
     opt("height"),
-    opt("fillMaxHeight"),
-    opt("screenHeightFraction"),
     opt("minWidth"),
     opt("maxWidth"),
     opt("minHeight"),
@@ -2483,7 +2441,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         arguments: &[
             opt("axis"),
             opt("rowHeight"),
-            opt("spacing"),
+            opt("gap"),
             opt("scrollPosition"),
             opt("scrollEnabled"),
             opt("reverseLayout"),
@@ -2700,6 +2658,11 @@ pub fn supports_accessibility_options(schema: &ComponentSchema) -> bool {
 pub fn schema_option_names(schema: &ComponentSchema) -> Vec<&'static str> {
     let mut names: Vec<_> = schema.arguments.iter().map(|arg| arg.name).collect();
     if supports_accessibility_options(schema) {
+        for name in ["padding", "margin"] {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
         names.extend(ACCESSIBILITY_ARGUMENTS);
     }
     names
@@ -2957,7 +2920,7 @@ pub fn render_syntax_audit() -> String {
         app SyntaxAuditQuickStart {\n\
             state savedItems: Int32 = 0\n\n\
             body {\n\
-                Column(spacing: 8, padding: 16) {\n\
+                Column(gap: 8, padding: 16) {\n\
                     Text(\"Saved items: \\(savedItems)\")\n\
                     Button(\"Save an item\") {\n\
                         savedItems = savedItems + 1\n\
@@ -3117,12 +3080,7 @@ pub fn render_syntax_audit() -> String {
     for entry in SHARED_VIEW_MODIFIERS {
         let modifier = &entry.modifier;
         let arguments = match modifier.name {
-            "safeAreaPadding" => {
-                "`edges: [Top, Bottom, Leading, Trailing]` (default all edges), `spacing: non-negative numeric literal = 0`"
-            }
-            "safeAreaInset" => {
-                "`edge: Top | Bottom | Leading | Trailing` (required), `spacing: non-negative numeric literal = 0`"
-            }
+            "safeAreaInset" => "`edge: Top | Bottom | Leading | Trailing` (required)",
             "scrollHeader" => {
                 "`behavior: Pinned | Collapse | HideOnScroll = Pinned`, `collapsedHeight: positive numeric literal = 56` for `Collapse`"
             }
@@ -3133,11 +3091,8 @@ pub fn render_syntax_audit() -> String {
             modifier.name, arguments
         ));
         match modifier.name {
-            "safeAreaPadding" => out.push_str(
-                "Applies the remaining visual safe inset on each selected edge, then adds the fixed `spacing` value. Nested scopes consume each selected dynamic edge once. System gesture regions and IME insets are separate.\n\n",
-            ),
             "safeAreaInset" => out.push_str(
-                "Places its node block at the selected safe edge. The node block is measured natively; a uniquely inferred compatible scroll owner receives endpoint accommodation. Without an owner, placement still works. `spacing` remains fixed design distance and is not an inset value.\n\n",
+                "Places its node block at the selected safe edge with no additional gap. The node block is measured natively; a uniquely inferred compatible scroll owner receives endpoint accommodation. Without an owner, placement still works.\n\n",
             ),
             "scrollHeader" => out.push_str(
                 "Attaches one reusable header to exactly one vertical scroll owner. `Pinned` keeps its measured height, `Collapse` interpolates its height toward `collapsedHeight`, and `HideOnScroll` hides on downward movement and reveals on upward movement. It does not change standard `NavigationStack` large-title behavior.\n\n",

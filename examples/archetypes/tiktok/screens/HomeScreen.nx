@@ -140,9 +140,9 @@ component HomeScreen() {
                 LinearGradient(startColor: "#00000000", endColor: "#000000E8", direction: BottomToTop, height: 290)
             }
 
-            Column(spacing: 0) {
+            Column(gap: 0) {
                 TopInset()
-                Row(spacing: 14, alignment: Center, padding: 15) {
+                Row(gap: 14, alignment: Center, padding: 15) {
                     Pressable(accessibilityLabel: "Following videos", accessibilityRole: Button) {
                         if followingSelected { Text("Following", color: "#FFFFFF", fontSize: 16, fontWeight: Bold) } else { Text("Following", color: "#C8C8CA", fontSize: 14, fontWeight: Medium) }
                     }.onTap {
@@ -173,7 +173,7 @@ component HomeScreen() {
                         }
                     }
                     Pressable(accessibilityLabel: "Recommended videos", accessibilityRole: Button) {
-                        Column(spacing: 5, alignment: Center) {
+                        Column(gap: 5, alignment: Center) {
                             if followingSelected { Text("For You", color: "#C8C8CA", fontSize: 14, fontWeight: Medium) } else { Text("For You", color: "#FFFFFF", fontSize: 16, fontWeight: Bold) }
                             if !followingSelected { Stack(width: 25, height: 2, background: "#FFFFFF", cornerRadius: 1) {} }
                         }
@@ -208,9 +208,9 @@ component HomeScreen() {
                     }.onTap { searchSheetRef.present() }
                 }
                 Spacer()
-                Row(spacing: 8, alignment: End, padding: 13) {
-                    Column(spacing: 7, maxWidth: 270) {
-                        Row(spacing: 7, alignment: Center) {
+                Row(gap: 8, alignment: End, padding: 13) {
+                    Column(gap: 7, maxWidth: 270) {
+                        Row(gap: 7, alignment: Center) {
                             Text(clips[page].creator, color: "#FFFFFF", fontSize: 15, fontWeight: Bold, lineLimit: 1)
                             Text("✓", color: "#25F4EE", fontSize: 12, fontWeight: Bold)
                             Pressable(accessibilityLabel: "Follow creator", accessibilityRole: Button) {
@@ -218,13 +218,13 @@ component HomeScreen() {
                             }.onTap { followingCreator = !followingCreator }
                         }
                         Text(clips[page].caption, color: "#FFFFFF", fontSize: 13, lineLimit: 2)
-                        Row(spacing: 6, alignment: Center) {
+                        Row(gap: 6, alignment: Center) {
                             Icon(system: "music", description: "Sound", size: 13, tint: "#FFFFFF")
                             Text(clips[page].sound, color: "#EEEEF0", fontSize: 11, lineLimit: 1)
                         }
                     }
                     Spacer()
-                    Column(spacing: 15, alignment: Center) {
+                    Column(gap: 15, alignment: Center) {
                         Stack(alignment: Center, width: 48, height: 52) {
                             CreatorAvatar(assetName: clips[page].avatar, scale: "small")
                             Column {
@@ -235,7 +235,7 @@ component HomeScreen() {
                             }
                         }
                         Pressable(accessibilityLabel: "Like video", accessibilityRole: Button) {
-                            Column(spacing: 2, alignment: Center) {
+                            Column(gap: 2, alignment: Center) {
                                 if clips[page].id in likedIds { Icon(system: "favorite_filled", description: "Liked", size: 30, tint: "#FE2C55") } else { Icon(system: "favorite", description: "Like", size: 30, tint: "#FFFFFF") }
                                 Text(clips[page].likeCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
@@ -243,13 +243,13 @@ component HomeScreen() {
                             if clips[page].id in likedIds { likedIds.remove(clips[page].id) } else { likedIds.insert(clips[page].id) }
                         }
                         Pressable(accessibilityLabel: "Read comments", accessibilityRole: Button) {
-                            Column(spacing: 2, alignment: Center) {
+                            Column(gap: 2, alignment: Center) {
                                 Icon(system: "comment_filled", description: "Comments", size: 27, tint: "#FFFFFF")
                                 Text(clips[page].commentCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
                         }.onTap { commentsSheetRef.present() }
                         Pressable(accessibilityLabel: "Save video", accessibilityRole: Button) {
-                            Column(spacing: 2, alignment: Center) {
+                            Column(gap: 2, alignment: Center) {
                                 if clips[page].id in savedIds { Icon(system: "bookmark_filled", description: "Saved", size: 25, tint: "#F4D548") } else { Icon(system: "bookmark", description: "Save", size: 25, tint: "#FFFFFF") }
                                 Text("Save", color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
@@ -257,7 +257,7 @@ component HomeScreen() {
                             if clips[page].id in savedIds { savedIds.remove(clips[page].id) } else { savedIds.insert(clips[page].id) }
                         }
                         Pressable(accessibilityLabel: "Share video", accessibilityRole: Button) {
-                            Column(spacing: 2, alignment: Center) {
+                            Column(gap: 2, alignment: Center) {
                                 Icon(system: "share", description: "Share", size: 25, tint: "#FFFFFF")
                                 Text(clips[page].viewCount, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
                             }
@@ -279,18 +279,18 @@ component HomeScreen() {
         }
 
         BottomSheet(ref: commentsSheetRef, detents: [0.5, 1.0]) {
-            Column(spacing: 12, padding: 16, background: "#17171B") {
+            Column(gap: 12, padding: 16, background: "#17171B") {
                 Text("Comments · \(clips[page].commentCount)", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 FastList(comments, key: .self, rowHeight: 54, accessibilityLabel: "Video comments") { comment, index in
-                    Row(spacing: 10, alignment: Center, padding: 5) {
+                    Row(gap: 10, alignment: Center, padding: 5) {
                         CreatorAvatar(assetName: if index == 1 { "mira" } else { "alex" }, scale: "small")
-                        Column(spacing: 2) {
+                        Column(gap: 2) {
                             Text(if index == 1 { "@mira.cooks" } else { "@viewer" }, color: "#ACACB0", fontSize: 10, fontWeight: Semibold)
                             Text(comment, color: "#FFFFFF", fontSize: 13)
                         }
                     }
                 }
-                Row(spacing: 8, alignment: Center) {
+                Row(gap: 8, alignment: Center) {
                     TextInput(value: commentDraft, placeholder: "Add a comment…", maxLength: 280)
                     Pressable(accessibilityLabel: "Post comment", accessibilityRole: Button) {
                         Text("Post", color: "#FE2C55", fontSize: 13, fontWeight: Bold)
@@ -305,7 +305,7 @@ component HomeScreen() {
         }
 
         BottomSheet(ref: searchSheetRef, detents: [0.5, 1.0]) {
-            Column(spacing: 14, padding: 18, background: "#17171B") {
+            Column(gap: 14, padding: 18, background: "#17171B") {
                 Text("Search", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                 TextInput(value: searchQuery, placeholder: "Search creators, sounds, videos", searchable: true)
                 Text("Trending now", color: "#FFFFFF", fontSize: 16, fontWeight: Bold)

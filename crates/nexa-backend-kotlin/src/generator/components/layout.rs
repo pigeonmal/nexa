@@ -1,6 +1,7 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::{
-    Alignment, AnimationEasing, AnimationSpec, Expr, LayoutKind, Node, ToolbarPlacement, ViewStyle,
+    Alignment, AnimationEasing, AnimationSpec, Dimension, Expr, LayoutKind, Node, ToolbarPlacement,
+    ViewStyle,
 };
 
 use crate::generator::{
@@ -15,35 +16,12 @@ use crate::generator::engine::imports::ImportSet;
 use super::RenderScope;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    imports.add(true, "androidx.compose.ui.layout.layout");
     let uses_linear_gradient = features.facts.ui.linear_gradient;
-    let uses_safe_area = features.uses_safe_area_padding
-        || features.uses_safe_area_inset
-        || features.uses_safe_area_endpoint;
+    let uses_safe_area = features.uses_safe_area_inset || features.uses_safe_area_endpoint;
     imports.add(
         uses_safe_area || features.uses_keyboard_aware || features.uses_form,
         "androidx.compose.foundation.layout.padding",
-    );
-    imports.add(uses_safe_area, "androidx.compose.foundation.layout.only");
-    imports.add(
-        uses_safe_area,
-        "androidx.compose.foundation.layout.windowInsetsPadding",
-    );
-    imports.add(
-        uses_safe_area,
-        "androidx.compose.foundation.layout.consumeWindowInsets",
-    );
-    imports.add(uses_safe_area, "androidx.compose.foundation.layout.union");
-    imports.add(
-        uses_safe_area,
-        "androidx.compose.foundation.layout.systemBars",
-    );
-    imports.add(
-        uses_safe_area,
-        "androidx.compose.foundation.layout.displayCutout",
-    );
-    imports.add(
-        uses_safe_area,
-        "androidx.compose.foundation.layout.waterfall",
     );
     imports.add(uses_safe_area, "androidx.compose.ui.unit.dp");
     imports.add(
@@ -156,6 +134,14 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(features.uses_spacer, "androidx.compose.ui.Modifier");
     imports.add(features.uses_spacer, "androidx.compose.ui.unit.dp");
+    imports.add(
+        features.uses_spacer,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        features.uses_spacer,
+        "androidx.compose.foundation.layout.fillMaxHeight",
+    );
     imports.add(
         features.uses_spacer,
         "androidx.compose.foundation.layout.width",
@@ -315,7 +301,7 @@ pub(crate) fn render_row_child_layout(
         style,
         children,
         LayoutRenderContext { scope, depth, out },
-        style.fill_max_width,
+        matches!(style.width, Some(Dimension::Fill)),
     );
 }
 
@@ -431,9 +417,18 @@ fn render_layout_inner(
 fn row_has_only_fixed_width_layout_children(kind: LayoutKind, children: &[Node]) -> bool {
     matches!(kind, LayoutKind::Row)
         && !children.is_empty()
-        && children
-            .iter()
-            .all(|child| matches!(child, Node::Layout { style, .. } if style.width.is_some() || style.screen_width_fraction.is_some()))
+        && children.iter().all(|child| {
+            matches!(
+                child,
+                Node::Layout {
+                    style: ViewStyle {
+                        width: Some(Dimension::Fixed(_) | Dimension::ScreenWidthFraction(_)),
+                        ..
+                    },
+                    ..
+                }
+            )
+        })
 }
 
 fn render_toolbar_row(
@@ -502,7 +497,6 @@ pub(crate) struct FormSectionRenderOptions<'a> {
     pub(crate) title: Option<&'a Expr>,
     pub(crate) footer: Option<&'a Expr>,
     pub(crate) show_dividers: bool,
-    pub(crate) first_section: bool,
     pub(crate) background: Option<nexa_ir::ColorValue>,
 }
 
@@ -524,10 +518,6 @@ pub(crate) fn render_form_section(
     out.line_at(depth, format_args!("NexaFormSectionPrimitive("));
     out.line_at(depth + 1, format_args!("title = {title},"));
     out.line_at(depth + 1, format_args!("footer = {footer},"));
-    out.line_at(
-        depth + 1,
-        format_args!("firstSection = {},", options.first_section),
-    );
     out.line_at(
         depth + 1,
         format_args!(
@@ -573,10 +563,16 @@ fn render_form_row(
     out.line_at(depth, format_args!("}}"));
 }
 
+pub(crate) struct FormInsets {
+    pub(crate) content_padding: Option<String>,
+    pub(crate) margin: Option<String>,
+}
+
 pub(crate) fn render_form(
     show_dividers: bool,
     background: Option<nexa_ir::ColorValue>,
     children: &[Node],
+    insets: Option<FormInsets>,
     scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
@@ -584,11 +580,19 @@ pub(crate) fn render_form(
     let background = background
         .map(crate::generator::engine::colors::expression)
         .unwrap_or_else(|| "null".to_owned());
+    let mut form_arguments = format!("background = {background}");
+    if let Some(insets) = insets {
+        if let Some(content_padding) = insets.content_padding {
+            form_arguments.push_str(&format!(", contentPadding = {content_padding}"));
+        }
+        if let Some(margin) = insets.margin {
+            form_arguments.push_str(&format!(", modifier = {margin}"));
+        }
+    }
     out.line_at(
         depth,
-        format_args!("NexaFormPrimitive(background = {background}) {{"),
+        format_args!("NexaFormPrimitive({form_arguments}) {{"),
     );
-    let mut first_section = true;
     for (index, child) in children.iter().enumerate() {
         if let Node::FormSection {
             title,
@@ -603,7 +607,6 @@ pub(crate) fn render_form(
                     title: title.as_ref(),
                     footer: footer.as_ref(),
                     show_dividers: section_show_dividers.unwrap_or(show_dividers),
-                    first_section,
                     background: *section_background,
                 },
                 children,
@@ -611,7 +614,6 @@ pub(crate) fn render_form(
                 depth + 1,
                 out,
             );
-            first_section = false;
         } else {
             render_form_row(
                 child,
@@ -635,29 +637,86 @@ pub(crate) fn render_form(
 }
 
 fn render_required_outer_width(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
-    if let Some(width) = style.width {
-        // SwiftUI applies `.frame(width:).padding(...)`, so the requested
-        // frame remains fixed and the padding adds to its outer size. Compose's
-        // `width` is normally constrained by the parent's available width;
-        // require the equivalent outer width to preserve the same geometry.
-        let outer_width = width + style.padding.unwrap_or(0.0) * 2.0;
-        out.push_str(&format!(
-            "\n{}.requiredWidth({}.dp)",
-            spaces(depth),
-            number(outer_width)
-        ));
-    } else if let Some(fraction) = style.screen_width_fraction {
-        let horizontal_padding = style.padding.unwrap_or(0.0) * 2.0;
-        out.push_str(&format!(
-            "\n{}.requiredWidth((LocalConfiguration.current.screenWidthDp.toFloat() * {}f + {}f).dp)",
-            spaces(depth),
-            number(fraction),
-            number(horizontal_padding)
-        ));
+    match style.width {
+        Some(Dimension::Fixed(width)) => {
+            // Keep an explicit child width from being squeezed in a row.
+            out.push_str(&format!(
+                "\n{}.requiredWidth({}.dp)",
+                spaces(depth),
+                number(width)
+            ));
+        }
+        Some(Dimension::ScreenWidthFraction(fraction)) => {
+            out.push_str(&format!(
+                "\n{}.requiredWidth((LocalNexaWindowMetrics.current.viewportWidthDp * {}f).dp)",
+                spaces(depth),
+                number(fraction),
+            ));
+        }
+        _ => {}
+    }
+}
+
+fn render_required_outer_height(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
+    match style.height {
+        Some(Dimension::Fixed(height)) => {
+            // Match SwiftUI's fixed frame when a parent offers less height: keep
+            // the child's requested size and align its overflow to the top.
+            out.push_str(&format!(
+                "\n{}.wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight({}.dp)",
+                spaces(depth),
+                number(height)
+            ));
+        }
+        Some(Dimension::ScreenHeightFraction(fraction)) => {
+            out.push_str(&format!(
+                "\n{}.wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight((LocalNexaWindowMetrics.current.viewportHeightDp * {}f).dp)",
+                spaces(depth),
+                number(fraction),
+            ));
+        }
+        _ => {}
+    }
+}
+
+fn kotlin_static_dimension_value(
+    dimension: Dimension,
+    width_axis: bool,
+    minimum: bool,
+) -> Option<String> {
+    match dimension {
+        Dimension::Fixed(value) => Some(format!("{}.dp", number(value))),
+        Dimension::Fill => Some(if minimum {
+            "0.dp".to_owned()
+        } else {
+            "androidx.compose.ui.unit.Dp.Infinity".to_owned()
+        }),
+        Dimension::ScreenWidthFraction(fraction) if width_axis => Some(format!(
+            "(LocalNexaWindowMetrics.current.viewportWidthDp * {}f).dp",
+            number(fraction)
+        )),
+        Dimension::ScreenHeightFraction(fraction) if !width_axis => Some(format!(
+            "(LocalNexaWindowMetrics.current.viewportHeightDp * {}f).dp",
+            number(fraction)
+        )),
+        Dimension::ParentFraction(_)
+        | Dimension::ScreenWidthFraction(_)
+        | Dimension::ScreenHeightFraction(_) => None,
     }
 }
 
 fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
+    // SwiftUI appends `clip` after sizing and visual effects, so it clips the
+    // component's final rendered output. Compose modifiers are outer-to-inner;
+    // put this clip first so fixed-size overflow and transformed descendants
+    // are clipped by the component's final bounds.
+    if let Some(radius) = style.effects.clip_rounded {
+        out.push_str(&format!(
+            "\n{}.clip(RoundedCornerShape({}.dp))",
+            spaces(depth),
+            number(radius)
+        ));
+    }
     if let Some(animation) = style.animation {
         let spec = match animation {
             AnimationSpec::Spring { response, damping } => {
@@ -703,6 +762,7 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
         ));
     }
     render_required_outer_width(style, depth, out);
+    render_required_outer_height(style, depth, out);
     let effects = &style.effects;
     if let Some(opacity) = style.opacity {
         out.push_str(&format!(
@@ -740,16 +800,11 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             number(shadow.y)
         ));
     }
-    if effects.clip_rounded.is_some()
-        || style.corner_radius.is_some()
+    if style.corner_radius.is_some()
         || style.corner_radius_expression.is_some()
         || style.corner_radius_bottom.is_some()
     {
-        let shape = if let Some(radius) = effects.clip_rounded {
-            format!("RoundedCornerShape({}.dp)", number(radius))
-        } else {
-            kotlin_corner_shape(style)
-        };
+        let shape = kotlin_corner_shape(style);
         out.push_str(&format!("\n{}.clip({})", spaces(depth), shape));
     }
     if let Some(color) = style.background {
@@ -790,41 +845,46 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             spaces(depth),
         ));
     }
-    if let Some(padding) = style.padding {
-        out.push_str(&format!(
-            "\n{}.padding({}.dp)",
-            spaces(depth),
-            number(padding)
-        ));
-    }
     if let Some(width) = style.width {
-        out.push_str(&format!("\n{}.width({}.dp)", spaces(depth), number(width)));
-    } else if let Some(fraction) = style.screen_width_fraction {
-        out.push_str(&format!(
-            "\n{}.width((LocalConfiguration.current.screenWidthDp.toFloat() * {}f).dp)",
-            spaces(depth),
-            number(fraction)
-        ));
+        match width {
+            Dimension::Fixed(width) => {
+                out.push_str(&format!("\n{}.width({}.dp)", spaces(depth), number(width)))
+            }
+            Dimension::ScreenWidthFraction(fraction) => out.push_str(&format!(
+                "\n{}.width((LocalNexaWindowMetrics.current.viewportWidthDp * {}f).dp)",
+                spaces(depth),
+                number(fraction)
+            )),
+            Dimension::Fill => out.push_str(&format!("\n{}.fillMaxWidth()", spaces(depth))),
+            Dimension::ParentFraction(_) | Dimension::ScreenHeightFraction(_) => {}
+        }
     }
     if let Some(height) = style.height {
-        out.push_str(&format!(
-            "\n{}.height({}.dp)",
-            spaces(depth),
-            number(height)
-        ));
-    } else if let Some(fraction) = style.screen_height_fraction {
-        out.push_str(&format!(
-            "\n{}.height((LocalConfiguration.current.screenHeightDp.toFloat() * {}f).dp)",
-            spaces(depth),
-            number(fraction)
-        ));
+        match height {
+            Dimension::Fixed(height) => out.push_str(&format!(
+                "\n{}.height({}.dp)",
+                spaces(depth),
+                number(height)
+            )),
+            Dimension::ScreenHeightFraction(fraction) => out.push_str(&format!(
+                "\n{}.height((LocalNexaWindowMetrics.current.viewportHeightDp * {}f).dp)",
+                spaces(depth),
+                number(fraction)
+            )),
+            Dimension::Fill => out.push_str(&format!("\n{}.fillMaxHeight()", spaces(depth))),
+            Dimension::ParentFraction(_) | Dimension::ScreenWidthFraction(_) => {}
+        }
     }
     let mut width_bounds = Vec::with_capacity(2);
-    if let Some(min_width) = style.min_width {
-        width_bounds.push(format!("min = {}.dp", number(min_width)));
+    if let Some(min_width) = style.min_width
+        && let Some(value) = kotlin_static_dimension_value(min_width, true, true)
+    {
+        width_bounds.push(format!("min = {value}"));
     }
-    if let Some(max_width) = style.max_width {
-        width_bounds.push(format!("max = {}.dp", number(max_width)));
+    if let Some(max_width) = style.max_width
+        && let Some(value) = kotlin_static_dimension_value(max_width, true, false)
+    {
+        width_bounds.push(format!("max = {value}"));
     }
     if !width_bounds.is_empty() {
         out.push_str(&format!(
@@ -834,11 +894,15 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
         ));
     }
     let mut height_bounds = Vec::with_capacity(2);
-    if let Some(min_height) = style.min_height {
-        height_bounds.push(format!("min = {}.dp", number(min_height)));
+    if let Some(min_height) = style.min_height
+        && let Some(value) = kotlin_static_dimension_value(min_height, false, true)
+    {
+        height_bounds.push(format!("min = {value}"));
     }
-    if let Some(max_height) = style.max_height {
-        height_bounds.push(format!("max = {}.dp", number(max_height)));
+    if let Some(max_height) = style.max_height
+        && let Some(value) = kotlin_static_dimension_value(max_height, false, false)
+    {
+        height_bounds.push(format!("max = {value}"));
     }
     if !height_bounds.is_empty() {
         out.push_str(&format!(
@@ -847,11 +911,32 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             height_bounds.join(", ")
         ));
     }
-    if style.fill_max_width {
-        out.push_str(&format!("\n{}.fillMaxWidth()", spaces(depth)));
-    }
-    if style.fill_max_height {
-        out.push_str(&format!("\n{}.fillMaxHeight()", spaces(depth)));
+    let parent_relative = [
+        ("width", style.width),
+        ("height", style.height),
+        ("minWidth", style.min_width),
+        ("maxWidth", style.max_width),
+        ("minHeight", style.min_height),
+        ("maxHeight", style.max_height),
+    ];
+    if parent_relative
+        .iter()
+        .any(|(_, value)| matches!(value, Some(Dimension::ParentFraction(_))))
+    {
+        let expression = parent_relative
+            .iter()
+            .filter_map(|(name, value)| match value {
+                Some(Dimension::ParentFraction(fraction)) => {
+                    Some(format!("{} = {}f", name, number(*fraction)))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "\n{}.nexaParentRelativeDimension({expression})",
+            spaces(depth)
+        ));
     }
     if let Some(z_index) = effects.z_index {
         out.push_str(&format!("\n{}.zIndex({}f)", spaces(depth), z_index));
@@ -900,8 +985,8 @@ fn easing_name(easing: AnimationEasing) -> String {
 mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{
-        Alignment, Color, ColorValue, Expr, GlassShape, KeyboardType, LayoutKind, Module, Node,
-        SystemIcon, TextStyle, ToolbarPlacement, ViewGlass, ViewStyle,
+        Alignment, Color, ColorValue, Dimension, Expr, GlassShape, KeyboardType, LayoutKind,
+        Module, Node, SystemIcon, TextStyle, ToolbarPlacement, ViewGlass, ViewStyle,
     };
 
     use crate::generator::features::Features;
@@ -911,12 +996,38 @@ mod tests {
     };
 
     #[test]
-    fn content_size_animation_wraps_padding_and_size_constraints() {
+    fn screen_fraction_dimensions_use_the_window_viewport() {
+        let style = ViewStyle {
+            width: Some(Dimension::ScreenWidthFraction(0.9)),
+            height: Some(Dimension::ScreenHeightFraction(0.12)),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        assert!(
+            generated.contains("LocalNexaWindowMetrics.current.viewportWidthDp"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("LocalNexaWindowMetrics.current.viewportHeightDp"),
+            "{generated}"
+        );
+        assert!(generated.contains("* 0.9f"), "{generated}");
+        assert!(
+            !generated.contains("LocalConfiguration.current.screen"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn content_size_animation_wraps_size_constraints() {
         let style = ViewStyle {
             animation: Some(nexa_ir::AnimationSpec::EaseInOut),
-            padding: Some(8.0),
-            width: Some(200.0),
-            min_height: Some(48.0),
+            width: Some(Dimension::Fixed(200.0)),
+            min_height: Some(Dimension::Fixed(48.0)),
             ..ViewStyle::default()
         };
         let mut output = SourceWriter::new();
@@ -927,7 +1038,7 @@ mod tests {
         let animation = generated
             .find(".animateContentSize(")
             .expect("emit the content-size animation");
-        for sizing_modifier in [".padding(8.dp)", ".width(200.dp)", ".heightIn(min = 48.dp)"] {
+        for sizing_modifier in [".width(200.dp)", ".heightIn(min = 48.dp)"] {
             let sizing = generated
                 .find(sizing_modifier)
                 .unwrap_or_else(|| panic!("emit {sizing_modifier}"));
@@ -936,10 +1047,9 @@ mod tests {
     }
 
     #[test]
-    fn explicit_width_keeps_swiftui_frame_size_outside_padding() {
+    fn explicit_width_keeps_fixed_outer_bounds() {
         let style = ViewStyle {
-            width: Some(320.0),
-            padding: Some(8.0),
+            width: Some(Dimension::Fixed(320.0)),
             background: Some(ColorValue::Static(Color {
                 red: 242,
                 green: 242,
@@ -955,23 +1065,132 @@ mod tests {
 
         let generated = output.finish();
         let required_width = generated
-            .find(".requiredWidth(336.dp)")
-            .expect("preserve the frame width plus horizontal padding");
+            .find(".requiredWidth(320.dp)")
+            .expect("preserve fixed width");
         let clip = generated
             .find(".clip(RoundedCornerShape(12.dp))")
             .expect("retain rounded clipping");
         let background = generated
             .find(".background(Color(0xFFF2F2F7))")
             .expect("retain the rounded panel background");
-        let padding = generated
-            .find(".padding(8.dp)")
-            .expect("retain the requested padding");
         let width = generated
             .find(".width(320.dp)")
             .expect("retain the requested inner frame width");
+        assert!(required_width < clip && clip < background && background < width);
+    }
+
+    #[test]
+    fn explicit_height_preserves_top_aligned_overflow_before_parent_clipping() {
+        let style = ViewStyle {
+            height: Some(Dimension::Fixed(84.0)),
+            background: Some(ColorValue::Static(Color {
+                red: 225,
+                green: 29,
+                blue: 72,
+                alpha: 255,
+            })),
+            corner_radius: Some(4.0),
+            effects: nexa_ir::ViewEffects {
+                rotation: Some(28.0),
+                ..nexa_ir::ViewEffects::default()
+            },
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        let required_height = generated
+            .find(".wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight(84.dp)")
+            .expect("preserve the fixed child height without centering its overflow");
+        let rotation = generated
+            .find("rotationZ = 28")
+            .expect("keep child transforms");
+        let clip = generated
+            .find(".clip(RoundedCornerShape(4.dp))")
+            .expect("keep child clipping");
+        let height = generated
+            .find(".height(84.dp)")
+            .expect("retain the requested inner frame height");
+        assert!(required_height < rotation && rotation < clip && clip < height);
+    }
+
+    #[test]
+    fn rounded_clip_effect_wraps_fixed_size_and_transformed_content() {
+        let style = ViewStyle {
+            width: Some(Dimension::Fixed(180.0)),
+            height: Some(Dimension::Fixed(64.0)),
+            effects: nexa_ir::ViewEffects {
+                clip_rounded: Some(14.0),
+                rotation: Some(28.0),
+                ..nexa_ir::ViewEffects::default()
+            },
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        let clip = generated
+            .find(".clip(RoundedCornerShape(14.dp))")
+            .expect("emit the effect clip");
+        let required_width = generated
+            .find(".requiredWidth(180.dp)")
+            .expect("preserve the fixed width");
+        let rotation = generated
+            .find("rotationZ = 28f")
+            .expect("preserve the child transform");
+        let width = generated
+            .find(".width(180.dp)")
+            .expect("retain the fixed width modifier");
+        assert!(clip < required_width && clip < rotation && clip < width);
+    }
+
+    #[test]
+    fn screen_height_fraction_preserves_fixed_height_under_parent_constraints() {
+        let style = ViewStyle {
+            height: Some(Dimension::ScreenHeightFraction(0.5)),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        render_modifiers(&style, 0, &mut output);
+
+        let generated = output.finish();
+        assert!(generated.contains(
+            ".wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight((LocalNexaWindowMetrics.current.viewportHeightDp * 0.5f).dp)"
+        ));
         assert!(
-            required_width < clip && clip < background && background < padding && padding < width
+            generated
+                .contains(".height((LocalNexaWindowMetrics.current.viewportHeightDp * 0.5f).dp)")
         );
+    }
+
+    #[test]
+    fn dev_runtime_preserves_fixed_height_with_the_same_top_alignment() {
+        let renderer = include_str!("../../../../../runtime/android/NexaDevRenderer.kt");
+        let layout = renderer
+            .split("\"Layout\" -> {")
+            .nth(1)
+            .and_then(|source| source.split("\n        \"Text\" -> {").next())
+            .expect("find DevRuntime layout dispatch");
+
+        assert!(layout.contains(".wrapContentHeight(Alignment.Top, unbounded = true)"));
+        assert!(layout.contains(".requiredHeight(it)"));
+        assert!(layout.contains("modifier = modifier.height(it)"));
+
+        let clip = layout
+            .find("if (!effects.isNull(\"clip_rounded\")) {")
+            .expect("apply rounded effect clipping in the layout path");
+        let animation = layout
+            .find("if (!style.isNull(\"animation\"))")
+            .expect("find layout animation application");
+        let transform = layout
+            .find("modifier = modifier.graphicsLayer(")
+            .expect("find layout transform application");
+        assert!(clip < animation && clip < transform);
     }
 
     #[test]
@@ -1036,9 +1255,8 @@ mod tests {
     #[test]
     fn glass_maps_to_a_borderless_material_surface_on_android() {
         let style = ViewStyle {
-            padding: Some(8.0),
-            width: Some(220.0),
-            height: Some(48.0),
+            width: Some(Dimension::Fixed(220.0)),
+            height: Some(Dimension::Fixed(48.0)),
             effects: nexa_ir::ViewEffects {
                 glass: Some(ViewGlass {
                     tint: Some(ColorValue::Static(Color {
@@ -1064,10 +1282,9 @@ mod tests {
         let glass = generated
             .find("val surfaceShape")
             .expect("emit glass surface");
-        let padding = generated.find(".padding(8.dp)").expect("emit row padding");
         let width = generated.find(".width(220.dp)").expect("emit row width");
         let height = generated.find(".height(48.dp)").expect("emit row height");
-        assert!(glass < padding && padding < width && width < height);
+        assert!(glass < width && width < height);
         assert!(!generated.contains(".shadow("));
         assert!(!generated.contains(".border("));
         assert!(!generated.contains("copy(alpha = 0.05f)"));
@@ -1136,8 +1353,8 @@ mod tests {
             style: TextStyle::default(),
         }];
         let style = ViewStyle {
-            min_width: Some(210.0),
-            max_width: Some(260.0),
+            min_width: Some(Dimension::Fixed(210.0)),
+            max_width: Some(Dimension::Fixed(260.0)),
             ..ViewStyle::default()
         };
         let mut output = SourceWriter::new();
@@ -1286,10 +1503,9 @@ mod tests {
         let children = (0..3)
             .map(|_| Node::Layout {
                 kind: LayoutKind::Column,
-                spacing: 0.0,
+                gap: 0.0,
                 style: ViewStyle {
-                    width: Some(96.0),
-                    padding: Some(6.0),
+                    width: Some(Dimension::Fixed(96.0)),
                     ..ViewStyle::default()
                 },
                 children: Vec::new(),
@@ -1301,9 +1517,8 @@ mod tests {
             LayoutKind::Row,
             8.0,
             &ViewStyle {
-                width: Some(320.0),
-                height: Some(60.0),
-                padding: Some(6.0),
+                width: Some(Dimension::Fixed(320.0)),
+                height: Some(Dimension::Fixed(60.0)),
                 alignment: Some(Alignment::Start),
                 ..ViewStyle::default()
             },
@@ -1319,20 +1534,20 @@ mod tests {
         let flexible_children = [
             Node::Layout {
                 kind: LayoutKind::Column,
-                spacing: 0.0,
+                gap: 0.0,
                 style: ViewStyle {
-                    height: Some(117.0),
-                    fill_max_width: true,
+                    height: Some(Dimension::Fixed(117.0)),
+                    width: Some(Dimension::Fill),
                     ..ViewStyle::default()
                 },
                 children: Vec::new(),
             },
             Node::Layout {
                 kind: LayoutKind::Stack,
-                spacing: 0.0,
+                gap: 0.0,
                 style: ViewStyle {
-                    width: Some(117.0),
-                    height: Some(117.0),
+                    width: Some(Dimension::Fixed(117.0)),
+                    height: Some(Dimension::Fixed(117.0)),
                     ..ViewStyle::default()
                 },
                 children: Vec::new(),
@@ -1344,8 +1559,7 @@ mod tests {
             LayoutKind::Row,
             5.85,
             &ViewStyle {
-                fill_max_width: true,
-                padding: Some(23.4),
+                width: Some(Dimension::Fill),
                 ..ViewStyle::default()
             },
             &flexible_children,
@@ -1510,7 +1724,6 @@ mod tests {
                 title: None,
                 footer: Some(&footer),
                 show_dividers: true,
-                first_section: false,
                 background: None,
             },
             &children,
@@ -1522,7 +1735,7 @@ mod tests {
         assert!(output.contains("NexaFormSectionPrimitive("));
         assert!(output.contains("title = null,"));
         assert!(output.contains("footer = \"ToDoList v1.0.0 (1)\","));
-        assert!(output.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 16f) {"));
+        assert!(output.contains("NexaFormRowPrimitive(minHeight = 50f, horizontalInset = 16f) {"));
         assert!(output.contains("fullWidth = true,"));
         assert!(output.contains("leadingContent = true,"));
         assert_eq!(
@@ -1535,7 +1748,7 @@ mod tests {
         assert_eq!(
             output
                 .as_str()
-                .matches("NexaFormRowPrimitive(minHeight = 56f")
+                .matches("NexaFormRowPrimitive(minHeight = 50f")
                 .count(),
             children.len()
         );

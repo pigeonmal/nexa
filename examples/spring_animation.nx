@@ -3,7 +3,7 @@ app SpringAnimation {
     state progress: Float64 = 0.25
 
     body {
-        Column(spacing: 12, animation: Spring(response: 0.35, damping: 0.8)) {
+        Column(gap: 12, animation: Spring(response: 0.35, damping: 0.8)) {
             Button("Toggle details") {
                 expanded = !expanded
             }

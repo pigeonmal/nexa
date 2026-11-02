@@ -209,7 +209,7 @@ app DevRuntimeProbe {
             }
         }
 
-        Column(spacing: 8) {
+        Column(gap: 8) {
             ProgressBar(progress: animationProgress)
             DevProbe.ProbeCard(value: probe.value)
                 .onSelected { value ->

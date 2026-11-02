@@ -13,7 +13,7 @@ app ReadingQueue {
     state booksRead: Int32 = 4
 
     body {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Books read: \(booksRead)", fontSize: 22, fontWeight: Bold)
             Button("Finish a book") {
                 booksRead = booksRead + 1
@@ -250,9 +250,9 @@ app PulseTasks {
     state showCompleted: Bool = false
 
     body {
-        Column(spacing: 16, padding: 16) {
+        Column(gap: 16, padding: 16) {
             Text("Today's tasks", fontSize: 26, fontWeight: Bold)
-            Row(spacing: 8) {
+            Row(gap: 8) {
                 TextInput(value: draftTitle, placeholder: "Add a task")
                 Button("Add task", icon: "add", disabled: draftTitle == "") {
                     if draftTitle != "" {
@@ -264,7 +264,7 @@ app PulseTasks {
             Switch(value: showCompleted, label: "Show completed tasks")
 
             FastList(tasks.filter { task -> showCompleted || !task.isCompleted }, key: .id) { task, index in
-                Row(spacing: 12, padding: 12, background: "#F1F5F9", cornerRadius: 10) {
+                Row(gap: 12, padding: 12, background: "#F1F5F9", cornerRadius: 10) {
                     Button(task.isCompleted ? "Reopen" : "Complete", style: Plain) {
                         tasks = tasks.map { current ->
                             if current.id == task.id {
@@ -274,7 +274,7 @@ app PulseTasks {
                             }
                         }
                     }
-                    Column(spacing: 4) {
+                    Column(gap: 4) {
                         Text("\(index + 1). \(task.title)", fontWeight: Semibold)
                         Text(task.dueLabel, fontSize: 13, color: "#64748B")
                     }

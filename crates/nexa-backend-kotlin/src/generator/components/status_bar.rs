@@ -40,7 +40,16 @@ pub(crate) fn render(
         "{indent}val nexaStatusBarView = LocalView.current\n"
     ));
     out.push_str(&format!(
-        "{indent}val nexaStatusBarWindow = (nexaStatusBarView.context as? Activity)?.window\n"
+        "{indent}val nexaStatusBarWindow = androidx.compose.runtime.remember(nexaStatusBarView) {{\n"
+    ));
+    out.push_str(&format!(
+        "{nested_indent}var nexaStatusBarContext: android.content.Context = nexaStatusBarView.context\n"
+    ));
+    out.push_str(&format!(
+        "{nested_indent}while (nexaStatusBarContext is android.content.ContextWrapper && nexaStatusBarContext !is Activity) nexaStatusBarContext = nexaStatusBarContext.baseContext\n"
+    ));
+    out.push_str(&format!(
+        "{nested_indent}(nexaStatusBarContext as? Activity)?.window\n{indent}}}\n"
     ));
     out.push_str(&format!(
         "{indent}androidx.compose.runtime.DisposableEffect(nexaStatusBarWindow, nexaStatusBarView) {{\n"

@@ -140,13 +140,32 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
             previousFrame = frame
         }
     }
+    // Test-only render fence: `withFrameNanos` resumes after the composition
+    // that read this module generation has been submitted to the frame, so a
+    // harness never captures the previous revision after an acknowledgement.
+    LaunchedEffect(store) {
+        snapshotFlow { store.moduleRevision }.collect { revision ->
+            if (revision != 0) {
+                withFrameNanos { }
+                store.frameFence.presented(revision)
+            }
+        }
+    }
     Surface(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize()) {
+        NexaSafeAreaProvider {
+            Box(Modifier.fillMaxSize()) {
             if (module == null) {
                 Text("Connecting to Nexa…", modifier = Modifier.align(Alignment.Center))
             } else {
-                val statusBar = module.optJSONObject("status_bar")
-                NexaDevStatusBar(statusBar)
+                val screens = module.optJSONArray("screens")
+                val hasScreenStatusBarConfiguration = screens?.let { values ->
+                    (0 until values.length()).any { values.optJSONObject(it)?.optJSONObject("status_bar") != null }
+                } ?: false
+                val rootStatusBar = if (hasScreenStatusBarConfiguration) {
+                    null
+                } else {
+                    module.optJSONObject("status_bar")
+                }
                 val style = module.optJSONObject("direction")?.optString("style")
                 val localeOverride = store.languageOverride?.let(java.util.Locale::forLanguageTag)
                 val direction = when (style) {
@@ -165,10 +184,15 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
                         setLocale(currentLocale)
                     }
                 }
+                val currentContext = androidx.compose.ui.platform.LocalContext.current
+                val localizedContext = remember(currentContext, currentLocale) {
+                    currentContext.createConfigurationContext(updatedConfiguration)
+                }
                 val renderApp: @Composable () -> Unit = {
                     NexaSharedTransitionContent {
                         CompositionLocalProvider(
                             LocalConfiguration provides updatedConfiguration,
+                            androidx.compose.ui.platform.LocalContext provides localizedContext,
                             LocalLayoutDirection provides direction,
                         ) {
                             NexaDevNodeList(
@@ -180,18 +204,10 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
                         }
                     }
                 }
-                val statusBarBackground = nexaDevColor(
-                    statusBar?.optJSONObject("background"),
-                    isSystemInDarkTheme(),
-                )
-                val navigationBarBackground = nexaDevColor(
-                    statusBar?.optJSONObject("navigation_bar_background"),
-                    isSystemInDarkTheme(),
-                )
-                if (statusBarBackground != null || navigationBarBackground != null) {
-                    NexaStatusBarBackgroundPrimitive(statusBarBackground, navigationBarBackground, renderApp)
-                } else {
+                if (hasScreenStatusBarConfiguration) {
                     renderApp()
+                } else {
+                    NexaDevStatusBarContent(rootStatusBar, isSystemInDarkTheme(), renderApp)
                 }
             }
             if (store.diagnostics.isNotEmpty()) {
@@ -206,6 +222,7 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
             }
             if (store.performanceOverlayEnabled) {
                 NexaDevPerformanceOverlay(fps, frameTimeMs, Modifier.align(Alignment.TopEnd).padding(8.dp))
+            }
             }
         }
     }

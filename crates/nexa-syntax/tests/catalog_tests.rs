@@ -145,7 +145,6 @@ fn dot_modifiers_match_parser_accepted_names() {
             "onScrollBeginDrag",
             "onTap",
             "safeAreaInset",
-            "safeAreaPadding",
             "scrollHeader",
             "sectionHeader",
             "sharedElement",
@@ -158,8 +157,8 @@ fn dot_modifiers_match_parser_accepted_names() {
 #[test]
 fn shared_view_modifier_probes_parse_and_format() {
     let probes = [
-        "app SafePaddingProbe { body { Stack { Text(\"Profile\") }.safeAreaPadding(edges: [Top, Leading], spacing: 12) } }",
-        r#"app AttachedProbe { body { Column { FastList(count: 24) { index in Text("Article \(index)") } }.safeAreaInset(edge: Bottom, spacing: 8) { Button("Compose") { } } } }"#,
+        "app InsetsProbe { body { Stack(padding: Insets(top: SystemInsets.top, leading: 12)) { Text(\"Profile\") } } }",
+        r#"app AttachedProbe { body { Column { FastList(count: 24) { index in Text("Article \(index)") } }.safeAreaInset(edge: Bottom) { Button("Compose") { } } } }"#,
         r#"app HeaderProbe { body { Form { Text("Account") }.scrollHeader(behavior: Collapse, collapsedHeight: 56) { Text("Settings") } } }"#,
     ];
     for probe in probes {
@@ -168,12 +167,12 @@ fn shared_view_modifier_probes_parse_and_format() {
         nexa_syntax::parse_program(&formatted)
             .expect("formatted shared view modifier probe should parse");
     }
-    assert_eq!(catalog::SHARED_VIEW_MODIFIERS.len(), 3);
+    assert_eq!(catalog::SHARED_VIEW_MODIFIERS.len(), 2);
 }
 
 #[test]
 fn animated_screen_geometry_and_safe_area_expressions_parse() {
-    let probe = r#"app GeometryProbe { state progress: Double = 0.0 body { Stack { Column(width: Layout.screenWidth, height: Layout.screenHeight, cornerRadius: (1.0 - progress) * 35.1, offsetY: SafeArea.top) { Text("Search") } } } }"#;
+    let probe = r#"app GeometryProbe { state progress: Double = 0.0 body { Stack { Column(width: screenWidthFraction(0.8), height: Layout.screenHeight, cornerRadius: (1.0 - progress) * 35.1, offsetY: SystemInsets.top) { Text("Search") } } } }"#;
     nexa_syntax::parse_program(probe).expect("animated viewport and safe-area probe should parse");
 }
 
@@ -428,7 +427,7 @@ fn fast_list_source_grammar_is_catalogued() {
         [
             "axis",
             "rowHeight",
-            "spacing",
+            "gap",
             "scrollPosition",
             "scrollEnabled",
             "reverseLayout",
@@ -444,25 +443,25 @@ fn fast_list_source_grammar_is_catalogued() {
         "scrollToIndex" | "scrollToTop" | "scrollToEnd" | "scrollToOffset"
     )));
 
-    for legacy in [
+    for removed_modifier in [
         ".scrollToIndex(index: 1)",
         ".scrollToTop(trigger: command)",
         ".scrollToEnd(trigger: command)",
         ".scrollToOffset(offset: 24)",
     ] {
         let source = format!(
-            "app P {{ state command: Int32 = 0 body {{ FastList(count: 3) {{ index in Text(index) }}{legacy} }} }}"
+            "app P {{ state command: Int32 = 0 body {{ FastList(count: 3) {{ index in Text(index) }}{removed_modifier} }} }}"
         );
         assert!(
             nexa_syntax::parse_program(&source).is_err(),
-            "FastList legacy scroll modifier `{legacy}` must be rejected"
+            "removed FastList scroll modifier `{removed_modifier}` must be rejected"
         );
     }
 }
 
 #[test]
 fn stack_does_not_advertise_the_linear_layout_spacing_option() {
-    let source = "app P { body { Stack(spacing: 8) { Text(\"overlapping\") } } }";
+    let source = "app P { body { Stack(gap: 8) { Text(\"overlapping\") } } }";
     assert!(
         nexa_syntax::parse_program(source).is_err(),
         "Stack spacing is rejected by semantic lowering and must not be accepted by the catalog parser"

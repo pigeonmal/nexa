@@ -28,6 +28,7 @@ internal object NexaDevKeys {
     const val DIAGNOSTICS = "diagnostics"
     const val ENABLED = "enabled"
     const val REASON = "reason"
+    const val FRAME_ID = "frame_id"
 
     // Client message types
     const val MSG_HELLO = "hello"
@@ -35,6 +36,7 @@ internal object NexaDevKeys {
     const val MSG_REQUEST_FULL_MODULE = "request_full_module"
     const val MSG_DISCONNECT = "disconnect"
     const val MSG_OPEN_IN_EDITOR = "open_in_editor"
+    const val MSG_FRAME_PRESENTED = "frame_presented"
 
     // Server message types
     const val MSG_WELCOME = "welcome"
@@ -45,6 +47,7 @@ internal object NexaDevKeys {
     const val MSG_RESTART = "restart"
     const val MSG_PERFORMANCE_OVERLAY = "performance_overlay"
     const val MSG_RUNTIME_TRACE = "runtime_trace"
+    const val MSG_FRAME_FENCE = "frame_fence"
 
     // Patch operations
     const val OP = "op"
@@ -149,7 +152,7 @@ internal object NexaDevNodeKind {
     const val LINK = "Link"
     const val ACCESSIBILITY = "Accessibility"
     const val KEYBOARD_AWARE = "KeyboardAware"
-    const val SAFE_AREA_PADDING = "SafeAreaPadding"
+    const val VIEW_INSETS = "ViewInsets"
     const val SAFE_AREA_INSET = "SafeAreaInset"
     const val SCROLL_HEADER = "ScrollHeader"
     const val APP_BOTTOM_BAR = "AppBottomBar"

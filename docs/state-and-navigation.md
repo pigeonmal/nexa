@@ -21,12 +21,12 @@ app Storefront {
     ]
 
     screen ProductList {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Featured products", fontSize: 24, fontWeight: Bold)
             Text("Cart items: \(cartCount)", color: "#475569")
             FastList(products, key: .id) { product, index in
                 NavigationLink(destination: ProductDetail(product.id)) {
-                    Row(spacing: 12, padding: 12, background: "#F1F5F9", cornerRadius: 8) {
+                    Row(gap: 12, padding: 12, background: "#F1F5F9", cornerRadius: 8) {
                         Text("\(index + 1). \(product.name)", fontWeight: Semibold)
                         Spacer()
                         Text(product.priceLabel, color: "#1D4ED8")
@@ -37,7 +37,7 @@ app Storefront {
     }
 
     screen ProductDetail(productID: Int32) {
-        Column(spacing: 12, padding: 20) {
+        Column(gap: 12, padding: 20) {
             Text("Product #\(productID)", fontSize: 24, fontWeight: Bold)
             Button("Add to cart", icon: "shopping_cart") {
                 cartCount = cartCount + 1
@@ -79,7 +79,7 @@ app ShopTabs {
     body {
         AppBottomBar(selected: selectedTab) {
             Tab(index: 0, label: "Home", icon: "home", title: "Home") {
-                Column(spacing: 8, padding: 16) {
+                Column(gap: 8, padding: 16) {
                     Text("New this week", fontSize: 22, fontWeight: Bold)
                     Text("Browse the latest products.")
                 }
@@ -118,28 +118,28 @@ app BrandedTabs {
     body {
         AppBottomBar(selected: selectedTab) {
             Tab(index: 0, label: "Home", icon: "home") {
-                Column(spacing: 8, padding: 16) {
+                Column(gap: 8, padding: 16) {
                     Text("Your latest updates", fontSize: 22, fontWeight: Bold)
                     Text("Browse the latest products.")
                 }
             }
             Tab(index: 1, label: "Profile", icon: "person") {
-                Column(spacing: 8, padding: 16) {
+                Column(gap: 8, padding: 16) {
                     Text("Alex Morgan", fontSize: 22, fontWeight: Bold)
                     Text("Account preferences and saved addresses.")
                 }
             }
 
             TabBar {
-                Row(spacing: 24, alignment: Center, padding: 12, background: "#09090B") {
+                Row(gap: 24, alignment: Center, padding: 12, background: "#09090B") {
                     Pressable(accessibilityLabel: "Home tab", accessibilityRole: Button) {
-                        Column(spacing: 4, alignment: Center) {
+                        Column(gap: 4, alignment: Center) {
                             Icon(system: "home", description: "Home", size: 20, tint: "#FFFFFF")
                             Text("Home", color: "#FFFFFF")
                         }
                     }.onTap { selectedTab = 0 }
                     Pressable(accessibilityLabel: "Profile tab", accessibilityRole: Button) {
-                        Column(spacing: 4, alignment: Center) {
+                        Column(gap: 4, alignment: Center) {
                             Icon(system: "person", description: "Profile", size: 20, tint: "#A1A1AA")
                             Text("Profile", color: "#A1A1AA")
                         }
@@ -164,13 +164,13 @@ app Inventory {
     body {
         NavigationSplitView(detailVisible: showDetail) {
             Sidebar {
-                Column(spacing: 8, padding: 16) {
+                Column(gap: 8, padding: 16) {
                     Text("Inventory")
                     Button("Open low stock") { showDetail = true }
                 }
             }
             Detail {
-                Column(spacing: 8, padding: 20) {
+                Column(gap: 8, padding: 20) {
                     Text("Low stock items", fontSize: 22, fontWeight: Bold)
                     Text("Reorder ceramic travel mugs.")
                 }
@@ -192,13 +192,13 @@ app AccountHelp {
     let helpSheetRef = ComponentRef<BottomSheet>()
 
     body {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Button("Help options") { helpSheetRef.present() }
             Link(url: "https://support.example.com/account") {
                 Text("Visit account help")
             }
             BottomSheet(ref: helpSheetRef, detents: [0.5, 1.0]) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("Account help")
                     Text("Need help signing in?")
                     Button("Close") { helpSheetRef.dismiss() }
@@ -221,7 +221,7 @@ app Welcome {
         OnAppear {
             visits = visits + 1
         }
-        Column(spacing: 8, padding: 16) {
+        Column(gap: 8, padding: 16) {
             Text("Welcome back")
             Text("Screen visits: \(visits)")
         }

@@ -26,7 +26,7 @@ screen TikTokShell {
         TabBar {
             Column(background: "#09090B") {
                 Stack(alignment: Center, height: 55, background: "#09090B") {
-                    Row(spacing: 0, alignment: Center, padding: 4, background: "#09090B") {
+                    Row(gap: 0, alignment: Center, padding: 4, background: "#09090B") {
                     Pressable(accessibilityLabel: "Home tab", accessibilityRole: Button) {
                         BottomTab(label: "Home", icon: "home", active: selectedTab == 0)
                     }.onTap { selectedTab = 0 }

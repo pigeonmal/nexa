@@ -9,6 +9,34 @@ use super::{
 };
 use crate::Target;
 
+/// Compile-time capabilities of a target's native codec contract.
+///
+/// Capabilities describe what generated Swift/Kotlin can represent. They are
+/// deliberately **not** derived from AOT vs DevRuntime: a source program must
+/// be accepted or rejected identically in both modes, otherwise `nexa dev`
+/// turns green on a program that `nexa build` rejects.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct SemanticCapabilities {
+    /// A plugin generic read may bind a top-level optional type.
+    ///
+    /// A native decoder reports decode failure separately from a decoded
+    /// value, so it cannot yet represent `value | null | error` at the top
+    /// level of a generic read. No supported target enables this today.
+    /// Enabling it requires a tagged native read result in generated Swift and
+    /// Kotlin, tested in both modes, not a mode-only allowance.
+    pub(super) nullable_generic_plugin_reads: bool,
+}
+
+impl SemanticCapabilities {
+    /// The canonical capability set for a target.
+    ///
+    /// Both AOT and DevRuntime lowering call this same function so acceptance
+    /// cannot diverge by mode.
+    pub(super) fn for_target(_target: Target) -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct ScreenSignature {
     pub(super) id: ScreenId,
@@ -38,7 +66,7 @@ pub(super) struct ExprContext<'a> {
     pub(super) allow_await: bool,
     /// DevRuntime can represent generic nullable reads with a tagged result
     /// that keeps valid nulls separate from reader failures.
-    pub(super) allow_nullable_generic_plugin_reads: bool,
+    pub(super) nullable_generic_plugin_reads: bool,
     /// Declared app screens for typed `Navigation.push(...)` action lowering.
     pub(super) screen_ids: Option<&'a ScreenSignatures>,
     /// Navigation actions are available only inside screen-owned action blocks.
@@ -75,7 +103,7 @@ impl<'a> ExprContext<'a> {
             structs,
             enums,
             allow_await,
-            allow_nullable_generic_plugin_reads: false,
+            nullable_generic_plugin_reads: false,
             screen_ids: None,
             allow_navigation_actions: false,
             source_file: None,
@@ -83,7 +111,7 @@ impl<'a> ExprContext<'a> {
     }
 
     pub(super) fn with_nullable_generic_plugin_reads(mut self, allow: bool) -> Self {
-        self.allow_nullable_generic_plugin_reads = allow;
+        self.nullable_generic_plugin_reads = allow;
         self
     }
 
@@ -100,7 +128,7 @@ impl<'a> ExprContext<'a> {
 pub(super) struct TypeRegistries<'a> {
     pub structs: &'a StructTypes,
     pub enums: &'a HashSet<String>,
-    pub allow_nullable_generic_plugin_reads: bool,
+    pub nullable_generic_plugin_reads: bool,
     pub screen_ids: Option<&'a ScreenSignatures>,
     pub allow_navigation_actions: bool,
     pub source_file: Option<&'a str>,
@@ -111,7 +139,7 @@ impl Default for TypeRegistries<'_> {
         Self {
             structs: empty_struct_types(),
             enums: empty_enum_names(),
-            allow_nullable_generic_plugin_reads: false,
+            nullable_generic_plugin_reads: false,
             screen_ids: None,
             allow_navigation_actions: false,
             source_file: None,
@@ -128,7 +156,7 @@ impl<'a> TypeRegistries<'a> {
     ) -> ExprContext<'a> {
         let mut context =
             ExprContext::with_types(symbols, functions, allow_await, self.structs, self.enums)
-                .with_nullable_generic_plugin_reads(self.allow_nullable_generic_plugin_reads);
+                .with_nullable_generic_plugin_reads(self.nullable_generic_plugin_reads);
         context.screen_ids = self.screen_ids;
         context.allow_navigation_actions = self.allow_navigation_actions;
         context.source_file = self.source_file;
@@ -164,7 +192,7 @@ pub(super) struct SemanticContext<'a> {
     /// Every declared enum name, for the same reason.
     pub(super) enums: &'a HashSet<String>,
     pub(super) target: Target,
-    pub(super) allow_nullable_generic_plugin_reads: bool,
+    pub(super) nullable_generic_plugin_reads: bool,
     pub(super) source_file: Option<&'a str>,
     /// Project-configured icon aliases resolved to typed font glyphs.
     pub(super) custom_icons: Option<&'a HashMap<String, nexa_ir::SystemIcon>>,
@@ -182,7 +210,7 @@ impl<'a> SemanticContext<'a> {
         structs: &'a StructTypes,
         enums: &'a HashSet<String>,
         target: Target,
-        allow_nullable_generic_plugin_reads: bool,
+        nullable_generic_plugin_reads: bool,
     ) -> Self {
         Self {
             symbols,
@@ -196,7 +224,7 @@ impl<'a> SemanticContext<'a> {
             allow_navigation_stack: true,
             allow_navigation_back: false,
             target,
-            allow_nullable_generic_plugin_reads,
+            nullable_generic_plugin_reads,
             source_file: None,
             custom_icons: None,
         }
@@ -221,7 +249,7 @@ impl<'a> SemanticContext<'a> {
             allow_navigation_stack: self.allow_navigation_stack,
             allow_navigation_back: self.allow_navigation_back,
             target: self.target,
-            allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
+            nullable_generic_plugin_reads: self.nullable_generic_plugin_reads,
             source_file: self.source_file,
             custom_icons: self.custom_icons,
         }
@@ -257,7 +285,7 @@ impl<'a> SemanticContext<'a> {
             structs: self.structs,
             enums: self.enums,
             allow_await,
-            allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
+            nullable_generic_plugin_reads: self.nullable_generic_plugin_reads,
             screen_ids: Some(self.screen_ids),
             allow_navigation_actions: self.allow_navigation_back,
             source_file: self.source_file,
@@ -268,7 +296,7 @@ impl<'a> SemanticContext<'a> {
         TypeRegistries {
             structs: self.structs,
             enums: self.enums,
-            allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
+            nullable_generic_plugin_reads: self.nullable_generic_plugin_reads,
             screen_ids: Some(self.screen_ids),
             allow_navigation_actions: self.allow_navigation_back,
             source_file: self.source_file,

@@ -10,7 +10,7 @@ app BackgroundSync {
     }
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("Background sync example")
             Text("The system schedules a heartbeat when background time is available.")
         }

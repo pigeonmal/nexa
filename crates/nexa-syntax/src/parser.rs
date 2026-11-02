@@ -3320,6 +3320,26 @@ impl Parser {
             let Some(operator) = operator else {
                 break;
             };
+            if operator == ArithmeticOp::Remainder
+                && matches!(left, Expr::Number(_, _))
+                && matches!(
+                    &self.peek().kind,
+                    Kind::Comma | Kind::RParen | Kind::RBrace | Kind::Eof
+                )
+            {
+                let percent_span = self.tokens[self.cursor - 1].span;
+                let span = Span {
+                    end: percent_span.end,
+                    ..left.span()
+                };
+                left = Expr::Call(
+                    "__NexaParentFraction".to_owned(),
+                    Vec::new(),
+                    vec![left],
+                    span,
+                );
+                continue;
+            }
             let span = left.span();
             let right = self.unary()?;
             left = Expr::Arithmetic(Box::new(left), operator, Box::new(right), span);
@@ -3564,7 +3584,7 @@ impl Parser {
                     }
                     self.cursor = mark;
                 }
-                if value == "Theme" || value == "Layout" || value == "SafeArea" {
+                if value == "Theme" || value == "Layout" || value == "SystemInsets" {
                     if !self.take(&Kind::Dot) {
                         return Ok(Expr::Name(value, token.span));
                     }
@@ -3575,15 +3595,24 @@ impl Parser {
                     };
                     return match value.as_str() {
                         "Theme" => Ok(Expr::ThemeToken(name, span)),
-                        "SafeArea" if name == "top" => Ok(Expr::Member {
-                            base: Box::new(Expr::Name(value.clone(), token.span)),
-                            name,
-                            optional: false,
-                            span,
-                        }),
-                        "SafeArea" => Err(CompileError::new(
+                        "SystemInsets"
+                            if matches!(
+                                name.as_str(),
+                                "top" | "bottom" | "leading" | "trailing"
+                            ) =>
+                        {
+                            Ok(Expr::Member {
+                                base: Box::new(Expr::Name(value.clone(), token.span)),
+                                name,
+                                optional: false,
+                                span,
+                            })
+                        }
+                        "SystemInsets" => Err(CompileError::new(
                             name_span,
-                            format!("unknown safe-area property `{name}`; expected `top`"),
+                            format!(
+                                "unknown system inset `{name}`; expected `top`, `bottom`, `leading`, or `trailing`"
+                            ),
                         )),
                         "Layout" if matches!(name.as_str(), "screenWidth" | "screenHeight") => {
                             Ok(Expr::Member {

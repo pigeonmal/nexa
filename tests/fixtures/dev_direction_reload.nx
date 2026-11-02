@@ -1,7 +1,7 @@
 app DirectionSmoke {
     body {
         Direction(value: LTR)
-        Row(spacing: 24) {
+        Row(gap: 24) {
             Text("Row Start")
             Text("Row End")
         }

@@ -1,0 +1,33 @@
+app NavigationDeepLink {
+    state deepLinkCount: Int32 = 0
+
+    screen HomeScreen {
+        Column(gap: 8, padding: 16) {
+            Text("Home Screen")
+            NavigationLink(destination: IntermediateScreen) {
+                Text("Open Intermediate")
+            }
+        }
+    }
+
+    screen IntermediateScreen {
+        Column(gap: 8, padding: 16) {
+            Text("Intermediate Screen")
+            NavigationLink(destination: TargetScreen(99)) {
+                Text("Open Target 99")
+            }
+        }
+    }
+
+    screen TargetScreen(targetId: Int32) {
+        state visited: Bool = true
+        Column(gap: 8, padding: 16) {
+            Text("Target Screen: $targetId")
+            NavigationBack(label: "Back")
+        }
+    }
+
+    body {
+        NavigationStack(root: HomeScreen)
+    }
+}

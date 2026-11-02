@@ -25,20 +25,20 @@ component DiscoverScreen() {
     }
 
     body {
-        Column(spacing: 13, padding: 14, background: "#08080A") {
+        Column(gap: 13, padding: 14, background: "#08080A") {
             TopInset()
-            Row(spacing: 10, alignment: Center) {
+            Row(gap: 10, alignment: Center) {
                 Text("Discover", color: "#FFFFFF", fontSize: 25, fontWeight: Bold)
                 Spacer()
                 Pressable(accessibilityLabel: "Scan a code", accessibilityRole: Button) {
                     Icon(system: "camera", description: "Scan", size: 22, tint: "#FFFFFF")
                 }.onTap { selectedCategory = "For you" }
             }
-            Row(spacing: 9, alignment: Center, padding: 11, background: "#222226", cornerRadius: 9) {
+            Row(gap: 9, alignment: Center, padding: 11, background: "#222226", cornerRadius: 9) {
                 Icon(system: "search", description: "Search videos", size: 19, tint: "#A6A6AA")
                 TextInput(value: searchText, placeholder: "Search videos and creators", searchable: true, autocorrect: false, capitalization: None)
             }
-            FastList(categories, key: .self, axis: Horizontal, spacing: 8, accessibilityLabel: "Video topics") { topic, index in
+            FastList(categories, key: .self, axis: Horizontal, gap: 8, accessibilityLabel: "Video topics") { topic, index in
                 Pressable(accessibilityLabel: "Topic \(index + 1): \(topic)", accessibilityRole: Button) {
                     if selectedCategory == topic {
                         Row(alignment: Center, padding: 9, background: "#FFFFFF", cornerRadius: 18) {
@@ -57,15 +57,15 @@ component DiscoverScreen() {
                 Text("For you", color: "#A6A6AA", fontSize: 11)
             }
             if results.isEmpty {
-                Column(spacing: 8, alignment: Center, padding: 28) {
+                Column(gap: 8, alignment: Center, padding: 28) {
                     Icon(system: "search", description: "No results", size: 34, tint: "#85858A")
                     Text("Nothing found", color: "#FFFFFF", fontSize: 17, fontWeight: Bold)
                     Text("Try a different topic or creator.", color: "#A7A7AA", fontSize: 12, alignment: Center)
                 }
             } else {
-                FastList(results, key: .id, axis: AutoGrid(154), rowHeight: 224, spacing: 3, accessibilityLabel: "Responsive video discovery grid") { video, index in
+                FastList(results, key: .id, axis: AutoGrid(154), rowHeight: 224, gap: 3, accessibilityLabel: "Responsive video discovery grid") { video, index in
                     Pressable(fillMaxSize: true, accessibilityLabel: "Open video \(index + 1) by \(video.creator)", accessibilityRole: Button) {
-                        Column(spacing: 5, padding: 3) {
+                        Column(gap: 5, padding: 3) {
                             VideoThumbnail(artwork: video.artwork, views: video.viewCount)
                             Text(video.caption, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold, lineLimit: 2)
                             Text(video.creator, color: "#A5A5A8", fontSize: 10, lineLimit: 1)
@@ -81,11 +81,11 @@ component DiscoverScreen() {
         }
 
         BottomSheet(ref: creatorSheetRef, detents: [0.5, 1.0]) {
-            Column(spacing: 14, padding: 18, background: "#17171B") {
+            Column(gap: 14, padding: 18, background: "#17171B") {
                 Text("Creator", color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
-                Row(spacing: 13, alignment: Center) {
+                Row(gap: 13, alignment: Center) {
                     CreatorAvatar(assetName: if openedCreator == "@mira.cooks" { "mira" } else { if openedCreator == "@noah.outside" { "noah" } else { if openedCreator == "@jules.city" { "jules" } else { "alex" } } }, scale: "medium")
-                    Column(spacing: 4) {
+                    Column(gap: 4) {
                         Text(openedCreator, color: "#FFFFFF", fontSize: 18, fontWeight: Bold)
                         Text("Creator · videos for your feed", color: "#A8A8AC", fontSize: 11)
                     }

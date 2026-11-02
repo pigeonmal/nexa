@@ -23,6 +23,15 @@ CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dep
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v503` | Cancels SwiftUI Form's native scroll inset for first-section content before applying authored padding, so default edge-to-edge, padding, and margin use the same inset source. |
+| `build-v502` | Cancels SwiftUI Form's native top inset at the first section boundary so explicit Form padding and margin each apply once. |
+| `build-v501` | Applies authored SwiftUI Form padding and margin directly, removing duplicate per-Form safe-area correction. |
+| `build-v500` | Cancels SwiftUI Form scroll safe-area adjustments before applying explicit insets, preventing authored padding from being doubled on iOS. |
+| `build-v499` | Preserves explicit Form top padding when zeroing the native top margin on the first iOS section. |
+| `build-v498` | Removes the implicit Form section top margin on Android and iOS 26+, leaving top inset controlled by explicit Form padding. |
+| `build-v497` | Routes explicit Form padding into scrollable content insets on iOS and Android, while keeping margin outside the scrolling viewport. |
+| `build-v496` | Removes the `safeAreaInset` spacing argument and serializes only its safe edge and scroll-owner plan. |
+| `build-v495` | Renames component outer spacing to `margin`, reserves `gap` for child separation, and updates the serialized DevIR inset field. |
 | `build-v494` | Adds a shared typed fade-and-upward-slide transition for conditional content on SwiftUI and Compose, including both DevRuntimes. |
 | `build-v493` | Measures iOS roots against full-window geometry, keeps visual safe insets separate, moves animated offsets into `graphicsLayer`, and lowers empty fixed layouts to spacers. |
 | `build-v492` | Captures Compose composition-local geometry before animated graphics-layer callbacks. |

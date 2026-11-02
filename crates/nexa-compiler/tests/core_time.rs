@@ -69,7 +69,7 @@ fn the_two_clocks_are_separate_readings_of_one_api() {
     let module = compile_with(
         "nexa-core-clock-reads",
         "    state stamp: String = \"\"\n",
-        "        Column(spacing: 16) {\n\
+        "        Column(gap: 16) {\n\
          \x20           Text(stamp)\n\
          \x20           Button(\"Wait\") { stamp = Time.iso8601(timestamp: Time.monotonic()) }\n\
          \x20       }\n\

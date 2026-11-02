@@ -16,3 +16,4 @@ nexa-codegen = { path = "../nexa-codegen" }
 nexa-testkit = { path = "../nexa-testkit" }
 nexa-backend-swift = { path = "../nexa-backend-swift" }
 nexa-backend-kotlin = { path = "../nexa-backend-kotlin" }
+serde_json = "1"

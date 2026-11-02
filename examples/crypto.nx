@@ -5,7 +5,7 @@ app CryptoExample {
     let nonce: String = Crypto.randomBytes(count: 16)
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text(sha256)
             Text(sha512)
             Text(signature)

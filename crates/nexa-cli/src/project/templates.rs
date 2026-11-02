@@ -2326,6 +2326,14 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
                 .push_str("    implementation(\"org.chromium.net:cronet-embedded:143.7445.0\")\n"),
         }
     }
+    if dev_runtime {
+        // JVM tests for the side-effect-free DevRuntime patch engine. Android's
+        // stub `org.json` throws in unit tests, so the real implementation is
+        // supplied on the test classpath.
+        dependencies.push_str(
+            "    testImplementation(\"junit:junit:4.13.2\")\n    testImplementation(\"org.json:json:20231013\")\n",
+        );
+    }
     for dependency in maven_dependencies {
         dependencies.push_str(&format!("    implementation(\"{dependency}\")\n"));
     }
@@ -2339,6 +2347,11 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
         .map(crate::config::android_abis_for_arches)
         .transpose()?;
     let android_compile_sdk = crate::config::ANDROID_COMPILE_SDK;
+    let test_options = if dev_runtime {
+        "\n    testOptions { unitTests.isReturnDefaultValues = true }"
+    } else {
+        ""
+    };
     let ndk_config = abi_filters
         .map(|abis| {
             let abi_literals = abis
@@ -2350,7 +2363,7 @@ pub(super) fn android_app_gradle_with_widgets_and_dev_runtime(
         })
         .unwrap_or_default();
     Ok(format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = {android_compile_sdk}\n    defaultConfig {{ applicationId = \"{}\"; minSdk = {minimum_sdk}; targetSdk = {}; versionCode = {}; versionName = \"{}\"{ndk_config}{manifest_placeholders} }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    signingConfigs {{\n        create(\"nexaRelease\") {{\n            val keystorePath = System.getenv(\"NEXA_ANDROID_KEYSTORE\")\n            if (!keystorePath.isNullOrBlank()) {{\n                storeFile = file(keystorePath)\n                storePassword = System.getenv(\"NEXA_ANDROID_STORE_PASSWORD\")\n                keyAlias = System.getenv(\"NEXA_ANDROID_KEY_ALIAS\")\n                keyPassword = System.getenv(\"NEXA_ANDROID_KEY_PASSWORD\")\n            }}\n        }}\n    }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            signingConfig = signingConfigs.getByName(\"nexaRelease\")\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n",
+        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = {android_compile_sdk}\n    defaultConfig {{ applicationId = \"{}\"; minSdk = {minimum_sdk}; targetSdk = {}; versionCode = {}; versionName = \"{}\"{ndk_config}{manifest_placeholders} }}\n    buildFeatures {{ compose = true }}{cpp_native_build}{test_options}\n    signingConfigs {{\n        create(\"nexaRelease\") {{\n            val keystorePath = System.getenv(\"NEXA_ANDROID_KEYSTORE\")\n            if (!keystorePath.isNullOrBlank()) {{\n                storeFile = file(keystorePath)\n                storePassword = System.getenv(\"NEXA_ANDROID_STORE_PASSWORD\")\n                keyAlias = System.getenv(\"NEXA_ANDROID_KEY_ALIAS\")\n                keyPassword = System.getenv(\"NEXA_ANDROID_KEY_PASSWORD\")\n            }}\n        }}\n    }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            signingConfig = signingConfigs.getByName(\"nexaRelease\")\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n",
         config.android_application_id,
         config.android_target_sdk,
         config.build_number,

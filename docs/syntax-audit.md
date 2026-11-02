@@ -22,7 +22,7 @@ app SyntaxAuditQuickStart {
 state savedItems: Int32 = 0
 
 body {
-Column(spacing: 8, padding: 16) {
+Column(gap: 8, padding: 16) {
 Text("Saved items: \(savedItems)")
 Button("Save an item") {
 savedItems = savedItems + 1
@@ -53,11 +53,11 @@ Sections:
 
 ### `Column`
 
-Vertical layout container with zero gap by default and optional spacing
+Vertical layout container with configurable child gap, padding, and outer margin
 
-Signature: `Column(spacing:, alignment:, padding:, width:, fillMaxWidth:, screenWidthFraction:, height:, fillMaxHeight:, screenHeightFraction:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Column(gap:, margin:, alignment:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `spacing`, `alignment`, `padding`, `width`, `fillMaxWidth`, `screenWidthFraction`, `height`, `fillMaxHeight`, `screenHeightFraction`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `gap`, `margin`, `alignment`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -69,11 +69,11 @@ Reference: components.md#column
 
 Shows a native empty or unavailable content state
 
-Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `title`, `icon`
 
-Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -99,11 +99,11 @@ Reference: components.md#direction
 
 Separates content with a native divider
 
-Signature: `Divider(color, thickness, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Divider(color, thickness, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `color`, `thickness`
 
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -115,9 +115,9 @@ Reference: components.md#divider
 
 Native settings form with optional background and configurable row dividers
 
-Signature: `Form(showDividers:, background:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Form(showDividers:, background:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `showDividers`, `background`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `showDividers`, `background`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -129,9 +129,9 @@ Reference: components.md#form
 
 Keeps content at the window edge by default, with an option to avoid the software keyboard
 
-Signature: `KeyboardAware(dismiss:, behavior:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `KeyboardAware(dismiss:, behavior:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `dismiss`, `behavior`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `dismiss`, `behavior`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -141,11 +141,11 @@ Reference: components.md#keyboardaware
 
 ### `Row`
 
-Horizontal layout container with zero gap by default, optional spacing, and main-axis arrangement
+Horizontal layout container with configurable child gap, padding, and outer margin
 
-Signature: `Row(spacing:, alignment:, horizontalArrangement:, padding:, width:, fillMaxWidth:, screenWidthFraction:, height:, fillMaxHeight:, screenHeightFraction:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Row(gap:, margin:, alignment:, horizontalArrangement:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `spacing`, `alignment`, `horizontalArrangement`, `padding`, `width`, `fillMaxWidth`, `screenWidthFraction`, `height`, `fillMaxHeight`, `screenHeightFraction`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `gap`, `margin`, `alignment`, `horizontalArrangement`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -157,9 +157,9 @@ Reference: components.md#row
 
 A titled or footnoted group with optional background and divider override
 
-Signature: `Section(title:, footer:, comment:, showDividers:, background:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Section(title:, footer:, comment:, showDividers:, background:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `title`, `footer`, `comment`, `showDividers`, `background`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `title`, `footer`, `comment`, `showDividers`, `background`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -171,11 +171,11 @@ Reference: components.md#section
 
 Draws a filled native shape at an explicit size
 
-Signature: `Shape(shape, width, height, fill, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Shape(shape, width, height, fill, animation:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `shape`, `width`, `height`, `fill`
 
-Optional options: `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `animation`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -187,9 +187,9 @@ Reference: components.md#shape
 
 Expands along the parent layout axis or creates a fixed gap
 
-Signature: `Spacer(width:, height:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Spacer(width:, height:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `width`, `height`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `width`, `height`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -201,9 +201,9 @@ Reference: components.md#spacer
 
 Overlapping layout container
 
-Signature: `Stack(alignment:, padding:, width:, fillMaxWidth:, screenWidthFraction:, height:, fillMaxHeight:, screenHeightFraction:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
+Signature: `Stack(alignment:, margin:, padding:, width:, height:, minWidth:, maxWidth:, minHeight:, maxHeight:, background:, cornerRadius:, cornerRadiusBottom:, borderColor:, borderWidth:, opacity:, scale:, scaleY:, rotation:, offsetY:, shadow:, blur:, clip:, zIndex:, glass:, animation:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }` (parentheses optional)
 
-Optional options: `alignment`, `padding`, `width`, `fillMaxWidth`, `screenWidthFraction`, `height`, `fillMaxHeight`, `screenHeightFraction`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `alignment`, `margin`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `cornerRadiusBottom`, `borderColor`, `borderWidth`, `opacity`, `scale`, `scaleY`, `rotation`, `offsetY`, `shadow`, `blur`, `clip`, `zIndex`, `glass`, `animation`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -217,11 +217,11 @@ Reference: components.md#stack
 
 Shows a native empty or unavailable content state
 
-Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `title`, `icon`
 
-Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -233,9 +233,9 @@ Reference: components.md#content-unavailable
 
 Displays formatted text
 
-Signature: `Text(value, comment:, color:, alignment:, fontSize:, fontStyle:, fontDesign:, fontFamily:, fontWeight:, padding:, opacity:, scale:, scaleY:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, italic:, underline:, selectable:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Text(value, comment:, color:, alignment:, fontSize:, fontStyle:, fontDesign:, fontFamily:, fontWeight:, padding:, opacity:, scale:, scaleY:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, italic:, underline:, selectable:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `comment`, `color`, `alignment`, `fontSize`, `fontStyle`, `fontDesign`, `fontFamily`, `fontWeight`, `padding`, `opacity`, `scale`, `scaleY`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `italic`, `underline`, `selectable`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `comment`, `color`, `alignment`, `fontSize`, `fontStyle`, `fontDesign`, `fontFamily`, `fontWeight`, `padding`, `opacity`, `scale`, `scaleY`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `italic`, `underline`, `selectable`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -247,11 +247,11 @@ Reference: components.md#text
 
 Reveals timed text segments using native text layout and animation
 
-Signature: `TextReveal(value, segments, position, active, playing, enabled, seekRevision, revealOpacity:, leadTime:, targetOffset:, smoothingDuration:, comment:, color:, alignment:, fontSize:, fontStyle:, fontDesign:, fontFamily:, fontWeight:, padding:, opacity:, scale:, scaleY:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, italic:, underline:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `TextReveal(value, segments, position, active, playing, enabled, seekRevision, revealOpacity:, leadTime:, targetOffset:, smoothingDuration:, comment:, color:, alignment:, fontSize:, fontStyle:, fontDesign:, fontFamily:, fontWeight:, padding:, opacity:, scale:, scaleY:, rotation:, shadow:, blur:, clip:, zIndex:, lineLimit:, lineHeight:, letterSpacing:, strikethrough:, italic:, underline:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `segments`, `position`, `active`, `playing`, `enabled`, `seekRevision`
 
-Optional options: `revealOpacity`, `leadTime`, `targetOffset`, `smoothingDuration`, `comment`, `color`, `alignment`, `fontSize`, `fontStyle`, `fontDesign`, `fontFamily`, `fontWeight`, `padding`, `opacity`, `scale`, `scaleY`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `italic`, `underline`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `revealOpacity`, `leadTime`, `targetOffset`, `smoothingDuration`, `comment`, `color`, `alignment`, `fontSize`, `fontStyle`, `fontDesign`, `fontFamily`, `fontWeight`, `padding`, `opacity`, `scale`, `scaleY`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `strikethrough`, `italic`, `underline`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -265,9 +265,9 @@ Reference: components.md#text-reveal
 
 Interactive button with click action handler
 
-Signature: `Button(value, comment:, icon:, loading:, disabled:, style:, size:, shape:, tint:, glass:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)` with optional trailing `{ ... }` actions
+Signature: `Button(value, comment:, icon:, loading:, disabled:, style:, size:, shape:, tint:, glass:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)` with optional trailing `{ ... }` actions
 
-Optional options: `comment`, `icon`, `loading`, `disabled`, `style`, `size`, `shape`, `tint`, `glass`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `comment`, `icon`, `loading`, `disabled`, `style`, `size`, `shape`, `tint`, `glass`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: optional action block
 
@@ -279,11 +279,11 @@ Reference: components.md#button
 
 Selects one string option from a native menu
 
-Signature: `Picker(items, selected, itemIcons:, icon:, label:, tint:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Picker(items, selected, itemIcons:, icon:, label:, tint:, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `items`, `selected`
 
-Optional options: `itemIcons`, `icon`, `label`, `tint`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `itemIcons`, `icon`, `label`, `tint`, `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -295,11 +295,11 @@ Reference: components.md#picker
 
 Selects a date, time, date-time, or date range
 
-Signature: `PickerDate(type, style:, selection:, timestamp:, startTimestamp:, endTimestamp:, minimum:, maximum:, tint:, textColor:, backgroundColor:, pickerBackgroundColor:, borderColor:, borderWidth:, cornerRadius:, locale:, timeZone:, is24Hour:, enabled:, accessibilityLabel:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `PickerDate(type, style:, selection:, timestamp:, startTimestamp:, endTimestamp:, minimum:, maximum:, tint:, textColor:, backgroundColor:, pickerBackgroundColor:, borderColor:, borderWidth:, cornerRadius:, locale:, timeZone:, is24Hour:, enabled:, accessibilityLabel:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `type`
 
-Optional options: `style`, `selection`, `timestamp`, `startTimestamp`, `endTimestamp`, `minimum`, `maximum`, `tint`, `textColor`, `backgroundColor`, `pickerBackgroundColor`, `borderColor`, `borderWidth`, `cornerRadius`, `locale`, `timeZone`, `is24Hour`, `enabled`, `accessibilityLabel`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `style`, `selection`, `timestamp`, `startTimestamp`, `endTimestamp`, `minimum`, `maximum`, `tint`, `textColor`, `backgroundColor`, `pickerBackgroundColor`, `borderColor`, `borderWidth`, `cornerRadius`, `locale`, `timeZone`, `is24Hour`, `enabled`, `accessibilityLabel`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -311,9 +311,9 @@ Reference: components.md#pickerdate
 
 Shows customizable determinate or indeterminate linear progress
 
-Signature: `ProgressBar(progress:, tint:, trackColor:, thickness:, cornerRadius:, androidWave:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ProgressBar(progress:, tint:, trackColor:, thickness:, cornerRadius:, androidWave:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `progress`, `tint`, `trackColor`, `thickness`, `cornerRadius`, `androidWave`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `progress`, `tint`, `trackColor`, `thickness`, `cornerRadius`, `androidWave`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -325,9 +325,9 @@ Reference: components.md#progressbar
 
 Shows customizable determinate or indeterminate circular progress
 
-Signature: `ProgressRing(progress:, tint:, trackColor:, size:, thickness:, androidWave:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ProgressRing(progress:, tint:, trackColor:, size:, thickness:, androidWave:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `progress`, `tint`, `trackColor`, `size`, `thickness`, `androidWave`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `progress`, `tint`, `trackColor`, `size`, `thickness`, `androidWave`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -339,11 +339,11 @@ Reference: components.md#progressring
 
 Selects one string option with customizable color and shape
 
-Signature: `SegmentedControl(items, selected, animation:, comment:, tint:, background:, selectedTextColor:, textColor:, fontSize:, fontWeight:, height:, cornerRadius:, borderColor:, borderWidth:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `SegmentedControl(items, selected, animation:, comment:, tint:, background:, selectedTextColor:, textColor:, fontSize:, fontWeight:, height:, cornerRadius:, borderColor:, borderWidth:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `items`, `selected`
 
-Optional options: `animation`, `comment`, `tint`, `background`, `selectedTextColor`, `textColor`, `fontSize`, `fontWeight`, `height`, `cornerRadius`, `borderColor`, `borderWidth`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `animation`, `comment`, `tint`, `background`, `selectedTextColor`, `textColor`, `fontSize`, `fontWeight`, `height`, `cornerRadius`, `borderColor`, `borderWidth`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -355,11 +355,11 @@ Reference: components.md#segmentedcontrol
 
 Adjusts a Float64 state value within a styled, stepped or continuous range
 
-Signature: `Slider(value, min, max, step, tint:, trackColor:, thumbColor:, trackHeight:, thumbSize:, hitSlop:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Slider(value, min, max, step, tint:, trackColor:, thumbColor:, trackHeight:, thumbSize:, hitSlop:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `value`, `min`, `max`, `step`
 
-Optional options: `tint`, `trackColor`, `thumbColor`, `trackHeight`, `thumbSize`, `hitSlop`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `tint`, `trackColor`, `thumbColor`, `trackHeight`, `thumbSize`, `hitSlop`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -374,11 +374,11 @@ Reference: components.md#slider
 
 Boolean toggle with a label and optional change action
 
-Signature: `Switch(value, label, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Switch(value, label, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `value`, `label`
 
-Optional options: `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -392,11 +392,11 @@ Reference: components.md#switch
 
 Text input control bound to mutable state
 
-Signature: `TextInput(value, placeholder, comment:, keyboardType:, isSecure:, autofill:, returnKeyType:, multiline:, autocorrect:, capitalization:, focused:, maxLength:, font:, fontSize:, fontFamily:, textColor:, placeholderColor:, clearable:, minLines:, maxLines:, searchable:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)` with optional trailing `{ ... }` actions
+Signature: `TextInput(value, placeholder, comment:, keyboardType:, isSecure:, autofill:, returnKeyType:, multiline:, autocorrect:, capitalization:, focused:, maxLength:, font:, fontSize:, fontFamily:, textColor:, placeholderColor:, clearable:, minLines:, maxLines:, searchable:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)` with optional trailing `{ ... }` actions
 
 Required options: `value`, `placeholder`
 
-Optional options: `comment`, `keyboardType`, `isSecure`, `autofill`, `returnKeyType`, `multiline`, `autocorrect`, `capitalization`, `focused`, `maxLength`, `font`, `fontSize`, `fontFamily`, `textColor`, `placeholderColor`, `clearable`, `minLines`, `maxLines`, `searchable`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `comment`, `keyboardType`, `isSecure`, `autofill`, `returnKeyType`, `multiline`, `autocorrect`, `capitalization`, `focused`, `maxLength`, `font`, `fontSize`, `fontFamily`, `textColor`, `placeholderColor`, `clearable`, `minLines`, `maxLines`, `searchable`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: optional action block
 
@@ -413,9 +413,9 @@ Reference: components.md#textinput
 
 Pressable region with tap, context-menu, drag, pinch, double-tap, and long-press actions
 
-Signature: `Pressable(disabled:, haptic:, fillMaxSize:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `Pressable(disabled:, haptic:, fillMaxSize:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
-Optional options: `disabled`, `haptic`, `fillMaxSize`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `disabled`, `haptic`, `fillMaxSize`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -436,11 +436,11 @@ Reference: components.md#pressable
 
 Shows a native empty or unavailable content state
 
-Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `ContentUnavailable(title, icon, description:, titleColor:, descriptionColor:, iconTint:, background:, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `title`, `icon`
 
-Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `description`, `titleColor`, `descriptionColor`, `iconTint`, `background`, `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -452,11 +452,11 @@ Reference: components.md#content-unavailable
 
 Displays a system symbol or a glyph from a registered font
 
-Signature: `Icon(system:, sfsymbol:, materialsymbol:, fontFamily:, glyph:, description, size, tint, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Icon(system:, sfsymbol:, materialsymbol:, fontFamily:, glyph:, description, size, tint, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `description`, `size`, `tint`
 
-Optional options: `system`, `sfsymbol`, `materialsymbol`, `fontFamily`, `glyph`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `system`, `sfsymbol`, `materialsymbol`, `fontFamily`, `glyph`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Exactly one of: `system`, `sfsymbol`, `materialsymbol`, `glyph`
 
@@ -470,11 +470,11 @@ Reference: components.md#icon
 
 Displays a native image from an asset, URL, or local file
 
-Signature: `Image(asset:, url:, file:, description, scale:, placeholder:, showLoadingIndicator:, maxHeight:, fillMaxSize:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `Image(asset:, url:, file:, description, scale:, placeholder:, showLoadingIndicator:, maxHeight:, fillMaxSize:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `description`
 
-Optional options: `asset`, `url`, `file`, `scale`, `placeholder`, `showLoadingIndicator`, `maxHeight`, `fillMaxSize`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `asset`, `url`, `file`, `scale`, `placeholder`, `showLoadingIndicator`, `maxHeight`, `fillMaxSize`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Exactly one of: `asset`, `url`, `file`
 
@@ -490,11 +490,11 @@ Reference: components.md#image
 
 Draws a native linear color gradient
 
-Signature: `LinearGradient(startColor, endColor, direction:, height:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `LinearGradient(startColor, endColor, direction:, height:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `startColor`, `endColor`
 
-Optional options: `direction`, `height`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `direction`, `height`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -508,11 +508,11 @@ Reference: components.md#lineargradient
 
 Opens a URL in the system browser
 
-Signature: `Link(url, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `Link(url, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
 Required options: `url`
 
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -524,9 +524,9 @@ Reference: components.md#link
 
 Pops the navigation stack with an optional label
 
-Signature: `NavigationBack(label:, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `NavigationBack(label:, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
-Optional options: `label`, `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `label`, `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -538,11 +538,11 @@ Reference: components.md#navigationstack--navigationlink
 
 Navigates to a declared screen destination
 
-Signature: `NavigationLink(destination, when:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `NavigationLink(destination, when:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
 Required options: `destination`
 
-Optional options: `when`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `when`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -558,7 +558,7 @@ Signature: `NavigationSplitView(detailVisible:) { Sidebar { ... } Detail { ... }
 
 Required options: `detailVisible`
 
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: sidebar and detail blocks
 
@@ -570,11 +570,11 @@ Reference: components.md#navigationsplitview
 
 Navigation host rooted at a declared screen
 
-Signature: `NavigationStack(root, showNavigationBar:, titleMode:, titleAlignment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
+Signature: `NavigationStack(root, showNavigationBar:, titleMode:, titleAlignment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:)`
 
 Required options: `root`
 
-Optional options: `showNavigationBar`, `titleMode`, `titleAlignment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `showNavigationBar`, `titleMode`, `titleAlignment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: none
 
@@ -590,7 +590,7 @@ Signature: `PagePager(selected:) { Tab(..) ... }`
 
 Required options: `selected`
 
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: `Tab` declarations
 
@@ -670,7 +670,7 @@ High-performance virtualized list with configurable dividers and responsive grid
 
 Signature: `FastList(collection | count: | sections:, axis:, ...)` with `{ bindings in ... }` rows
 
-Optional options: `axis`, `rowHeight`, `spacing`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `showDividers`, `ref`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `axis`, `rowHeight`, `gap`, `scrollPosition`, `scrollEnabled`, `reverseLayout`, `pageSnap`, `showDividers`, `ref`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Source forms: positional collection, `count`:, or `sections:` (exactly one); row-key option `key`.
 
@@ -698,7 +698,7 @@ Signature: `AppBottomBar(selected:) { Tab(..) ... TabBar { ... }? }`
 
 Required options: `selected`
 
-Optional options: `tint`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `tint`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: `Tab` destinations and an optional custom `TabBar` block
 
@@ -710,9 +710,9 @@ Reference: components.md#appbottombar
 
 Places native actions in a navigation toolbar
 
-Signature: `Toolbar(placement:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `Toolbar(placement:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
-Optional options: `placement`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `placement`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -726,11 +726,11 @@ Reference: components.md#toolbar
 
 Pull-to-refresh wrapper with an onRefresh action
 
-Signature: `RefreshControl(isRefreshing, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `RefreshControl(isRefreshing, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
 Required options: `isRefreshing`
 
-Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -790,11 +790,11 @@ Reference: components.md#accessibility-options
 
 Native modal sheet controlled through a typed component reference
 
-Signature: `BottomSheet(ref, contentSized:, contentPadding:, cornerRadius:, detents:, initialDetent:, showDragIndicator:, allowsDismissal:, allowsBackgroundInteraction:, shouldDismissOnBackPress:, backgroundColor:, scrimColor:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `BottomSheet(ref, contentSized:, contentPadding:, cornerRadius:, detents:, initialDetent:, showDragIndicator:, allowsDismissal:, allowsBackgroundInteraction:, shouldDismissOnBackPress:, backgroundColor:, scrimColor:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
 Required options: `ref`
 
-Optional options: `contentSized`, `contentPadding`, `cornerRadius`, `detents`, `initialDetent`, `showDragIndicator`, `allowsDismissal`, `allowsBackgroundInteraction`, `shouldDismissOnBackPress`, `backgroundColor`, `scrimColor`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `contentSized`, `contentPadding`, `cornerRadius`, `detents`, `initialDetent`, `showDragIndicator`, `allowsDismissal`, `allowsBackgroundInteraction`, `shouldDismissOnBackPress`, `backgroundColor`, `scrimColor`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -808,11 +808,11 @@ Reference: components.md#bottomsheet
 
 Native confirmation dialog bound to a boolean binding
 
-Signature: `ConfirmationDialog(isPresented, title, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `ConfirmationDialog(isPresented, title, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
 Required options: `isPresented`, `title`
 
-Optional options: `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -824,11 +824,11 @@ Reference: components.md#confirmationdialog
 
 Native alert with button actions and optional single-line text input
 
-Signature: `Dialog(isPresented, title, message, comment:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
+Signature: `Dialog(isPresented, title, message, comment:, padding:, margin:, accessibilityLabel:, accessibilityHint:, accessibilityValue:, accessibilityRole:) { ... }`
 
 Required options: `isPresented`, `title`, `message`
 
-Optional options: `comment`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
+Optional options: `comment`, `padding`, `margin`, `accessibilityLabel`, `accessibilityHint`, `accessibilityValue`, `accessibilityRole`
 
 Children: node block
 
@@ -854,19 +854,11 @@ Reference: components.md#custom-components--content
 
 These modifiers wrap an existing rendered view and keep layout policy separate from its component type.
 
-### `.safeAreaPadding`
-
-Arguments: `edges: [Top, Bottom, Leading, Trailing]` (default all edges), `spacing: non-negative numeric literal = 0`.
-
-Applies the remaining visual safe inset on each selected edge, then adds the fixed `spacing` value. Nested scopes consume each selected dynamic edge once. System gesture regions and IME insets are separate.
-
-Reference: components.md#safe-area-and-edge-attached-content
-
 ### `.safeAreaInset`
 
-Arguments: `edge: Top | Bottom | Leading | Trailing` (required), `spacing: non-negative numeric literal = 0`.
+Arguments: `edge: Top | Bottom | Leading | Trailing` (required).
 
-Places its node block at the selected safe edge. The node block is measured natively; a uniquely inferred compatible scroll owner receives endpoint accommodation. Without an owner, placement still works. `spacing` remains fixed design distance and is not an inset value.
+Places its node block at the selected safe edge with no additional gap. The node block is measured natively; a uniquely inferred compatible scroll owner receives endpoint accommodation. Without an owner, placement still works.
 
 Reference: components.md#safe-area-and-edge-attached-content
 

@@ -15,11 +15,10 @@ pub(crate) fn render_refresh_control(
     out: &mut SourceWriter,
 ) {
     indent(out, depth);
-    if !contains_scrollable(children) {
-        out.push_str("ScrollView {\n");
-    } else {
-        out.push_str("VStack {\n");
-    }
+    out.push_str(&format!(
+        "NexaRefreshPrimitive(hasNativeScrollOwner: {}) {{\n",
+        contains_scrollable(children)
+    ));
     render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);

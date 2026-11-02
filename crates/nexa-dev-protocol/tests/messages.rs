@@ -9,6 +9,29 @@ fn client_hello_round_trips_with_the_session_token() {
         protocol_version: PROTOCOL_VERSION,
         session_token: "ephemeral-session-secret".to_owned(),
         target: TargetPlatform::Ios,
+        capabilities: None,
+    };
+
+    let frame = encode_client(&message).expect("client message should serialize");
+    let decoded = decode_client(&frame).expect("client message should deserialize");
+
+    assert_eq!(decoded, message);
+}
+
+#[test]
+fn client_hello_with_host_capabilities_round_trips() {
+    let message = ClientMessage::Hello {
+        protocol_version: PROTOCOL_VERSION,
+        session_token: "ephemeral-session-secret".to_owned(),
+        target: TargetPlatform::Android,
+        capabilities: Some(nexa_dev_protocol::NativeHostCapabilities {
+            protocol_version: PROTOCOL_VERSION,
+            target: TargetPlatform::Android,
+            plugins: vec!["dev.nexa.storage".to_owned()],
+            background_tasks: vec!["sync".to_owned()],
+            assets_hash: "hash123".to_owned(),
+            rebuild_required: false,
+        }),
     };
 
     let frame = encode_client(&message).expect("client message should serialize");
@@ -154,6 +177,26 @@ fn runtime_trace_toggle_round_trips() {
         encode_server(&decoded).expect("re-encode runtime trace"),
         frame
     );
+}
+
+#[test]
+fn frame_fence_and_presented_messages_round_trip() {
+    let fence_msg = ServerMessage::FrameFence { enabled: true };
+    let fence_frame = encode_server(&fence_msg).expect("frame fence should serialize");
+    let decoded_fence = decode_server(&fence_frame).expect("frame fence should deserialize");
+    assert_eq!(
+        encode_server(&decoded_fence).expect("re-encode frame fence"),
+        fence_frame
+    );
+
+    let presented_msg = ClientMessage::FramePresented {
+        revision: "rev-42".to_owned(),
+        frame_id: 1001,
+    };
+    let presented_frame = encode_client(&presented_msg).expect("frame presented should serialize");
+    let decoded_presented =
+        decode_client(&presented_frame).expect("frame presented should deserialize");
+    assert_eq!(decoded_presented, presented_msg);
 }
 
 #[test]

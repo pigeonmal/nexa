@@ -39,7 +39,57 @@ internal class NexaDevLocatedRuntimeException(
 
 private data class NexaDevSourceLocation(val file: String, val line: Int, val column: Int)
 
-private val NEXA_DEV_PRESENTATION_PATCH_FIELDS = setOf(
+/**
+ * Test-only render fence.
+ *
+ * A module acknowledgement only proves that the Dev IR was committed. Capture
+ * tooling needs to know that the native framework has presented a frame that
+ * reads the new revision, otherwise a screenshot can race the very first
+ * recomposition. Arming records the committed revision and module generation;
+ * the root composable reports the next frame it renders at that generation, and
+ * only then does the fence emit.
+ */
+internal class NexaDevFrameFence {
+    @Volatile var enabled = false
+
+    private val lock = Any()
+    private var pendingRevision: String? = null
+    private var pendingGeneration = 0
+    private var frameCounter = 0L
+
+    @Volatile var onPresented: ((String, Long) -> Unit)? = null
+
+    fun arm(revision: String, generation: Int) {
+        synchronized(lock) {
+            if (!enabled) return
+            pendingRevision = revision
+            pendingGeneration = generation
+        }
+    }
+
+    fun presented(generation: Int) {
+        val revision: String
+        val frameId: Long
+        synchronized(lock) {
+            if (!enabled) return
+            val expected = pendingRevision ?: return
+            if (pendingGeneration != generation) return
+            pendingRevision = null
+            revision = expected
+            frameId = ++frameCounter
+        }
+        onPresented?.invoke(revision, frameId)
+    }
+
+    fun reset() {
+        synchronized(lock) {
+            pendingRevision = null
+            pendingGeneration = 0
+        }
+    }
+}
+
+internal val NEXA_DEV_PRESENTATION_PATCH_FIELDS = setOf(
     "text", "label", "placeholder", "icon", "icon_spec", "source", "tint",
     "color", "background", "border_color", "border_width", "corner_radius",
     "padding", "padding_horizontal", "padding_vertical", "width", "height",
@@ -47,8 +97,8 @@ private val NEXA_DEV_PRESENTATION_PATCH_FIELDS = setOf(
     "horizontal_arrangement", "vertical_arrangement", "font_size", "font_weight",
     "font_family", "font_style", "font_design", "line_limit", "line_height",
     "letter_spacing", "strikethrough", "italic", "underline", "text_alignment",
-    "fill_max_width", "screen_width_fraction", "scale", "scale_y", "rotation",
-    "offset_y", "accessibility_label", "style",
+    "scale", "scale_y", "rotation",
+    "offset_y", "accessibility_label", "style", "value",
 )
 
 private fun sourceLocation(fields: JSONObject): NexaDevSourceLocation? {
@@ -154,7 +204,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal val activeFunctions = mutableSetOf<String>()
     var module by mutableStateOf<JSONObject?>(null)
         private set
-    private var currentModule: JSONObject? = null
+    @Volatile private var currentModule: JSONObject? = null
     var appLifecycleEpoch by mutableIntStateOf(0)
         private set
     var diagnostics by mutableStateOf<List<NexaDevDiagnostic>>(emptyList())
@@ -166,42 +216,78 @@ internal class NexaDevStateStore(internal val context: Context) {
     var navigationEpoch by mutableIntStateOf(0)
         private set
     @Volatile var currentNavController: androidx.navigation.NavHostController? = null
-    private val activeNavControllers = java.util.concurrent.CopyOnWriteArrayList<androidx.navigation.NavHostController>()
+    private val navControllers = java.util.concurrent.ConcurrentHashMap<String, androidx.navigation.NavHostController>()
+    private val controllerOrder = java.util.concurrent.CopyOnWriteArrayList<String>()
 
-    fun registerNavController(controller: androidx.navigation.NavHostController) {
-        if (!activeNavControllers.contains(controller)) {
-            activeNavControllers.add(controller)
-        }
+    fun registerNavController(id: String, controller: androidx.navigation.NavHostController) {
+        navControllers[id] = controller
+        controllerOrder.remove(id)
+        controllerOrder.add(id)
         currentNavController = controller
     }
 
-    fun unregisterNavController(controller: androidx.navigation.NavHostController) {
-        activeNavControllers.remove(controller)
+    fun unregisterNavController(id: String, controller: androidx.navigation.NavHostController) {
+        navControllers.remove(id, controller)
+        controllerOrder.remove(id)
         if (currentNavController === controller) {
-            currentNavController = activeNavControllers.lastOrNull()
+            currentNavController = controllerOrder.lastOrNull()?.let { navControllers[it] }
         }
     }
 
-    fun popNavigation(explicitController: androidx.navigation.NavHostController? = null): Boolean {
-        if (explicitController != null) {
-            try {
-                if (explicitController.previousBackStackEntry != null) {
-                    return explicitController.popBackStack()
-                }
-            } catch (_: Throwable) {}
+    private val tabListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+
+    fun registerTabListener(listener: (String) -> Unit): () -> Unit {
+        tabListeners.add(listener)
+        return { tabListeners.remove(listener) }
+    }
+
+    fun selectTab(target: String): Boolean {
+        if (target.isEmpty()) return false
+        tabListeners.forEach { it(target) }
+        return true
+    }
+
+    fun resolveNavController(
+        stackIdentity: String? = null,
+        locals: Map<String, Any>? = null,
+        scope: String? = null
+    ): androidx.navigation.NavHostController? {
+        if (stackIdentity != null) {
+            return if (stackIdentity.isNotEmpty()) navControllers[stackIdentity] else null
         }
-        for (controller in activeNavControllers.asReversed()) {
+        val localId = locals?.get("__nexa_navigation_stack_identity") as? String
+        if (localId != null) {
+            return if (localId.isNotEmpty()) navControllers[localId] else null
+        }
+        if (scope != null) {
+            if (scope.startsWith("navigator/")) {
+                val afterPrefix = scope.removePrefix("navigator/")
+                val entryIndex = afterPrefix.indexOf("/entry/")
+                val navId = if (entryIndex != -1) afterPrefix.substring(0, entryIndex) else afterPrefix
+                return navControllers[navId]
+            }
+            if (navControllers.containsKey(scope)) {
+                return navControllers[scope]
+            }
+        }
+        if (scope == "app" || scope == null) {
+            return (locals?.get("__nexa_navigation_controller") as? androidx.navigation.NavHostController)
+                ?: navControllers["app"]
+        }
+        return null
+    }
+
+    fun popNavigation(
+        explicitController: androidx.navigation.NavHostController? = null,
+        navigatorId: String? = null,
+        scope: String? = null,
+        locals: Map<String, Any>? = null
+    ): Boolean {
+        val controller = explicitController ?: resolveNavController(navigatorId, locals, scope)
+        if (controller != null) {
             try {
                 if (controller.previousBackStackEntry != null) {
                     return controller.popBackStack()
-                }
-            } catch (_: Throwable) {}
-        }
-        val current = currentNavController
-        if (current != null && current !== explicitController) {
-            try {
-                if (current.previousBackStackEntry != null) {
-                    return current.popBackStack()
                 }
             } catch (_: Throwable) {}
         }
@@ -229,6 +315,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal val nativeEventSubscriptions = mutableListOf<NexaDevNativeEventSubscription>()
     internal val networkStatusSubscriptions = mutableListOf<NexaDevNetworkStatusSubscription>()
     internal val activeScreenParameters = mutableMapOf<String, Map<String, Any>>()
+    internal val frameFence = NexaDevFrameFence()
     internal var pendingPluginFailure: NexaDevPluginFailure? = null
     private var hasInstalledModule = false
     private var hotTranslations = JSONObject()
@@ -245,7 +332,6 @@ internal class NexaDevStateStore(internal val context: Context) {
         // of the installed translations. Retain it directly instead of
         // stringifying and reparsing the complete translation catalog.
         hotTranslations = translations ?: JSONObject()
-        moduleRevision += 1
     }
 
     fun localizedText(
@@ -425,7 +511,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             .toString()
     }
 
-    private fun installFunctionRegistry(next: JSONObject) {
+    private fun buildFunctionRegistry(next: JSONObject): Pair<LinkedHashMap<String, JSONObject>, LinkedHashMap<String, JSONObject>> {
         val nextFunctions = next.optJSONArray("functions") ?: JSONArray()
         val installedFunctions = LinkedHashMap<String, JSONObject>(nextFunctions.length())
         for (index in 0 until nextFunctions.length()) {
@@ -443,24 +529,46 @@ internal class NexaDevStateStore(internal val context: Context) {
                 installedFunctions[name] = method
             }
         }
-        functions = installedFunctions
         val installedClassTypes = LinkedHashMap<String, JSONObject>()
         for (function in installedFunctions.values) {
             val classType = function.optJSONObject("receiver")?.optJSONObject("Class") ?: continue
             installedClassTypes[classType.optString("name")] = classType
         }
+        return Pair(installedFunctions, installedClassTypes)
+    }
+
+    private fun installFunctionRegistry(next: JSONObject) {
+        val (installedFunctions, installedClassTypes) = buildFunctionRegistry(next)
+        functions = installedFunctions
         classTypes = installedClassTypes
     }
 
     fun install(next: JSONObject) {
+        val prep = prepareFullInstall(next)
+        commitFullInstall(prep, null)
+    }
+
+    internal data class PreparedFullInstall(
+        val next: JSONObject,
+        val isHotReplacement: Boolean,
+        val functions: Map<String, JSONObject>,
+        val classTypes: Map<String, JSONObject>,
+        val structs: Map<String, JSONArray>,
+        val enumCases: Map<String, List<String>>,
+        val moduleValues: Map<String, Any>,
+        val moduleValueSignatures: Map<String, String>,
+        val values: Map<String, Any>,
+        val typeSignatures: Map<String, String>,
+        val currentRoot: String?,
+        val currentScreensSignature: String,
+        val screens: JSONArray,
+    )
+
+    private fun prepareFullInstall(next: JSONObject): PreparedFullInstall {
         val isHotReplacement = hasInstalledModule
-        if (isHotReplacement) {
-            clearNativeTasks()
-            animationSpecs.clear()
-        }
         val screens = next.optJSONArray("screens") ?: JSONArray()
         val states = next.optJSONArray("states") ?: JSONArray()
-        installFunctionRegistry(next)
+        val (installedFunctions, installedClassTypes) = buildFunctionRegistry(next)
         val nextComponents = next.optJSONArray("components") ?: JSONArray()
         val nextStructs = next.optJSONArray("structs") ?: JSONArray()
         val installedStructs = LinkedHashMap<String, JSONArray>(nextStructs.length())
@@ -469,7 +577,6 @@ internal class NexaDevStateStore(internal val context: Context) {
             val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: continue
             installedStructs[name] = declaration.optJSONArray("fields") ?: JSONArray()
         }
-        structs = installedStructs
         val nextEnums = next.optJSONArray("enums") ?: JSONArray()
         val installedEnumCases = LinkedHashMap<String, List<String>>(nextEnums.length())
         for (index in 0 until nextEnums.length()) {
@@ -478,12 +585,9 @@ internal class NexaDevStateStore(internal val context: Context) {
             val cases = declaration.optJSONArray("cases") ?: JSONArray()
             installedEnumCases[name] = (0 until cases.length()).map { cases.optString(it) }
         }
-        enumCases = installedEnumCases
         val nextValues = mutableMapOf<String, Any>()
         val nextTypes = mutableMapOf<String, String>()
         val initialLocals = mutableMapOf<String, Any>()
-        // Module globals have process lifetime, separate from Compose-observed UI state.
-        // Retain compatible values across hot replacement (including class singletons).
         val nextModuleValues = mutableMapOf<String, Any>()
         val nextModuleSignatures = mutableMapOf<String, String>()
         val globals = next.optJSONArray("globals") ?: JSONArray()
@@ -499,11 +603,9 @@ internal class NexaDevStateStore(internal val context: Context) {
             nextModuleValues[name] = value
             initialLocals[name] = value
             declaration.optJSONObject("ty")?.optJSONObject("Class")?.let { type ->
-                classTypes.putIfAbsent(type.optString("name"), type)
+                installedClassTypes.putIfAbsent(type.optString("name"), type)
             }
         }
-        moduleValues = nextModuleValues
-        moduleValueSignatures = nextModuleSignatures
         fun installState(scope: String, declaration: JSONObject) {
             val name = declaration.optString("name")
             val identity = "$scope/state/$name"
@@ -561,35 +663,110 @@ internal class NexaDevStateStore(internal val context: Context) {
                 nextValues[identity] = value
                 nextTypes[identity] = signature
             }
-        }
-        values.clear()
-        values.putAll(nextValues)
-        typeSignatures = nextTypes
-        if (isHotReplacement) {
-            val currentScreens = mutableSetOf<String>()
-            for (screenIndex in 0 until screens.length()) {
-                val screen = screens.optJSONObject(screenIndex) ?: continue
-                currentScreens += screen.optString("name")
+            for ((identity, value) in values) {
+                if (identity.startsWith("entry/") || identity.startsWith("navigator/")) {
+                    val stateName = identity.substringAfter("/state/", "")
+                    if (stateName.isEmpty()) continue
+                    val screenName = identity.substringAfter("/screen/").substringBefore("/state/")
+                    var declaration: JSONObject? = null
+                    for (screenIndex in 0 until screens.length()) {
+                        val screen = screens.optJSONObject(screenIndex) ?: continue
+                        if (screen.optString("name") == screenName) {
+                            val screenStates = screen.optJSONArray("states") ?: JSONArray()
+                            for (stateIndex in 0 until screenStates.length()) {
+                                val state = screenStates.optJSONObject(stateIndex) ?: continue
+                                if (state.optString("name") == stateName) {
+                                    declaration = state
+                                    break
+                                }
+                            }
+                            break
+                        }
+                    }
+                    val signature = declaration?.let {
+                        stateShapeSignature(it.opt("ty"), installedEnumCases)
+                    } ?: continue
+                    if (typeSignatures[identity] != signature) continue
+                    nextValues[identity] = value
+                    nextTypes[identity] = signature
+                }
             }
-            activeScreenParameters.keys.removeAll { it.substringAfterLast('/') !in currentScreens }
         }
         val currentRoot = screens.optJSONObject(0)?.optString("name")
         val currentScreensSignature = (0 until screens.length()).joinToString(";") {
             screens.optJSONObject(it)?.optString("name").orEmpty()
         }
-        if (navigationRoot != currentRoot || navigationScreensSignature != currentScreensSignature) {
+        return PreparedFullInstall(
+            next = next,
+            isHotReplacement = isHotReplacement,
+            functions = installedFunctions,
+            classTypes = installedClassTypes,
+            structs = installedStructs,
+            enumCases = installedEnumCases,
+            moduleValues = nextModuleValues,
+            moduleValueSignatures = nextModuleSignatures,
+            values = nextValues,
+            typeSignatures = nextTypes,
+            currentRoot = currentRoot,
+            currentScreensSignature = currentScreensSignature,
+            screens = screens,
+        )
+    }
+
+    private fun commitFullInstall(prep: PreparedFullInstall, translations: JSONObject?) {
+        if (prep.isHotReplacement) {
+            clearNativeTasks()
+            animationSpecs.clear()
+        }
+        functions = prep.functions.toMutableMap()
+        classTypes = prep.classTypes.toMutableMap()
+        structs = prep.structs.toMutableMap()
+        enumCases = prep.enumCases.toMutableMap()
+        moduleValues = prep.moduleValues.toMutableMap()
+        moduleValueSignatures = prep.moduleValueSignatures.toMutableMap()
+        values.clear()
+        values.putAll(prep.values)
+        typeSignatures = prep.typeSignatures.toMutableMap()
+        if (prep.isHotReplacement) {
+            val currentScreens = mutableSetOf<String>()
+            for (screenIndex in 0 until prep.screens.length()) {
+                val screen = prep.screens.optJSONObject(screenIndex) ?: continue
+                currentScreens += screen.optString("name")
+            }
+            activeScreenParameters.keys.removeAll { it.substringAfterLast('/') !in currentScreens }
+        }
+        val currentRoot = prep.currentRoot
+        val currentScreensSignature = prep.currentScreensSignature
+        if (navigationRoot != currentRoot) {
             navigationRoot = currentRoot
             navigationScreensSignature = currentScreensSignature
             navigationEpoch++
+        } else {
+            navigationScreensSignature = currentScreensSignature
         }
-        currentModule = next
-        module = next
-        if (isHotReplacement) refreshNativeEventSubscriptions(next)
+        if (translations != null) {
+            hotTranslations = translations
+        }
+        currentModule = prep.next
+        module = prep.next
+        if (prep.isHotReplacement) refreshNativeEventSubscriptions(prep.next)
         moduleRevision++
         diagnostics = emptyList()
         if (!hasInstalledModule) {
             hasInstalledModule = true
             appLifecycleEpoch++
+        }
+    }
+
+    fun clearScope(scope: String) {
+        activeScreenParameters.remove(scope)
+        clearNativeTasks(scope)
+        clearNativeEventSubscriptions(scope)
+        val statePrefix = "$scope/"
+        val keysToRemove = values.keys.filter { it.startsWith(statePrefix) }
+        for (key in keysToRemove) {
+            values.remove(key)
+            typeSignatures.remove(key)
         }
     }
 
@@ -631,130 +808,131 @@ internal class NexaDevStateStore(internal val context: Context) {
         appLifecycleEpoch++
     }
 
-    fun applyPatch(patch: JSONObject): Boolean {
-        val root = currentModule ?: module ?: return false
-        val operations = patch.optJSONArray("operations") ?: return false
-        val presentationOnly = isPresentationPatch(operations)
-        val functionBodiesOnly = !presentationOnly && isFunctionBodyPatch(operations)
+    /**
+     * The currently installed module, frozen after publication.
+     *
+     * Patch preparation reads this snapshot on the WebSocket worker. Every
+     * publish installs a new object and never mutates a previous one, so a
+     * worker can safely read the reference it captured.
+     */
+    fun snapshotModule(): JSONObject? = currentModule ?: module
+
+    /**
+     * Commits one prepared candidate and its translations on the UI thread.
+     *
+     * The commit is rejected without changing anything when another revision
+     * was installed while the candidate was prepared, when the candidate does
+     * not match the snapshot it was prepared from, or when partial state
+     * installation cannot complete. Callers acknowledge only `true`.
+     */
+    fun commitPreparedPatch(
+        prepared: NexaDevPreparedPatch,
+        translations: JSONObject?,
+    ): Boolean {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "Nexa DevRuntime module commits must run on the main thread"
+        }
+        val installed = currentModule ?: module ?: return false
+        if (installed !== prepared.baseModule) return false
+        val candidate = prepared.candidate
+
+        // Capture previous state snapshots for rollback on failure
+        val prevTranslations = hotTranslations
+        val prevFunctions = functions
+        val prevClassTypes = classTypes
+        val prevValuesSnapshot = HashMap(values)
+        val prevTypeSignaturesSnapshot = HashMap(typeSignatures)
+        val prevCurrentModule = currentModule
+        val prevModule = module
+
+        val committed = try {
+            val ok = when {
+                prepared.presentationOnly -> true
+                prepared.functionBodiesOnly -> installPatchedFunctions(candidate)
+                prepared.screenIndices != null -> installPatchedScreens(candidate, prepared.screenIndices)
+                else -> {
+                    val fullPrep = prepareFullInstall(candidate)
+                    commitFullInstall(fullPrep, translations)
+                    return true
+                }
+            }
+            if (ok && translations != null) {
+                hotTranslations = translations
+            }
+            ok
+        } catch (error: Throwable) {
+            android.util.Log.e("NexaDevRuntime", "Rejected Dev IR patch during installation, rolled back", error)
+            hotTranslations = prevTranslations
+            functions = prevFunctions
+            classTypes = prevClassTypes
+            currentModule = prevCurrentModule
+            module = prevModule
+            values.clear()
+            values.putAll(prevValuesSnapshot)
+            typeSignatures.clear()
+            typeSignatures.putAll(prevTypeSignaturesSnapshot)
+            false
+        }
+        if (!committed) {
+            hotTranslations = prevTranslations
+            functions = prevFunctions
+            classTypes = prevClassTypes
+            currentModule = prevCurrentModule
+            module = prevModule
+            values.clear()
+            values.putAll(prevValuesSnapshot)
+            typeSignatures.clear()
+            typeSignatures.putAll(prevTypeSignaturesSnapshot)
+            return false
+        }
+
+        currentModule = candidate
+        module = candidate
+        diagnostics = emptyList()
+        moduleRevision += 1
         android.util.Log.i(
             "NexaDevRuntime",
-            "Patch ops=${operations.length()} presentation=$presentationOnly functionBodies=$functionBodiesOnly translations=${patch.has("translations")} firstPath=${operations.optJSONObject(0)?.optString("path")}",
+            "Committed patch ops=${prepared.operationCount} presentation=${prepared.presentationOnly} functionBodies=${prepared.functionBodiesOnly}",
         )
-
-        // Validate the full patch before mutating. The server emits trusted
-        // patches, but preflight also keeps a malformed patch from partially
-        // altering the last-good module.
-        for (index in 0 until operations.length()) {
-            val operation = operations.optJSONObject(index) ?: return false
-            if (!validateOperation(root, operation)) return false
-        }
-        for (index in 0 until operations.length()) {
-            val operation = operations.optJSONObject(index) ?: return false
-            if (!applyOperation(root, operation)) return false
-        }
-        val screenIndices = if (!presentationOnly && !functionBodiesOnly) isScreenScopedPatch(operations) else null
-        when {
-            presentationOnly -> {
-                val updated = shallowCopy(root) as? JSONObject ?: return false
-                currentModule = updated
-                module = updated
-                diagnostics = emptyList()
-                return true
-            }
-            functionBodiesOnly -> {
-                if (!installPatchedFunctions(root, operations)) {
-                    installFunctionRegistry(root)
-                }
-                currentModule = root
-                diagnostics = emptyList()
-                return true
-            }
-            screenIndices != null -> {
-                installPatchedScreens(root, screenIndices)
-                val updated = shallowCopy(root) as? JSONObject ?: return false
-                currentModule = updated
-                module = updated
-                diagnostics = emptyList()
-                return true
-            }
-        }
-        val updated = shallowCopy(root) as? JSONObject ?: return false
-        install(updated)
-        return true
-    }
-
-    private fun isPresentationPatch(operations: JSONArray): Boolean {
-        for (index in 0 until operations.length()) {
-            val path = operations.optJSONObject(index)?.optString("path") ?: return false
-            val segments = path.removePrefix("/").split('/')
-                .map { it.replace("~1", "/").replace("~0", "~") }
-            val bodyIndex = when {
-                segments.firstOrNull() == "body" -> 0
-                segments.firstOrNull() == "screens" && segments.getOrNull(2) == "body" -> 2
-                segments.firstOrNull() == "components" && segments.getOrNull(2) == "body" -> 2
-                else -> return false
-            }
-            if (segments.size < bodyIndex + 4 || segments.last() !in NEXA_DEV_PRESENTATION_PATCH_FIELDS) return false
-        }
         return true
     }
 
     /** Update only changed function entries for body-only hot reloads. */
-    private fun installPatchedFunctions(next: JSONObject, operations: JSONArray): Boolean {
+    private fun installPatchedFunctions(next: JSONObject): Boolean {
         val declarations = next.optJSONArray("functions") ?: return false
-        for (index in 0 until operations.length()) {
-            val path = operations.optJSONObject(index)?.optString("path") ?: return false
-            val segments = path.removePrefix("/").split('/')
-            if (segments.size < 3 || segments[0] != "functions"
-                || (segments[2] != "body" && segments[2] != "body_actions")
-            ) {
-                return false
-            }
-            val declarationIndex = segments[1].toIntOrNull() ?: return false
-            val declaration = declarations.optJSONObject(declarationIndex) ?: return false
-            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: return false
-            functions[name] = declaration
-        }
+        if (declarations.length() == 0 && functions.isEmpty()) return false
+        installFunctionRegistry(next)
         return true
     }
 
-    private fun isFunctionBodyPatch(operations: JSONArray): Boolean {
-        if (operations.length() == 0) return false
-        for (index in 0 until operations.length()) {
-            val path = operations.optJSONObject(index)?.optString("path") ?: return false
-            val segments = path.removePrefix("/").split('/')
-            if (segments.size < 3 || segments[0] != "functions"
-                || (segments[2] != "body" && segments[2] != "body_actions")
-            ) {
-                return false
-            }
+    private fun installPatchedScreens(next: JSONObject, screenIndices: Set<Int>): Boolean {
+        val plan = buildPatchedScreensPlan(next, screenIndices) ?: return false
+        val (obsolete, pendingTypes, pendingValues) = plan
+        for (key in obsolete) {
+            values.remove(key)
+            typeSignatures.remove(key)
         }
+        for ((key, signature) in pendingTypes) typeSignatures[key] = signature
+        for ((key, value) in pendingValues) values[key] = value
         return true
     }
 
-    private fun isScreenScopedPatch(operations: JSONArray): Set<Int>? {
-        if (operations.length() == 0) return null
-        val indices = mutableSetOf<Int>()
-        for (index in 0 until operations.length()) {
-            val path = operations.optJSONObject(index)?.optString("path") ?: return null
-            val segments = path.removePrefix("/").split('/')
-            if (segments.size < 2 || segments[0] != "screens") return null
-            val screenIndex = segments[1].toIntOrNull() ?: return null
-            indices.add(screenIndex)
-        }
-        return indices
-    }
-
-    private fun installPatchedScreens(next: JSONObject, screenIndices: Set<Int>) {
-        val screens = next.optJSONArray("screens") ?: return
+    private fun buildPatchedScreensPlan(
+        next: JSONObject,
+        screenIndices: Set<Int>,
+    ): Triple<Set<String>, Map<String, String>, Map<String, Any>>? {
+        val screens = next.optJSONArray("screens") ?: return null
+        val pendingValues = mutableMapOf<String, Any>()
+        val pendingTypes = mutableMapOf<String, String>()
+        val obsolete = mutableSetOf<String>()
         for (screenIndex in screenIndices) {
-            val screen = screens.optJSONObject(screenIndex) ?: continue
-            val screenName = screen.optString("name").takeIf(String::isNotEmpty) ?: continue
+            val screen = screens.optJSONObject(screenIndex) ?: return null
+            val screenName = screen.optString("name").takeIf(String::isNotEmpty) ?: return null
             val scope = "screen/$screenName"
             val screenStates = screen.optJSONArray("states") ?: JSONArray()
             val currentScreenKeys = mutableSetOf<String>()
             for (stateIndex in 0 until screenStates.length()) {
-                val declaration = screenStates.optJSONObject(stateIndex) ?: continue
+                val declaration = screenStates.optJSONObject(stateIndex) ?: return null
                 val name = declaration.optString("name")
                 val identity = "$scope/state/$name"
                 currentScreenKeys.add(identity)
@@ -762,121 +940,14 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val previousType = typeSignatures[identity]
                 val previousValue = values[identity]
                 if (previousType != typeSignature || previousValue == null) {
-                    typeSignatures[identity] = typeSignature
-                    if (declaration.has("initial")) {
-                        values[identity] = evaluate(declaration.get("initial"), emptyMap(), scope)
-                    }
+                    if (!declaration.has("initial")) return null
+                    pendingTypes[identity] = typeSignature
+                    pendingValues[identity] = evaluate(declaration.get("initial"), emptyMap(), scope)
                 }
             }
-            val obsoleteKeys = values.keys.filter { it.startsWith("$scope/state/") && it !in currentScreenKeys }
-            for (key in obsoleteKeys) {
-                values.remove(key)
-                typeSignatures.remove(key)
-            }
+            obsolete.addAll(values.keys.filter { it.startsWith("$scope/state/") && it !in currentScreenKeys })
         }
-    }
-
-    private fun shallowCopy(value: Any): Any? = when (value) {
-        is JSONObject -> JSONObject().also { copy ->
-            val keys = value.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                copy.put(key, value.opt(key))
-            }
-        }
-        is JSONArray -> JSONArray().also { copy ->
-            for (index in 0 until value.length()) copy.put(value.opt(index))
-        }
-        else -> null
-    }
-
-    private fun applyOperation(root: JSONObject, operation: JSONObject): Boolean {
-        val path = operation.optString("path")
-        val kind = operation.optString("op")
-        val value = operation.opt("value")
-        return updateContainer(root, path, 0, kind, value)
-    }
-
-    private fun validateOperation(container: Any, operation: JSONObject): Boolean {
-        val path = operation.optString("path")
-        val kind = operation.optString("op")
-        if (kind != "set" && kind != "remove") return false
-        return validateContainer(container, path, 0, kind)
-    }
-
-    private fun validateContainer(container: Any, path: String, pathOffset: Int, kind: String): Boolean {
-        var segmentStart = pathOffset
-        while (segmentStart < path.length && path[segmentStart] == '/') segmentStart++
-        if (segmentStart >= path.length) return false
-        val segmentEnd = path.indexOf('/', segmentStart).let { if (it < 0) path.length else it }
-        val rawSegment = path.substring(segmentStart, segmentEnd)
-        val key = if ('~' in rawSegment) rawSegment.replace("~1", "/").replace("~0", "~") else rawSegment
-        var nextOffset = segmentEnd
-        while (nextOffset < path.length && path[nextOffset] == '/') nextOffset++
-        val isLeaf = nextOffset >= path.length
-        return when (container) {
-            is JSONObject -> if (isLeaf) true else {
-                val child = container.opt(key) ?: return false
-                validateContainer(child, path, nextOffset, kind)
-            }
-            is JSONArray -> {
-                val arrayIndex = key.toIntOrNull() ?: return false
-                if (arrayIndex !in 0 until container.length()) return false
-                if (isLeaf) kind == "set" else {
-                    val child = container.opt(arrayIndex) ?: return false
-                    validateContainer(child, path, nextOffset, kind)
-                }
-            }
-            else -> false
-        }
-    }
-
-    private fun updateContainer(
-        container: Any,
-        path: String,
-        pathOffset: Int,
-        kind: String,
-        value: Any?,
-    ): Boolean {
-        var segmentStart = pathOffset
-        while (segmentStart < path.length && path[segmentStart] == '/') segmentStart++
-        if (segmentStart >= path.length) return false
-        val segmentEnd = path.indexOf('/', segmentStart).let { if (it < 0) path.length else it }
-        val segment = path.substring(segmentStart, segmentEnd)
-        val key = if ('~' in segment) {
-            segment.replace("~1", "/").replace("~0", "~")
-        } else {
-            segment
-        }
-        var nextOffset = segmentEnd
-        while (nextOffset < path.length && path[nextOffset] == '/') nextOffset++
-        val isLeaf = nextOffset >= path.length
-        if (container is JSONObject) {
-            if (isLeaf) {
-                when (kind) {
-                    "set" -> container.put(key, value ?: JSONObject.NULL)
-                    "remove" -> container.remove(key)
-                    else -> return false
-                }
-                return true
-            }
-            val child = container.opt(key) ?: return false
-            return updateContainer(child, path, nextOffset, kind, value)
-        }
-        if (container is JSONArray) {
-            val arrayIndex = key.toIntOrNull() ?: return false
-            if (arrayIndex !in 0 until container.length()) return false
-            if (isLeaf) {
-                if (kind == "set") {
-                    container.put(arrayIndex, value ?: JSONObject.NULL)
-                    return true
-                }
-                return false
-            }
-            val child = container.opt(arrayIndex) ?: return false
-            return updateContainer(child, path, nextOffset, kind, value)
-        }
-        return false
+        return Triple(obsolete, pendingTypes, pendingValues)
     }
 
     fun publishDiagnostics(next: List<NexaDevDiagnostic>) {
@@ -1042,7 +1113,6 @@ internal class NexaDevStateStore(internal val context: Context) {
             is String -> return when (raw) {
                 "ScreenWidth" -> locals["__nexa_screen_width"] ?: 0.0
                 "ScreenHeight" -> locals["__nexa_screen_height"] ?: 0.0
-                "SafeAreaTop" -> locals["__nexa_safe_area_top"] ?: 0.0
                 "IsRegularWidth", "IsRegularHeight" -> true
                 "IsCompactWidth", "IsCompactHeight" -> false
                 else -> raw
@@ -1054,6 +1124,13 @@ internal class NexaDevStateStore(internal val context: Context) {
         val kind = iterator.next()
         val payload = expression.opt(kind)
         return when (kind) {
+            "SystemInset" -> when (payload as? String) {
+                "Top" -> locals["__nexa_system_inset_top"] ?: 0.0
+                "Bottom" -> locals["__nexa_system_inset_bottom"] ?: 0.0
+                "Leading" -> locals["__nexa_system_inset_leading"] ?: 0.0
+                "Trailing" -> locals["__nexa_system_inset_trailing"] ?: 0.0
+                else -> 0.0
+            }
             "ComponentRefCreate" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val namespace = fields.optString("namespace", "Nexa")

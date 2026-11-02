@@ -1,7 +1,7 @@
 screen Details {
     state localCount: Int32 = 0
 
-    Column(spacing: 12) {
+    Column(gap: 12) {
         Text("App visits: $visits")
         Text("Screen taps: $localCount")
 

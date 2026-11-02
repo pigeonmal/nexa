@@ -37,13 +37,11 @@ pub(crate) struct Features {
     pub(crate) app_uses_adaptive_color: bool,
     pub(crate) app_uses_size_class: bool,
     pub(crate) uses_widgets: bool,
-    pub(crate) uses_safe_area_padding: bool,
     pub(crate) uses_safe_area_inset: bool,
     pub(crate) uses_scroll_header: bool,
     components_using_adaptive_color: HashSet<String>,
     components_using_size_class: HashSet<String>,
-    components_using_screen_geometry: HashSet<String>,
-    components_using_safe_area_top: HashSet<String>,
+    components_using_window_metrics: HashSet<String>,
 }
 
 impl Features {
@@ -76,7 +74,6 @@ impl Features {
         features.uses_scroll_events = lists.scroll_events || lists.scroll_events_grid;
 
         let ui = &facts.ui;
-        features.uses_safe_area_padding = ui.layout.safe_area_padding;
         features.uses_safe_area_inset = ui.layout.safe_area_inset;
         features.uses_scroll_header = ui.layout.scroll_header;
         features.uses_link = ui.app.link || ui.components.values().any(|scope| scope.link);
@@ -86,11 +83,18 @@ impl Features {
                 .components
                 .values()
                 .any(|scope| scope.navigation_back || scope.navigation_actions);
-        features.components_using_navigation = ui
+        let direct_navigation: std::collections::HashSet<String> = ui
             .components
             .iter()
-            .filter(|(_, scope)| scope.navigation || scope.navigation_actions)
+            .filter(|(_, scope)| {
+                scope.navigation || scope.navigation_actions || scope.navigation_back
+            })
             .map(|(name, _)| name.clone())
+            .collect();
+        features.components_using_navigation = facts
+            .component_calls
+            .requiring(&direct_navigation)
+            .into_iter()
             .collect();
         features.uses_haptic = ui.app.haptic || ui.components.values().any(|scope| scope.haptic);
         features.uses_drag = ui.pressable.drag;
@@ -113,16 +117,10 @@ impl Features {
             .filter(|(_, scope)| scope.size_class)
             .map(|(name, _)| name.clone())
             .collect();
-        features.components_using_screen_geometry = ui
+        features.components_using_window_metrics = ui
             .components
             .iter()
-            .filter(|(_, scope)| scope.screen_geometry)
-            .map(|(name, _)| name.clone())
-            .collect();
-        features.components_using_safe_area_top = ui
-            .components
-            .iter()
-            .filter(|(_, scope)| scope.safe_area_top)
+            .filter(|(_, scope)| scope.window_metrics)
             .map(|(name, _)| name.clone())
             .collect();
 
@@ -150,12 +148,8 @@ impl Features {
         self.components_using_size_class.contains(name)
     }
 
-    pub(crate) fn component_uses_screen_geometry(&self, name: &str) -> bool {
-        self.components_using_screen_geometry.contains(name)
-    }
-
-    pub(crate) fn component_uses_safe_area_top(&self, name: &str) -> bool {
-        self.components_using_safe_area_top.contains(name)
+    pub(crate) fn component_uses_window_metrics(&self, name: &str) -> bool {
+        self.components_using_window_metrics.contains(name)
     }
 
     pub(crate) fn component_uses_navigation(&self, name: &str) -> bool {

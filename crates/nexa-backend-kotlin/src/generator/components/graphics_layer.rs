@@ -7,7 +7,7 @@ use crate::generator::utils::{number, spaces};
 struct CompositionValues {
     screen_width: bool,
     screen_height: bool,
-    safe_area_top: bool,
+    system_insets: [bool; 4],
     screen_width_dp: bool,
     screen_height_dp: bool,
 }
@@ -27,7 +27,14 @@ impl CompositionValues {
             nexa_ir::walk::walk_expression(expression, &mut |node| match node {
                 Expr::ScreenWidth => values.screen_width = true,
                 Expr::ScreenHeight => values.screen_height = true,
-                Expr::SafeAreaTop => values.safe_area_top = true,
+                Expr::SystemInset(edge) => {
+                    values.system_insets[match edge {
+                        nexa_ir::adaptive_layout::LayoutEdge::Top => 0,
+                        nexa_ir::adaptive_layout::LayoutEdge::Bottom => 1,
+                        nexa_ir::adaptive_layout::LayoutEdge::Leading => 2,
+                        nexa_ir::adaptive_layout::LayoutEdge::Trailing => 3,
+                    }] = true
+                }
                 Expr::IsRegularWidth | Expr::IsCompactWidth => values.screen_width_dp = true,
                 Expr::IsRegularHeight | Expr::IsCompactHeight => values.screen_height_dp = true,
                 _ => {}
@@ -39,7 +46,7 @@ impl CompositionValues {
     fn is_empty(&self) -> bool {
         !self.screen_width
             && !self.screen_height
-            && !self.safe_area_top
+            && !self.system_insets.iter().any(|used| *used)
             && !self.screen_width_dp
             && !self.screen_height_dp
     }
@@ -58,11 +65,18 @@ impl CompositionValues {
         if self.screen_height {
             write("nexaGraphicsLayerScreenHeight", SCREEN_HEIGHT_EXPRESSION);
         }
-        if self.safe_area_top {
-            write(
-                "nexaGraphicsLayerSafeAreaTop",
-                "nexaSafeAreaDynamicInsets().top.value.toDouble()",
-            );
+        for (index, edge) in ["Top", "Bottom", "Leading", "Trailing"]
+            .into_iter()
+            .enumerate()
+        {
+            if self.system_insets[index] {
+                write(
+                    &format!("nexaGraphicsLayerSystemInset{edge}"),
+                    &format!(
+                        "LocalNexaWindowMetrics.current.systemInset(NexaSafeAreaEdge.{edge}, androidx.compose.ui.platform.LocalLayoutDirection.current).value.toDouble()"
+                    ),
+                );
+            }
         }
         if self.screen_width_dp {
             write(
@@ -86,11 +100,16 @@ impl CompositionValues {
         if self.screen_height {
             rendered = rendered.replace(SCREEN_HEIGHT_EXPRESSION, "nexaGraphicsLayerScreenHeight");
         }
-        if self.safe_area_top {
-            rendered = rendered.replace(
-                "nexaSafeAreaDynamicInsets().top.value.toDouble()",
-                "nexaGraphicsLayerSafeAreaTop",
-            );
+        for (index, edge) in ["Top", "Bottom", "Leading", "Trailing"]
+            .into_iter()
+            .enumerate()
+        {
+            if self.system_insets[index] {
+                rendered = rendered.replace(
+                    &format!("LocalNexaWindowMetrics.current.systemInset(NexaSafeAreaEdge.{edge}, androidx.compose.ui.platform.LocalLayoutDirection.current).value.toDouble()"),
+                    &format!("nexaGraphicsLayerSystemInset{edge}"),
+                );
+            }
         }
         if self.screen_width_dp {
             rendered = rendered.replace(
@@ -108,8 +127,8 @@ impl CompositionValues {
     }
 }
 
-const SCREEN_WIDTH_EXPRESSION: &str = "(androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDouble() / androidx.compose.ui.platform.LocalDensity.current.density.toDouble())";
-const SCREEN_HEIGHT_EXPRESSION: &str = "(androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toDouble() / androidx.compose.ui.platform.LocalDensity.current.density.toDouble())";
+const SCREEN_WIDTH_EXPRESSION: &str = "LocalNexaWindowMetrics.current.viewportWidthDp.toDouble()";
+const SCREEN_HEIGHT_EXPRESSION: &str = "LocalNexaWindowMetrics.current.viewportHeightDp.toDouble()";
 
 pub(crate) fn append_multiline(effects: &ViewEffects, depth: usize, out: &mut SourceWriter) {
     let values = CompositionValues::from_effects(effects);

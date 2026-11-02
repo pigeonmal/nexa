@@ -1,6 +1,6 @@
 app HapticsExample {
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("Haptics")
 
             Button("Light impact") {

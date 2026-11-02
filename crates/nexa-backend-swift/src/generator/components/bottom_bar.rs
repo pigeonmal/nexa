@@ -207,7 +207,9 @@ pub(crate) fn render_app_bottom_bar(
     ));
     if let Some(custom_bar) = custom_bar {
         out.push_str(".modifier(NexaAppBottomBarSafeAreaPrimitive())");
-        out.push_str(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom, spacing: 0) {");
+        out.push_str(
+            ".modifier(NexaHideTabBarModifier()).safeAreaInset(edge: .bottom, spacing: 0) {",
+        );
         out.push('\n');
         for child in custom_bar {
             crate::generator::components::render_node(child, module, features, depth + 2, out);
@@ -232,7 +234,9 @@ pub(crate) fn render_app_bottom_bar(
     ));
     if let Some(custom_bar) = custom_bar {
         out.push_str(".modifier(NexaAppBottomBarSafeAreaPrimitive())");
-        out.push_str(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom, spacing: 0) {");
+        out.push_str(
+            ".modifier(NexaHideTabBarModifier()).safeAreaInset(edge: .bottom, spacing: 0) {",
+        );
         out.push('\n');
         for child in custom_bar {
             crate::generator::components::render_node(child, module, features, depth + 2, out);
@@ -331,6 +335,35 @@ fn render_app_tab_navigation_modifiers(
         }
         out.line_at(depth, format_args!("}}"));
     }
+    out.push_str(
+        "\n.onReceive(NotificationCenter.default.publisher(for: NSNotification.Name(\"NexaSelectTab\"))) { note in\n    guard let target = (note.object as? String)?.lowercased() else { return }\n    switch target {\n"
+    );
+    for (i, tab) in tabs.iter().enumerate() {
+        let mut patterns = vec![
+            format!("\"{}\"", tab.index),
+            format!("\"tab_{}\"", tab.index),
+            format!("\"tab{}\"", tab.index),
+            format!("\"{i}\""),
+            format!("\"tab_{i}\""),
+            format!("\"tab{i}\""),
+        ];
+        if !tab.label.is_empty() {
+            let clean_label = tab.label.to_lowercase().replace(' ', "_");
+            patterns.push(format!("\"{clean_label}\""));
+            patterns.push(format!("\"tab_{clean_label}\""));
+        }
+        if let Some(role) = &tab.role
+            && !role.is_empty()
+        {
+            patterns.push(format!("\"{}\"", role.to_lowercase()));
+        }
+        out.push_str(&format!(
+            "    case {}:\n        {selected} = Int32({})\n",
+            patterns.join(", "),
+            tab.index
+        ));
+    }
+    out.push_str("    default:\n        break\n    }\n}\n");
 }
 
 fn collect_navigation_toolbars(nodes: &[Node]) -> Vec<Node> {
@@ -390,7 +423,7 @@ fn render_modern_tab_ref(
         ""
     };
     let content = if has_custom_bar {
-        format!("{prefix}_{index}().toolbarVisibility(.hidden, for: .tabBar).toolbar(.hidden, for: .tabBar)")
+        format!("{prefix}_{index}().modifier(NexaHideTabBarModifier())")
     } else {
         format!("{prefix}_{index}()")
     };
@@ -678,7 +711,7 @@ mod tests {
                 .count(),
             2,
         );
-        assert!(output.contains(".toolbar(.hidden, for: .tabBar).safeAreaInset(edge: .bottom"));
+        assert!(output.contains(".modifier(NexaHideTabBarModifier()).safeAreaInset(edge: .bottom"));
         assert!(output.contains("Text(\"Custom bar\")"));
         assert!(output.contains("adaptiveStyle: false"));
     }

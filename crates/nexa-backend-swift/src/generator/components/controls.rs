@@ -2,8 +2,39 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
     Action, AnimationEasing, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle,
-    Module, Node, SystemIcon, TaskExecutor, Type,
+    Module, Node, ScreenId, SystemIcon, TaskExecutor, Type,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    static KNOWN_SCREENS: RefCell<HashMap<String, ScreenId>> = RefCell::new(HashMap::new());
+}
+
+pub(crate) fn register_known_screens(screens: &[nexa_ir::Screen]) {
+    KNOWN_SCREENS.with(|cell| {
+        let mut map = cell.borrow_mut();
+        map.clear();
+        for screen in screens {
+            map.insert(screen.name.clone(), screen.id);
+            map.insert(format!("screen_{}", screen.id.0), screen.id);
+            map.insert(format!("screen{}", screen.id.0), screen.id);
+        }
+    });
+}
+
+pub(crate) fn resolve_screen_id(key: &str) -> Option<ScreenId> {
+    KNOWN_SCREENS.with(|cell| {
+        let map = cell.borrow();
+        if let Some(id) = map.get(key) {
+            return Some(*id);
+        }
+        key.strip_prefix("screen_")
+            .or_else(|| key.strip_prefix("screen"))
+            .and_then(|idx| idx.parse::<usize>().ok())
+            .map(ScreenId)
+    })
+}
 
 use crate::generator::{
     components::render_children,
@@ -1143,6 +1174,14 @@ fn task_actions_may_throw(actions: &[Action]) -> bool {
         Action::NavigationBack | Action::TaskCancel { .. } | Action::Break | Action::Continue => {
             false
         }
+        Action::NavigationCommand(cmd) => match cmd.as_ref() {
+            nexa_ir::NavigationCommand::Push { arguments, .. }
+            | nexa_ir::NavigationCommand::ReplaceTop { arguments, .. }
+            | nexa_ir::NavigationCommand::Reset { arguments, .. } => {
+                arguments.iter().any(expression_may_throw)
+            }
+            _ => false,
+        },
     })
 }
 
@@ -1368,6 +1407,126 @@ fn render_actions_with_cancellation(
                     format_args!("if !nexaNavigationPath.wrappedValue.isEmpty {{ nexaNavigationPath.wrappedValue.removeLast() }}"),
                 );
             }
+            Action::NavigationCommand(cmd) => match cmd.as_ref() {
+                nexa_ir::NavigationCommand::Push {
+                    route, arguments, ..
+                } => {
+                    let dest = route.as_str();
+                    let screen_id = resolve_screen_id(dest);
+                    if let Some(screen_id) = screen_id {
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "nexaNavigationPath.wrappedValue.append({})",
+                                super::navigation::action_route_value(screen_id, arguments)
+                            ),
+                        );
+                    } else {
+                        let mut values = vec!["UUID()".to_owned()];
+                        values.extend(arguments.iter().map(expression));
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "nexaNavigationPath.wrappedValue.append(NexaNavigationRoute.{dest}({}))",
+                                values.join(", ")
+                            ),
+                        );
+                    }
+                }
+                nexa_ir::NavigationCommand::Pop { .. } => {
+                    out.line_at(
+                        depth,
+                        format_args!("if !nexaNavigationPath.wrappedValue.isEmpty {{ nexaNavigationPath.wrappedValue.removeLast() }}"),
+                    );
+                }
+                nexa_ir::NavigationCommand::PopTo {
+                    entry, inclusive, ..
+                } => {
+                    let entry_str = entry.as_str();
+                    if *inclusive {
+                        out.line_at(
+                            depth,
+                            format_args!("if let idx = nexaNavigationPath.wrappedValue.firstIndex(where: {{ \"\\($0.identity)\" == \"{entry_str}\" }}) {{ nexaNavigationPath.wrappedValue.removeSubrange(idx...) }}"),
+                        );
+                    } else {
+                        out.line_at(
+                            depth,
+                            format_args!("if let idx = nexaNavigationPath.wrappedValue.firstIndex(where: {{ \"\\($0.identity)\" == \"{entry_str}\" }}), idx + 1 < nexaNavigationPath.wrappedValue.count {{ nexaNavigationPath.wrappedValue.removeSubrange((idx + 1)...) }}"),
+                        );
+                    }
+                }
+                nexa_ir::NavigationCommand::ReplaceTop {
+                    route, arguments, ..
+                } => {
+                    let dest = route.as_str();
+                    let screen_id = resolve_screen_id(dest);
+                    out.line_at(
+                        depth,
+                        format_args!("if !nexaNavigationPath.wrappedValue.isEmpty {{ nexaNavigationPath.wrappedValue.removeLast() }}"),
+                    );
+                    if let Some(screen_id) = screen_id {
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "nexaNavigationPath.wrappedValue.append({})",
+                                super::navigation::action_route_value(screen_id, arguments)
+                            ),
+                        );
+                    } else {
+                        let mut values = vec!["UUID()".to_owned()];
+                        values.extend(arguments.iter().map(expression));
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "nexaNavigationPath.wrappedValue.append(NexaNavigationRoute.{dest}({}))",
+                                values.join(", ")
+                            ),
+                        );
+                    }
+                }
+                nexa_ir::NavigationCommand::Reset {
+                    route, arguments, ..
+                } => {
+                    let dest = route.as_str();
+                    let screen_id = resolve_screen_id(dest);
+                    out.line_at(
+                        depth,
+                        format_args!("nexaNavigationPath.wrappedValue.removeAll()"),
+                    );
+                    if let Some(screen_id) = screen_id {
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "nexaNavigationPath.wrappedValue.append({})",
+                                super::navigation::action_route_value(screen_id, arguments)
+                            ),
+                        );
+                    } else {
+                        let mut values = vec!["UUID()".to_owned()];
+                        values.extend(arguments.iter().map(expression));
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "nexaNavigationPath.wrappedValue.append(NexaNavigationRoute.{dest}({}))",
+                                values.join(", ")
+                            ),
+                        );
+                    }
+                }
+                nexa_ir::NavigationCommand::SelectTab { navigator } => {
+                    let nav = navigator.as_str();
+                    out.line_at(
+                        depth,
+                        format_args!("NotificationCenter.default.post(name: NSNotification.Name(\"NexaSelectTab\"), object: \"{nav}\")"),
+                    );
+                }
+                nexa_ir::NavigationCommand::OpenExternalRoute { uri } => {
+                    out.line_at(
+                        depth,
+                        format_args!("if let url = URL(string: \"{uri}\") {{ UIApplication.shared.open(url) }}"),
+                    );
+                }
+            },
             Action::Let { name, ty, value } => {
                 out.line_at(
                     depth,

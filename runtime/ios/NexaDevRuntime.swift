@@ -4,16 +4,47 @@ import QuartzCore
 import SwiftUI
 import UIKit
 
-struct NexaDevVisualSafeInsetsKey: EnvironmentKey {
-    static let defaultValue = EdgeInsets()
+struct NexaDevVisualSafeAreaSnapshot: Equatable {
+    var top: CGFloat = 0
+    var bottom: CGFloat = 0
+    var left: CGFloat = 0
+    var right: CGFloat = 0
+
+    func logical(_ direction: LayoutDirection) -> EdgeInsets {
+        EdgeInsets(
+            top: top,
+            leading: direction == .rightToLeft ? right : left,
+            bottom: bottom,
+            trailing: direction == .rightToLeft ? left : right
+        )
+    }
+
+    func devRemoving(_ edge: Edge, direction: LayoutDirection) -> Self {
+        switch edge {
+        case .top: return Self(top: 0, bottom: bottom, left: left, right: right)
+        case .bottom: return Self(top: top, bottom: 0, left: left, right: right)
+        case .leading:
+            return direction == .rightToLeft
+                ? Self(top: top, bottom: bottom, left: left, right: 0)
+                : Self(top: top, bottom: bottom, left: 0, right: right)
+        case .trailing:
+            return direction == .rightToLeft
+                ? Self(top: top, bottom: bottom, left: 0, right: right)
+                : Self(top: top, bottom: bottom, left: left, right: 0)
+        }
+    }
+
 }
 
+struct NexaDevVisualSafeInsetsKey: EnvironmentKey {
+    static let defaultValue = NexaDevVisualSafeAreaSnapshot()
+}
 struct NexaDevViewportSizeKey: EnvironmentKey {
     static let defaultValue = CGSize.zero
 }
 
 extension EnvironmentValues {
-    var nexaDevVisualSafeInsets: EdgeInsets {
+    var nexaDevVisualSafeInsets: NexaDevVisualSafeAreaSnapshot {
         get { self[NexaDevVisualSafeInsetsKey.self] }
         set { self[NexaDevVisualSafeInsetsKey.self] = newValue }
     }
@@ -73,103 +104,74 @@ private struct NexaDevSafeAreaInsetsProbe: UIViewRepresentable {
 }
 
 
-struct NexaDevSafeAreaPaddingPrimitive<Content: View>: View {
-    let edges: Edge.Set
-    let spacing: CGFloat
-    @ViewBuilder let content: () -> Content
-    @Environment(\.nexaDevVisualSafeInsets) private var safeInsets
-
-    var body: some View {
-        content()
-            .padding(.top, edges.contains(.top) ? max(0, safeInsets.top) : 0)
-            .padding(.bottom, edges.contains(.bottom) ? max(0, safeInsets.bottom) : 0)
-            .padding(.leading, edges.contains(.leading) ? max(0, safeInsets.leading) : 0)
-            .padding(.trailing, edges.contains(.trailing) ? max(0, safeInsets.trailing) : 0)
-            .padding(.top, edges.contains(.top) ? spacing : 0)
-            .padding(.bottom, edges.contains(.bottom) ? spacing : 0)
-            .padding(.leading, edges.contains(.leading) ? spacing : 0)
-            .padding(.trailing, edges.contains(.trailing) ? spacing : 0)
-            .environment(\.nexaDevVisualSafeInsets, safeInsets.devRemoving(edges))
-    }
-}
-
-private struct NexaDevSafeAreaEdgePadding: ViewModifier {
-    let edge: Edge
-    let amount: CGFloat
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        switch edge {
-        case .top: content.padding(.top, amount)
-        case .bottom: content.padding(.bottom, amount)
-        case .leading: content.padding(.leading, amount)
-        case .trailing: content.padding(.trailing, amount)
-        }
-    }
-}
-
 private struct NexaDevSafeAreaInsetsPadding: ViewModifier {
     let insets: EdgeInsets
 
     func body(content: Content) -> some View {
-        content
-            .padding(.top, insets.top)
-            .padding(.leading, insets.leading)
-            .padding(.bottom, insets.bottom)
-            .padding(.trailing, insets.trailing)
+        content.padding(insets)
     }
 }
 
 private struct NexaDevNativeSafeAreaInset<Attached: View>: ViewModifier {
     let edge: Edge
-    let spacing: CGFloat
     @ViewBuilder let attached: () -> Attached
 
     @ViewBuilder
     func body(content: Content) -> some View {
         switch edge {
         case .top:
-            content.safeAreaInset(edge: .top, spacing: spacing) { attached() }
+            content.safeAreaInset(edge: .top, spacing: 0) { attached() }
         case .bottom:
-            content.safeAreaInset(edge: .bottom, spacing: spacing) { attached() }
+            content.safeAreaInset(edge: .bottom, spacing: 0) { attached() }
         case .leading:
-            content.safeAreaInset(edge: .leading, spacing: spacing) { attached() }
+            content.safeAreaInset(edge: .leading, spacing: 0) { attached() }
         case .trailing:
-            content.safeAreaInset(edge: .trailing, spacing: spacing) { attached() }
+            content.safeAreaInset(edge: .trailing, spacing: 0) { attached() }
         }
     }
 }
 
 struct NexaDevSafeAreaInsetPrimitive<Content: View, Attached: View>: View {
     let edge: Edge
-    let spacing: CGFloat
     let accommodatesEndpoint: Bool
     @ViewBuilder let content: () -> Content
     @ViewBuilder let attachedContent: () -> Attached
-    @Environment(\.nexaDevVisualSafeInsets) private var safeInsets
+    @Environment(\.nexaDevVisualSafeInsets) private var safeAreaSnapshot
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    private var safeInsets: EdgeInsets { safeAreaSnapshot.logical(layoutDirection) }
 
     var body: some View {
         if accommodatesEndpoint {
             content()
-                .environment(\.nexaDevVisualSafeInsets, safeInsets.devRemoving(edge))
-                .modifier(NexaDevNativeSafeAreaInset(edge: edge, spacing: spacing) {
+                .environment(
+                    \.nexaDevVisualSafeInsets,
+                    safeAreaSnapshot.devRemoving(edge, direction: layoutDirection)
+                )
+                .modifier(NexaDevNativeSafeAreaInset(edge: edge) {
                     attachedContent()
                         .modifier(NexaDevSafeAreaInsetsPadding(insets: safeInsets.devPerpendicular(to: edge)))
-                        .modifier(NexaDevSafeAreaEdgePadding(edge: edge, amount: safeInsets.devValue(at: edge)))
-                        .environment(\.nexaDevVisualSafeInsets, safeInsets.devRemoving(edge))
+                        .environment(
+                            \.nexaDevVisualSafeInsets,
+                            safeAreaSnapshot.devRemoving(edge, direction: layoutDirection)
+                        )
                 })
         } else {
             GeometryReader { proxy in
                 content()
                     .environment(\.nexaSafeAreaRootFillsWidth, true)
-                    .environment(\.nexaDevVisualSafeInsets, safeInsets.devRemoving(edge))
+                    .environment(
+                        \.nexaDevVisualSafeInsets,
+                        safeAreaSnapshot.devRemoving(edge, direction: layoutDirection)
+                    )
                     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                     .overlay(alignment: edge.devAlignment) {
                         attachedContent()
                             .modifier(NexaDevSafeAreaInsetsPadding(insets: safeInsets.devPerpendicular(to: edge)))
-                            .modifier(NexaDevSafeAreaEdgePadding(edge: edge, amount: safeInsets.devValue(at: edge)))
-                            .modifier(NexaDevSafeAreaEdgePadding(edge: edge, amount: spacing))
-                            .environment(\.nexaDevVisualSafeInsets, safeInsets.devRemoving(edge))
+                            .environment(
+                                \.nexaDevVisualSafeInsets,
+                                safeAreaSnapshot.devRemoving(edge, direction: layoutDirection)
+                            )
                     }
             }
         }
@@ -177,15 +179,6 @@ struct NexaDevSafeAreaInsetPrimitive<Content: View, Attached: View>: View {
 }
 
 private extension EdgeInsets {
-    func devValue(at edge: Edge) -> CGFloat {
-        switch edge {
-        case .top: return top
-        case .bottom: return bottom
-        case .leading: return leading
-        case .trailing: return trailing
-        }
-    }
-
     func devPerpendicular(to edge: Edge) -> EdgeInsets {
         switch edge {
         case .top, .bottom:
@@ -193,24 +186,6 @@ private extension EdgeInsets {
         case .leading, .trailing:
             return EdgeInsets(top: top, leading: 0, bottom: bottom, trailing: 0)
         }
-    }
-
-    func devRemoving(_ edge: Edge) -> EdgeInsets {
-        EdgeInsets(
-            top: edge == .top ? 0 : top,
-            leading: edge == .leading ? 0 : leading,
-            bottom: edge == .bottom ? 0 : bottom,
-            trailing: edge == .trailing ? 0 : trailing
-        )
-    }
-
-    func devRemoving(_ edges: Edge.Set) -> EdgeInsets {
-        EdgeInsets(
-            top: edges.contains(.top) ? 0 : top,
-            leading: edges.contains(.leading) ? 0 : leading,
-            bottom: edges.contains(.bottom) ? 0 : bottom,
-            trailing: edges.contains(.trailing) ? 0 : trailing
-        )
     }
 
 }
@@ -228,7 +203,7 @@ private extension Edge {
 
 private struct NexaDevEdgeToEdgeRoot<Content: View>: View {
     private let content: Content
-    @State private var containerSafeInsets = EdgeInsets()
+    @State private var containerSafeInsets = NexaDevVisualSafeAreaSnapshot()
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -236,32 +211,59 @@ private struct NexaDevEdgeToEdgeRoot<Content: View>: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let sharedSafeInsets = NexaVisualSafeAreaSnapshot(
+                top: containerSafeInsets.top,
+                bottom: containerSafeInsets.bottom,
+                left: containerSafeInsets.left,
+                right: containerSafeInsets.right
+            )
             content
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                 .environment(\.nexaDevVisualSafeInsets, containerSafeInsets)
+                .environment(
+                    \.nexaWindowSafeAreaInsets,
+                    sharedSafeInsets
+                )
                 .environment(\.nexaDevViewportSize, proxy.size)
+                .environment(
+                    \.nexaWindowMetrics,
+                    NexaWindowMetricsSnapshot(viewportSize: proxy.size, safeInsets: sharedSafeInsets)
+                )
         }
         .background {
             NexaDevSafeAreaInsetsProbe { insets in
-                let next = EdgeInsets(
+                let next = NexaDevVisualSafeAreaSnapshot(
                     top: insets.top,
-                    leading: insets.left,
                     bottom: insets.bottom,
-                    trailing: insets.right
+                    left: insets.left,
+                    right: insets.right
                 )
-                guard containerSafeInsets.top != next.top
-                    || containerSafeInsets.leading != next.leading
-                    || containerSafeInsets.bottom != next.bottom
-                    || containerSafeInsets.trailing != next.trailing
-                else { return }
+                guard containerSafeInsets != next else { return }
                 containerSafeInsets = next
             }
-            .frame(width: 0, height: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
         .ignoresSafeArea(.container, edges: .all)
         .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+}
+
+/// Zero-size probe that tells the render fence when SwiftUI evaluated the tree
+/// for a newly installed module generation. It is inert in release builds.
+private struct NexaDevFrameFenceProbe: View {
+    @ObservedObject var store: NexaDevStateStore
+    let fence: NexaDevFrameFence
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: store.moduleGeneration) { generation in
+                fence.noteComposed(generation: generation)
+            }
     }
 }
 
@@ -304,12 +306,13 @@ public struct NexaDevRuntimeRoot: View {
     }
 
     public var body: some View {
-        let statusBar = runtime.module?["status_bar"] as? [String: Any] ?? [:]
-        let statusBarColorScheme: ColorScheme? = switch statusBar["style"] as? String {
-        case "Light": .dark
-        case "Dark": .light
-        default: .dark
+        let screens = runtime.module?["screens"] as? [[String: Any]] ?? []
+        let hasScreenStatusBarConfiguration = screens.contains {
+            $0["status_bar"] as? [String: Any] != nil
         }
+        let rootStatusBar = hasScreenStatusBarConfiguration
+            ? nil
+            : runtime.module?["status_bar"] as? [String: Any]
         NexaDevEdgeToEdgeRoot {
         Group {
             if let module = runtime.module {
@@ -329,7 +332,7 @@ public struct NexaDevRuntimeRoot: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(Color.black.ignoresSafeArea())
+        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .overlay(alignment: .topTrailing) {
             if !runtime.diagnostics.isEmpty {
                 NexaDevErrorOverlay(
@@ -345,6 +348,9 @@ public struct NexaDevRuntimeRoot: View {
                 NexaDevPerformanceOverlay(fps: performance.fps, frameTimeMs: performance.frameTimeMs)
                     .padding(8)
             }
+        }
+        .overlay {
+            NexaDevFrameFenceProbe(store: runtime.store, fence: runtime.frameFence)
         }
         .onChange(of: runtime.store.appLifecycleEpoch) { _ in
             guard let module = runtime.module else { return }
@@ -400,30 +406,11 @@ public struct NexaDevRuntimeRoot: View {
         .environment(\.locale, configuredLocale)
         .environment(\.layoutDirection, configuredLayoutDirection)
         .environment(\.nexaSharedNamespace, nexaSharedNamespace)
-        .modifier(NexaDevStatusBarVisibility(hidden: statusBar["hidden"] as? Bool ?? false))
-        .modifier(NexaDevOptionalPreferredColorScheme(colorScheme: statusBarColorScheme))
-        .overlay(alignment: .top) {
-            if let color = devStatusBarColor(statusBar["background"], isDark: colorScheme == .dark) {
-                color
-                    .frame(maxWidth: .infinity)
-                    .frame(height: max(0, visualSafeInsets.top))
-                    .ignoresSafeArea(edges: .top)
-                .allowsHitTesting(false)
-            }
-        }
-        }
-    }
-}
-
-private struct NexaDevOptionalPreferredColorScheme: ViewModifier {
-    let colorScheme: ColorScheme?
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if let colorScheme {
-            content.preferredColorScheme(colorScheme)
-        } else {
-            content
+        .modifier(NexaDevStatusBarConfigurationModifier(
+            config: rootStatusBar,
+            safeInsets: visualSafeInsets,
+            isDark: colorScheme == .dark
+        ))
         }
     }
 }

@@ -1,6 +1,6 @@
 component ParityCard(title: String) {
     body {
-        Column(spacing: 6, padding: 12, fillMaxWidth: false, fillMaxHeight: false, background: "#252525", cornerRadius: 10) {
+        Column(gap: 6, padding: 12, margin: Insets(top: 0), background: "#252525", cornerRadius: 10) {
             Text(title, fontWeight: Semibold)
             Content()
         }
@@ -92,14 +92,14 @@ app RenderParity {
                                 ParityCard(title: "Custom component") {
                                     Text("Projected content", fontSize: 12, color: "#A0A0A0")
                                 }
-                                Row(spacing: 8, alignment: Center, fillMaxWidth: false, fillMaxHeight: false) {
+                                Row(gap: 8, margin: Insets(top: 0), alignment: Center) {
                                     Text("Row layout")
                                     Icon(system: "check_circle", size: 24, tint: "#E11D48", description: "Completed")
                                 }
                                 Row(horizontalArrangement: Center) {
                                     Text("Horizontally centered row")
                                 }
-                                Stack(alignment: Center, width: 120, height: 44, fillMaxWidth: false, fillMaxHeight: false, background: "#303030", cornerRadius: 8) {
+                                Stack(alignment: Center, width: 120, height: 44, margin: Insets(top: 0), background: "#303030", cornerRadius: 8) {
                                     Text("Stack layout")
                                 }
                                 Divider(color: "#606060", thickness: 1)
@@ -168,8 +168,7 @@ app RenderParity {
                                     scaleFactor ->
                                     sliderValue = scaleFactor
                                 }
-                                Text("Accessible header", accessibilityLabel: "Parity section", accessibilityHint: "Opens this section", accessibilityValue: "Ready", accessibilityRole: Header)
-                                .safeAreaPadding(edges: [Top, Bottom], spacing: 8)
+                                Text("Accessible header", accessibilityLabel: "Parity section", accessibilityHint: "Opens this section", accessibilityValue: "Ready", accessibilityRole: Header, padding: Insets(top: SystemInsets.top, bottom: SystemInsets.bottom))
                             }
                             Section(title: "Images and links") {
                                 Image(asset: "parity_sample", description: "Parity sample image", scale: Fit, fillMaxSize: false, maxHeight: 64)
@@ -260,14 +259,14 @@ app RenderParity {
                     }
 
                     Tab(index: 1, label: "Lists", icon: "list", title: "Lists") {
-                        Column(spacing: 8) {
+                        Column(gap: 8) {
                             Text("Virtualized list", fontSize: 20, fontWeight: Semibold)
                             NavigationLink(destination: ListParameters) {
                                 Text("Open list parameters")
                             }
                             Text("Refresh count: $refreshCount", accessibilityLabel: "Refresh count")
                             RefreshControl(isRefreshing: refreshing) {
-                                Column(spacing: 8, padding: 12) {
+                                Column(gap: 8, padding: 12) {
                                     Text("Pull to refresh")
                                     Button("Refresh now") {
                                         refreshCount = refreshCount + 1
@@ -278,13 +277,13 @@ app RenderParity {
                                 refreshCount = refreshCount + 1
                             }
                             Stack(height: 180) {
-                                FastList(count: 24, spacing: 4, showDividers: false, ref: parityListRef, accessibilityLabel: "Parity task list") {
+                                FastList(count: 24, gap: 4, showDividers: false, ref: parityListRef, accessibilityLabel: "Parity task list") {
                                     index in
-                                    Row(spacing: 8, padding: 8) {
+                                    Row(gap: 8, padding: 8) {
                                         Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
                                         Text("Virtual row \(index)")
                                     }
-                                }.safeAreaInset(edge: Bottom, spacing: 8) {
+                                }.safeAreaInset(edge: Bottom) {
                                     Text("Attached playback controls")
                                 }.scrollHeader(behavior: Pinned) {
                                     Text("Pinned parity header")
@@ -299,7 +298,7 @@ app RenderParity {
                                 index in
                                 Text("Reverse row \(index)")
                             }
-                            FastList(count: 12, rowHeight: 48, spacing: 8, accessibilityLabel: "Scroll event list") {
+                            FastList(count: 12, rowHeight: 48, gap: 8, accessibilityLabel: "Scroll event list") {
                                 index in
                                 Text("Scroll event row \(index)")
                             }.onScroll {
@@ -338,7 +337,7 @@ app RenderParity {
                     Tab(index: 2, label: "Workspace", icon: "folder", title: "Workspace") {
                         NavigationSplitView(detailVisible: detailVisible) {
                             Sidebar {
-                                Column(spacing: 12, padding: 16) {
+                                Column(gap: 12, padding: 16) {
                                     Text("Workspace sidebar")
                                     Button("Show detail") {
                                         detailVisible = true
@@ -349,7 +348,7 @@ app RenderParity {
                                 }
                             }
                             Detail {
-                                Column(spacing: 12, padding: 16) {
+                                Column(gap: 12, padding: 16) {
                                     Text("Workspace detail")
                                     Button("Show sidebar") {
                                         detailVisible = false
@@ -362,7 +361,7 @@ app RenderParity {
                     Tab(index: 3, label: "Pages", icon: "calendar", title: "Pages") {
                         PagePager(selected: selectedPage) {
                             Tab(index: 0) {
-                                Column(spacing: 16, padding: 24) {
+                                Column(gap: 16, padding: 24) {
                                     Text("Pager page one")
                                     Button("Next page") {
                                         selectedPage = 1
@@ -370,7 +369,7 @@ app RenderParity {
                                 }
                             }
                             Tab(index: 1) {
-                                Column(spacing: 16, padding: 24) {
+                                Column(gap: 16, padding: 24) {
                                     Text("Pager page two")
                                     Button("Previous page") {
                                         selectedPage = 0
@@ -382,7 +381,7 @@ app RenderParity {
                 }
 
                 BottomSheet(ref: sheetRef, contentPadding: 20, detents: [0.25, 0.5, 0.85], initialDetent: 0.5, showDragIndicator: false, allowsDismissal: true, allowsBackgroundInteraction: false, shouldDismissOnBackPress: true, backgroundColor: "#F1F5F9", scrimColor: "#00000000") {
-                    Column(spacing: 12, padding: 24) {
+                    Column(gap: 12, padding: 24) {
                         Text("Parity sheet")
                         Text("Sheet content", accessibilityLabel: "Sheet content")
                         Button("Close sheet") {
@@ -393,7 +392,7 @@ app RenderParity {
                     sheetDismissed = true
                 }
                 BottomSheet(ref: controlledSheetRef, contentSized: true, cornerRadius: 29.25) {
-                    Column(spacing: 12, padding: 24) {
+                    Column(gap: 12, padding: 24) {
                         Text("This sheet fits its content height")
                         Button("Close") {
                             controlledSheetRef.dismiss()
@@ -418,7 +417,7 @@ app RenderParity {
     }
 
     screen Detail {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             NavigationBack(label: "Back to previous screen")
             Text("Navigation destination", accessibilityLabel: "Navigation destination")
             NavigationLink(destination: TextEntry) {
@@ -429,7 +428,7 @@ app RenderParity {
 
     screen TextEntry {
         KeyboardAware(dismiss: Never, behavior: Stay) {
-            Column(spacing: 12, padding: 16) {
+            Column(gap: 12, padding: 16) {
                 NavigationBack(label: "Back to previous screen")
                 Text("Nested navigation destination", accessibilityLabel: "Nested navigation destination")
                 TextInput(value: title, placeholder: "Task title", keyboardType: Text, capitalization: None, comment: "Task title input", fontSize: 16, fontFamily: "Gilroy-Regular", textColor: "#FFFFFF", placeholderColor: "#888888", clearable: true).onChange {
@@ -447,7 +446,7 @@ app RenderParity {
             NavigationBack(label: "Back to catalog", comment: "Return to component catalog")
             Section(title: "Layout style parameters", comment: "Named style options across native containers") {
                 Column(
-                spacing: 6,
+                gap: 6,
                 alignment: Center,
                 padding: 4,
                 width: 240,
@@ -463,7 +462,7 @@ app RenderParity {
                 opacity: 0.98,
                 scale: 1.0,
                 scaleY: 0.92,
-                offsetY: SafeArea.top / 2.0,
+                offsetY: SystemInsets.top / 2.0,
                 rotation: 0,
                 shadow: Shadow(1, 0, 0, "#00000020"),
                 blur: 0,
@@ -475,7 +474,7 @@ app RenderParity {
                     Text("Column style parameters")
                 }
                 Row(
-                spacing: 8,
+                gap: 8,
                 alignment: Center,
                 padding: 4,
                 width: 280,
@@ -529,13 +528,13 @@ app RenderParity {
                 ) {
                     Text("Stack style parameters")
                 }
-                Column(screenWidthFraction: 0.9, screenHeightFraction: 0.12, cornerRadiusBottom: 12, background: "#252525") {
+                Column(width: screenWidthFraction(0.9), height: screenHeightFraction(0.12), cornerRadiusBottom: 12, background: "#252525") {
                     Text("Column fractional height and bottom corners")
                 }
-                Row(screenWidthFraction: 0.9, screenHeightFraction: 0.12, cornerRadiusBottom: 12, background: "#252525") {
+                Row(width: screenWidthFraction(0.9), height: screenHeightFraction(0.12), cornerRadiusBottom: 12, background: "#252525") {
                     Text("Row fractional height and bottom corners")
                 }
-                Stack(screenWidthFraction: 0.9, screenHeightFraction: 0.12, cornerRadiusBottom: 12, background: "#252525") {
+                Stack(width: screenWidthFraction(0.9), height: screenHeightFraction(0.12), cornerRadiusBottom: 12, background: "#252525") {
                     Text("Stack fractional height and bottom corners")
                 }
                 Column(
@@ -692,7 +691,7 @@ app RenderParity {
             }
         }
         BottomSheet(ref: largeSheetRef, detents: [1.0], initialDetent: 1.0) {
-            Column(spacing: 12, padding: 24) {
+            Column(gap: 12, padding: 24) {
                 Text("Large parity sheet")
                 Text("Large sheet content")
                 Button("Close large sheet") {
@@ -703,13 +702,13 @@ app RenderParity {
     }
 
     screen ListParameters {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             NavigationBack(label: "Back to lists")
             Text("Page snap list parameters", comment: "Pagination screenshot fixture", accessibilityLabel: "Page snap list parameters")
             Text("Page position: \(pagePosition)")
             FastList(count: 3, pageSnap: true, scrollPosition: pagePosition, accessibilityLabel: "Page snap parity list") {
                 index in
-                Column(spacing: 12, padding: 24) {
+                Column(gap: 12, padding: 24) {
                     Text("Page snap row \(index)")
                 }
             }

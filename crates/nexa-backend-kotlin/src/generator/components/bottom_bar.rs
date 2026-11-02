@@ -314,6 +314,43 @@ pub(crate) fn render_app_bottom_bar(
         depth,
         format_args!("val {state_holder} = rememberSaveableStateHolder()"),
     );
+    out.line_at(depth, format_args!("DisposableEffect(Unit) {{"));
+    out.line_at(
+        depth + 1,
+        format_args!("val unregisterTabListener = NexaRuntime.registerTabListener {{ target ->"),
+    );
+    out.line_at(depth + 2, format_args!("when (target.lowercase()) {{"));
+    for (i, tab) in tabs.iter().enumerate() {
+        let mut patterns = vec![
+            format!("\"{}\"", tab.index),
+            format!("\"tab_{}\"", tab.index),
+            format!("\"tab{}\"", tab.index),
+            format!("\"{i}\""),
+            format!("\"tab_{i}\""),
+            format!("\"tab{i}\""),
+        ];
+        if !tab.label.is_empty() {
+            let clean_label = tab.label.to_lowercase().replace(' ', "_");
+            patterns.push(format!("\"{clean_label}\""));
+            patterns.push(format!("\"tab_{clean_label}\""));
+        }
+        if let Some(role) = &tab.role
+            && !role.is_empty()
+        {
+            patterns.push(format!("\"{}\"", role.to_lowercase()));
+        }
+        out.line_at(
+            depth + 3,
+            format_args!("{} -> {selected} = {}", patterns.join(", "), tab.index),
+        );
+    }
+    out.line_at(depth + 2, format_args!("}}"));
+    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(
+        depth + 1,
+        format_args!("onDispose {{ unregisterTabListener() }}"),
+    );
+    out.line_at(depth, format_args!("}}"));
     let tint = tint
         .map(crate::generator::colors::expression_for_color)
         .unwrap_or_else(|| "null".to_owned());
@@ -762,12 +799,12 @@ pub(crate) fn without_tab_toolbars(children: &[Node]) -> Vec<Node> {
             Node::Toolbar { .. } => None,
             Node::Layout {
                 kind,
-                spacing,
+                gap,
                 style,
                 children,
             } => Some(Node::Layout {
                 kind: *kind,
-                spacing: *spacing,
+                gap: *gap,
                 style: style.clone(),
                 children: without_tab_toolbars(children),
             }),

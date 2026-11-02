@@ -19,6 +19,17 @@ public object NexaRuntime {{
 
     public fun context(): android.content.Context = {core}.NexaRuntimeCore.context()
 
+    private val tabListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+
+    public fun registerTabListener(listener: (String) -> Unit): () -> Unit {{
+        tabListeners.add(listener)
+        return {{ tabListeners.remove(listener) }}
+    }}
+
+    public fun selectTab(target: String) {{
+        tabListeners.forEach {{ it(target) }}
+    }}
+
 "#
     ));
     if include_app_icon {

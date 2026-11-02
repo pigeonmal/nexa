@@ -1,6 +1,8 @@
 package __NEXA_PACKAGE__
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -189,7 +191,13 @@ internal fun NexaDevPerformanceOverlay(fps: Int, frameTimeMs: Double, modifier: 
 @Composable
 internal fun NexaDevStatusBar(config: JSONObject?) {
     val view = LocalView.current
-    val window = (view.context as? Activity)?.window
+    val window = remember(view) {
+        var context: Context = view.context
+        while (context is ContextWrapper && context !is Activity) {
+            context = context.baseContext
+        }
+        (context as? Activity)?.window
+    }
     val initialLightStatusBar = remember(window, view) {
         window?.let { WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars }
     }
@@ -206,5 +214,24 @@ internal fun NexaDevStatusBar(config: JSONObject?) {
             "Dark" -> controller.isAppearanceLightStatusBars = true
             else -> controller.isAppearanceLightStatusBars = initialLightStatusBar ?: false
         }
+    }
+}
+
+@Composable
+internal fun NexaDevStatusBarContent(
+    config: JSONObject?,
+    isDark: Boolean,
+    content: @Composable () -> Unit,
+) {
+    NexaDevStatusBar(config)
+    val statusBarBackground = nexaDevColor(config?.optJSONObject("background"), isDark)
+    val navigationBarBackground = nexaDevColor(
+        config?.optJSONObject("navigation_bar_background"),
+        isDark,
+    )
+    if (statusBarBackground != null || navigationBarBackground != null) {
+        NexaStatusBarBackgroundPrimitive(statusBarBackground, navigationBarBackground, content)
+    } else {
+        content()
     }
 }

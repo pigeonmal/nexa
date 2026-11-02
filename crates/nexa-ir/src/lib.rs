@@ -9,9 +9,16 @@ pub mod adaptive_layout;
 pub mod capabilities;
 pub mod facts;
 pub mod localization;
+pub mod navigation;
 pub mod system_icons;
 pub mod walk;
 
+pub use navigation::{
+    EntryId, NavigationChromePolicy, NavigationCommand, NavigationEntryState, NavigationError,
+    NavigationGraph, NavigationSnapshot, NavigationTransition, NavigationTransitionPolicy,
+    NavigatorDecl, NavigatorId, NavigatorPresentation, NavigatorStackState, RouteDecl, RouteKey,
+    reduce_navigation_command,
+};
 pub use system_icons::SystemIcon;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -700,7 +707,29 @@ pub enum Expr {
     IsCompactHeight,
     ScreenWidth,
     ScreenHeight,
-    SafeAreaTop,
+    SystemInset(adaptive_layout::LayoutEdge),
+}
+
+/// A typed width or height relative to the nearest parent or app window.
+/// Parent-relative values are resolved by the native parent measurement pass.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Dimension {
+    Fixed(f32),
+    ParentFraction(f32),
+    Fill,
+    ScreenWidthFraction(f32),
+    ScreenHeightFraction(f32),
+}
+
+/// Optional logical edge values used by component padding and spacing.
+/// Expressions allow raw window insets to update layout without app state.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EdgeInsets {
+    pub top: Option<Box<Expr>>,
+    pub bottom: Option<Box<Expr>>,
+    pub leading: Option<Box<Expr>>,
+    pub trailing: Option<Box<Expr>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -773,11 +802,11 @@ pub struct ProgressRingStyle {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Node {
-    /// Adds the selected remaining visual safe insets and fixed design spacing
-    /// around an existing composed view.
-    SafeAreaPadding {
-        plan: adaptive_layout::SafeAreaPaddingPlan,
-        children: Vec<Node>,
+    /// Adds explicit per-edge padding inside and margin outside a view.
+    ViewInsets {
+        padding: Option<EdgeInsets>,
+        margin: Option<EdgeInsets>,
+        child: Box<Node>,
     },
     /// Places composed content at one safe edge and optionally coordinates the
     /// endpoint of one unambiguously inferred native scroll owner.
@@ -822,7 +851,7 @@ pub enum Node {
     Layout {
         kind: LayoutKind,
         /// Gap between adjacent children. Semantic lowering uses zero when omitted.
-        spacing: f32,
+        gap: f32,
         style: ViewStyle,
         children: Vec<Node>,
     },
@@ -864,9 +893,9 @@ pub enum Node {
     },
     Spacer {
         #[serde(default)]
-        width: Option<f32>,
+        width: Option<Dimension>,
         #[serde(default)]
-        height: Option<f32>,
+        height: Option<Dimension>,
     },
     Divider {
         color: ColorValue,
@@ -1320,7 +1349,7 @@ pub struct ListCommon {
     /// Distance between adjacent items, in logical points/dp; defaults to zero.
     /// Grid axes apply the same gap horizontally and vertically.
     #[serde(default)]
-    pub spacing: f32,
+    pub gap: f32,
     /// Whether the user can scroll this list. `None` preserves the default
     /// platform behavior; a present expression can react to application state.
     #[serde(default)]
@@ -1371,7 +1400,7 @@ pub struct SectionedListCommon {
     pub item_extent: Option<f32>,
     /// Vertical distance between adjacent rows, in logical points/dp; defaults to zero.
     #[serde(default)]
-    pub spacing: f32,
+    pub gap: f32,
     /// Whether the user can scroll this list. `None` preserves the default
     /// platform behavior; a present expression can react to application state.
     #[serde(default)]
@@ -1827,26 +1856,12 @@ pub enum ImageSource {
 pub struct ViewStyle {
     pub alignment: Option<Alignment>,
     pub horizontal_arrangement: Option<HorizontalArrangement>,
-    /// Optional content inset; `None` means zero (no padding modifier).
-    pub padding: Option<f32>,
-    pub width: Option<f32>,
-    /// Sets the width to a fraction of the current screen width.
-    #[serde(default)]
-    pub screen_width_fraction: Option<f32>,
-    /// Expands to the width proposed by the parent layout.
-    #[serde(default)]
-    pub fill_max_width: bool,
-    pub height: Option<f32>,
-    /// Sets the height to a fraction of the current screen height.
-    #[serde(default)]
-    pub screen_height_fraction: Option<f32>,
-    /// Expands to the height proposed by the parent layout.
-    #[serde(default)]
-    pub fill_max_height: bool,
-    pub min_width: Option<f32>,
-    pub max_width: Option<f32>,
-    pub min_height: Option<f32>,
-    pub max_height: Option<f32>,
+    pub width: Option<Dimension>,
+    pub height: Option<Dimension>,
+    pub min_width: Option<Dimension>,
+    pub max_width: Option<Dimension>,
+    pub min_height: Option<Dimension>,
+    pub max_height: Option<Dimension>,
     pub background: Option<ColorValue>,
     pub corner_radius: Option<f32>,
     /// Dynamic corner radius used when a numeric state animates the shape.
@@ -1865,13 +1880,8 @@ pub struct ViewStyle {
 impl ViewStyle {
     /// Whether the style has visual properties emitted through a native modifier.
     pub fn has_modifiers(&self) -> bool {
-        self.padding.is_some()
-            || self.width.is_some()
-            || self.screen_width_fraction.is_some()
-            || self.fill_max_width
+        self.width.is_some()
             || self.height.is_some()
-            || self.screen_height_fraction.is_some()
-            || self.fill_max_height
             || self.min_width.is_some()
             || self.max_width.is_some()
             || self.min_height.is_some()
@@ -2142,8 +2152,6 @@ pub struct TextStyle {
     #[serde(default)]
     pub font_family: Option<String>,
     pub font_weight: Option<FontWeight>,
-    /// Optional text inset; `None` means zero (no padding modifier).
-    pub padding: Option<f32>,
     pub opacity: Option<f32>,
     pub effects: ViewEffects,
     pub line_limit: Option<i32>,
@@ -2229,6 +2237,8 @@ pub enum Action {
     },
     /// Returns to the previous route when the current screen has one.
     NavigationBack,
+    /// Canonical Navigation v2 command.
+    NavigationCommand(Box<NavigationCommand>),
     /// Immutable binding scoped to the current action block.
     Let {
         name: String,

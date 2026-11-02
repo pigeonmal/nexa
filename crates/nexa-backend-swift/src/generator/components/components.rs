@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::adaptive_layout::LayoutEdge;
-use nexa_ir::{LayoutKind, Module, Node, ToolbarPlacement, ViewStyle};
+use nexa_ir::{Dimension, EdgeInsets, Expr, LayoutKind, Module, Node, ToolbarPlacement, ViewStyle};
 
 use super::RenderScope;
 use super::{adaptive_layout, conditional, content_unavailable, dialogs};
@@ -21,27 +21,44 @@ pub(crate) fn render_node(
 ) {
     let scope = RenderScope { module, features };
     match node {
-        Node::SafeAreaPadding { plan, children } => {
-            let edges = plan
-                .edges
-                .iter()
-                .map(|edge| match edge {
-                    LayoutEdge::Top => ".top",
-                    LayoutEdge::Bottom => ".bottom",
-                    LayoutEdge::Leading => ".leading",
-                    LayoutEdge::Trailing => ".trailing",
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            out.line_at(
-                depth,
-                format_args!(
-                    "NexaSafeAreaPaddingPrimitive(edges: [{edges}], spacing: {}) {{",
-                    number(plan.spacing)
-                ),
-            );
-            render_children(children, module, features, depth + 1, out);
-            out.line_at(depth, format_args!("}}"));
+        Node::ViewInsets {
+            padding,
+            margin,
+            child,
+        } => {
+            if let Node::Form {
+                show_dividers,
+                background,
+                children,
+            } = child.as_ref()
+            {
+                render_form(
+                    *show_dividers,
+                    *background,
+                    children,
+                    Some((padding, margin)),
+                    &scope,
+                    depth,
+                    out,
+                );
+            } else {
+                let scroll_content = matches!(
+                    child.as_ref(),
+                    Node::FastList { .. }
+                        | Node::KeyboardAware { .. }
+                        | Node::RefreshControl { .. }
+                );
+                let padding = swift_insets(padding.as_ref());
+                let margin = swift_insets(margin.as_ref());
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "NexaViewInsetsPrimitive(padding: {padding}, margin: {margin}, scrollContent: {scroll_content}) {{"
+                    ),
+                );
+                render_node(child, module, features, depth + 1, out);
+                out.line_at(depth, format_args!("}}"));
+            }
         }
         Node::SafeAreaInset {
             plan,
@@ -62,8 +79,7 @@ pub(crate) fn render_node(
             out.line_at(
                 depth,
                 format_args!(
-                    "NexaSafeAreaInsetPrimitive(edge: {edge}, spacing: {}, accommodatesEndpoint: {accommodates_endpoint}) {{",
-                    number(plan.spacing)
+                    "NexaSafeAreaInsetPrimitive(edge: {edge}, accommodatesEndpoint: {accommodates_endpoint}) {{"
                 ),
             );
             render_children(children, module, features, depth + 1, out);
@@ -96,51 +112,23 @@ pub(crate) fn render_node(
         | Node::OnBackground { .. } => {}
         Node::Layout {
             kind,
-            spacing,
+            gap,
             style,
             children,
-        } => layout::render_layout(*kind, *spacing, style, children, &scope, depth, out),
+        } => layout::render_layout(*kind, *gap, style, children, &scope, depth, out),
         Node::Form {
             show_dividers,
             background,
             children,
-        } => {
-            let background = background
-                .map(crate::generator::engine::colors::expression)
-                .unwrap_or_else(|| "nil".to_owned());
-            out.line_at(
-                depth,
-                format_args!("NexaFormPrimitive(background: {background}) {{"),
-            );
-            for (index, child) in children.iter().enumerate() {
-                match child {
-                    Node::FormSection {
-                        title,
-                        footer,
-                        show_dividers: section_show_dividers,
-                        background,
-                        children,
-                    } => layout::render_form_section(
-                        layout::FormSectionRenderOptions {
-                            title: title.as_ref(),
-                            footer: footer.as_ref(),
-                            comment: None,
-                            show_dividers: section_show_dividers.unwrap_or(*show_dividers),
-                            background: *background,
-                        },
-                        children,
-                        &scope,
-                        depth + 1,
-                        out,
-                    ),
-                    _ => layout::render_form_row(child, *show_dividers, &scope, depth + 1, out),
-                }
-                if index + 1 < children.len() {
-                    out.push('\n');
-                }
-            }
-            out.line_at(depth, format_args!("}}"));
-        }
+        } => render_form(
+            *show_dividers,
+            *background,
+            children,
+            None,
+            &scope,
+            depth,
+            out,
+        ),
         Node::FormSection {
             title,
             footer,
@@ -153,6 +141,7 @@ pub(crate) fn render_node(
                 footer: footer.as_ref(),
                 comment: None,
                 show_dividers: show_dividers.unwrap_or(true),
+                is_first_section: false,
                 background: *background,
             },
             children,
@@ -182,13 +171,6 @@ pub(crate) fn render_node(
         }
         Node::Text { value, style } => {
             render_text(value, style, depth, out);
-            if let Some(padding) = style.padding {
-                out.push_str(&format!(
-                    "\n{}.padding({})",
-                    "    ".repeat(depth + 1),
-                    number(padding)
-                ));
-            }
             layout::append_visual_effects(out, depth, style.opacity, &style.effects);
         }
         Node::ContentUnavailable {
@@ -213,15 +195,57 @@ pub(crate) fn render_node(
             out,
         ),
         Node::Spacer { width, height } => {
-            let minimum = (*height).or(*width).unwrap_or(0.0);
-            out.line_at(
-                depth,
-                format_args!("Spacer(minLength: {})", number(minimum)),
-            );
-            if width.is_some() || height.is_some() {
-                let width = width.map_or_else(|| "nil".to_owned(), number);
-                let height = height.map_or_else(|| "nil".to_owned(), number);
-                out.push_str(&format!(".frame(width: {width}, height: {height})"));
+            out.line_at(depth, format_args!("Spacer(minLength: 0)"));
+            let mut frame_width = "nil".to_owned();
+            let mut frame_height = "nil".to_owned();
+            let mut relative = Vec::new();
+            for (axis, dimension) in [("width", *width), ("height", *height)] {
+                let Some(dimension) = dimension else { continue };
+                match dimension {
+                    Dimension::Fixed(value) => {
+                        if axis == "width" {
+                            frame_width = number(value);
+                        } else {
+                            frame_height = number(value);
+                        }
+                    }
+                    Dimension::ScreenWidthFraction(fraction) if axis == "width" => {
+                        frame_width = format!(
+                            "nexaWindowMetrics.viewportSize.width * {}",
+                            number(fraction)
+                        );
+                    }
+                    Dimension::ScreenHeightFraction(fraction) if axis == "height" => {
+                        frame_height = format!(
+                            "nexaWindowMetrics.viewportSize.height * {}",
+                            number(fraction)
+                        );
+                    }
+                    Dimension::Fill if axis == "width" => frame_width = ".infinity".to_owned(),
+                    Dimension::Fill if axis == "height" => frame_height = ".infinity".to_owned(),
+                    Dimension::ParentFraction(fraction) => {
+                        relative.push(format!("{axis}: {}", number(fraction)))
+                    }
+                    _ => {}
+                }
+            }
+            if frame_width != "nil" || frame_height != "nil" {
+                if frame_width == ".infinity" {
+                    out.push_str(".frame(maxWidth: .infinity)");
+                } else if frame_width != "nil" {
+                    out.push_str(&format!(".frame(width: {frame_width})"));
+                }
+                if frame_height == ".infinity" {
+                    out.push_str(".frame(maxHeight: .infinity)");
+                } else if frame_height != "nil" {
+                    out.push_str(&format!(".frame(height: {frame_height})"));
+                }
+            }
+            if !relative.is_empty() {
+                out.push_str(&format!(
+                    ".modifier(NexaParentRelativeDimensionModifier({}))",
+                    relative.join(", ")
+                ));
             }
         }
         Node::Divider { color, thickness } => out.line_at(
@@ -811,6 +835,90 @@ pub(crate) fn render_node(
             }
         }
     }
+}
+
+fn swift_insets(insets: Option<&EdgeInsets>) -> String {
+    let value = |expression: Option<&Box<Expr>>| {
+        expression
+            .map(|expression| {
+                format!(
+                    "CGFloat({})",
+                    crate::generator::engine::expressions::expression(expression)
+                )
+            })
+            .unwrap_or_else(|| "0".to_owned())
+    };
+    let insets = insets.cloned().unwrap_or_default();
+    format!(
+        "EdgeInsets(top: {}, leading: {}, bottom: {}, trailing: {})",
+        value(insets.top.as_ref()),
+        value(insets.leading.as_ref()),
+        value(insets.bottom.as_ref()),
+        value(insets.trailing.as_ref()),
+    )
+}
+
+fn render_form(
+    show_dividers: bool,
+    background: Option<nexa_ir::ColorValue>,
+    children: &[Node],
+    insets: Option<(&Option<EdgeInsets>, &Option<EdgeInsets>)>,
+    scope: &RenderScope<'_>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let background = background
+        .map(crate::generator::engine::colors::expression)
+        .unwrap_or_else(|| "nil".to_owned());
+    let form_insets = insets
+        .map(|(padding, margin)| {
+            format!(
+                ", contentPadding: {}, margin: {}",
+                swift_insets(padding.as_ref()),
+                swift_insets(margin.as_ref()),
+            )
+        })
+        .unwrap_or_default();
+    let first_section_padding = if matches!(children.first(), Some(Node::FormSection { .. })) {
+        ", firstChildIsSection: true"
+    } else {
+        ""
+    };
+    out.line_at(
+        depth,
+        format_args!(
+            "NexaFormPrimitive(background: {background}{form_insets}{first_section_padding}) {{"
+        ),
+    );
+    for (index, child) in children.iter().enumerate() {
+        match child {
+            Node::FormSection {
+                title,
+                footer,
+                show_dividers: section_show_dividers,
+                background,
+                children,
+            } => layout::render_form_section(
+                layout::FormSectionRenderOptions {
+                    title: title.as_ref(),
+                    footer: footer.as_ref(),
+                    comment: None,
+                    show_dividers: section_show_dividers.unwrap_or(show_dividers),
+                    is_first_section: index == 0,
+                    background: *background,
+                },
+                children,
+                scope,
+                depth + 1,
+                out,
+            ),
+            _ => layout::render_form_row(child, show_dividers, scope, depth + 1, out),
+        }
+        if index + 1 < children.len() {
+            out.push('\n');
+        }
+    }
+    out.line_at(depth, format_args!("}}"));
 }
 
 fn render_text(

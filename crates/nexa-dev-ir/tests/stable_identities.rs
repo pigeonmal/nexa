@@ -505,7 +505,6 @@ fn route_host_inset_serializes_as_a_dev_runtime_endpoint_reservation() {
     let route_inset = Node::SafeAreaInset {
         plan: SafeAreaInsetPlan {
             edge: LayoutEdge::Bottom,
-            spacing: 0.0,
             scroll_owner: ScrollOwnerResolution::RouteHost,
         },
         content: vec![text("Tabs")],
@@ -521,4 +520,94 @@ fn route_host_inset_serializes_as_a_dev_runtime_endpoint_reservation() {
         Some(&serde_json::json!("RouteHost")),
         "{encoded:#?}"
     );
+}
+
+#[test]
+fn inserting_same_kind_sibling_produces_ordered_distinct_identities() {
+    let m1 = module(vec![text("Original")], Type::Numeric(NumericType::Int32));
+    let dev1 = lower(&m1, "rev-1");
+    let text_ids_1: Vec<_> = dev1
+        .identities
+        .iter()
+        .filter(|id| id.id.contains("Text:"))
+        .map(|id| id.id.clone())
+        .collect();
+    assert_eq!(text_ids_1, vec!["app/body/Text:0"]);
+
+    // Insert a new Text before the original
+    let m2 = module(
+        vec![text("Inserted Before"), text("Original")],
+        Type::Numeric(NumericType::Int32),
+    );
+    let dev2 = lower(&m2, "rev-2");
+    let text_ids_2: Vec<_> = dev2
+        .identities
+        .iter()
+        .filter(|id| id.id.contains("Text:"))
+        .map(|id| id.id.clone())
+        .collect();
+    assert_eq!(text_ids_2, vec!["app/body/Text:0", "app/body/Text:1"]);
+}
+
+#[test]
+fn screen_and_component_states_have_distinct_namespaced_identities() {
+    let mut m = module(vec![text("Root")], Type::Numeric(NumericType::Int32));
+    m.screens.push(nexa_ir::Screen {
+        id: nexa_ir::ScreenId(1),
+        name: "ProfileScreen".to_owned(),
+        parameters: vec![],
+        states: vec![State {
+            name: "profileScore".to_owned(),
+            ty: Type::Numeric(NumericType::Int32),
+            initial: Expr::Number {
+                raw: "100".to_owned(),
+                ty: NumericType::Int32,
+            },
+            mutable: true,
+        }],
+        body: vec![text("Profile")],
+        status_bar: None,
+        on_appear: None,
+        on_appear_async: false,
+        on_disappear: None,
+    });
+    m.components.push(Component {
+        name: "CustomBadge".to_owned(),
+        source_file: None,
+        parameters: vec![],
+        states: vec![State {
+            name: "badgeColor".to_owned(),
+            ty: Type::String,
+            initial: Expr::String("blue".to_owned()),
+            mutable: false,
+        }],
+        body: vec![text("Badge")],
+        ref_methods: vec![],
+        on_appear: None,
+        on_appear_async: false,
+        on_disappear: None,
+    });
+
+    let dev = lower(&m, "namespaced-rev");
+    let state_ids: Vec<_> = dev
+        .identities
+        .iter()
+        .filter(|id| {
+            matches!(
+                id.kind,
+                IdentityKind::AppState | IdentityKind::ScreenState | IdentityKind::ComponentState
+            )
+        })
+        .map(|id| (id.kind, id.id.clone()))
+        .collect();
+
+    assert!(state_ids.contains(&(IdentityKind::AppState, "app/state/count".to_string())));
+    assert!(state_ids.contains(&(
+        IdentityKind::ScreenState,
+        "screen/ProfileScreen/state/profileScore".to_string()
+    )));
+    assert!(state_ids.contains(&(
+        IdentityKind::ComponentState,
+        "component/CustomBadge/state/badgeColor".to_string()
+    )));
 }

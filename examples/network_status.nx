@@ -2,7 +2,7 @@ app NetworkStatus {
     state online: Bool = Network.isOnline
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("Network status")
             Text(online ? "Online" : "Offline")
             Button("Watch changes") {

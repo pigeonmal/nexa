@@ -3,7 +3,7 @@ use nexa_ir::StatusBarConfig;
 
 use crate::generator::engine::colors;
 
-/// Renders the status-bar visibility, content style, and background modifiers.
+/// Renders status-bar visibility, content style, and background modifiers.
 pub(crate) fn render(config: Option<StatusBarConfig>, depth: usize, out: &mut SourceWriter) {
     let Some(config) = config else {
         return;
@@ -14,14 +14,17 @@ pub(crate) fn render(config: Option<StatusBarConfig>, depth: usize, out: &mut So
     }
     let scheme = match config.style {
         nexa_ir::StatusBarStyle::Default => None,
-        // SwiftUI has no status-bar content color of its own, so the scheme is
-        // inverted to steer the native bar toward the wanted foreground.
+        // Keep the status-bar style scoped to the system bar. Using
+        // preferredColorScheme here would also recolor the entire screen.
         nexa_ir::StatusBarStyle::Light => Some("dark"),
         nexa_ir::StatusBarStyle::Dark => Some("light"),
     };
     if let Some(scheme) = scheme {
         out.push('\n');
-        out.text_at(depth, format_args!(".preferredColorScheme(.{scheme})"));
+        out.text_at(
+            depth,
+            format_args!(".modifier(NexaStatusBarStylePrimitive(colorScheme: .{scheme}))"),
+        );
     }
     if let Some(background) = config.background {
         out.push('\n');
@@ -72,5 +75,22 @@ mod tests {
         assert!(generated.contains(".toolbarBackground(.hidden, for: .navigationBar)"));
         assert!(generated.contains("NexaStatusBarBackgroundPrimitive(color:"));
         assert!(!generated.contains("statusBarColor"));
+    }
+
+    #[test]
+    fn explicit_status_bar_style_does_not_override_the_screen_color_scheme() {
+        let config = StatusBarConfig {
+            style: StatusBarStyle::Light,
+            hidden: false,
+            background: None,
+            navigation_bar_background: None,
+        };
+        let mut output = SourceWriter::new();
+
+        render(Some(config), 1, &mut output);
+
+        let generated = output.finish();
+        assert!(generated.contains(".modifier(NexaStatusBarStylePrimitive(colorScheme: .dark))"));
+        assert!(!generated.contains(".preferredColorScheme("));
     }
 }

@@ -204,5 +204,153 @@ class OverlayScreenshotTests(unittest.TestCase):
                 COMPARISON.compare_overlay_screenshots(aot, dev, "dialog", 4)
 
 
+class AppOwnedEdgeComparisonTests(unittest.TestCase):
+    def make_edge_images(
+        self,
+        directory: Path,
+        mutate_edge: str | None = None,
+    ) -> tuple[Path, Path]:
+        width, height = 200, 1000
+        # White background for both
+        aot = Image.new("RGB", (width, height), (255, 255, 255))
+        dev = Image.new("RGB", (width, height), (255, 255, 255))
+
+        # Top header at y=20..60 (inside the 7% top band which is y=0..70)
+        ImageDraw.Draw(aot).rectangle((10, 20, 190, 60), fill=(50, 50, 200))
+        dev_header_color = (200, 50, 50) if mutate_edge == "header" else (50, 50, 200)
+        ImageDraw.Draw(dev).rectangle((10, 20, 190, 60), fill=dev_header_color)
+
+        # Bottom bar at y=950..990 (inside the 7% bottom band which is y=930..1000)
+        ImageDraw.Draw(aot).rectangle((10, 950, 190, 990), fill=(20, 150, 50))
+        dev_footer_color = (220, 20, 20) if mutate_edge == "footer" else (20, 150, 50)
+        ImageDraw.Draw(dev).rectangle((10, 950, 190, 990), fill=dev_footer_color)
+
+        aot_path = directory / "aot.png"
+        dev_path = directory / "dev.png"
+        aot.save(aot_path)
+        dev.save(dev_path)
+        return aot_path, dev_path
+
+    def test_bottom_bar_visual_mismatch_detected_despite_generic_mask(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            scratch_path = Path(scratch)
+            aot_path, dev_path = self.make_edge_images(scratch_path, mutate_edge="footer")
+
+            # Without accessibility, the generic 7% edge mask would ignore the footer
+            mae, changed = COMPARISON.compare_screenshots(aot_path, dev_path)
+            self.assertEqual((mae, changed), (0.0, 0.0))
+
+            # With accessibility specifying the bottom bar node, the app-owned edge check FAILS!
+            aot_a11y = [
+                android_node("AppBottomBar", 950, 40)
+            ]
+            with self.assertRaisesRegex(AssertionError, "app-owned edge mismatch in footer 'AppBottomBar'"):
+                COMPARISON.compare_screenshots(
+                    aot_path, dev_path, aot_accessibility=aot_a11y
+                )
+
+    def test_header_visual_mismatch_detected_despite_generic_mask(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            scratch_path = Path(scratch)
+            aot_path, dev_path = self.make_edge_images(scratch_path, mutate_edge="header")
+
+            # With accessibility specifying the header node, the app-owned edge check FAILS!
+            aot_a11y = [
+                android_node("AppHeader", 20, 40)
+            ]
+            with self.assertRaisesRegex(AssertionError, "app-owned edge mismatch in header 'AppHeader'"):
+                COMPARISON.compare_screenshots(
+                    aot_path, dev_path, aot_accessibility=aot_a11y
+                )
+
+    def test_unmasked_diff_artifact_generation_on_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            scratch_path = Path(scratch)
+            aot_path, dev_path = self.make_edge_images(scratch_path, mutate_edge="footer")
+            diff_dir = scratch_path / "artifacts"
+            aot_a11y = [android_node("AppBottomBar", 950, 40)]
+
+            try:
+                COMPARISON.compare_screenshots(
+                    aot_path, dev_path, aot_accessibility=aot_a11y, output_diff_dir=diff_dir, phase="footer_test"
+                )
+            except AssertionError:
+                pass
+
+            self.assertTrue((diff_dir / "footer_test_unmasked_diff.png").exists())
+            self.assertTrue((diff_dir / "footer_test_masked_diff.png").exists())
+            self.assertTrue((diff_dir / "footer_test_diff_manifest.json").exists())
+
+
+class AccessibilityTreeMutationTests(unittest.TestCase):
+    def test_traversal_order_mutation_detected(self) -> None:
+        aot = [
+            android_node("buttonA", 100),
+            android_node("buttonB", 200),
+        ]
+        dev_swapped = [
+            android_node("buttonB", 200),
+            android_node("buttonA", 100),
+        ]
+        discrepancies = COMPARISON.verify_accessibility_tree(aot, dev_swapped, check_traversal_order=True)
+        self.assertTrue(len(discrepancies) > 0)
+        self.assertIn("traversal order mismatch", discrepancies[0])
+
+    def test_hit_target_or_enabled_mutation_detected(self) -> None:
+        aot = [android_node("submit", 100)]
+        dev_disabled = [android_node("submit", 100)]
+        dev_disabled[0]["enabled"] = False  # type: ignore[index]
+
+        discrepancies = COMPARISON.verify_accessibility_tree(aot, dev_disabled)
+        self.assertTrue(len(discrepancies) > 0)
+        self.assertIn("property 'enabled' differs", discrepancies[0])
+
+        dev_unhittable = [android_node("submit", 100)]
+        dev_unhittable[0]["hittable"] = False  # type: ignore[index]
+        discrepancies = COMPARISON.verify_accessibility_tree(aot, dev_unhittable)
+        self.assertTrue(len(discrepancies) > 0)
+        self.assertIn("property 'hittable' differs", discrepancies[0])
+
+    def test_header_4dp_offset_mutation_detected(self) -> None:
+        aot = [android_node("header", 20, 40)]
+        dev_shifted = [android_node("header", 24, 40)]  # 4px/dp offset
+        discrepancies = COMPARISON.verify_accessibility_tree(aot, dev_shifted)
+        self.assertTrue(len(discrepancies) > 0)
+        self.assertIn("frame geometry differs", discrepancies[0])
+
+
+class DynamicOverlayBoundsTests(unittest.TestCase):
+    def test_dynamic_overlay_bounds_derived_from_accessibility(self) -> None:
+        a11y = [
+            {
+                "role": "dialog",
+                "label": "CustomDialog",
+                "identifier": "dialog_container",
+                "frame": {"left": 40, "top": 120, "right": 360, "bottom": 720},
+            }
+        ]
+        surface, interior = COMPARISON.derive_overlay_bounds(a11y, "dialog", 400, 800)
+        self.assertEqual(surface, (40, 120, 360, 720))
+        # Interior is inset by ~5%
+        self.assertTrue(interior[0] > surface[0])
+        self.assertTrue(interior[1] > surface[1])
+        self.assertTrue(interior[2] < surface[2])
+        self.assertTrue(interior[3] < surface[3])
+
+    def test_dynamic_overlay_bounds_falls_back_when_no_modal_nodes(self) -> None:
+        a11y = [
+            android_node("RegularButton", 300)
+        ]
+        surface, interior = COMPARISON.derive_overlay_bounds(a11y, "dialog", 400, 800)
+        # Should match static OVERLAY_BOUNDS["dialog"]
+        expected_surface = (
+            round(COMPARISON.OVERLAY_BOUNDS["dialog"][0] * 400),
+            round(COMPARISON.OVERLAY_BOUNDS["dialog"][1] * 800),
+            round(COMPARISON.OVERLAY_BOUNDS["dialog"][2] * 400),
+            round(COMPARISON.OVERLAY_BOUNDS["dialog"][3] * 800),
+        )
+        self.assertEqual(surface, expected_surface)
+
+
 if __name__ == "__main__":
     unittest.main()

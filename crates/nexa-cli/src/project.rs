@@ -890,6 +890,9 @@ const IOS_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
     ),
 ];
 
+const ANDROID_DEV_RUNTIME_TEST: &str =
+    include_str!("../../../runtime/android/tests/NexaDevPatchTest.kt");
+
 const ANDROID_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
     (
         "NexaDevValueCodec.kt",
@@ -902,6 +905,10 @@ const ANDROID_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
     (
         "NexaDevProtocol.kt",
         include_str!("../../../runtime/android/NexaDevProtocol.kt"),
+    ),
+    (
+        "NexaDevPatch.kt",
+        include_str!("../../../runtime/android/NexaDevPatch.kt"),
     ),
     (
         "NexaDevState.kt",
@@ -2253,6 +2260,15 @@ fn android_plan(
             );
         }
         plan = plan.with_file(
+            format!("android/app/src/test/java/{package_path}/NexaDevPatchTest.kt"),
+            dev_runtime_source(
+                "NexaDevPatchTest.kt",
+                ANDROID_DEV_RUNTIME_TEST,
+                package,
+                module,
+            ),
+        );
+        plan = plan.with_file(
             "android/app/src/debug/AndroidManifest.xml",
             "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-permission android:name=\"android.permission.INTERNET\"/><application android:usesCleartextTraffic=\"true\"/></manifest>\n",
         );
@@ -2260,6 +2276,9 @@ fn android_plan(
         for (filename, _) in ANDROID_DEV_RUNTIME_FILES {
             plan = plan.with_removal(format!("{source_directory}/{filename}"));
         }
+        plan = plan.with_removal(format!(
+            "android/app/src/test/java/{package_path}/NexaDevPatchTest.kt"
+        ));
         plan = plan.with_removal(format!("{source_directory}/NexaDevPluginBridge.kt"));
         plan = plan.with_removal("android/app/src/debug/AndroidManifest.xml");
     }
@@ -2788,6 +2807,51 @@ mod tests {
     }
 
     #[test]
+    fn dev_android_projects_ship_the_patch_engine_with_its_jvm_tests() {
+        let mut config = super::config::ProjectConfig::from_defaults(&[], "PatchTests")
+            .expect("resolve default project configuration");
+        config.android_min_sdk = 24;
+        let dev_gradle = super::templates::android_app_gradle_with_dev_runtime(
+            "dev.nexa.patchtests",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[],
+            &[],
+            &config,
+            true,
+        )
+        .expect("render the development Gradle project");
+        assert!(dev_gradle.contains("testImplementation(\"junit:junit:4.13.2\")"));
+        assert!(dev_gradle.contains("testImplementation(\"org.json:json:20231013\")"));
+        assert!(dev_gradle.contains("testOptions { unitTests.isReturnDefaultValues = true }"));
+
+        let release_gradle = super::templates::android_app_gradle_with_dev_runtime(
+            "dev.nexa.patchtests",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[],
+            &[],
+            &config,
+            false,
+        )
+        .expect("render the release Gradle project");
+        assert!(!release_gradle.contains("testImplementation(\"junit:junit"));
+        assert!(!release_gradle.contains("unitTests.isReturnDefaultValues"));
+
+        let module = nexa_compiler::compile("app PatchTests { body { Text(\"Ready\") } }")
+            .expect("compile the patch-test fixture");
+        let test_source = dev_runtime_source(
+            "NexaDevPatchTest.kt",
+            super::ANDROID_DEV_RUNTIME_TEST,
+            "dev.nexa.patchtests",
+            &module,
+        );
+        assert!(test_source.starts_with("package dev.nexa.patchtests"));
+        assert!(test_source.contains("fun nestedSetBuildsCandidateWithoutMutatingBase()"));
+        assert!(test_source.contains("fun duplicateAndAncestorPathsAreRejected()"));
+        assert!(test_source.contains("fun screenScopedClassificationCollectsIndices()"));
+        assert!(!test_source.contains("__NEXA_PACKAGE__"));
+    }
+
+    #[test]
     fn generated_android_projects_pin_native_title_material3_version_without_menus() {
         let config = super::config::ProjectConfig::from_defaults(&[], "TitleParity")
             .expect("resolve default project configuration");
@@ -2966,6 +3030,9 @@ mod tests {
             "private const val nexaDevFormRowMinHeight = {}",
             nexa_codegen::design_system::ANDROID_FORM_ROW_MIN_HEIGHT
         )));
+        assert!(kotlin.contains(
+            "modifier = Modifier.size(22.dp),\n                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)"
+        ));
         assert!(kotlin.contains("NexaFormRowPrimitive("));
         assert!(kotlin.contains("minHeight = nexaDevFormRowMinHeight.toFloat()"));
         assert!(!kotlin.contains("nexaDevFormButtonRowMinHeight"));
@@ -2984,7 +3051,14 @@ mod tests {
         assert!(!kotlin.contains("outlinedTint"));
         assert!(kotlin_generated.contains("Color(0xFF1C1C1E)"));
         assert!(kotlin_generated.contains("Color(0xFFFFFFFF)"));
-        assert!(kotlin_generated.contains("Color(0xFF38383A)"));
+        assert!(kotlin_generated.contains("Color(0xFF404042)"));
+        assert!(kotlin_generated.contains(&format!(
+            "start = androidx.compose.ui.unit.Dp({}.toFloat()),",
+            nexa_codegen::design_system::FORM_SECTION_HORIZONTAL_INSET
+        )));
+        assert!(kotlin_generated.contains("endInset = androidx.compose.ui.unit.Dp(20.toFloat())"));
+        assert!(!kotlin_generated.contains("LocalNexaNavigationContent"));
+        assert!(!kotlin_generated.contains("firstSection"));
         assert!(kotlin_generated.contains("Color(0x493C3C43)"));
         assert!(
             kotlin_generated.contains("primary = androidx.compose.ui.graphics.Color(0xFF007AFF)")
@@ -3006,8 +3080,9 @@ mod tests {
         assert!(!kotlin.contains("autoCorrect = fields.optBoolean"));
         assert!(kotlin_generated.contains("internal fun NexaStatusBarBackgroundPrimitive("));
         assert!(
-            kotlin_runtime
-                .contains("NexaStatusBarBackgroundPrimitive(statusBarBackground, navigationBarBackground, renderApp)")
+            kotlin_runtime.contains(
+                "NexaDevStatusBarContent(rootStatusBar, isSystemInDarkTheme(), renderApp)"
+            )
         );
         assert!(!kotlin_overlay.contains("statusBarColor"));
     }

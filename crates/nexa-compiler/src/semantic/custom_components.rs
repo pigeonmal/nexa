@@ -42,7 +42,7 @@ struct RefMethodLoweringContext<'a> {
     functions: &'a FunctionSignatures,
     structs: &'a StructTypes,
     enums: &'a HashSet<String>,
-    allow_nullable_generic_plugin_reads: bool,
+    nullable_generic_plugin_reads: bool,
     source_file: Option<&'a str>,
 }
 
@@ -180,7 +180,7 @@ pub(super) struct ComponentLoweringContext<'a> {
     pub(super) global_symbols: &'a HashMap<String, (Type, bool)>,
     pub(super) external_signatures: &'a ComponentSignatures,
     pub(super) target: Target,
-    pub(super) allow_nullable_generic_plugin_reads: bool,
+    pub(super) nullable_generic_plugin_reads: bool,
     pub(super) custom_icons: Option<&'a HashMap<String, nexa_ir::SystemIcon>>,
 }
 
@@ -357,7 +357,7 @@ fn lower_component(
         enum_symbols,
         global_symbols,
         target,
-        allow_nullable_generic_plugin_reads,
+        nullable_generic_plugin_reads,
         ..
     } = context;
     let source_file = declaration.source_file.clone();
@@ -409,7 +409,7 @@ fn lower_component(
             state.span,
         )?;
         let state_context = ExprContext::with_types(&symbols, functions, false, structs, enums)
-            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads)
+            .with_nullable_generic_plugin_reads(nullable_generic_plugin_reads)
             .with_source_file(source_file.as_deref());
         let initial = lower_expr(&state.initial, Some(&ty), &state_context)?;
         let mutable = state.mutable;
@@ -439,7 +439,7 @@ fn lower_component(
         structs,
         enums,
         target,
-        allow_nullable_generic_plugin_reads,
+        nullable_generic_plugin_reads,
     )
     .with_navigation(false, !screen_ids.is_empty())
     .with_optional_custom_icons(context.custom_icons)
@@ -486,7 +486,7 @@ fn lower_component(
             functions,
             structs,
             enums,
-            allow_nullable_generic_plugin_reads,
+            nullable_generic_plugin_reads,
             source_file: source_file.as_deref(),
         },
     )?;
@@ -513,7 +513,7 @@ fn lower_ref_methods(
         functions,
         structs,
         enums,
-        allow_nullable_generic_plugin_reads,
+        nullable_generic_plugin_reads,
         source_file,
     } = context;
     declarations
@@ -549,7 +549,7 @@ fn lower_ref_methods(
                 signature.is_async,
                 structs,
                 enums,
-                allow_nullable_generic_plugin_reads,
+                nullable_generic_plugin_reads,
                 declaration.span,
                 source_file,
                 0,
@@ -853,8 +853,8 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::Divider { .. }
         | Node::Shape { .. }
         | Node::ContentUnavailable { .. } => {}
-        Node::SafeAreaPadding { children, .. }
-        | Node::Layout { children, .. }
+        Node::ViewInsets { child, .. } => collect_ir_component_calls(child, calls),
+        Node::Layout { children, .. }
         | Node::Form { children, .. }
         | Node::FormSection { children, .. }
         | Node::Toolbar { children, .. }
@@ -1121,7 +1121,7 @@ mod tests {
                 global_symbols: &HashMap::new(),
                 external_signatures: &HashMap::new(),
                 target: Target::Swift,
-                allow_nullable_generic_plugin_reads: false,
+                nullable_generic_plugin_reads: false,
                 custom_icons: None,
             },
         );

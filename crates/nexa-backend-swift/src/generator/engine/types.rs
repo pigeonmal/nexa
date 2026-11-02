@@ -303,6 +303,21 @@ pub(crate) fn render_navigation_routes(module: &Module, out: &mut SourceWriter) 
             payload_types.join(", ")
         ));
     }
+    out.push_str("\n    var identity: UUID {\n");
+    out.push_str("        switch self {\n");
+    for screen in &module.screens {
+        let case_name = nexa_codegen::names::navigation_case_name(screen.id);
+        if screen.parameters.is_empty() {
+            out.push_str(&format!("        case let .{case_name}(id): return id\n"));
+        } else {
+            let wildcards = vec!["_"; screen.parameters.len()].join(", ");
+            out.push_str(&format!(
+                "        case let .{case_name}(id, {wildcards}): return id\n"
+            ));
+        }
+    }
+    out.push_str("        }\n");
+    out.push_str("    }\n");
     out.push_str("}\n\n");
     render_navigation_path_helpers(out);
 }
@@ -331,6 +346,20 @@ private struct NexaNavigationPathHost<Content: View>: View {
 
     var body: some View {
         content($path, rootIdentity)
+    }
+}
+
+@MainActor
+private struct NexaHideTabBarModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+                .toolbarVisibility(.hidden, for: .tabBar)
+                .toolbar(.hidden, for: .tabBar)
+        } else {
+            content
+                .toolbar(.hidden, for: .tabBar)
+        }
     }
 }
 
@@ -378,8 +407,8 @@ private struct NexaNavigationBackGestureProbe: UIViewRepresentable {
         func install(from view: UIView) {
             var responder: UIResponder? = view
             while let current = responder {
-                if let controller = current as? UIViewController,
-                   let navigationController = controller.navigationController,
+                let nav = (current as? UINavigationController) ?? (current as? UIViewController)?.navigationController
+                if let navigationController = nav,
                    let popGesture = navigationController.interactivePopGestureRecognizer {
                     popGesture.delegate = self
                     popGesture.isEnabled = true
@@ -387,6 +416,24 @@ private struct NexaNavigationBackGestureProbe: UIViewRepresentable {
                 }
                 responder = current.next
             }
+            if let root = view.window?.rootViewController {
+                if let nav = findNavController(in: root) {
+                    nav.interactivePopGestureRecognizer?.delegate = self
+                    nav.interactivePopGestureRecognizer?.isEnabled = true
+                }
+            }
+        }
+
+        private func findNavController(in root: UIViewController) -> UINavigationController? {
+            if let nav = root as? UINavigationController {
+                return nav
+            }
+            for child in root.children {
+                if let found = findNavController(in: child) {
+                    return found
+                }
+            }
+            return nil
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {

@@ -4,7 +4,7 @@ app PressablePinch {
     state offsetX: Float64 = 0.0
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("Pinch scale: $zoom")
             Pressable() {
                 Text("Pinch to zoom")

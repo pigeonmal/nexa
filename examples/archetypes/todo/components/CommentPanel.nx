@@ -31,16 +31,16 @@ component CommentPanel(taskID: Int32) {
         }
 
         if taskID >= 0 {
-            Column(spacing: 10, padding: 12) {
+            Column(gap: 10, padding: 12) {
                 if activeTaskComments(comments, taskID).isEmpty {
-                    Column(spacing: 8, padding: 32, alignment: Center) {
+                    Column(gap: 8, padding: 32, alignment: Center) {
                         Icon(system: "comment_left", size: 36, tint: "#8E8E93", description: "")
                         Text("No comments", fontSize: 20)
                         Text("Add a comment below", fontSize: 16, color: "#8E8E93")
                     }
                 } else {
                     FastList(activeTaskComments(comments, taskID).sortedBy { comment -> comment.createdAt }) { comment, index in
-                        Column(spacing: 6, padding: 8) {
+                        Column(gap: 6, padding: 8) {
                             Text(Time.format(comment.createdAt, "d MMM, HH:mm"), fontSize: 12, color: "#8E8E93")
                             if comment.imageUri != "" {
                                 Pressable(accessibilityLabel: "Comment image", accessibilityHint: "Double tap to view full size", accessibilityRole: Button) {
@@ -94,7 +94,7 @@ component CommentPanel(taskID: Int32) {
                 }
 
                 Divider(color: "#8E8E93", thickness: 1)
-                Row(spacing: 12, padding: 8) {
+                Row(gap: 12, padding: 8) {
                     MediaPicker.MediaPickerControl(isVideo: false, selectionLimit: 1) {
                         Icon(system: "image", size: 24, tint: "#8E8E93", description: "Add photo")
                     }
@@ -126,7 +126,7 @@ component CommentPanel(taskID: Int32) {
                 Text(commentStatus, fontSize: 12, color: "#8E8E93")
 
                 BottomSheet(ref: fullImageSheetRef, detents: [1.0], initialDetent: 1.0) {
-                    Column(spacing: 12, padding: 16) {
+                    Column(gap: 12, padding: 16) {
                         Image(file: fullImageUri, description: "Full size comment image", scale: Fit)
                         Button("Done", style: Borderless) { fullImageSheetRef.dismiss() }
                     }

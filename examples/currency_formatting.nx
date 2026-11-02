@@ -3,7 +3,7 @@ app CurrencyFormatting {
     let yenPrice: String = Number.formatCurrency(amount: 9876.0, currencyCode: "JPY")
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text(euroPrice)
             Text(yenPrice)
         }

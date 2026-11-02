@@ -66,6 +66,11 @@
         "android": "covered"
       },
       {
+        "name": "NavigationCommand",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "NativeEventSubscribe",
         "ios": "covered",
         "android": "covered"
@@ -767,7 +772,7 @@
         "android": "covered"
       },
       {
-        "name": "SafeAreaTop",
+        "name": "SystemInset",
         "ios": "covered",
         "android": "covered"
       },
@@ -1456,17 +1461,17 @@
         "android": "covered"
       },
       {
-        "name": "SafeAreaPadding",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
         "name": "SafeAreaInset",
         "ios": "covered",
         "android": "covered"
       },
       {
         "name": "ScrollHeader",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ViewInsets",
         "ios": "covered",
         "android": "covered"
       }
@@ -2060,6 +2065,33 @@
       },
       {
         "name": "ExtraLarge",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "Dimension": [
+      {
+        "name": "Fixed",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ParentFraction",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Fill",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ScreenWidthFraction",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ScreenHeightFraction",
         "ios": "covered",
         "android": "covered"
       }

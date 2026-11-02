@@ -363,15 +363,91 @@ extension EnvironmentValues {
     }
 }
 
+struct NexaVisualSafeAreaSnapshot: Equatable {
+    var top: CGFloat = 0
+    var bottom: CGFloat = 0
+    var left: CGFloat = 0
+    var right: CGFloat = 0
+
+    func logical(_ direction: LayoutDirection) -> EdgeInsets {
+        EdgeInsets(
+            top: top,
+            leading: direction == .rightToLeft ? right : left,
+            bottom: bottom,
+            trailing: direction == .rightToLeft ? left : right
+        )
+    }
+
+    func removing(_ edge: Edge, direction: LayoutDirection) -> Self {
+        switch edge {
+        case .top: return Self(top: 0, bottom: bottom, left: left, right: right)
+        case .bottom: return Self(top: top, bottom: 0, left: left, right: right)
+        case .leading:
+            return direction == .rightToLeft
+                ? Self(top: top, bottom: bottom, left: left, right: 0)
+                : Self(top: top, bottom: bottom, left: 0, right: right)
+        case .trailing:
+            return direction == .rightToLeft
+                ? Self(top: top, bottom: bottom, left: 0, right: right)
+                : Self(top: top, bottom: bottom, left: left, right: 0)
+        }
+    }
+
+}
+
+struct NexaWindowMetricsSnapshot: Equatable {
+    let viewportSize: CGSize
+    let safeInsets: NexaVisualSafeAreaSnapshot
+    let keyboardInsets: UIEdgeInsets
+
+    init(
+        viewportSize: CGSize = .zero,
+        safeInsets: NexaVisualSafeAreaSnapshot = NexaVisualSafeAreaSnapshot(),
+        keyboardInsets: UIEdgeInsets = .zero
+    ) {
+        self.viewportSize = viewportSize
+        self.safeInsets = safeInsets
+        self.keyboardInsets = keyboardInsets
+    }
+}
+
+struct NexaWindowMetricsKey: EnvironmentKey {
+    static let defaultValue = NexaWindowMetricsSnapshot()
+}
+
 struct NexaVisualSafeAreaInsetsKey: EnvironmentKey {
-    static let defaultValue = EdgeInsets()
+    static let defaultValue = NexaVisualSafeAreaSnapshot()
+}
+
+struct NexaWindowSafeAreaInsetsKey: EnvironmentKey {
+    static let defaultValue = NexaVisualSafeAreaSnapshot()
+}
+
+private struct NexaFormTopPaddingKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
 }
 
 extension EnvironmentValues {
-    var nexaVisualSafeAreaInsets: EdgeInsets {
+    var nexaWindowMetrics: NexaWindowMetricsSnapshot {
+        get { self[NexaWindowMetricsKey.self] }
+        set { self[NexaWindowMetricsKey.self] = newValue }
+    }
+
+    var nexaVisualSafeAreaInsets: NexaVisualSafeAreaSnapshot {
         get { self[NexaVisualSafeAreaInsetsKey.self] }
         set { self[NexaVisualSafeAreaInsetsKey.self] = newValue }
     }
+
+    var nexaWindowSafeAreaInsets: NexaVisualSafeAreaSnapshot {
+        get { self[NexaWindowSafeAreaInsetsKey.self] }
+        set { self[NexaWindowSafeAreaInsetsKey.self] = newValue }
+    }
+
+    var nexaFormTopPadding: CGFloat {
+        get { self[NexaFormTopPaddingKey.self] }
+        set { self[NexaFormTopPaddingKey.self] = newValue }
+    }
+
 }
 
 struct NexaViewportSizeKey: EnvironmentKey {
@@ -471,36 +547,38 @@ private struct NexaSafeAreaInsetsProbe: UIViewRepresentable {
 }
 
 private struct NexaEdgeToEdgeRoot<Content: View>: View {
-    private let content: (CGSize, EdgeInsets) -> Content
-    @State private var containerSafeInsets = EdgeInsets()
+    private let content: (NexaWindowMetricsSnapshot) -> Content
+    @State private var containerSafeInsets = NexaVisualSafeAreaSnapshot()
 
-    init(@ViewBuilder content: @escaping (CGSize, EdgeInsets) -> Content) {
+    init(@ViewBuilder content: @escaping (NexaWindowMetricsSnapshot) -> Content) {
         self.content = content
     }
 
     var body: some View {
         GeometryReader { proxy in
-            content(proxy.size, containerSafeInsets)
+            let metrics = NexaWindowMetricsSnapshot(
+                viewportSize: proxy.size,
+                safeInsets: containerSafeInsets
+            )
+            content(metrics)
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                .environment(\.nexaWindowMetrics, metrics)
                 .environment(\.nexaVisualSafeAreaInsets, containerSafeInsets)
+                .environment(\.nexaWindowSafeAreaInsets, containerSafeInsets)
                 .environment(\.nexaViewportSize, proxy.size)
         }
         .background {
             NexaSafeAreaInsetsProbe { insets in
-                let next = EdgeInsets(
+                let next = NexaVisualSafeAreaSnapshot(
                     top: insets.top,
-                    leading: insets.left,
                     bottom: insets.bottom,
-                    trailing: insets.right
+                    left: insets.left,
+                    right: insets.right
                 )
-                guard containerSafeInsets.top != next.top
-                    || containerSafeInsets.leading != next.leading
-                    || containerSafeInsets.bottom != next.bottom
-                    || containerSafeInsets.trailing != next.trailing
-                else { return }
+                guard containerSafeInsets != next else { return }
                 containerSafeInsets = next
             }
-            .frame(width: 0, height: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
@@ -509,106 +587,200 @@ private struct NexaEdgeToEdgeRoot<Content: View>: View {
     }
 }
 
-// nexa-codegen: NexaSafeAreaPaddingPrimitive
-private struct NexaSafeAreaPaddingPrimitive<Content: View>: View {
-    let edges: Edge.Set
-    let spacing: CGFloat
+// nexa-codegen: NexaViewInsetsPrimitive
+struct NexaViewInsetsPrimitive<Content: View>: View {
+    let padding: EdgeInsets
+    let margin: EdgeInsets
+    var scrollContent: Bool = false
     @ViewBuilder let content: () -> Content
-    @Environment(\.nexaVisualSafeAreaInsets) private var safeInsets
-
-    var body: some View {
-        content()
-            .padding(.top, edges.contains(.top) ? max(0, safeInsets.top) : 0)
-            .padding(.bottom, edges.contains(.bottom) ? max(0, safeInsets.bottom) : 0)
-            .padding(.leading, edges.contains(.leading) ? max(0, safeInsets.leading) : 0)
-            .padding(.trailing, edges.contains(.trailing) ? max(0, safeInsets.trailing) : 0)
-            .padding(.top, edges.contains(.top) ? spacing : 0)
-            .padding(.bottom, edges.contains(.bottom) ? spacing : 0)
-            .padding(.leading, edges.contains(.leading) ? spacing : 0)
-            .padding(.trailing, edges.contains(.trailing) ? spacing : 0)
-            .environment(\.nexaVisualSafeAreaInsets, safeInsets.removing(edges))
-    }
-}
-
-// nexa-codegen: NexaSafeAreaInsetPrimitive
-private struct NexaSafeAreaEdgePadding: ViewModifier {
-    let edge: Edge
-    let amount: CGFloat
 
     @ViewBuilder
-    func body(content: Content) -> some View {
-        switch edge {
-        case .top: content.padding(.top, amount)
-        case .bottom: content.padding(.bottom, amount)
-        case .leading: content.padding(.leading, amount)
-        case .trailing: content.padding(.trailing, amount)
+    var body: some View {
+        if scrollContent {
+            if margin.top == 0, margin.leading == 0, margin.bottom == 0, margin.trailing == 0 {
+                NexaScrollViewport {
+                    content().environment(\.nexaScrollContentPadding, padding)
+                }
+            } else {
+                NexaScrollMarginViewport(margin: margin) {
+                    content().environment(\.nexaScrollContentPadding, padding)
+                }
+            }
+        } else {
+            content().padding(padding).padding(margin)
         }
     }
 }
 
+// nexa-codegen: nexaScrollContentPadding
+private struct NexaScrollContentPaddingKey: EnvironmentKey {
+    static let defaultValue = EdgeInsets()
+}
+
+extension EnvironmentValues {
+    var nexaScrollContentPadding: EdgeInsets {
+        get { self[NexaScrollContentPaddingKey.self] }
+        set { self[NexaScrollContentPaddingKey.self] = newValue }
+    }
+}
+
+// nexa-codegen: NexaScrollContent
+struct NexaScrollContent<Content: View>: View {
+    @Environment(\.nexaScrollContentPadding) private var padding
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .environment(\.nexaScrollContentPadding, EdgeInsets())
+            .padding(padding)
+    }
+}
+
+// nexa-codegen: NexaRefreshPrimitive
+struct NexaRefreshPrimitive<Content: View>: View {
+    let hasNativeScrollOwner: Bool
+    @ViewBuilder let content: () -> Content
+
+    @ViewBuilder
+    var body: some View {
+        if hasNativeScrollOwner {
+            content()
+        } else {
+            NexaScrollViewport {
+                ScrollView { NexaScrollContent { content() } }
+            }
+        }
+    }
+}
+
+// nexa-codegen: NexaParentRelativeDimensionModifier
+struct NexaParentRelativeDimensionModifier: ViewModifier {
+    var width: CGFloat? = nil
+    var height: CGFloat? = nil
+    var minWidth: CGFloat? = nil
+    var maxWidth: CGFloat? = nil
+    var minHeight: CGFloat? = nil
+    var maxHeight: CGFloat? = nil
+
+    func body(content: Content) -> some View {
+        NexaParentRelativeDimensionLayout(
+            width: width,
+            height: height,
+            minWidth: minWidth,
+            maxWidth: maxWidth,
+            minHeight: minHeight,
+            maxHeight: maxHeight
+        ) { content }
+    }
+}
+
+private struct NexaParentRelativeDimensionLayout: Layout {
+    let width: CGFloat?
+    let height: CGFloat?
+    let minWidth: CGFloat?
+    let maxWidth: CGFloat?
+    let minHeight: CGFloat?
+    let maxHeight: CGFloat?
+    struct Cache {}
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let boundedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let boundedHeight = proposal.height.flatMap { $0.isFinite ? $0 : nil }
+        let targetWidth = width.flatMap { fraction in boundedWidth.map { max(0, $0 * fraction) } }
+        let targetHeight = height.flatMap { fraction in boundedHeight.map { max(0, $0 * fraction) } }
+        let measured = child.sizeThatFits(ProposedViewSize(
+            width: targetWidth ?? proposal.width,
+            height: targetHeight ?? proposal.height
+        ))
+        let measuredWidth = targetWidth ?? measured.width
+        let measuredHeight = targetHeight ?? measured.height
+        let resolvedWidth = min(max(measuredWidth, minWidth.flatMap { fraction in boundedWidth.map { $0 * fraction } } ?? 0), maxWidth.flatMap { fraction in boundedWidth.map { $0 * fraction } } ?? .infinity)
+        let resolvedHeight = min(max(measuredHeight, minHeight.flatMap { fraction in boundedHeight.map { $0 * fraction } } ?? 0), maxHeight.flatMap { fraction in boundedHeight.map { $0 * fraction } } ?? .infinity)
+        return CGSize(width: resolvedWidth, height: resolvedHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        subviews.first?.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
+    }
+}
+
+// nexa-codegen: NexaSafeAreaInsetPrimitive
 private struct NexaSafeAreaInsetsPadding: ViewModifier {
     let insets: EdgeInsets
 
     func body(content: Content) -> some View {
-        content
-            .padding(.top, insets.top)
-            .padding(.leading, insets.leading)
-            .padding(.bottom, insets.bottom)
-            .padding(.trailing, insets.trailing)
+        content.padding(insets)
     }
 }
 
 private struct NexaNativeSafeAreaInset<Attached: View>: ViewModifier {
     let edge: Edge
-    let spacing: CGFloat
     @ViewBuilder let attached: () -> Attached
 
     @ViewBuilder
     func body(content: Content) -> some View {
         switch edge {
         case .top:
-            content.safeAreaInset(edge: .top, spacing: spacing) { attached() }
+            content.safeAreaInset(edge: .top, spacing: 0) { attached() }
         case .bottom:
-            content.safeAreaInset(edge: .bottom, spacing: spacing) { attached() }
+            content.safeAreaInset(edge: .bottom, spacing: 0) { attached() }
         case .leading:
-            content.safeAreaInset(edge: .leading, spacing: spacing) { attached() }
+            content.safeAreaInset(edge: .leading, spacing: 0) { attached() }
         case .trailing:
-            content.safeAreaInset(edge: .trailing, spacing: spacing) { attached() }
+            content.safeAreaInset(edge: .trailing, spacing: 0) { attached() }
         }
     }
 }
 
 private struct NexaSafeAreaInsetPrimitive<Content: View, Attached: View>: View {
     let edge: Edge
-    let spacing: CGFloat
     let accommodatesEndpoint: Bool
     @ViewBuilder let content: () -> Content
     @ViewBuilder let attachedContent: () -> Attached
-    @Environment(\.nexaVisualSafeAreaInsets) private var safeInsets
+    @Environment(\.nexaVisualSafeAreaInsets) private var safeAreaSnapshot
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    private var safeInsets: EdgeInsets { safeAreaSnapshot.logical(layoutDirection) }
 
     @ViewBuilder
     var body: some View {
         if accommodatesEndpoint {
             content()
-                .environment(\.nexaVisualSafeAreaInsets, safeInsets.removing(edge))
-                .modifier(NexaNativeSafeAreaInset(edge: edge, spacing: spacing) {
+                .environment(
+                    \.nexaVisualSafeAreaInsets,
+                    safeAreaSnapshot.removing(edge, direction: layoutDirection)
+                )
+                .modifier(NexaNativeSafeAreaInset(edge: edge) {
                     attachedContent()
                         .modifier(NexaSafeAreaInsetsPadding(insets: safeInsets.perpendicular(to: edge)))
-                        .modifier(NexaSafeAreaEdgePadding(edge: edge, amount: safeInsets.value(at: edge)))
-                        .environment(\.nexaVisualSafeAreaInsets, safeInsets.removing(edge))
+                        .environment(
+                            \.nexaVisualSafeAreaInsets,
+                            safeAreaSnapshot.removing(edge, direction: layoutDirection)
+                        )
                 })
         } else {
             GeometryReader { proxy in
                 content()
                     .environment(\.nexaSafeAreaRootFillsWidth, true)
-                    .environment(\.nexaVisualSafeAreaInsets, safeInsets.removing(edge))
+                    .environment(
+                        \.nexaVisualSafeAreaInsets,
+                        safeAreaSnapshot.removing(edge, direction: layoutDirection)
+                    )
                     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                     .overlay(alignment: edge.nexaAlignment) {
                         attachedContent()
                             .modifier(NexaSafeAreaInsetsPadding(insets: safeInsets.perpendicular(to: edge)))
-                            .modifier(NexaSafeAreaEdgePadding(edge: edge, amount: safeInsets.value(at: edge)))
-                            .modifier(NexaSafeAreaEdgePadding(edge: edge, amount: spacing))
-                            .environment(\.nexaVisualSafeAreaInsets, safeInsets.removing(edge))
+                            .environment(
+                                \.nexaVisualSafeAreaInsets,
+                                safeAreaSnapshot.removing(edge, direction: layoutDirection)
+                            )
                     }
             }
         }
@@ -628,15 +800,6 @@ private extension Edge {
 
 // nexa-codegen: EdgeInsets
 private extension EdgeInsets {
-    func value(at edge: Edge) -> CGFloat {
-        switch edge {
-        case .top: return top
-        case .bottom: return bottom
-        case .leading: return leading
-        case .trailing: return trailing
-        }
-    }
-
     func perpendicular(to edge: Edge) -> EdgeInsets {
         switch edge {
         case .top, .bottom:
@@ -644,24 +807,6 @@ private extension EdgeInsets {
         case .leading, .trailing:
             return EdgeInsets(top: top, leading: 0, bottom: bottom, trailing: 0)
         }
-    }
-
-    func removing(_ edge: Edge) -> EdgeInsets {
-        EdgeInsets(
-            top: edge == .top ? 0 : top,
-            leading: edge == .leading ? 0 : leading,
-            bottom: edge == .bottom ? 0 : bottom,
-            trailing: edge == .trailing ? 0 : trailing
-        )
-    }
-
-    func removing(_ edges: Edge.Set) -> EdgeInsets {
-        EdgeInsets(
-            top: edges.contains(.top) ? 0 : top,
-            leading: edges.contains(.leading) ? 0 : leading,
-            bottom: edges.contains(.bottom) ? 0 : bottom,
-            trailing: edges.contains(.trailing) ? 0 : trailing
-        )
     }
 
 }
@@ -1606,6 +1751,23 @@ struct NexaStatusBarBackgroundPrimitive: View {
     }
 }
 
+// nexa-codegen: NexaStatusBarStylePrimitive
+struct NexaStatusBarStylePrimitive: ViewModifier {
+    let colorScheme: ColorScheme?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 27.0, *), let colorScheme {
+            content.toolbarColorScheme(colorScheme, for: .statusBar)
+        } else {
+            // Older SwiftUI releases have no status-bar-only color-scheme API.
+            // Preserve the app's interface appearance instead of changing the
+            // entire presentation to recolor status-bar items.
+            content
+        }
+    }
+}
+
 // nexa-codegen: NexaDividerPrimitive
 struct NexaDividerPrimitive: View {
     let color: Color
@@ -2356,6 +2518,7 @@ struct NexaNativeListPrimitive<Content: View>: View {
     private let rowCount: Int
     private let componentRef: NexaFastListRef?
     private let content: Content
+    @Environment(\.nexaScrollContentPadding) private var contentPadding
     @State private var reorderSession: NexaFastListReorderSession?
 
     init(
@@ -2379,9 +2542,20 @@ struct NexaNativeListPrimitive<Content: View>: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
+                if #unavailable(iOS 17.0) {
+                    Color.clear.frame(height: CGFloat(__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__) + contentPadding.top)
+                        .listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear).accessibilityHidden(true)
+                }
                 content
+                    .environment(\.nexaScrollContentPadding, EdgeInsets())
                     .environment(\.nexaFastListReorderSession, reorderSession)
                     .environment(\.nexaNativeListComponentRef, componentRef)
+                if #unavailable(iOS 17.0) {
+                    Color.clear.frame(height: CGFloat(__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__) + contentPadding.bottom)
+                        .listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear).accessibilityHidden(true)
+                }
             }
             .onAppear {
                 guard let componentRef else { return }
@@ -2654,84 +2828,248 @@ struct NexaNativeListRowPrimitive<Content: View>: View {
 
 // nexa-codegen: NexaNativeListStyleModifier
 struct NexaNativeListStyleModifier: ViewModifier {
+
+    @Environment(\.nexaScrollContentPadding) private var padding
+
     func body(content: Content) -> some View {
-        let groupedList = content
+        let groupedList = NexaScrollViewport { content }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Color(uiColor: .systemGroupedBackground))
+            .ignoresSafeArea(.container, edges: .all)
         if #available(iOS 17.0, *) {
             groupedList.contentMargins(
                 .horizontal,
                 CGFloat(__NEXA_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__),
                 for: .scrollContent
             )
+            .contentMargins(.leading, CGFloat(__NEXA_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__) + padding.leading, for: .scrollContent)
+            .contentMargins(.trailing, CGFloat(__NEXA_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__) + padding.trailing, for: .scrollContent)
             .contentMargins(
                 .vertical,
-                CGFloat(__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__),
+                EdgeInsets(
+                    top: padding.top + CGFloat(__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__),
+                    leading: 0,
+                    bottom: padding.bottom + CGFloat(__NEXA_NATIVE_LIST_CONTENT_VERTICAL_INSET__),
+                    trailing: 0
+                ),
                 for: .scrollContent
             )
         } else {
             // Before iOS 17, insetGrouped List has no public contentMargins API.
             // Expand only the container so its system inset cancels out; row
             // content keeps the explicit listRowInsets above.
-            groupedList.padding(
-                .horizontal,
-                -CGFloat(__NEXA_IOS_LEGACY_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__)
-            )
+            groupedList
+                .padding(
+                    .horizontal,
+                    -CGFloat(__NEXA_IOS_LEGACY_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__)
+                )
+
         }
+    }
+}
+
+// nexa-codegen: NexaScrollViewport
+private struct NexaScrollViewport<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            content
+                .ignoresSafeArea(.container, edges: .all)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+        }
+        .ignoresSafeArea(.container, edges: .all)
+    }
+}
+
+// nexa-codegen: NexaScrollMarginViewport
+private struct NexaScrollMarginViewport<Content: View>: View {
+    let margin: EdgeInsets
+    private let content: Content
+    @Environment(\.self) private var environment
+
+    init(margin: EdgeInsets, @ViewBuilder content: () -> Content) {
+        self.margin = margin
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            NexaScrollMarginHostedContent(
+                content: NexaScrollViewport { content.environment(\.self, environment) }
+            )
+                .frame(
+                    width: max(0, proxy.size.width - margin.leading - margin.trailing),
+                    height: max(0, proxy.size.height - margin.top - margin.bottom),
+                    alignment: .topLeading
+                )
+                .padding(margin)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+        }
+        .ignoresSafeArea(.container, edges: .all)
+    }
+}
+
+private struct NexaScrollMarginHostedContent<Content: View>: UIViewControllerRepresentable {
+    let content: Content
+
+    func makeUIViewController(context: Context) -> NexaScrollMarginHostingController<Content> {
+        NexaScrollMarginHostingController(rootView: content)
+    }
+
+    func updateUIViewController(
+        _ controller: NexaScrollMarginHostingController<Content>,
+        context: Context
+    ) {
+        controller.rootView = content
+    }
+}
+
+private final class NexaScrollMarginHostingController<Content: View>: UIHostingController<Content> {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        if #available(iOS 16.4, *) {
+            safeAreaRegions.remove(.container)
+        }
+        view.clipsToBounds = true
+        view.backgroundColor = .clear
     }
 }
 
 // nexa-codegen: NexaFormPrimitive
 struct NexaFormPrimitive<Content: View>: View {
     let background: Color?
+    let contentPadding: EdgeInsets
+    let margin: EdgeInsets
+    let firstChildIsSection: Bool
     private let content: Content
     @Environment(\.multilineTextAlignment) private var inheritedTextAlignment
 
-    init(background: Color? = nil, @ViewBuilder content: () -> Content) {
+    init(
+        background: Color? = nil,
+        contentPadding: EdgeInsets = .init(),
+        margin: EdgeInsets = .init(),
+        firstChildIsSection: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) {
         self.background = background
+        self.contentPadding = contentPadding
+        self.margin = margin
+        self.firstChildIsSection = firstChildIsSection
         self.content = content()
     }
 
+    @Environment(\.nexaScrollContentPadding) private var inheritedPadding
+
+    private var effectivePadding: EdgeInsets {
+        EdgeInsets(top: contentPadding.top + inheritedPadding.top,
+            leading: contentPadding.leading + inheritedPadding.leading,
+            bottom: contentPadding.bottom + inheritedPadding.bottom,
+            trailing: contentPadding.trailing + inheritedPadding.trailing)
+    }
+
     var body: some View {
-        Form { content }
+        let form = Form {
+            if !firstChildIsSection, effectivePadding.top != 0 {
+                Color.clear
+                    .frame(height: effectivePadding.top)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .accessibilityHidden(true)
+            }
+            content.environment(\.nexaScrollContentPadding, EdgeInsets())
+            if effectivePadding.bottom != 0 {
+                Color.clear
+                    .frame(height: effectivePadding.bottom)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .accessibilityHidden(true)
+            }
+        }
             .multilineTextAlignment(inheritedTextAlignment)
             .scrollContentBackground(.hidden)
             .background(background ?? Color.clear)
+            .environment(\.nexaFormTopPadding, firstChildIsSection ? effectivePadding.top : 0)
+
+        // Margin constrains and clips the Form viewport. Explicit padding remains
+        // inside the full viewport and therefore scrolls with the Form's content.
+        if margin.top == 0, margin.leading == 0, margin.bottom == 0, margin.trailing == 0 {
+            NexaScrollViewport {
+                configuredForm(form)
+            }
+        } else {
+            NexaScrollMarginViewport(margin: margin) {
+                configuredForm(form)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func configuredForm<FormContent: View>(_ form: FormContent) -> some View {
+        if #available(iOS 17.0, *) {
+            form
+                .contentMargins(.leading, effectivePadding.leading, for: .scrollContent)
+                .contentMargins(.trailing, effectivePadding.trailing, for: .scrollContent)
+        } else {
+            form.listRowInsets(EdgeInsets(
+                top: 0,
+                leading: effectivePadding.leading,
+                bottom: 0,
+                trailing: effectivePadding.trailing
+            ))
+        }
     }
 }
 
 // nexa-codegen: NexaFormSectionPrimitive
 struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View {
     let background: Color?
+    let isFirstSection: Bool
     private let content: Content
     private let header: Header
     private let footer: Footer
+    @Environment(\.nexaFormTopPadding) private var formTopPadding
 
     init(
         background: Color? = nil,
+        isFirstSection: Bool = false,
         @ViewBuilder content: () -> Content,
         @ViewBuilder header: () -> Header,
         @ViewBuilder footer: () -> Footer
     ) {
         self.background = background
+        self.isFirstSection = isFirstSection
         self.content = content()
         self.header = header()
         self.footer = footer()
     }
 
+    private var firstHeaderTopPadding: CGFloat {
+        isFirstSection ? formTopPadding : 0
+    }
+
     var body: some View {
-        Section {
+        let section = Section {
             content
         } header: {
-            header.foregroundStyle(.secondary)
+            header
+                .foregroundStyle(.secondary)
+                .padding(.top, firstHeaderTopPadding)
+                .padding(.leading, -CGFloat(__NEXA_IOS_FORM_SECTION_HEADER_LEADING_CORRECTION__))
         } footer: {
             footer
         }
-        // Compose form sections draw row dividers but no section-edge rules.
-        // Hide SwiftUI's automatic section separators to keep the shared layout aligned.
-        .listSectionSeparator(.hidden)
-        .listRowBackground(background ?? Color.clear)
+
+        section
+            .listSectionSeparator(.hidden)
+            .listRowBackground(background ?? Color.clear)
     }
 }
 
@@ -2903,7 +3241,7 @@ struct NexaKeyboardAwarePrimitive<Content: View>: View {
         if hasNativeScrollOwner {
             content.scrollDismissesKeyboard(dismissMode)
         } else {
-            ScrollView(.vertical) { content }
+            ScrollView(.vertical) { NexaScrollContent { content } }
                 .scrollDismissesKeyboard(dismissMode)
         }
     }
@@ -3147,22 +3485,6 @@ struct NexaAdaptiveScrollHeaderPrimitive<Header: View, Content: View>: View {
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-// nexa-codegen: NexaRefreshPrimitive
-struct NexaRefreshPrimitive<Content: View>: View {
-    private let onRefresh: @Sendable () async -> Void
-    private let content: Content
-
-    init(onRefresh: @escaping @Sendable () async -> Void, @ViewBuilder content: () -> Content) {
-        self.onRefresh = onRefresh
-        self.content = content()
-    }
-
-    var body: some View {
-        ScrollView(.vertical) { content }
-            .refreshable(action: onRefresh)
     }
 }
 
@@ -3705,10 +4027,13 @@ const NEXA_APP_BOTTOM_BAR_PRIMITIVE: &str = r#"struct NexaAppBottomBarPrimitive:
 }
 
 struct NexaAppBottomBarSafeAreaPrimitive: ViewModifier {
-    @Environment(\.nexaVisualSafeAreaInsets) private var safeInsets
+    @Environment(\.nexaVisualSafeAreaInsets) private var safeAreaSnapshot
 
     func body(content: Content) -> some View {
-        content.environment(\.nexaVisualSafeAreaInsets, safeInsets.removing(Edge.bottom))
+        content.environment(
+            \.nexaVisualSafeAreaInsets,
+            safeAreaSnapshot.removing(Edge.bottom, direction: .leftToRight)
+        )
     }
 }
 
@@ -3823,6 +4148,10 @@ fn shared_component_primitives_with_animation(
         (
             "__NEXA_NATIVE_LIST_ROW_HORIZONTAL_INSET__",
             nexa_codegen::design_system::NATIVE_LIST_ROW_HORIZONTAL_INSET.to_string(),
+        ),
+        (
+            "__NEXA_IOS_FORM_SECTION_HEADER_LEADING_CORRECTION__",
+            nexa_codegen::design_system::IOS_FORM_SECTION_HEADER_LEADING_CORRECTION.to_string(),
         ),
         (
             "__NEXA_NATIVE_LIST_CONTAINER_HORIZONTAL_INSET__",
@@ -4127,6 +4456,7 @@ fn generate_with_analysis_mode(
     dev_runtime: bool,
     plugin_value_runtime: bool,
 ) -> GeneratedSources {
+    components::controls::register_known_screens(&module.screens);
     let app_focus_bindings = app_focus_bindings(module, &features);
     let mut all_focus_bindings = app_focus_bindings.clone();
     for screen in &module.screens {
@@ -4241,6 +4571,9 @@ fn generate_with_analysis_mode(
         if features.uses_shared_elements {
             out.push_str("    @Namespace private var nexaSharedNamespace\n");
         }
+        if features.facts.ui.app.window_metrics {
+            out.push_str("    @Environment(\\.layoutDirection) private var layoutDirection\n");
+        }
         let has_signals = module
             .states
             .iter()
@@ -4331,9 +4664,7 @@ fn generate_with_analysis_mode(
         // the node renderer, so body modifiers (including task cleanup) can be
         // applied to it directly without adding a redundant second wrapper.
         let needs_group = features.uses_shared_elements;
-        out.push_str(
-            "        NexaEdgeToEdgeRoot { nexaViewportSize, nexaVisualSafeAreaInsets in\n",
-        );
+        out.push_str("        NexaEdgeToEdgeRoot { nexaWindowMetrics in\n");
 
         if needs_group {
             out.push_str("            Group {\n");
@@ -4380,7 +4711,16 @@ fn generate_with_analysis_mode(
             out,
         );
         lifecycle::render_scene_phase(module, 3, out);
-        status_bar::render(module.status_bar, 3, out);
+        let app_root_status_bar = if module
+            .screens
+            .iter()
+            .any(|screen| screen.status_bar.is_some())
+        {
+            None
+        } else {
+            module.status_bar
+        };
+        status_bar::render(app_root_status_bar, 3, out);
         if features.uses_shared_elements {
             out.push_str("\n            .environment(\\.nexaSharedNamespace, nexaSharedNamespace)");
         }
@@ -4659,7 +4999,10 @@ mod tests {
     #[test]
     fn custom_app_bottom_bar_removes_its_reserved_bottom_safe_area_from_tab_content() {
         assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("struct NexaAppBottomBarSafeAreaPrimitive"));
-        assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("safeInsets.removing(Edge.bottom)"));
+        assert!(
+            NEXA_APP_BOTTOM_BAR_PRIMITIVE
+                .contains("safeAreaSnapshot.removing(Edge.bottom, direction: .leftToRight)")
+        );
     }
 
     #[test]
@@ -4671,15 +5014,227 @@ mod tests {
             .unwrap_or_default();
 
         assert!(root.contains("GeometryReader { proxy in"));
-        assert!(root.contains("content(proxy.size, containerSafeInsets)"));
+        assert!(root.contains("let metrics = NexaWindowMetricsSnapshot("));
+        assert!(root.contains("content(metrics)"));
+        assert!(root.contains(".environment(\\.nexaWindowMetrics, metrics)"));
         assert!(root.contains(".frame(width: proxy.size.width, height: proxy.size.height"));
         assert!(root.contains("NexaSafeAreaInsetsProbe { insets in"));
+        assert!(root.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"));
+        assert!(!root.contains(".frame(width: 0, height: 0)"));
+        assert!(root.contains(".environment(\\.nexaVisualSafeAreaInsets, containerSafeInsets)"));
+        assert!(root.contains(".environment(\\.nexaWindowSafeAreaInsets, containerSafeInsets)"));
         assert!(root.contains(".environment(\\.nexaViewportSize, proxy.size)"));
         assert!(root.contains(".ignoresSafeArea(.container, edges: .all)"));
+        assert!(root.contains("left: insets.left"));
+        assert!(root.contains("right: insets.right"));
+        assert!(!root.contains("layoutDirection == .rightToLeft"));
         assert!(!root.contains("proxy.safeAreaInsets"));
         assert!(!root.contains("proxy.size.height + safeInsets.top + safeInsets.bottom"));
         assert!(!NEXA_SHARED_COMPONENT_PRIMITIVES.contains("NexaSafeAreaInsetsReader"));
         assert!(!root.contains("@State private var safeInsets"));
+
+        assert!(!NEXA_SHARED_COMPONENT_PRIMITIVES.contains("NexaSafeAreaPaddingPrimitive"));
+        assert!(NEXA_SHARED_COMPONENT_PRIMITIVES.contains("NexaViewInsetsPrimitive"));
+
+        let safe_area_inset = NEXA_SHARED_COMPONENT_PRIMITIVES
+            .split("private struct NexaSafeAreaInsetPrimitive<Content: View, Attached: View>")
+            .nth(1)
+            .and_then(|source| source.split("private extension Edge {").next())
+            .unwrap_or_default();
+        assert!(safe_area_inset.contains("safeAreaSnapshot.logical(layoutDirection)"));
+        assert!(
+            safe_area_inset.contains("safeAreaSnapshot.removing(edge, direction: layoutDirection)")
+        );
+        let native_safe_area_inset = safe_area_inset
+            .split("if accommodatesEndpoint {")
+            .nth(1)
+            .and_then(|source| source.split("} else {").next())
+            .unwrap_or_default();
+        assert!(native_safe_area_inset.contains("NexaNativeSafeAreaInset(edge: edge)"));
+        assert!(
+            native_safe_area_inset
+                .contains("NexaSafeAreaInsetsPadding(insets: safeInsets.perpendicular(to: edge))")
+        );
+        assert!(
+            NEXA_SHARED_COMPONENT_PRIMITIVES
+                .contains("content.safeAreaInset(edge: .bottom, spacing: 0)")
+        );
+        assert!(!safe_area_inset.contains("NexaSafeAreaEdgePadding"));
+        assert!(!safe_area_inset.contains("let spacing"));
+
+        let probe = NEXA_SHARED_COMPONENT_PRIMITIVES
+            .split("private final class NexaSafeAreaInsetsProbeView: UIView {")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("private struct NexaSafeAreaInsetsProbe:")
+                    .next()
+            })
+            .unwrap_or_default();
+        assert!(probe.contains("window.safeAreaInsets"));
+        assert!(probe.contains("safeAreaInsetsDidChange()"));
+        assert!(probe.contains("layoutSubviews()"));
+        assert!(probe.contains("guard insets != lastReportedInsets else { return }"));
+
+        let dev_runtime = include_str!("../../../../runtime/ios/NexaDevRuntime.swift");
+        assert!(dev_runtime.contains("NexaDevEdgeToEdgeRoot {"));
+        let dev_root = dev_runtime
+            .split("private struct NexaDevEdgeToEdgeRoot<Content: View>")
+            .nth(1)
+            .and_then(|source| source.split("/// Zero-size probe").next())
+            .unwrap_or_default();
+        assert!(dev_root.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"));
+        assert!(!dev_root.contains(".frame(width: 0, height: 0)"));
+        assert!(!dev_runtime.contains("NexaDevSafeAreaEdgePadding"));
+        assert!(
+            dev_runtime.contains(".environment(\\.nexaDevVisualSafeInsets, containerSafeInsets)")
+        );
+        assert!(dev_runtime.contains("\\.nexaWindowSafeAreaInsets,"));
+        assert!(dev_runtime.contains("left: insets.left"));
+        assert!(dev_runtime.contains("right: insets.right"));
+        assert!(!dev_runtime.contains("NexaDevSafeAreaPaddingPrimitive"));
+        let dev_renderer = include_str!("../../../../runtime/ios/NexaDevRenderer.swift");
+        assert!(dev_renderer.contains("case \"ViewInsets\":"));
+
+        let dev_safe_area_inset = dev_runtime
+            .split("struct NexaDevSafeAreaInsetPrimitive<Content: View, Attached: View>: View {")
+            .nth(1)
+            .and_then(|source| source.split("private extension EdgeInsets {").next())
+            .unwrap_or_default();
+        assert!(dev_safe_area_inset.contains("safeAreaSnapshot.logical(layoutDirection)"));
+        assert!(
+            dev_safe_area_inset
+                .contains("safeAreaSnapshot.devRemoving(edge, direction: layoutDirection)")
+        );
+        let dev_native_safe_area_inset = dev_safe_area_inset
+            .split("if accommodatesEndpoint {")
+            .nth(1)
+            .and_then(|source| source.split("} else {").next())
+            .unwrap_or_default();
+        assert!(dev_native_safe_area_inset.contains("NexaDevNativeSafeAreaInset(edge: edge)"));
+        assert!(dev_runtime.contains("content.safeAreaInset(edge: .bottom, spacing: 0)"));
+        assert!(dev_native_safe_area_inset.contains(
+            "NexaDevSafeAreaInsetsPadding(insets: safeInsets.devPerpendicular(to: edge))"
+        ));
+        assert!(!dev_safe_area_inset.contains("NexaDevSafeAreaEdgePadding"));
+
+        let primitives = shared_component_primitives(false);
+        let form = primitives
+            .split("struct NexaFormPrimitive<Content: View>: View {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        let native_list = primitives
+            .split("struct NexaNativeListStyleModifier: ViewModifier {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        let form_margin_viewport = primitives
+            .split("private struct NexaScrollMarginViewport<Content: View>: View {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        let form_padding_viewport = primitives
+            .split("private struct NexaScrollViewport<Content: View>: View {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        assert!(form.contains("NexaScrollMarginViewport(margin: margin)"));
+        assert!(form.contains("if margin.top == 0, margin.leading == 0"));
+        assert!(form.contains("NexaScrollViewport {"));
+        assert!(!form.contains("NexaFormScrollInsetsProbe"));
+        assert!(!form.contains(".padding(margin)"));
+        assert!(form_margin_viewport.contains(".ignoresSafeArea(.container, edges: .all)"));
+        assert!(
+            form_margin_viewport
+                .contains("width: max(0, proxy.size.width - margin.leading - margin.trailing)")
+        );
+        assert!(
+            form_margin_viewport
+                .contains("height: max(0, proxy.size.height - margin.top - margin.bottom)")
+        );
+        assert!(form_margin_viewport.contains(".padding(margin)"));
+        assert!(form_margin_viewport.contains("NexaScrollMarginHostedContent("));
+        assert!(
+            form_margin_viewport.contains(
+                r"content: NexaScrollViewport { content.environment(\.self, environment) }"
+            )
+        );
+        assert!(form_margin_viewport.contains("view.clipsToBounds = true"));
+        assert!(form_padding_viewport.contains(".ignoresSafeArea(.container, edges: .all)"));
+        assert!(
+            form_padding_viewport
+                .contains("frame(width: proxy.size.width, height: proxy.size.height")
+        );
+        assert!(
+            form_margin_viewport.find("height: max(0").unwrap()
+                < form_margin_viewport.find(".padding(margin)").unwrap()
+        );
+        assert!(native_list.contains(".ignoresSafeArea(.container, edges: .all)"));
+        assert!(
+            form.contains(
+                ".contentMargins(.leading, effectivePadding.leading, for: .scrollContent)"
+            )
+        );
+        assert!(form.contains(
+            ".contentMargins(.trailing, effectivePadding.trailing, for: .scrollContent)"
+        ));
+        assert!(form.contains(
+            ".environment(\\.nexaFormTopPadding, firstChildIsSection ? effectivePadding.top : 0)"
+        ));
+        assert!(!form.contains("marginSafeAreaCompensation"));
+        assert!(!form.contains("nexaFormTopMarginCompensation"));
+        assert!(!form.contains("logicalWindowSafeAreaInsets"));
+        assert!(!form.contains("NexaScrollContentSafeAreaModifier("));
+        assert!(!form.contains("form.contentMargins(.vertical, 0, for: .scrollContent)"));
+        assert!(form.contains("if #available(iOS 17.0, *)"));
+        assert!(form.contains("if !firstChildIsSection, effectivePadding.top != 0"));
+        assert!(form.contains(".frame(height: effectivePadding.top)"));
+        assert!(form.contains(".frame(height: effectivePadding.bottom)"));
+        let form_section = primitives
+            .split("struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>: View {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        assert!(form_section.contains(".padding(.top, firstHeaderTopPadding)"));
+        assert!(form_section.contains("isFirstSection ? formTopPadding : 0"));
+        assert!(!form_section.contains("listSectionMargins(.top"));
+        assert!(!form_section.contains("formSectionTopPadding"));
+        assert!(!primitives.contains("nexaFormNativeTopContentMargin"));
+        assert!(native_list.contains("NexaScrollViewport { content }"));
+        assert!(!native_list.contains("windowSafeAreaInsets"));
+        assert!(root.contains(".ignoresSafeArea(.container, edges: .all)"));
+
+        let list_runtime = include_str!("components/list_runtime.rs");
+        assert!(list_runtime.contains("func nexaConfigureEdgeToEdgeScrollView("));
+        assert!(list_runtime.contains(
+            "nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment, reverseLayout: reverseLayout)"
+        ));
+        assert!(list_runtime.contains(
+            "nexaConfigureEdgeToEdgeScrollView(collectionView, environment: context.environment)"
+        ));
+        assert!(list_runtime.contains("scrollView.contentInsetAdjustmentBehavior = .never"));
+        assert!(!list_runtime.contains(
+            "contentInsetAdjustmentBehavior = pageSnap || reverseLayout ? .never : .automatic"
+        ));
+        let dev_renderer = include_str!("../../../../runtime/ios/NexaDevRenderer.swift");
+        assert!(!dev_renderer.contains(
+            ".scrollDisabled(!scrollEnabled)\n        .ignoresSafeArea(.container, edges: .all)"
+        ));
+        let form_insets_dispatch = dev_renderer
+            .split("case \"ViewInsets\":")
+            .nth(1)
+            .and_then(|source| source.split("case \"SafeAreaInset\":").next())
+            .unwrap_or_default();
+        assert!(form_insets_dispatch.contains("taggedChild[\"Form\"] != nil"));
+        assert!(form_insets_dispatch.contains("formContentPadding: padding"));
+        assert!(form_insets_dispatch.contains("formMargin: margin"));
+        assert!(dev_renderer.contains("firstFormSection: firstChildIsSection"));
+        assert!(dev_renderer.contains("firstFormSection && index == 0"));
+        assert!(dev_renderer.contains("isFirstSection: isFirstFormSection"));
+        assert!(dev_renderer.contains("contentPadding: formContentPadding"));
+        assert!(dev_renderer.contains("margin: formMargin"));
+        assert!(dev_runtime.contains(".ignoresSafeArea(.container, edges: .all)"));
     }
 
     fn braced_block(source: &str, start: usize) -> &str {
@@ -4953,6 +5508,21 @@ mod tests {
     }
 
     #[test]
+    fn status_bar_style_uses_a_status_bar_only_appearance_api() {
+        let primitives = shared_component_primitives(false);
+        let status_bar_style = primitives
+            .split("struct NexaStatusBarStylePrimitive: ViewModifier {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+
+        assert!(status_bar_style.contains("if #available(iOS 27.0, *)"));
+        assert!(status_bar_style.contains(".toolbarColorScheme(colorScheme, for: .statusBar)"));
+        assert!(status_bar_style.contains("content\n        }"));
+        assert!(!status_bar_style.contains(".preferredColorScheme("));
+    }
+
+    #[test]
     fn split_view_uses_visible_single_column_on_compact_ios() {
         let primitives = shared_component_primitives(false);
         let split_view = primitives
@@ -4983,7 +5553,16 @@ mod tests {
     fn form_section_heading_uses_the_secondary_label_style() {
         let primitives = shared_component_primitives(false);
 
-        assert!(primitives.contains("header.foregroundStyle(.secondary)"));
+        assert!(primitives.contains(".foregroundStyle(.secondary)"));
+        let section = primitives
+            .split("struct NexaFormSectionPrimitive<Content: View, Header: View, Footer: View>")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        assert!(section.contains(".listSectionSeparator(.hidden)"));
+        assert!(section.contains(".listRowBackground(background ?? Color.clear)"));
+        assert!(!section.contains("listSectionMargins(.top"));
+        assert!(!section.contains("formSectionTopPadding"));
     }
 
     #[test]
@@ -5528,7 +6107,7 @@ mod tests {
                         swipe_actions: None,
                         sticky_header: None,
                         refresh: None,
-                        spacing: 0.0,
+                        gap: 0.0,
                         scroll_enabled: None,
                     },
                 }),
@@ -5583,7 +6162,12 @@ mod tests {
         common.page_snap = false;
         common.reverse_layout = true;
         let reverse_swift = generate(&reverse_module);
-        assert!(reverse_swift.contains("if pageSnap || reverseLayout {"));
+        assert!(reverse_swift.contains(
+            "nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment, reverseLayout: reverseLayout)"
+        ));
+        assert!(!reverse_swift.contains(
+            "contentInsetAdjustmentBehavior = pageSnap || reverseLayout ? .never : .automatic"
+        ));
         assert!(reverse_swift.contains("let row = indexPath.row"));
         assert!(
             !reverse_swift
@@ -5599,7 +6183,10 @@ mod tests {
         );
         assert!(reverse_swift.contains("func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat"));
         assert!(reverse_swift.contains(
-            "tableView.contentInsetAdjustmentBehavior = pageSnap || reverseLayout ? .never : .automatic"
+            "nexaConfigureEdgeToEdgeScrollView(tableView, environment: context.environment, reverseLayout: reverseLayout)"
+        ));
+        assert!(!reverse_swift.contains(
+            "contentInsetAdjustmentBehavior = pageSnap || reverseLayout ? .never : .automatic"
         ));
 
         let mut paginated_module = module.clone();
@@ -5696,7 +6283,7 @@ mod tests {
                         }]),
                         sticky_header: None,
                         refresh: None,
-                        spacing: 0.0,
+                        gap: 0.0,
                         scroll_enabled: None,
                     },
                 }),
@@ -5717,10 +6304,11 @@ mod tests {
             ".contentMargins(\n                .horizontal,\n                CGFloat(0),\n                for: .scrollContent\n            )"
         ));
         assert!(swift.contains(
-            ".contentMargins(\n                .vertical,\n                CGFloat(16),\n                for: .scrollContent\n            )"
+            ".contentMargins(\n                .vertical,\n                EdgeInsets(\n                    top: padding.top + CGFloat(16),\n                    leading: 0,\n                    bottom: padding.bottom + CGFloat(16),\n                    trailing: 0\n                ),\n                for: .scrollContent\n            )"
         ));
-        assert!(swift.contains(
-            "groupedList.padding(\n                .horizontal,\n                -CGFloat(16)\n            )"
+        let shared_primitives = shared_component_primitives(false);
+        assert!(shared_primitives.contains(
+            "groupedList\n                .padding(\n                    .horizontal,\n                    -CGFloat(16)\n                )"
         ));
         assert!(swift.contains("leading: CGFloat(16)"));
         assert!(swift.contains("trailing: CGFloat(16)"));
@@ -5804,7 +6392,7 @@ mod tests {
         let sectioned_common = SectionedListCommon {
             show_dividers: common.show_dividers,
             item_extent: common.item_extent,
-            spacing: common.spacing,
+            gap: common.gap,
             scroll_enabled: common.scroll_enabled.clone(),
             index: common.index.clone(),
             component_ref: common.component_ref.clone(),
@@ -6067,7 +6655,7 @@ mod tests {
             components: Vec::new(),
             body: vec![Node::Layout {
                 kind: LayoutKind::Column,
-                spacing: 0.0,
+                gap: 0.0,
                 style: ViewStyle {
                     animation: Some(AnimationSpec::Spring {
                         response: 0.35,

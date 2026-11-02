@@ -1,5 +1,7 @@
 package __NEXA_PACKAGE__
 
+import android.content.Intent
+import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.navigation.NavHostController
@@ -26,12 +28,53 @@ internal sealed interface NexaDevFunctionFlow {
 
 internal fun Any?.orNullValue(): Any = this ?: JSONObject.NULL
 
+private fun NexaDevStateStore.findScreenByName(name: String): JSONObject? {
+    val screens = (module ?: snapshotModule())?.optJSONArray("screens") ?: return null
+    for (i in 0 until screens.length()) {
+        val s = screens.optJSONObject(i) ?: continue
+        if (s.optString("name") == name) return s
+    }
+    return null
+}
+
+private fun NexaDevStateStore.encodeCommandTargetRoute(
+    routeName: String,
+    arguments: JSONArray,
+    locals: Map<String, Any>,
+    scope: String,
+    navigatorId: String?,
+): String {
+    val screen = findScreenByName(routeName)
+    val values = JSONObject()
+    if (screen != null) {
+        val parameters = screen.optJSONArray("parameters") ?: JSONArray()
+        for (i in 0 until minOf(parameters.length(), arguments.length())) {
+            val param = parameters.optJSONObject(i) ?: continue
+            val paramName = param.optString("name")
+            if (paramName.isNotEmpty()) {
+                values.put(paramName, evaluate(arguments.opt(i), locals, scope))
+            }
+        }
+    } else {
+        for (i in 0 until arguments.length()) {
+            values.put("arg_$i", evaluate(arguments.opt(i), locals, scope))
+        }
+    }
+    return encodeScreenRoute(routeName, values, navigatorId = navigatorId)
+}
+
 private fun NexaDevStateStore.performNavigationAction(
     action: JSONObject,
     scope: String,
     locals: Map<String, Any>,
 ): Boolean {
-    val controller = (locals["__nexa_navigation_controller"] as? NavHostController) ?: currentNavController
+    val navId = (locals["__nexa_navigation_stack_identity"] as? String)
+        ?: resolveNavigatorIdFromScope(scope)
+    val controller = resolveNavController(
+        stackIdentity = navId,
+        locals = locals,
+        scope = scope
+    )
     val push = action.optJSONObject("NavigationPush")
     if (push != null) {
         val currentModule = module ?: return true
@@ -47,12 +90,96 @@ private fun NexaDevStateStore.performNavigationAction(
                 values.put(name, evaluate(arguments.opt(argumentIndex), locals, scope))
             }
         }
-        val route = encodeScreenRoute(destination.optString("name"), values)
+        val route = encodeScreenRoute(destination.optString("name"), values, navigatorId = navId)
         controller?.navigate(route)
         return true
     }
     if (action.has("NavigationBack")) {
-        popNavigation(controller)
+        popNavigation(explicitController = controller, navigatorId = navId, scope = scope, locals = locals)
+        return true
+    }
+    val navCmd = action.optJSONObject("NavigationCommand")
+    if (navCmd != null) {
+        val pushCmd = navCmd.optJSONObject("Push")
+        if (pushCmd != null) {
+            val cmdNavId = pushCmd.optString("navigator").takeIf(String::isNotEmpty) ?: navId
+            val cmdController = resolveNavController(stackIdentity = cmdNavId, locals = locals, scope = scope)
+            val route = pushCmd.optString("route")
+            val args = pushCmd.optJSONArray("arguments") ?: JSONArray()
+            val targetRoute = encodeCommandTargetRoute(route, args, locals, scope, cmdNavId)
+            cmdController?.navigate(targetRoute)
+            return true
+        }
+        val popCmd = navCmd.optJSONObject("Pop")
+        if (popCmd != null || navCmd.has("Pop")) {
+            val cmdNavId = popCmd?.optString("navigator")?.takeIf(String::isNotEmpty) ?: navId
+            val cmdController = resolveNavController(stackIdentity = cmdNavId, locals = locals, scope = scope)
+            popNavigation(explicitController = cmdController, navigatorId = cmdNavId, scope = scope, locals = locals)
+            return true
+        }
+        val popToCmd = navCmd.optJSONObject("PopTo")
+        if (popToCmd != null) {
+            val cmdNavId = popToCmd.optString("navigator").takeIf(String::isNotEmpty) ?: navId
+            val cmdController = resolveNavController(stackIdentity = cmdNavId, locals = locals, scope = scope)
+            val entry = popToCmd.optString("entry")
+            val inclusive = popToCmd.optBoolean("inclusive", false)
+            if (cmdController != null && entry.isNotEmpty()) {
+                val backStack = cmdController.currentBackStack.value
+                val matched = backStack.firstOrNull { bse ->
+                    val r = bse.destination.route ?: ""
+                    val decoded = if (r.startsWith("nexa/")) decodeScreenRoute(r.removePrefix("nexa/")) else null
+                    val eid = decoded?.optString("entryId") ?: ""
+                    eid == entry || r == entry
+                }
+                if (matched != null) {
+                    cmdController.popBackStack(matched.destination.id, inclusive)
+                }
+            }
+            return true
+        }
+        val resetCmd = navCmd.optJSONObject("Reset")
+        if (resetCmd != null) {
+            val cmdNavId = resetCmd.optString("navigator").takeIf(String::isNotEmpty) ?: navId
+            val cmdController = resolveNavController(stackIdentity = cmdNavId, locals = locals, scope = scope)
+            val route = resetCmd.optString("route")
+            val args = resetCmd.optJSONArray("arguments") ?: JSONArray()
+            val targetRoute = encodeCommandTargetRoute(route, args, locals, scope, cmdNavId)
+            cmdController?.navigate(targetRoute) {
+                popUpTo(0)
+            }
+            return true
+        }
+        val replaceTopCmd = navCmd.optJSONObject("ReplaceTop")
+        if (replaceTopCmd != null) {
+            val cmdNavId = replaceTopCmd.optString("navigator").takeIf(String::isNotEmpty) ?: navId
+            val cmdController = resolveNavController(stackIdentity = cmdNavId, locals = locals, scope = scope)
+            val route = replaceTopCmd.optString("route")
+            val args = replaceTopCmd.optJSONArray("arguments") ?: JSONArray()
+            val targetRoute = encodeCommandTargetRoute(route, args, locals, scope, cmdNavId)
+            popNavigation(explicitController = cmdController, navigatorId = cmdNavId, scope = scope, locals = locals)
+            cmdController?.navigate(targetRoute)
+            return true
+        }
+        val selectTabCmd = navCmd.optJSONObject("SelectTab")
+        if (selectTabCmd != null) {
+            val target = selectTabCmd.optString("navigator")
+            selectTab(target)
+            return true
+        }
+        val openExternalCmd = navCmd.optJSONObject("OpenExternalRoute")
+        if (openExternalCmd != null) {
+            val uriStr = openExternalCmd.optString("uri")
+            if (uriStr.isNotEmpty()) {
+                val uri = Uri.parse(uriStr)
+                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                runCatching {
+                    context.startActivity(intent)
+                }
+            }
+            return true
+        }
         return true
     }
     return false
@@ -71,9 +198,14 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
             if (raw == "Break") return NexaDevActionFlow.Break
             if (raw == "Continue") return NexaDevActionFlow.Continue
             if (raw == "NavigationBack") {
-                val controller = (actionLocals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
-                    ?: currentNavController
-                popNavigation(controller)
+                val navId = (actionLocals["__nexa_navigation_stack_identity"] as? String)
+                    ?: resolveNavigatorIdFromScope(scope)
+                val controller = resolveNavController(
+                    stackIdentity = navId,
+                    locals = actionLocals,
+                    scope = scope
+                )
+                popNavigation(explicitController = controller, navigatorId = navId, scope = scope, locals = actionLocals)
             }
             continue
         }
@@ -91,7 +223,6 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
             val nextValue = evaluate(assign.opt("value"), actionLocals, scope)
             setState(name, nextValue, scope)
             actionLocals[name] = nextValue
-            moduleRevision++
             continue
         }
         val expression = action.opt("Expression")
@@ -271,7 +402,6 @@ internal fun NexaDevStateStore.performFunction(actions: JSONArray, scope: String
         val assignment = action.optJSONObject("Assign")
         if (assignment != null) {
             setState(assignment.optString("name"), evaluate(assignment.opt("value"), functionLocals, scope), scope)
-            moduleRevision++
             continue
         }
         val expression = action.opt("Expression")
@@ -781,14 +911,12 @@ private fun NexaDevStateStore.applyCollectionMutation(
             val target = (state(name, scope) as? List<*>)?.toMutableList() ?: mutableListOf<Any?>()
             if (arguments.isNotEmpty()) target.add(arguments[0])
             setState(name, target, scope)
-            moduleRevision++
         }
         "ArrayRemoveAt" -> {
             val target = (state(name, scope) as? List<*>)?.toMutableList() ?: mutableListOf<Any?>()
             val index = (arguments.firstOrNull() as? Number)?.toInt() ?: -1
             if (index in 0 until target.size) target.removeAt(index)
             setState(name, target, scope)
-            moduleRevision++
         }
         "ArrayMove" -> {
             val target = (state(name, scope) as? List<*>)?.toMutableList() ?: mutableListOf<Any?>()
@@ -798,7 +926,6 @@ private fun NexaDevStateStore.applyCollectionMutation(
                 target.add(to, target.removeAt(from))
             }
             setState(name, target, scope)
-            moduleRevision++
         }
         "ArrayMoveSubset" -> {
             val target = (state(name, scope) as? List<*>)?.toMutableList() ?: mutableListOf<Any?>()
@@ -817,7 +944,6 @@ private fun NexaDevStateStore.applyCollectionMutation(
                 }
                 if (cursor == subset.size) {
                     setState(name, target, scope)
-                    moduleRevision++
                 }
             }
         }
@@ -828,7 +954,6 @@ private fun NexaDevStateStore.applyCollectionMutation(
                 if (mutation.optString("operation") == "SetInsert") target.add(item) else target.remove(item)
             }
             setState(name, target, scope)
-            moduleRevision++
         }
         // A collection state keeps its identity: only the contents are
         // replaced, which is what the generated code does too.
@@ -836,7 +961,6 @@ private fun NexaDevStateStore.applyCollectionMutation(
             val replacement = arguments.firstOrNull()
             if (replacement != null) {
                 setState(name, replacement, scope)
-                moduleRevision++
             }
         }
         "MapSet", "MapRemove" -> {
@@ -850,11 +974,9 @@ private fun NexaDevStateStore.applyCollectionMutation(
                 }
             }
             setState(name, target, scope)
-            moduleRevision++
         }
         "MapClear" -> {
             setState(name, emptyMap<String, Any?>(), scope)
-            moduleRevision++
         }
     }
 }
@@ -888,9 +1010,14 @@ internal suspend fun NexaDevStateStore.performAsync(
             if (raw == "Break") return NexaDevActionFlow.Break
             if (raw == "Continue") return NexaDevActionFlow.Continue
             if (raw == "NavigationBack") {
-                val controller = (locals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
-                    ?: currentNavController
-                popNavigation(controller)
+                val navId = (locals["__nexa_navigation_stack_identity"] as? String)
+                    ?: resolveNavigatorIdFromScope(scope)
+                val controller = resolveNavController(
+                    stackIdentity = navId,
+                    locals = locals,
+                    scope = scope
+                )
+                popNavigation(explicitController = controller, navigatorId = navId, scope = scope, locals = locals)
             }
             continue
         }
@@ -939,7 +1066,6 @@ internal suspend fun NexaDevStateStore.performAsync(
             val name = assign.optString("name")
             val nextValue = evaluateAsync(assign.opt("value"), locals, scope)
             setState(name, nextValue, scope)
-            moduleRevision++
             continue
         }
         val nativeAssignment = action.optJSONObject("NativePropertyAssign")

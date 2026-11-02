@@ -4,7 +4,7 @@ app AdaptiveWorkspace {
     body {
         NavigationSplitView(detailVisible: showDetail) {
             Sidebar {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("Workspace")
                     Button("Inbox") {
                         showDetail = true
@@ -15,7 +15,7 @@ app AdaptiveWorkspace {
                 }
             }
             Detail {
-                Column(spacing: 12, padding: 24) {
+                Column(gap: 12, padding: 24) {
                     Text("Selected workspace")
                     Text("This detail pane uses the available window width.")
                     Button("Back to navigation") {

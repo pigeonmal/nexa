@@ -110,6 +110,15 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     );
     imports.add(
         context.has_navigation,
+        "androidx.activity.compose.BackHandler",
+    );
+    imports.add(context.has_navigation, "androidx.compose.runtime.getValue");
+    imports.add(
+        context.has_navigation,
+        "androidx.navigation.compose.currentBackStackEntryAsState",
+    );
+    imports.add(
+        context.has_navigation,
         "androidx.navigation.NavHostController",
     );
     imports.add(
@@ -170,7 +179,7 @@ pub(crate) fn render_link(
     out.line_at(
         depth + 2,
         format_args!(
-            "Icon(imageVector = Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)"
+            "Icon(imageVector = Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))"
         ),
     );
     out.line_at(depth + 1, format_args!("}},"));
@@ -233,6 +242,14 @@ pub(crate) fn render_navigation_stack(
     let app_appearance_mode = appearance::module_mode(module, root);
     indent(out, depth);
     out.push_str("val navController = rememberNavController()\n");
+    indent(out, depth);
+    out.push_str("val currentBackStackEntry by navController.currentBackStackEntryAsState()\n");
+    indent(out, depth);
+    out.push_str("BackHandler(enabled = currentBackStackEntry != null && navController.previousBackStackEntry != null) {\n");
+    indent(out, depth + 1);
+    out.push_str("navController.popBackStack()\n");
+    indent(out, depth);
+    out.push_str("}\n");
     indent(out, depth);
     out.push_str("NavHost(\n");
     indent(out, depth + 1);

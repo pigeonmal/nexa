@@ -464,6 +464,7 @@ dependencies = [
  "nexa-plugin-idl",
  "nexa-syntax",
  "nexa-testkit",
+ "serde_json",
 ]
 
 [[package]]

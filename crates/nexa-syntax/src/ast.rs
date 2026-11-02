@@ -682,11 +682,8 @@ pub struct TabDecl {
 pub struct LayoutStyle {
     pub alignment: Option<Expr>,
     pub horizontal_arrangement: Option<Expr>,
-    pub padding: Option<Expr>,
     pub width: Option<Expr>,
-    pub screen_width_fraction: Option<Expr>,
     pub height: Option<Expr>,
-    pub screen_height_fraction: Option<Expr>,
     pub min_width: Option<Expr>,
     pub max_width: Option<Expr>,
     pub min_height: Option<Expr>,

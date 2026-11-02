@@ -17,8 +17,31 @@ pub fn walk_ir(
     for node in nodes {
         visit_node(node);
         match node {
-            Node::SafeAreaPadding { children, .. }
-            | Node::Form { children, .. }
+            Node::ViewInsets {
+                padding,
+                margin,
+                child,
+            } => {
+                for insets in [padding.as_ref(), margin.as_ref()].into_iter().flatten() {
+                    for expression in [
+                        &insets.top,
+                        &insets.bottom,
+                        &insets.leading,
+                        &insets.trailing,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        walk_expression(expression, visit_expression);
+                    }
+                }
+                walk_ir(
+                    std::slice::from_ref(child.as_ref()),
+                    visit_node,
+                    visit_expression,
+                );
+            }
+            Node::Form { children, .. }
             | Node::Toolbar { children, .. }
             | Node::KeyboardAware { children, .. } => {
                 walk_ir(children, visit_node, visit_expression)
@@ -744,6 +767,7 @@ fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Act
             Action::Expression(_)
             | Action::NavigationPush { .. }
             | Action::NavigationBack
+            | Action::NavigationCommand(_)
             | Action::Let { .. }
             | Action::Return { .. }
             | Action::Assign { .. }
@@ -938,7 +962,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         | Expr::IsCompactHeight
         | Expr::ScreenWidth
         | Expr::ScreenHeight
-        | Expr::SafeAreaTop
+        | Expr::SystemInset(_)
         | Expr::This(_) => {}
     }
 }
@@ -1087,6 +1111,16 @@ fn walk_action_expressions(
                 }
             }
             Action::NavigationBack => {}
+            Action::NavigationCommand(cmd) => match cmd.as_ref() {
+                crate::NavigationCommand::Push { arguments, .. }
+                | crate::NavigationCommand::ReplaceTop { arguments, .. }
+                | crate::NavigationCommand::Reset { arguments, .. } => {
+                    for argument in arguments {
+                        walk_expression(argument, visit);
+                    }
+                }
+                _ => {}
+            },
             Action::Let { value, .. } | Action::Return { value } => walk_expression(value, visit),
             Action::Assign { value, .. } => walk_expression(value, visit),
             Action::NativePropertyAssign {
@@ -1198,6 +1232,7 @@ pub fn walk_action_tree(actions: &[Action], visit: &mut impl FnMut(&Action)) {
             Action::Expression(_)
             | Action::NavigationPush { .. }
             | Action::NavigationBack
+            | Action::NavigationCommand(_)
             | Action::Let { .. }
             | Action::Return { .. }
             | Action::Assign { .. }
@@ -1308,8 +1343,27 @@ pub trait IrFolder: Sized {
 
 pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
     match node {
-        Node::SafeAreaPadding { children, .. }
-        | Node::Form { children, .. }
+        Node::ViewInsets {
+            padding,
+            margin,
+            child,
+        } => {
+            for insets in [padding.as_ref(), margin.as_ref()].into_iter().flatten() {
+                for expression in [
+                    &insets.top,
+                    &insets.bottom,
+                    &insets.leading,
+                    &insets.trailing,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    visitor.visit_expr(expression);
+                }
+            }
+            visitor.visit_nodes(std::slice::from_ref(child.as_ref()));
+        }
+        Node::Form { children, .. }
         | Node::Toolbar { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::Dialog { children, .. } => visitor.visit_nodes(children),
@@ -2042,7 +2096,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
         | Expr::IsCompactHeight
         | Expr::ScreenWidth
         | Expr::ScreenHeight
-        | Expr::SafeAreaTop
+        | Expr::SystemInset(_)
         | Expr::This(_) => {}
     }
 }
@@ -2056,6 +2110,16 @@ pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
             }
         }
         Action::NavigationBack => {}
+        Action::NavigationCommand(cmd) => match cmd.as_ref() {
+            crate::NavigationCommand::Push { arguments, .. }
+            | crate::NavigationCommand::ReplaceTop { arguments, .. }
+            | crate::NavigationCommand::Reset { arguments, .. } => {
+                for argument in arguments {
+                    visitor.visit_expr(argument);
+                }
+            }
+            _ => {}
+        },
         Action::Let { value, .. } | Action::Return { value } => visitor.visit_expr(value),
         Action::Assign { value, .. } => visitor.visit_expr(value),
         Action::NativePropertyAssign {
@@ -2122,10 +2186,31 @@ pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
 
 pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Node> {
     match node {
-        Node::SafeAreaPadding { plan, children } => Some(Node::SafeAreaPadding {
-            plan,
-            children: folder.fold_nodes(children),
-        }),
+        Node::ViewInsets {
+            mut padding,
+            mut margin,
+            child,
+        } => {
+            for insets in [&mut padding, &mut margin].into_iter().flatten() {
+                for edge in [
+                    &mut insets.top,
+                    &mut insets.bottom,
+                    &mut insets.leading,
+                    &mut insets.trailing,
+                ] {
+                    if let Some(expression) = edge.take() {
+                        *edge = Some(Box::new(folder.fold_expr(*expression)));
+                    }
+                }
+            }
+            let mut children = folder.fold_nodes(vec![*child]);
+            let child = children.pop()?;
+            Some(Node::ViewInsets {
+                padding,
+                margin,
+                child: Box::new(child),
+            })
+        }
         Node::SafeAreaInset {
             plan,
             content,
@@ -2215,7 +2300,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         }),
         Node::Layout {
             kind,
-            spacing,
+            gap,
             mut style,
             children,
         } => {
@@ -2240,7 +2325,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 .map(|offset_y| Box::new(folder.fold_expr(*offset_y)));
             Some(Node::Layout {
                 kind,
-                spacing,
+                gap,
                 style,
                 children: folder.fold_nodes(children),
             })
@@ -3372,7 +3457,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
         | Expr::IsCompactHeight
         | Expr::ScreenWidth
         | Expr::ScreenHeight
-        | Expr::SafeAreaTop
+        | Expr::SystemInset(_)
         | Expr::This(_) => expr,
     }
 }
@@ -3391,6 +3476,51 @@ pub fn fold_action_children<F: IrFolder>(action: Action, folder: &mut F) -> Opti
                 .collect(),
         }),
         Action::NavigationBack => Some(Action::NavigationBack),
+        Action::NavigationCommand(cmd) => match *cmd {
+            crate::NavigationCommand::Push {
+                navigator,
+                route,
+                arguments,
+            } => Some(Action::NavigationCommand(Box::new(
+                crate::NavigationCommand::Push {
+                    navigator,
+                    route,
+                    arguments: arguments
+                        .into_iter()
+                        .map(|arg| folder.fold_expr(arg))
+                        .collect(),
+                },
+            ))),
+            crate::NavigationCommand::ReplaceTop {
+                navigator,
+                route,
+                arguments,
+            } => Some(Action::NavigationCommand(Box::new(
+                crate::NavigationCommand::ReplaceTop {
+                    navigator,
+                    route,
+                    arguments: arguments
+                        .into_iter()
+                        .map(|arg| folder.fold_expr(arg))
+                        .collect(),
+                },
+            ))),
+            crate::NavigationCommand::Reset {
+                navigator,
+                route,
+                arguments,
+            } => Some(Action::NavigationCommand(Box::new(
+                crate::NavigationCommand::Reset {
+                    navigator,
+                    route,
+                    arguments: arguments
+                        .into_iter()
+                        .map(|arg| folder.fold_expr(arg))
+                        .collect(),
+                },
+            ))),
+            other => Some(Action::NavigationCommand(Box::new(other))),
+        },
         Action::Let { name, ty, value } => Some(Action::Let {
             name,
             ty,
@@ -3563,7 +3693,7 @@ mod tests {
                     reverse_layout: false,
                     page_snap: false,
                     item_extent: None,
-                    spacing: 0.0,
+                    gap: 0.0,
                     scroll_enabled: None,
                     index: "index".to_owned(),
                     key: None,
@@ -3786,7 +3916,7 @@ mod tests {
 
         let node = Node::Layout {
             kind: crate::LayoutKind::Column,
-            spacing: 0.0,
+            gap: 0.0,
             style: crate::ViewStyle::default(),
             children: vec![
                 Node::Text {
@@ -3868,7 +3998,7 @@ mod tests {
 
         let node = Node::Layout {
             kind: crate::LayoutKind::Column,
-            spacing: 0.0,
+            gap: 0.0,
             style: crate::ViewStyle::default(),
             children: vec![
                 Node::Text {

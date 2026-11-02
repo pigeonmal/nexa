@@ -29,6 +29,78 @@ private struct NexaDevTaskPayload: @unchecked Sendable {
 
 @MainActor
 extension NexaDevStateStore {
+    func executeNavigationCommand(_ command: [String: Any], locals: [String: Any], scope: String) {
+        if let push = command["Push"] as? [String: Any] {
+            let stackIdentity = (push["navigator"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? locals["__nexa_navigation_stack_identity"] as? String
+            let route = push["route"] as? String ?? ""
+            let arguments = push["arguments"] as? [Any] ?? []
+            pushNavigation(
+                screenName: route,
+                expressions: arguments,
+                locals: locals,
+                scope: scope,
+                stackIdentity: stackIdentity
+            )
+        } else if let pop = command["Pop"] as? [String: Any] ?? (command["Pop"] != nil ? [:] : nil) {
+            let stackIdentity = (pop["navigator"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? locals["__nexa_navigation_stack_identity"] as? String
+            popNavigation(
+                stackIdentity: stackIdentity,
+                scope: scope,
+                locals: locals
+            )
+        } else if let popTo = command["PopTo"] as? [String: Any] {
+            let stackIdentity = (popTo["navigator"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? locals["__nexa_navigation_stack_identity"] as? String
+            let entry = popTo["entry"] as? String ?? ""
+            let inclusive = popTo["inclusive"] as? Bool ?? false
+            popToNavigation(
+                targetEntryId: entry,
+                inclusive: inclusive,
+                stackIdentity: stackIdentity,
+                scope: scope,
+                locals: locals
+            )
+        } else if let reset = command["Reset"] as? [String: Any] {
+            let stackIdentity = (reset["navigator"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? locals["__nexa_navigation_stack_identity"] as? String
+            let route = reset["route"] as? String ?? ""
+            let arguments = reset["arguments"] as? [Any] ?? []
+            resetNavigation(
+                screenName: route,
+                expressions: arguments,
+                locals: locals,
+                scope: scope,
+                stackIdentity: stackIdentity
+            )
+        } else if let replaceTop = command["ReplaceTop"] as? [String: Any] {
+            let stackIdentity = (replaceTop["navigator"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? locals["__nexa_navigation_stack_identity"] as? String
+            let route = replaceTop["route"] as? String ?? ""
+            let arguments = replaceTop["arguments"] as? [Any] ?? []
+            popNavigation(
+                stackIdentity: stackIdentity,
+                scope: scope,
+                locals: locals
+            )
+            pushNavigation(
+                screenName: route,
+                expressions: arguments,
+                locals: locals,
+                scope: scope,
+                stackIdentity: stackIdentity
+            )
+        } else if let selectTab = command["SelectTab"] as? [String: Any] {
+            let tab = selectTab["navigator"] as? String ?? ""
+            NotificationCenter.default.post(name: NSNotification.Name("NexaSelectTab"), object: tab)
+        } else if let openExternal = command["OpenExternalRoute"] as? [String: Any] {
+            if let uriString = openExternal["uri"] as? String, let url = URL(string: uriString) {
+                UIApplication.shared.open(url)
+            }
+        }
+    }
+
     func perform(_ actions: [Any], scope: String, locals: [String: Any]) {
         _ = performActions(actions, scope: scope, locals: locals)
     }
@@ -163,6 +235,10 @@ extension NexaDevStateStore {
                     locals: actionLocals,
                     scope: scope
                 )
+                continue
+            }
+            if let command = tagged["NavigationCommand"] as? [String: Any] {
+                executeNavigationCommand(command, locals: actionLocals, scope: scope)
                 continue
             }
             if tagged["NavigationBack"] != nil {
@@ -748,6 +824,8 @@ extension NexaDevStateStore {
                     scope: scope,
                     locals: locals
                 )
+            } else if let command = tagged["NavigationCommand"] as? [String: Any] {
+                executeNavigationCommand(command, locals: locals, scope: scope)
             } else if let tryCatch = tagged["TryCatch"] as? [String: Any] {
                 do {
                     let flow = try await performAsync(

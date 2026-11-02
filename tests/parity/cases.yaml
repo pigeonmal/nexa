@@ -1,0 +1,160 @@
+# Nexa DevParity Test Cases Inventory
+# Canonical catalog of parity evaluation phases, targets, and expected contracts.
+
+version: 1
+suite: render_parity
+fixture: tests/fixtures/render_parity.nx
+
+cases:
+  - id: initial
+    description: Initial viewport render on launch
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [launch]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: toolbar
+    description: Top app bar, navigation actions, and title layout
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [tap:toolbar_action]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: button
+    description: Button variants, primary/secondary styles, and hit targets
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [tap:button_tab]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: switch
+    description: Toggle and switch state synchronization
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [tap:switch_toggle]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: text-entry
+    description: TextInput typing, focus, placeholder, and text alignment
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [focus:text_input, type:"Nexa"]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: navigation
+    description: NavigationStack root entry layout and chrome
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [navigate:details]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: navigation-nested
+    description: Nested screen push with isolated route parameters
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [navigate:nested_details]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: navigation-pop
+    description: Pop from pushed screen back to parent
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [back]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: navigation-root-restored
+    description: Back navigation restoration to root navigator
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [back_to_root]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: style-layout
+    description: Column, Row, Stack alignments, margins, and padding order
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [scroll_to:layout_section]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: style-typography
+    description: Font families, weights, scaling, and truncation
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [scroll_to:typography_section]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: lists
+    description: FastList virtualization, keyed items, and item rendering
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [navigate:list_view]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+
+  - id: bottom-sheet
+    description: Modal bottom sheet presentation, scrim, and height bounds
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [tap:open_sheet]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+      mask_scrim: true
+
+  - id: dialog
+    description: Alert dialog presentation, title, message, and action buttons
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [tap:open_dialog]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+      mask_scrim: true
+
+  - id: confirmation
+    description: Confirmation dialog with destructive action styling
+    platforms: [ios, android]
+    modes: [aot, dev_cold, dev]
+    events: [tap:open_confirmation]
+    capture:
+      accessibility: true
+      screenshot: true
+      frame_fence: true
+      mask_scrim: true

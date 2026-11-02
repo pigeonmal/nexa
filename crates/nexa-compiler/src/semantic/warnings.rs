@@ -500,7 +500,7 @@ fn walk_invocation(
     }
     match inv.name.as_str() {
         "Column" | "Row" | "Stack" => {
-            for argument in ["spacing", "scale"] {
+            for argument in ["margin", "scale"] {
                 if let Some(value) = inv.arguments.get(argument) {
                     walk_expression(value, names, used);
                 }

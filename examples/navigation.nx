@@ -6,7 +6,7 @@ app NavigationDemo {
             visits = visits + 1
         }
 
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("Home Screen")
             Text(visits)
             NavigationLink(destination: Profile) {
@@ -20,7 +20,7 @@ app NavigationDemo {
 
         StatusBar(style: Light, hidden: false)
 
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("User Profile")
             Text(visits)
             Text(profileVisits)

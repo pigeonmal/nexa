@@ -317,7 +317,13 @@ fn optimize_with_recorder(
     let (unchanged_functions, cached_function_facts) = cached_functions
         .map(|(functions, facts)| (Some(functions), Some(facts)))
         .unwrap_or((None, None));
-    if cached_functions.is_none() && unchanged_screens.is_none() {
+    // Module-wide pruning runs for every lowering mode. It used to be skipped
+    // whenever a dev lowering cache existed, which made a cold DevRuntime
+    // compile retain unused functions/states/structs/plugins while a release
+    // compile of the same source removed them. That is a mode-only semantic
+    // difference in the canonical IR; cached facts are complete enough to
+    // prune any module the compiler just assembled.
+    {
         prune_unused_functions(module, unchanged_functions, cached_function_facts);
         log_profile_elapsed("prune functions", stage_started);
         let stage_started = profile.then(Instant::now);
@@ -834,7 +840,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::IsCompactHeight
         | Expr::ScreenWidth
         | Expr::ScreenHeight
-        | Expr::SafeAreaTop
+        | Expr::SystemInset(_)
         | Expr::This(_)
         | Expr::TimeCall {
             method:
@@ -1541,7 +1547,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::IsCompactHeight
         | Expr::ScreenWidth
         | Expr::ScreenHeight
-        | Expr::SafeAreaTop => {}
+        | Expr::SystemInset(_) => {}
         Expr::ComponentRefCreate { .. } => {}
         Expr::ResultOk {
             value_type,
@@ -1766,23 +1772,23 @@ impl IrFolder for IrOptimizer {
         match node {
             Node::Layout {
                 kind,
-                spacing,
+                gap,
                 style,
                 children,
             } => {
                 let children = self.fold_nodes(children);
-                let simplified_layouts = subsumed_layout_count(&children, kind, spacing, &style);
-                let children = hoist_nested_layouts(children, kind, spacing, &style);
+                let simplified_layouts = subsumed_layout_count(&children, kind, gap, &style);
+                let children = hoist_nested_layouts(children, kind, gap, &style);
                 for _ in 0..simplified_layouts {
                     self.recorder.simplified_layout();
                 }
-                if children.len() == 1 && spacing == 0.0 && is_plain_style(&style) {
+                if children.len() == 1 && gap == 0.0 && is_plain_style(&style) {
                     self.recorder.simplified_layout();
                     return children.into_iter().next();
                 }
                 Some(Node::Layout {
                     kind,
-                    spacing,
+                    gap,
                     style,
                     children,
                 })
@@ -1960,7 +1966,7 @@ fn collapse_nodes(nodes: Vec<Node>) -> Option<Node> {
         1 => nodes.into_iter().next(),
         _ => Some(Node::Layout {
             kind: LayoutKind::Column,
-            spacing: 0.0,
+            gap: 0.0,
             style: ViewStyle::default(),
             children: nodes,
         }),
@@ -2028,7 +2034,7 @@ fn subsumed_layout_count(
 fn subsumed_layout_children(node: &Node, kind: LayoutKind, spacing: f32) -> Option<&[Node]> {
     let Node::Layout {
         kind: child_kind,
-        spacing: child_spacing,
+        gap: child_spacing,
         style,
         children,
     } = node
@@ -2546,15 +2552,20 @@ mod tests {
     fn layout_shape(nodes: &[Node]) -> Vec<(LayoutKind, f32)> {
         let mut shapes = Vec::new();
         for node in nodes {
-            if let Node::Layout {
-                kind,
-                spacing,
-                children,
-                ..
-            } = node
-            {
-                shapes.push((*kind, *spacing));
-                shapes.extend(layout_shape(children));
+            match node {
+                Node::Layout {
+                    kind,
+                    gap,
+                    children,
+                    ..
+                } => {
+                    shapes.push((*kind, *gap));
+                    shapes.extend(layout_shape(children));
+                }
+                Node::ViewInsets { child, .. } => {
+                    shapes.extend(layout_shape(std::slice::from_ref(child.as_ref())));
+                }
+                _ => {}
             }
         }
         shapes
@@ -2572,6 +2583,9 @@ mod tests {
                 Node::Layout { children, .. } | Node::Toolbar { children, .. } => {
                     texts.extend(text_under(children))
                 }
+                Node::ViewInsets { child, .. } => {
+                    texts.extend(text_under(std::slice::from_ref(child.as_ref())))
+                }
                 _ => {}
             }
         }
@@ -2585,25 +2599,36 @@ mod tests {
         }
     }
 
-    fn column(spacing: f32, children: Vec<Node>) -> Node {
+    fn column(gap: f32, children: Vec<Node>) -> Node {
         Node::Layout {
             kind: LayoutKind::Column,
-            spacing,
+            gap,
             style: ViewStyle::default(),
             children,
         }
     }
 
     /// A column that draws something of its own.
-    fn padded_column(spacing: f32, padding: f32, children: Vec<Node>) -> Node {
-        Node::Layout {
+    fn padded_column(gap: f32, padding: f32, children: Vec<Node>) -> Node {
+        let child = Node::Layout {
             kind: LayoutKind::Column,
-            spacing,
-            style: ViewStyle {
-                padding: Some(padding),
-                ..ViewStyle::default()
-            },
+            gap,
+            style: ViewStyle::default(),
             children,
+        };
+        let inset = Box::new(Expr::Number {
+            raw: padding.to_string(),
+            ty: NumericType::Float64,
+        });
+        Node::ViewInsets {
+            padding: Some(nexa_ir::EdgeInsets {
+                top: Some(inset.clone()),
+                bottom: Some(inset.clone()),
+                leading: Some(inset.clone()),
+                trailing: Some(inset),
+            }),
+            margin: None,
+            child: Box::new(child),
         }
     }
 
@@ -2719,9 +2744,9 @@ mod tests {
     }
 
     #[test]
-    fn differing_spacings_keep_the_nested_layout() {
-        // An inner spacing of 4 inside an outer spacing of 8 produces
-        // non-uniform gaps that no single spacing value can reproduce.
+    fn differing_gaps_keep_the_nested_layout() {
+        // An inner gap of 4 inside an outer gap of 8 produces
+        // non-uniform gaps that no single gap value can reproduce.
         let body = optimized_body(vec![column(
             8.0,
             vec![text("a"), column(4.0, vec![text("b"), text("c")])],
@@ -2759,7 +2784,7 @@ mod tests {
         // which the inner layout was previously positioning.
         let mut module = module_with_body(vec![Node::Layout {
             kind: LayoutKind::Column,
-            spacing: 0.0,
+            gap: 0.0,
             style: ViewStyle {
                 alignment: Some(Alignment::Center),
                 ..ViewStyle::default()
@@ -2783,7 +2808,7 @@ mod tests {
                 text("a"),
                 Node::Layout {
                     kind: LayoutKind::Column,
-                    spacing: 0.0,
+                    gap: 0.0,
                     style: ViewStyle {
                         alignment: Some(Alignment::End),
                         ..ViewStyle::default()
@@ -2804,7 +2829,7 @@ mod tests {
     fn a_row_never_absorbs_a_column() {
         let body = optimized_body(vec![Node::Layout {
             kind: LayoutKind::Row,
-            spacing: 0.0,
+            gap: 0.0,
             style: ViewStyle::default(),
             children: vec![
                 column(0.0, vec![text("a"), text("b")]),

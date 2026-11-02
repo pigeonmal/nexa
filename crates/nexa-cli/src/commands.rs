@@ -733,6 +733,9 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
         )?;
         let mut background_tasks = background_task_fingerprint(&modules)?;
         let server = nexa_dev_server::DevServer::bind(modules)?;
+        if std::env::var_os("NEXA_DEV_FRAME_FENCE").is_some() {
+            server.set_frame_fence(true);
+        }
         let server_url = format!("ws://{}", server.address());
         project_args.extend([
             "--dev-server-url".to_owned(),
@@ -3819,7 +3822,7 @@ fn select_native_platform(current: &mut String, explicitly_set: &mut bool, reque
 
 fn starter_source(name: &str) -> String {
     format!(
-        "app {name} {{\n    state count: Int32 = 0\n\n    body {{\n        Column(spacing: 16) {{\n            Text(\"Welcome to {name}\")\n            Text(\"Count: $count\")\n            Button(\"Add one\") {{\n                count = count + 1\n            }}\n        }}\n    }}\n}}\n"
+        "app {name} {{\n    state count: Int32 = 0\n\n    body {{\n        Column(gap: 16) {{\n            Text(\"Welcome to {name}\")\n            Text(\"Count: $count\")\n            Button(\"Add one\") {{\n                count = count + 1\n            }}\n        }}\n    }}\n}}\n"
     )
 }
 

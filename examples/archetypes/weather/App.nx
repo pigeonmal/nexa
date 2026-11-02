@@ -30,7 +30,7 @@ app WeatherArchetype {
             Network.onStatusChange { isOnline -> online = isOnline }
         }
 
-        Column(spacing: 16, padding: 20) {
+        Column(gap: 16, padding: 20) {
             Text("Weather")
             Text("Paris (fixed demo location)")
             Text(online ? "Online" : "Offline")

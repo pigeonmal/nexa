@@ -32,7 +32,7 @@ The shared animation API is documented in [`animations.md`](animations.md). It c
 
 ### Previously audited component: Text
 
-The iOS 26.5 simulator and Android API 31 emulator were rebuilt from the current compiler and opened on the three TextCases pages: typography, semantic font styles, and layout/effects. The fixture covers every declared Text argument, every alignment and semantic font-style value, representative font designs and weights, newline preservation, truncation, line height, spacing, padding, glyph shadow, opacity, transform, blur, clipping, z-order, selection, and one-tap page switching.
+The iOS 26.5 simulator and Android API 31 emulator were rebuilt from the current compiler and opened on the three TextCases pages: typography, semantic font styles, and layout/effects. The fixture covers every declared Text argument, every alignment and semantic font-style value, representative font designs and weights, newline preservation, truncation, line height, layout gap and margin, padding, glyph shadow, opacity, transform, blur, clipping, z-order, selection, and one-tap page switching.
 
 - Fixed Android AOT localization so explicit newlines are emitted as Android `\\n` resource escapes instead of being collapsed to spaces.
 - Fixed iOS AOT and DevRuntime so `fontStyle: Headline` keeps its semibold default when paired with `fontSize`; explicit `fontWeight` still overrides it.
@@ -46,7 +46,7 @@ The parameter gate proves every declared argument is present in a real parsed an
 - Android DevRuntime previously placed two `Dialog` button children in the confirm slot. It now maps the first child to dismissal and the second to confirmation, matching AOT. A source regression test protects the mapping.
 - The component route walk exposed a native title difference for the selected Inbox tab. The Android smoke test now asserts the tab's actual visible title and still verifies that Back returns to the catalog.
 - AOT/DevRuntime screenshot diffs on Android show scroll-offset drift in a few captures because the two runs do not land on the same content anchor. Stable, non-scrolling states and interaction results match; those offset captures are not treated as evidence of a rendering defect.
-- App bottom navigation and native picker/slider controls retain their platform-specific controls. Shared content, spacing, and layout were compared while allowing those native controls to differ.
+- App bottom navigation and native picker/slider controls retain their platform-specific controls. Shared content, margins, gaps, and layout were compared while allowing those native controls to differ.
 
 ## Workspace test limitation
 

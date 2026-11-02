@@ -96,7 +96,6 @@ pub(crate) struct Features {
     pub(crate) uses_pinch: bool,
     pub(crate) uses_column: bool,
     pub(crate) uses_form: bool,
-    pub(crate) uses_safe_area_padding: bool,
     pub(crate) uses_safe_area_inset: bool,
     pub(crate) uses_safe_area_endpoint: bool,
     pub(crate) uses_scroll_header: bool,
@@ -317,7 +316,6 @@ impl Features {
 
         let layout = &ui.layout;
         self.uses_form = layout.form;
-        self.uses_safe_area_padding = layout.safe_area_padding;
         self.uses_safe_area_inset = layout.safe_area_inset;
         self.uses_scroll_header = layout.scroll_header;
         // Compose lazy lists need explicit content padding to match SwiftUI's
@@ -387,9 +385,9 @@ impl Features {
             });
         self.uses_size_class = ui.app.size_class
             || ui.components.values().any(|scope| scope.size_class)
-            || ui.app.screen_geometry
-            || ui.screens.values().any(|scope| scope.screen_geometry)
-            || ui.components.values().any(|scope| scope.screen_geometry)
+            || ui.app.window_metrics
+            || ui.screens.values().any(|scope| scope.window_metrics)
+            || ui.components.values().any(|scope| scope.window_metrics)
             || ui.style.screen_height_fraction
             || ui.style.screen_width_fraction;
         self.uses_navigation_link = ui.navigation_link;

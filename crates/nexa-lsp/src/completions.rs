@@ -1245,7 +1245,7 @@ mod tests {
 
     #[test]
     fn component_arguments_offer_only_contextual_schema_fields() {
-        let source = "app P { body { Column(spacing: 8, padd) { Text(\"x\") } } }";
+        let source = "app P { body { Column(gap: 8, padd) { Text(\"x\") } } }";
         let offset = source.find("padd").unwrap_or(0) + 4;
         let line_index = crate::line_index::LineIndex::new(source);
         let labels = get_completions(source, line_index.to_position(source, offset));

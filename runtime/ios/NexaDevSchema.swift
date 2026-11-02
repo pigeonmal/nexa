@@ -29,6 +29,7 @@ public enum NexaDevKeys {
     public static let diagnostics = "diagnostics"
     public static let enabled = "enabled"
     public static let reason = "reason"
+    public static let frameId = "frame_id"
 
     // Client message types
     public static let msgHello = "hello"
@@ -36,6 +37,7 @@ public enum NexaDevKeys {
     public static let msgRequestFullModule = "request_full_module"
     public static let msgDisconnect = "disconnect"
     public static let msgOpenInEditor = "open_in_editor"
+    public static let msgFramePresented = "frame_presented"
 
     // Server message types
     public static let msgWelcome = "welcome"
@@ -46,6 +48,7 @@ public enum NexaDevKeys {
     public static let msgRestart = "restart"
     public static let msgPerformanceOverlay = "performance_overlay"
     public static let msgRuntimeTrace = "runtime_trace"
+    public static let msgFrameFence = "frame_fence"
 
     // Patch operations
     public static let op = "op"
@@ -151,7 +154,7 @@ public enum NexaDevNodeKind {
     public static let link = "Link"
     public static let accessibility = "Accessibility"
     public static let keyboardAware = "KeyboardAware"
-    public static let safeAreaPadding = "SafeAreaPadding"
+    public static let viewInsets = "ViewInsets"
     public static let safeAreaInset = "SafeAreaInset"
     public static let scrollHeader = "ScrollHeader"
     public static let appBottomBar = "AppBottomBar"

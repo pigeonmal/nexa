@@ -3,7 +3,7 @@ component ProbePanel(player: DevProbe.Probe) {
     state importedBackgroundTask: TaskHandle? = null
 
     body {
-        Column(spacing: 8) {
+        Column(gap: 8) {
             DevProbe.ProbeCard(value: player.value)
                 .onSelected { selected ->
                     if selected.score > 0 {

@@ -98,12 +98,12 @@ fn animated_layout_geometry_is_lowered_for_both_native_backends() {
                     }
                 }
                 Column(
-                    fillMaxWidth: true,
-                    fillMaxHeight: true,
+                    width: Fill,
+                    height: Fill,
                     cornerRadius: (1.0 - progress) * 35.1,
                     scale: 0.95 + progress * 0.05,
                     scaleY: (70.2 + progress * (Layout.screenHeight - 70.2)) / Layout.screenHeight,
-                    offsetY: (1.0 - progress) * (SafeArea.top - (Layout.screenHeight - 70.2) / 2.0)
+                    offsetY: (1.0 - progress) * (SystemInsets.top - (Layout.screenHeight - 70.2) / 2.0)
                 ) { }
             }
         }"#,
@@ -111,18 +111,18 @@ fn animated_layout_geometry_is_lowered_for_both_native_backends() {
     .expect("animated viewport geometry should compile");
 
     let swift = nexa_backend_swift::SwiftBackend.generate(&module);
-    assert!(swift.contains("Double(nexaViewportSize.height)"));
-    assert!(swift.contains("Double(nexaVisualSafeAreaInsets.top)"));
+    assert!(swift.contains("Double(nexaWindowMetrics.viewportSize.height)"));
+    assert!(swift.contains("Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top)"));
     assert!(swift.contains(".offset(y:"));
     assert!(swift.contains("RoundedRectangle(cornerRadius:"));
 
     let (kotlin, _) = nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&module);
-    assert!(kotlin.contains("LocalWindowInfo.current.containerSize.height"));
+    assert!(kotlin.contains("LocalNexaWindowMetrics.current.viewportHeightDp.toDouble()"));
     assert!(kotlin.contains("nexa_progressAnimated.value.toDouble()"));
     assert!(kotlin.contains("Modifier.graphicsLayer {"));
-    assert!(
-        kotlin.contains("RoundedCornerShape((((1.0 - nexa_progressAnimated.value.toDouble()) * 35.1)).toFloat().dp)")
-    );
+    assert!(kotlin.contains(
+        "RoundedCornerShape((((1.0 - nexa_progressAnimated.value.toDouble()) * 35.1)).toFloat().dp)"
+    ));
     assert!(kotlin.contains("translationY = (((1.0 - nexa_progressAnimated.value.toDouble()) *"));
 
     let dev_module = nexa_dev_ir::lower(&module, "animated-search-overlay");

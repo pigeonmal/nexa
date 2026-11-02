@@ -8,7 +8,7 @@ component VideoThumbnail(artwork: String, views: String) {
                 Spacer()
                 LinearGradient(startColor: "#00000000", endColor: "#000000C9", direction: BottomToTop, height: 62)
             }
-            Row(spacing: 5, padding: 7, alignment: Center) {
+            Row(gap: 5, padding: 7, alignment: Center) {
                 Icon(system: "play", description: "Video views", size: 12, tint: "#FFFFFF")
                 Text(views, color: "#FFFFFF", fontSize: 10, fontWeight: Semibold)
             }

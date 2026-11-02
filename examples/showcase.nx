@@ -7,7 +7,7 @@ app ComponentShowcase {
 
     body {
         KeyboardAware(dismiss: Interactive) {
-            Column(spacing: 16, padding: 20, background: "#F4F5F7", cornerRadius: 16) {
+            Column(gap: 16, padding: 20, background: "#F4F5F7", cornerRadius: 16) {
                 Text("Nexa UI Component Showcase")
 
                 TextInput(
@@ -36,7 +36,7 @@ app ComponentShowcase {
                 Switch(value: notifications, label: "Enable push notifications")
 
                 Pressable(disabled: false) {
-                    Row(spacing: 8) {
+                    Row(gap: 8) {
                         Text("Interactive Card Taps:")
                         Text(taps)
                     }
@@ -44,7 +44,7 @@ app ComponentShowcase {
                     taps = taps + 1
                 }
 
-                Row(spacing: 12) {
+                Row(gap: 12) {
                     Button("Reset All") {
                         email = ""
                         password = ""

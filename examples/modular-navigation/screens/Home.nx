@@ -1,5 +1,5 @@
 screen Home {
-    Column(spacing: 12) {
+    Column(gap: 12) {
         Text("App visits: $visits")
         Button("Add app visit") {
             visits = visits + 1

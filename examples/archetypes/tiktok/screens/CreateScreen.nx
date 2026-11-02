@@ -19,7 +19,7 @@ component CreateScreen() {
             player.dispose()
         }
 
-        Column(spacing: 15, padding: 16, background: "#08080A") {
+        Column(gap: 15, padding: 16, background: "#08080A") {
             TopInset()
             Row(alignment: Center) {
                 Pressable(accessibilityLabel: "Discard draft", accessibilityRole: Button) {
@@ -41,7 +41,7 @@ component CreateScreen() {
                 Stack(alignment: Center, height: 380, background: "#202024", cornerRadius: 10, clip: Rounded(10)) {
                     Image(asset: "poster_city_pexels_20131950", description: "Video upload preview", scale: Fill, fillMaxSize: true)
                     LinearGradient(startColor: "#00000020", endColor: "#000000D9", direction: TopToBottom, height: 380)
-                    Column(spacing: 10, alignment: Center, padding: 22) {
+                    Column(gap: 10, alignment: Center, padding: 22) {
                         Icon(system: "movie", description: "Video upload", size: 38, tint: "#FFFFFF")
                         Text("Create your next video", color: "#FFFFFF", fontSize: 19, fontWeight: Bold, alignment: Center)
                         Text("Choose a clip from your library to start.", color: "#EEEEF0", fontSize: 12, alignment: Center)
@@ -58,9 +58,9 @@ component CreateScreen() {
                 }
             }
 
-            Row(spacing: 9, alignment: Center) {
+            Row(gap: 9, alignment: Center) {
                 MediaPicker.MediaPickerControl(isVideo: true) {
-                    Row(spacing: 8, alignment: Center, padding: 12, background: "#FE2C55", cornerRadius: 6) {
+                    Row(gap: 8, alignment: Center, padding: 12, background: "#FE2C55", cornerRadius: 6) {
                         Icon(system: "upload", description: "Choose video", size: 17, tint: "#FFFFFF")
                         Text(if selectedUri == "" { "Select video" } else { "Change video" }, color: "#FFFFFF", fontSize: 13, fontWeight: Bold)
                     }
@@ -91,7 +91,7 @@ component CreateScreen() {
                     message = error
                 }
                 Pressable(accessibilityLabel: "Add a sound", accessibilityRole: Button) {
-                    Row(spacing: 7, alignment: Center, padding: 12, background: "#26262A", cornerRadius: 6) {
+                    Row(gap: 7, alignment: Center, padding: 12, background: "#26262A", cornerRadius: 6) {
                         Icon(system: "music", description: "Add sound", size: 16, tint: "#FFFFFF")
                         Text("Add sound", color: "#FFFFFF", fontSize: 12, fontWeight: Semibold)
                     }

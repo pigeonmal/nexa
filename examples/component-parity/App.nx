@@ -1,6 +1,6 @@
 component ParityCard(title: String) {
     body {
-        Column(spacing: 8, padding: 12, background: "#FFFFFF", cornerRadius: 16) {
+        Column(gap: 8, padding: 12, background: "#FFFFFF", cornerRadius: 16) {
             Text(title, fontSize: 13, color: "#777780")
             Content()
         }
@@ -25,7 +25,7 @@ app ComponentParity {
     state appBackgroundEntries: Int32 = 0
 
     screen Catalog {
-        Form {
+        Form(padding: Insets(top: SystemInsets.top)) {
             Section(title: "Featured") {
                 NavigationLink(destination: FastListCases) {
                     Text("FastList parity")
@@ -33,10 +33,10 @@ app ComponentParity {
             }
             Section(title: "Layout") {
                 NavigationLink(destination: ColumnCases) {
-                    Text("Column spacing and padding")
+                    Text("Column gap and padding")
                 }
                 NavigationLink(destination: RowCases) {
-                    Text("Row spacing and alignment")
+                    Text("Row gap and alignment")
                 }
                 NavigationLink(destination: StackCases) {
                     Text("Stack overlay and alignment")
@@ -159,14 +159,20 @@ app ComponentParity {
                 }
             }
         }
+        .safeAreaInset(edge: Bottom) {
+              Column(padding: 0, background: "#ff0303") {
+                Button("Write a note") {
+                }
+            }
+        }
     }
 
     screen ColumnCases {
         state columnTestPage: Int32 = 0
         state columnAnimationExpanded: Bool = false
-        Column(spacing: 10, padding: 16) {
+        Column(gap: 10, padding: 16) {
             Text("Column", fontSize: 28, fontWeight: Bold)
-            Row(spacing: 6) {
+            Row(gap: 6) {
                 Pressable(accessibilityLabel: "Flow and alignment tests", accessibilityRole: Button) {
                     Text("Flow")
                 }.onTap {
@@ -195,36 +201,36 @@ app ComponentParity {
             }
 
             if columnTestPage == 0 {
-                ParityCard(title: "Spacing, nesting, and alignment") {
-                    Column(spacing: 0, alignment: Start, width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
-                        Text("Start · spacing 0")
+                ParityCard(title: "Gap, nesting, and alignment") {
+                    Column(gap: 0, alignment: Start, width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Start · gap 0")
                         Text("Second child")
                     }
-                    Column(spacing: 8, alignment: Center, width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
-                        Text("Center · spacing 8")
+                    Column(gap: 8, alignment: Center, width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Center · gap 8")
                         Text("Second child")
                     }
-                    Column(spacing: 20, alignment: End, width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
-                        Text("End · spacing 20")
+                    Column(gap: 20, alignment: End, width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("End · gap 20")
                         Text("Second child")
                     }
-                    Column(spacing: 4, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
-                        Text("Outer spacing: 4")
-                        Column(spacing: 18) {
-                            Text("Inner spacing: 18")
-                            Text("Inner spacing stays local")
+                    Column(gap: 4, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                        Text("Outer margin: 4")
+                        Column(gap: 18) {
+                            Text("Inner gap: 18")
+                            Text("Inner gap stays local")
                         }
-                        Text("Outer spacing resumes")
+                        Text("Outer margin resumes")
                     }
                 }
             }
 
             if columnTestPage == 1 {
                 ParityCard(title: "Fixed size and independent bounds") {
-                    Column(screenWidthFraction: 0.9, screenHeightFraction: 0.12, cornerRadiusBottom: 20, offsetY: SafeArea.top / 2.0, background: "#E8F0FF") {
+                    Column(width: screenWidthFraction(0.9), height: screenHeightFraction(0.12), cornerRadiusBottom: 20, offsetY: SystemInsets.top / 2.0, background: "#E8F0FF") {
                         Text("Fractional viewport height with bottom-only corners")
                     }
-                    Column(width: 220, fillMaxWidth: false, fillMaxHeight: false, background: "#E8F0FF", cornerRadius: 8) {
+                    Column(width: 220, background: "#E8F0FF", cornerRadius: 8) {
                         Text("Fixed width: 220")
                     }
                     Column(height: 56, background: "#E8F0FF", cornerRadius: 8) {
@@ -239,7 +245,7 @@ app ComponentParity {
                     Column(maxWidth: 170, padding: 8, background: "#FFF1E8", cornerRadius: 8) {
                         Text("Maximum width wraps this longer label onto multiple lines")
                     }
-                    Column(width: 200, maxHeight: 68, spacing: 6, padding: 6, background: "#F2F2F7", cornerRadius: 8) {
+                    Column(width: 200, maxHeight: 68, gap: 6, padding: 6, background: "#F2F2F7", cornerRadius: 8) {
                         Text("Maximum height: 68")
                         Text("Second line")
                         Text("Third line")
@@ -250,7 +256,7 @@ app ComponentParity {
 
             if columnTestPage == 2 {
                 ParityCard(title: "Padding, background, border, and opacity") {
-                    Column(spacing: 6, width: 280, height: 76, padding: 12, background: "#DDEBFF", cornerRadius: 14, borderColor: "#2563EB", borderWidth: 2) {
+                    Column(gap: 6, width: 280, height: 76, padding: 12, background: "#DDEBFF", cornerRadius: 14, borderColor: "#2563EB", borderWidth: 2) {
                         Text("12 dp padding")
                         Text("Blue fill · 14 dp corners · 2 dp border")
                     }
@@ -263,7 +269,7 @@ app ComponentParity {
                     Column(width: 240, height: 52, padding: 8, background: "#34C759", cornerRadius: 8, opacity: 1.0) {
                         Text("Opacity 1.0", color: "#FFFFFF")
                     }
-                    Column(spacing: 4, padding: 0, background: "#F2F2F7", cornerRadius: 8) {
+                    Column(gap: 4, padding: 0, background: "#F2F2F7", cornerRadius: 8) {
                         Text("Explicit zero padding")
                         Text("Compare with the padded card above")
                     }
@@ -272,7 +278,7 @@ app ComponentParity {
 
             if columnTestPage == 3 {
                 ParityCard(title: "Transforms, clipping, and order") {
-                    Row(spacing: 24, height: 78, alignment: Center) {
+                    Row(gap: 24, height: 78, alignment: Center) {
                         Column(width: 90, height: 48, background: "#E11D48", cornerRadius: 8, scale: 1.2, scaleY: 0.82) {
                             Text("Scale", color: "#FFFFFF")
                         }
@@ -291,7 +297,7 @@ app ComponentParity {
                             Text("Clipped", color: "#FFFFFF")
                         }
                     }
-                    Stack(width: 260, height: 96, fillMaxWidth: false, fillMaxHeight: false, background: "#F2F2F7", cornerRadius: 8, glass: "rounded(8)") {
+                    Stack(width: 260, height: 96, margin: Insets(top: 0), background: "#F2F2F7", cornerRadius: 8, glass: "rounded(8)") {
                         Column(width: 190, height: 68, background: "#E11D48", cornerRadius: 8, zIndex: 2) {
                             Text("First child · zIndex 2", color: "#FFFFFF")
                         }
@@ -299,8 +305,8 @@ app ComponentParity {
                             Text("Later child · zIndex 1", color: "#FFFFFF")
                         }
                     }
-                    Column(spacing: 6, width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 12) {
-                        Row(spacing: 8, alignment: Center) {
+                    Column(gap: 6, width: 280, padding: 8, background: "#F2F2F7", cornerRadius: 12) {
+                        Row(gap: 8, alignment: Center) {
                             Column(width: 64, height: 48, cornerRadius: 24, glass: "circle") {
                                 Text("Circle")
                             }
@@ -356,7 +362,7 @@ app ComponentParity {
                     Column(padding: 8, background: "#F2F2F7", cornerRadius: 8, accessibilityLabel: "Column accessibility sample", accessibilityHint: "Demonstrates Column semantics", accessibilityValue: "Ready", accessibilityRole: Header) {
                         Text("Accessible Column")
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Column(padding: 6, background: "#F2F2F7", cornerRadius: 8, accessibilityLabel: "Button role sample", accessibilityRole: Button) {
                             Text("Button role")
                         }
@@ -364,7 +370,7 @@ app ComponentParity {
                             Text("Link role")
                         }
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Column(padding: 6, background: "#F2F2F7", cornerRadius: 8, accessibilityLabel: "Image role sample", accessibilityRole: Image) {
                             Text("Image role")
                         }
@@ -380,9 +386,9 @@ app ComponentParity {
     screen RowCases {
         state rowTestPage: Int32 = 0
         state rowAnimationExpanded: Bool = false
-        Column(spacing: 10, padding: 16) {
+        Column(gap: 10, padding: 16, margin: Insets(top: 0)) {
             Text("Row", fontSize: 28, fontWeight: Bold)
-            Row(spacing: 12) {
+            Row(gap: 12, margin: Insets(top: 0)) {
                 Pressable(accessibilityLabel: "Row flow parameter tests", accessibilityRole: Button) {
                     Text("Flow", fontSize: 13)
                 }.onTap {
@@ -399,7 +405,7 @@ app ComponentParity {
                     rowTestPage = 2
                 }
             }
-            Row(spacing: 12) {
+            Row(gap: 12) {
                 Pressable(accessibilityLabel: "Row surface and padding tests", accessibilityRole: Button) {
                     Text("Surface", fontSize: 13)
                 }.onTap {
@@ -419,17 +425,17 @@ app ComponentParity {
 
             if rowTestPage == 0 {
                 ParityCard(title: "Spacing and vertical alignment") {
-                    Row(spacing: 0, width: 280, height: 36, background: "#F2F2F7") {
+                    Row(gap: 0, width: 280, height: 36, background: "#F2F2F7") {
                         Text("0 dp")
                         Text("A")
                         Text("B")
                     }
-                    Row(spacing: 8, width: 280, height: 36, background: "#F2F2F7") {
+                    Row(gap: 8, width: 280, height: 36, background: "#F2F2F7") {
                         Text("8 dp")
                         Text("A")
                         Text("B")
                     }
-                    Row(spacing: 24, width: 280, height: 36, background: "#F2F2F7") {
+                    Row(gap: 24, width: 280, height: 36, background: "#F2F2F7") {
                         Text("24 dp")
                         Text("A")
                         Text("B")
@@ -442,7 +448,7 @@ app ComponentParity {
                             Text("Tall", fontSize: 10, color: "#FFFFFF")
                         }
                     }
-                    Row(spacing: 8, width: 280, height: 52, alignment: Start, background: "#F2F2F7") {
+                    Row(gap: 8, width: 280, height: 52, alignment: Start, background: "#F2F2F7") {
                         Column(width: 42, height: 16, background: "#2563EB", cornerRadius: 4) {
                             Text("Top", fontSize: 10, color: "#FFFFFF")
                         }
@@ -450,7 +456,7 @@ app ComponentParity {
                             Text("Tall", fontSize: 10, color: "#FFFFFF")
                         }
                     }
-                    Row(spacing: 8, width: 280, height: 52, alignment: Center, background: "#F2F2F7") {
+                    Row(gap: 8, width: 280, height: 52, alignment: Center, background: "#F2F2F7") {
                         Column(width: 42, height: 16, background: "#2563EB", cornerRadius: 4) {
                             Text("Mid", fontSize: 10, color: "#FFFFFF")
                         }
@@ -458,7 +464,7 @@ app ComponentParity {
                             Text("Tall", fontSize: 10, color: "#FFFFFF")
                         }
                     }
-                    Row(spacing: 8, width: 280, height: 52, alignment: End, background: "#F2F2F7") {
+                    Row(gap: 8, width: 280, height: 52, alignment: End, background: "#F2F2F7") {
                         Column(width: 42, height: 16, background: "#2563EB", cornerRadius: 4) {
                             Text("Bottom", fontSize: 9, color: "#FFFFFF")
                         }
@@ -471,28 +477,28 @@ app ComponentParity {
 
             if rowTestPage == 1 {
                 ParityCard(title: "Horizontal arrangement") {
-                    Row(spacing: 8, width: 280, height: 42, background: "#F2F2F7") {
+                    Row(gap: 8, width: 280, height: 42, background: "#F2F2F7") {
                         Text("Default start")
                         Text("Second")
                     }
-                    Row(spacing: 8, width: 280, height: 42, horizontalArrangement: Start, background: "#F2F2F7") {
+                    Row(gap: 8, width: 280, height: 42, horizontalArrangement: Start, background: "#F2F2F7") {
                         Text("Explicit start")
                         Text("Second")
                     }
-                    Row(spacing: 8, width: 280, height: 42, horizontalArrangement: Center, background: "#F2F2F7") {
+                    Row(gap: 8, width: 280, height: 42, horizontalArrangement: Center, background: "#F2F2F7") {
                         Text("Center")
                         Text("Second")
                     }
-                    Row(spacing: 8, width: 280, height: 42, horizontalArrangement: End, background: "#F2F2F7") {
+                    Row(gap: 8, width: 280, height: 42, horizontalArrangement: End, background: "#F2F2F7") {
                         Text("End")
                         Text("Second")
                     }
-                    Row(spacing: 8, height: 42, horizontalArrangement: Center, background: "#DDEBFF", cornerRadius: 8) {
+                    Row(gap: 8, height: 42, horizontalArrangement: Center, background: "#DDEBFF", cornerRadius: 8) {
                         Text("Arrangement fills available width")
                     }
-                    Row(spacing: 4, width: 280, padding: 6, background: "#F2F2F7", cornerRadius: 8) {
+                    Row(gap: 4, width: 280, padding: 6, background: "#F2F2F7", cornerRadius: 8) {
                         Text("Outer 4")
-                        Row(spacing: 16, background: "#DDEBFF", cornerRadius: 6) {
+                        Row(gap: 16, background: "#DDEBFF", cornerRadius: 6) {
                             Text("A")
                             Text("B")
                         }
@@ -506,10 +512,10 @@ app ComponentParity {
 
             if rowTestPage == 2 {
                 ParityCard(title: "Fixed size and independent bounds") {
-                    Row(screenWidthFraction: 0.9, screenHeightFraction: 0.12, cornerRadiusBottom: 20, background: "#E8F0FF") {
+                    Row(width: screenWidthFraction(0.9), height: screenHeightFraction(0.12), cornerRadiusBottom: 20, background: "#E8F0FF") {
                         Text("Fractional viewport height with bottom-only corners")
                     }
-                    Row(width: 220, fillMaxWidth: false, fillMaxHeight: false, background: "#E8F0FF", cornerRadius: 8) {
+                    Row(width: 220, background: "#E8F0FF", cornerRadius: 8) {
                         Text("Fixed width: 220")
                     }
                     Row(height: 56, background: "#E8F0FF", cornerRadius: 8) {
@@ -524,7 +530,7 @@ app ComponentParity {
                     Row(maxWidth: 170, padding: 8, background: "#FFF1E8", cornerRadius: 8) {
                         Text("Maximum width wraps this longer label onto multiple lines")
                     }
-                    Row(width: 200, maxHeight: 68, spacing: 6, padding: 6, background: "#F2F2F7", cornerRadius: 8) {
+                    Row(width: 200, maxHeight: 68, gap: 6, padding: 6, background: "#F2F2F7", cornerRadius: 8) {
                         Column(width: 72, height: 88, background: "#E11D48", cornerRadius: 4) {
                         }
                     }
@@ -533,7 +539,7 @@ app ComponentParity {
 
             if rowTestPage == 3 {
                 ParityCard(title: "Padding, background, border, and opacity") {
-                    Row(spacing: 8, width: 280, height: 76, padding: 12, background: "#DDEBFF", cornerRadius: 14, borderColor: "#2563EB", borderWidth: 2) {
+                    Row(gap: 8, width: 280, height: 76, padding: 12, background: "#DDEBFF", cornerRadius: 14, borderColor: "#2563EB", borderWidth: 2) {
                         Text("12 dp padding")
                         Text("Blue fill · 14 dp corners · 2 dp border")
                     }
@@ -546,7 +552,7 @@ app ComponentParity {
                     Row(width: 240, height: 52, padding: 8, background: "#34C759", cornerRadius: 8, opacity: 1.0) {
                         Text("Opacity 1.0", color: "#FFFFFF")
                     }
-                    Row(spacing: 8, width: 280, height: 40, padding: 0, background: "#F2F2F7", cornerRadius: 8) {
+                    Row(gap: 8, width: 280, height: 40, padding: 0, background: "#F2F2F7", cornerRadius: 8) {
                         Text("No inset")
                         Text("12 dp above")
                     }
@@ -555,7 +561,7 @@ app ComponentParity {
 
             if rowTestPage == 4 {
                 ParityCard(title: "Transforms, clipping, shadows, and surfaces") {
-                    Row(spacing: 24, height: 88, alignment: Center) {
+                    Row(gap: 24, height: 88, alignment: Center) {
                         Row(width: 90, height: 48, background: "#E11D48", cornerRadius: 8, scale: 1.2, scaleY: 0.82) {
                             Text("Scale", color: "#FFFFFF")
                         }
@@ -582,7 +588,7 @@ app ComponentParity {
                             Text("Behind", color: "#FFFFFF")
                         }
                     }
-                    Row(spacing: 8, width: 220, height: 48, padding: 8, glass: Glass(shape: "capsule", tint: "#DDEBFF")) {
+                    Row(gap: 8, width: 220, height: 48, padding: 8, glass: Glass(shape: "capsule", tint: "#DDEBFF")) {
                         Text("Capsule surface")
                     }
                 }
@@ -590,31 +596,31 @@ app ComponentParity {
 
             if rowTestPage == 5 {
                 ParityCard(title: "Animation variants and accessibility") {
-                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseInOut) {
+                    Row(gap: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseInOut) {
                         Text("EaseInOut")
                         if rowAnimationExpanded {
                             Text("Expanded")
                         }
                     }
-                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseIn) {
+                    Row(gap: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseIn) {
                         Text("EaseIn")
                         if rowAnimationExpanded {
                             Text("Expanded")
                         }
                     }
-                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseOut) {
+                    Row(gap: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: EaseOut) {
                         Text("EaseOut")
                         if rowAnimationExpanded {
                             Text("Expanded")
                         }
                     }
-                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: Linear) {
+                    Row(gap: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: Linear) {
                         Text("Linear")
                         if rowAnimationExpanded {
                             Text("Expanded")
                         }
                     }
-                    Row(spacing: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: Spring(response: 0.35, damping: 0.8)) {
+                    Row(gap: 6, minHeight: 36, padding: 6, background: "#F2F2F7", cornerRadius: 8, animation: Spring(response: 0.35, damping: 0.8)) {
                         Text("Spring")
                         if rowAnimationExpanded {
                             Text("Expanded")
@@ -646,9 +652,9 @@ app ComponentParity {
     screen StackCases {
         state stackTestPage: Int32 = 0
         state stackAnimationExpanded: Bool = false
-        Column(spacing: 10, padding: 16) {
+        Column(gap: 10, padding: 16, margin: Insets(top: 0)) {
             Text("Stack", fontSize: 28, fontWeight: Bold)
-            Row(spacing: 12) {
+            Row(gap: 12) {
                 Pressable(accessibilityLabel: "Stack alignment tests", accessibilityRole: Button) {
                     Text("Align", fontSize: 13)
                 }.onTap {
@@ -665,7 +671,7 @@ app ComponentParity {
                     stackTestPage = 2
                 }
             }
-            Row(spacing: 12) {
+            Row(gap: 12) {
                 Pressable(accessibilityLabel: "Stack glass shape tests", accessibilityRole: Button) {
                     Text("Glass", fontSize: 13)
                 }.onTap {
@@ -713,7 +719,7 @@ app ComponentParity {
 
             if stackTestPage == 1 {
                 ParityCard(title: "Fixed size and independent bounds") {
-                    Stack(screenWidthFraction: 0.9, screenHeightFraction: 0.12, cornerRadiusBottom: 20, background: "#DDEBFF") {
+                    Stack(width: screenWidthFraction(0.9), height: screenHeightFraction(0.12), cornerRadiusBottom: 20, background: "#DDEBFF") {
                         Text("Fractional viewport height with bottom-only corners")
                     }
                     Stack(width: 180, height: 56, background: "#DDEBFF", cornerRadius: 8) {
@@ -729,7 +735,7 @@ app ComponentParity {
                         Text("Minimum height: 72")
                     }
                     Stack(maxHeight: 64, background: "#F2F2F7", cornerRadius: 8) {
-                        Column(spacing: 4) {
+                        Column(gap: 4) {
                             Text("Maximum height: 64")
                             Text("Second line")
                             Text("Third line")
@@ -783,7 +789,7 @@ app ComponentParity {
                     Stack(width: 220, height: 48, background: "#34C759", cornerRadius: 8, opacity: 1.0) {
                         Text("Opacity 1.0", color: "#FFFFFF")
                     }
-                    Row(spacing: 16, alignment: Center, height: 88) {
+                    Row(gap: 16, alignment: Center, height: 88) {
                         Stack(width: 72, height: 48, background: "#E11D48", cornerRadius: 8, scale: 0.75) {
                             Text("Scale .75", fontSize: 11, color: "#FFFFFF")
                         }
@@ -870,7 +876,7 @@ app ComponentParity {
     }
 
     screen SpacerCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Spacer", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Flexible space on both axes") {
                 Row(height: 56, padding: 8, background: "#F2F2F7") {
@@ -896,7 +902,7 @@ app ComponentParity {
 
     screen TitleCases {
         state titleActions: Int32 = 0
-        Column(spacing: 0) {
+        Column(gap: 0) {
             Toolbar(placement: Trailing) {
                 Button("Save $titleActions", style: Plain) {
                     titleActions = titleActions + 1
@@ -953,7 +959,7 @@ app ComponentParity {
 
     screen TitleLeadingCases {
         state leadingTitleActions: Int32 = 0
-        Column(spacing: 0) {
+        Column(gap: 0) {
             Toolbar(placement: Leading) {
                 Button("Tool", style: Plain) {
                     leadingTitleActions = leadingTitleActions + 1
@@ -983,7 +989,7 @@ app ComponentParity {
     }
 
     screen DividerCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Divider", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Color and thickness") {
                 Text("Gray · 1 dp")
@@ -1013,9 +1019,9 @@ app ComponentParity {
         state revealSegments: Array<ParityTimedSegment> = [ParityTimedSegment("Timed", 0.0, 0.4, true), ParityTimedSegment(" text", 0.4, 0.8, false)]
         state revealPosition: Float64 = 0.25
         state revealSeekRevision: Int32 = 0
-        Column(spacing: 10, padding: 16) {
+        Column(gap: 10, padding: 16) {
             Text("Text", fontSize: 28, fontWeight: Bold)
-            Row(spacing: 12) {
+            Row(gap: 12) {
                 Pressable(accessibilityLabel: "Text typography tests", accessibilityRole: Button) {
                     Text("Typography", fontSize: 13)
                 }.onTap {
@@ -1090,7 +1096,7 @@ app ComponentParity {
                     Text("Float64: \(textInterpolationFloat64)")
                     Text("Float32: \(textInterpolationFloat32)")
                     Text("Int32: \(textInterpolationInteger)")
-                    Row(spacing: 8) {
+                    Row(gap: 8) {
                         Button("Use boundary values") {
                             textInterpolationFloat64 = - 0.2
                             textInterpolationFloat32 = 1.5
@@ -1116,12 +1122,12 @@ app ComponentParity {
                         Text("This fixed-width text must truncate with an ellipsis", fontSize: 14, lineLimit: 1)
                     }
                     Text("Letter spacing", letterSpacing: 0.8)
-                    Row(spacing: 12) {
+                    Row(gap: 12) {
                         Text("Opacity", fontSize: 14, opacity: 0.55)
                         Text("Scale", fontSize: 14, scale: 1.08, scaleY: 0.82)
                         Text("Rotate", fontSize: 14, rotation: 3)
                     }
-                    Row(spacing: 12) {
+                    Row(gap: 12) {
                         Text("Shadow", fontSize: 14, shadow: Shadow(4, 2, 2, "#00000066"))
                         Text("Blur", fontSize: 14, blur: 1)
                         Text("Clip", fontSize: 14, clip: Rounded(6))
@@ -1130,7 +1136,7 @@ app ComponentParity {
                         Text("Above", color: "#FF3B30", fontSize: 20, fontWeight: Bold, zIndex: 2)
                         Text("Below", color: "#007AFF", fontSize: 12, zIndex: 1)
                     }
-                    Column(spacing: 0, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
+                    Column(gap: 0, padding: 8, background: "#F2F2F7", cornerRadius: 8) {
                         Text("Default text padding")
                         Text("Explicit zero padding", padding: 0)
                         Text("Explicit 12 dp padding", padding: 12)
@@ -1163,18 +1169,18 @@ app ComponentParity {
         state taps: Int32 = 0
         state actionDisabled: Bool = false
         state actionLoading: Bool = false
-        Column(spacing: 8, padding: 16) {
+        Column(gap: 8, padding: 16) {
             Text("Button", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Button styles, dimensions, and states") {
-                Column(spacing: 6, alignment: Center) {
-                    Row(spacing: 6, alignment: Center) {
+                Column(gap: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Text("Taps: $taps")
                         Button("Toggle states", style: Plain) {
                             actionDisabled =!actionDisabled
                             actionLoading =!actionLoading
                         }
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Button("Prominent", style: BorderedProminent, tint: "#E11D48") {
                             taps = taps + 1
                         }
@@ -1182,7 +1188,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Button("Borderless", style: Borderless) {
                             taps = taps + 1
                         }
@@ -1190,7 +1196,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Button("Small", style: Bordered, size: Small) {
                             taps = taps + 1
                         }
@@ -1201,7 +1207,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Button("", icon: "add", shape: Circle, accessibilityLabel: "Add") {
                             taps = taps + 1
                         }
@@ -1212,7 +1218,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Button("Glass icon", comment: "Icon and glass style parity", icon: "star", glass: true, style: Bordered) {
                             taps = taps + 1
                         }
@@ -1220,7 +1226,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Button("Disabled", disabled: true) {
                             taps = taps + 1
                         }
@@ -1228,7 +1234,7 @@ app ComponentParity {
                             taps = taps + 1
                         }
                     }
-                    Row(spacing: 6, alignment: Center) {
+                    Row(gap: 6, alignment: Center) {
                         Button("Dynamic disabled", disabled: actionDisabled) {
                             taps = taps + 1
                         }
@@ -1252,7 +1258,7 @@ app ComponentParity {
         state contextActions: Int32 = 0
         state dragUpdated: Bool = false
         state pinchUpdated: Bool = false
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Pressable", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Tap, press, and custom actions") {
                 Text("Tap events: $pressableTaps")
@@ -1343,7 +1349,7 @@ app ComponentParity {
         state emailFocused: Bool = false
         state emailFocusCount: Int32 = 0
         KeyboardAware(dismiss: Interactive, behavior: Stay) {
-            Column(spacing: 12, padding: 16) {
+            Column(gap: 12, padding: 16) {
                 Text("TextInput", fontSize: 28, fontWeight: Bold)
                 Text("No field is focused when this screen opens.", fontSize: 13, color: "#777780")
                 Button("Reset inputs") {
@@ -1423,7 +1429,7 @@ app ComponentParity {
     screen SwitchCases {
         state off: Bool = false
         state on: Bool = true
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Switch", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Off and on states with labels") {
                 Switch(value: off, label: "Notifications")
@@ -1436,7 +1442,7 @@ app ComponentParity {
         state sliderLow: Float64 = 0.0
         state sliderMiddle: Float64 = 0.5
         state sliderHigh: Float64 = 1.0
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Slider", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Minimum, middle, maximum, and stepped values") {
                 Text("Min: $sliderLow")
@@ -1464,7 +1470,7 @@ app ComponentParity {
         state singleChoice: Array<String> = ["Only"]
         state emptyChoices: Array<String> = []
         KeyboardAware {
-            Column(spacing: 8, padding: 12) {
+            Column(gap: 8, padding: 12) {
                 Text("SegmentedControl", fontSize: 28, fontWeight: Bold)
                 ParityCard(title: "Native segmented-control default style") {
                     Text("No visual overrides · native platform styling", fontSize: 12, color: "#777780")
@@ -1570,7 +1576,7 @@ app ComponentParity {
         state iconOnlySort: String = Locale.localized("Title")
         state defaultSort: String = Locale.localized("Due date")
         state rowIconSort: String = Locale.localized("Priority")
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Picker", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Selected value and custom label") {
                 Picker(items: sortOptions, selected: sort, icon: "sort", label: "Sort tasks", tint: "#E11D48", comment: "Choose the task sort order")
@@ -1649,7 +1655,7 @@ app ComponentParity {
     }
 
     screen FormCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Form and Section", fontSize: 28, fontWeight: Bold)
             Form(showDividers: false, background: "#FFFFFF") {
                 Section(title: "First group", footer: "First section footer", comment: "Grouped rows with explanatory footer", showDividers: true, background: "#FFFFFF") {
@@ -1667,7 +1673,7 @@ app ComponentParity {
     screen EmptyCases {
         state searchTitle: String = "No search results"
         state inboxDescription: String = "Saved tasks will appear here."
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("ContentUnavailable", fontSize: 28, fontWeight: Bold)
             ContentUnavailable(title: "No saved tasks", icon: "inbox", description: inboxDescription, titleColor: "#111111", descriptionColor: "#666666", iconTint: "#007AFF", background: "#F2F2F7", comment: "Custom empty-state colors")
             ContentUnavailable(title: searchTitle, icon: "search")
@@ -1700,10 +1706,10 @@ app ComponentParity {
         state barMiddle: Float64 = 0.45
         state barFull: Float64 = 1.0
         state barOverflow: Float64 = 1.25
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("ProgressBar", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Omitted progress uses the native indeterminate animation") {
-                Column(spacing: 12) {
+                Column(gap: 12) {
                     ProgressBar()
                     ProgressBar(
                     tint: barTint,
@@ -1715,7 +1721,7 @@ app ComponentParity {
                 }
             }
             ParityCard(title: "Native default style and clamped progress values") {
-                Column(spacing: 12) {
+                Column(gap: 12) {
                     ProgressBar(progress: barUnderflow, accessibilityLabel: "Underflow clamps to zero")
                     ProgressBar(progress: barZero, accessibilityLabel: "No progress")
                     ProgressBar(progress: barMiddle, accessibilityLabel: "Partial progress")
@@ -1743,7 +1749,7 @@ app ComponentParity {
                 Text("Hint: $barAccessibleHint", fontSize: 12, color: "#777780")
                 Text("Role: None (native progress role)", fontSize: 12, color: "#777780")
                 Text("Android wave: $barAndroidWave (iOS ignores this parameter)", fontSize: 12, color: "#777780")
-                Row(spacing: 8) {
+                Row(gap: 8) {
                     Button("45%", accessibilityLabel: "Set upload progress to 45 percent") {
                         barCustomProgress = 0.45
                         barAccessibleValue = "45 percent"
@@ -1777,7 +1783,7 @@ app ComponentParity {
         state ringOverflow: Float64 = 1.25
         state ringTint: String = "#2563EB"
         state ringAndroidWave: Bool = false
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("ProgressRing parameters", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Clamp below zero, partial, complete, and above one") {
                 Row(alignment: Center) {
@@ -1798,7 +1804,7 @@ app ComponentParity {
                 }
             }
             ParityCard(title: "Tint, track, size, and thickness") {
-                Row(spacing: 16, alignment: Center) {
+                Row(gap: 16, alignment: Center) {
                     ProgressRing(
                     progress: ringMiddle,
                     tint: ringTint,
@@ -1854,15 +1860,15 @@ app ComponentParity {
         state listDeleteCount: Int32 = 0
         PagePager(selected: listPage, accessibilityLabel: "FastList cases") {
             Tab(index: 0) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · vertical", fontSize: 24, fontWeight: Bold)
-                    Text("Fixed row height 56 dp · spacing 8 dp · 12 rows")
+                    Text("Fixed row height 56 dp · gap 8 dp · 12 rows")
                     Button("Scroll to row 5 with ComponentRef") {
                         listRef.scrollToIndex(index: 5)
                     }
-                    FastList(count: 12, rowHeight: 56, spacing: 8, showDividers: false, ref: listRef, accessibilityLabel: "Component parity rows") {
+                    FastList(count: 12, rowHeight: 56, gap: 8, showDividers: false, ref: listRef, accessibilityLabel: "Component parity rows") {
                         index in
-                        Row(spacing: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
+                        Row(gap: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
                             Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
                             Text("Parity row \(index)")
                         }
@@ -1870,17 +1876,17 @@ app ComponentParity {
                 }
             }
             Tab(index: 1) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · reverse and position", fontSize: 24, fontWeight: Bold)
                     Text("Scroll position: \(reverseListPosition)")
-                    FastList(count: 24, scrollPosition: reverseListPosition, reverseLayout: true, rowHeight: 48, spacing: 4, accessibilityLabel: "Reversed rows") {
+                    FastList(count: 24, scrollPosition: reverseListPosition, reverseLayout: true, rowHeight: 48, gap: 4, accessibilityLabel: "Reversed rows") {
                         index in
                         Text("Reverse row \(index)")
                     }
                 }
             }
             Tab(index: 2) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · vertical", fontSize: 24, fontWeight: Bold)
                     Text("Virtualized rows · consistent full-width container")
                     FastList(count: 12, showDividers: false, accessibilityLabel: "Vertical rows") {
@@ -1890,11 +1896,11 @@ app ComponentParity {
                 }
             }
             Tab(index: 3) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · horizontal", fontSize: 24, fontWeight: Bold)
                     Text("140 dp content · 96 dp row · 12 dp gap")
                     Text("Horizontal position: \(horizontalListPosition)")
-                    Row(spacing: 8) {
+                    Row(gap: 8) {
                         Button("Horizontal top") {
                             horizontalListRef.scrollToTop()
                         }
@@ -1906,7 +1912,7 @@ app ComponentParity {
                         horizontalListRef.scrollToOffset(offset: 160)
                     }
                     Column(height: 128) {
-                        FastList(count: 4, axis: Horizontal, rowHeight: 96, spacing: 12, scrollPosition: horizontalListPosition, ref: horizontalListRef, accessibilityLabel: "Horizontal rows") {
+                        FastList(count: 4, axis: Horizontal, rowHeight: 96, gap: 12, scrollPosition: horizontalListPosition, ref: horizontalListRef, accessibilityLabel: "Horizontal rows") {
                             index in
                             Column(width: 140, height: 80, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
                                 Text("Horizontal row \(index)")
@@ -1916,11 +1922,11 @@ app ComponentParity {
                 }
             }
             Tab(index: 4) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · fixed grid", fontSize: 24, fontWeight: Bold)
-                    Text("Two columns · 92 dp cells · 4 dp spacing")
+                    Text("Two columns · 92 dp cells · 4 dp gap")
                     Text("Fixed grid position: \(fixedGridPosition)")
-                    Row(spacing: 8) {
+                    Row(gap: 8) {
                         Button("Fixed grid top") {
                             fixedGridRef.scrollToTop()
                         }
@@ -1931,7 +1937,7 @@ app ComponentParity {
                     Button("Fixed grid offset 160") {
                         fixedGridRef.scrollToOffset(offset: 160)
                     }
-                    FastList(count: 12, axis: Grid(2), rowHeight: 92, spacing: 4, scrollPosition: fixedGridPosition, ref: fixedGridRef, accessibilityLabel: "Fixed two-column grid") {
+                    FastList(count: 12, axis: Grid(2), rowHeight: 92, gap: 4, scrollPosition: fixedGridPosition, ref: fixedGridRef, accessibilityLabel: "Fixed two-column grid") {
                         index in
                         Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
                             Text("Fixed grid \(index)")
@@ -1940,11 +1946,11 @@ app ComponentParity {
                 }
             }
             Tab(index: 5) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · responsive grid", fontSize: 24, fontWeight: Bold)
                     Text("24 cells · minimum width 160 dp · 92 dp high")
                     Switch(value: allowGridScroll, label: "Allow adaptive grid scrolling")
-                    FastList(count: 24, axis: AutoGrid(160), rowHeight: 92, spacing: 4, scrollEnabled: allowGridScroll, accessibilityLabel: "Adaptive grid") {
+                    FastList(count: 24, axis: AutoGrid(160), rowHeight: 92, gap: 4, scrollEnabled: allowGridScroll, accessibilityLabel: "Adaptive grid") {
                         index in
                         Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
                             Text("Adaptive grid \(index)")
@@ -1953,7 +1959,7 @@ app ComponentParity {
                 }
             }
             Tab(index: 6) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · page snap", fontSize: 24, fontWeight: Bold)
                     Text("Swipe vertically to move one full viewport per page")
                     FastList(count: 3, pageSnap: true, accessibilityLabel: "Paged vertical rows") {
@@ -1965,7 +1971,7 @@ app ComponentParity {
                 }
             }
             Tab(index: 7) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · scroll callbacks", fontSize: 24, fontWeight: Bold)
                     Text("Scroll callbacks: \(listScrollCount) · end reached: \(listEndReachedCount) · position: \(listPosition)")
                     Switch(value: listScrollEnabled, label: "Scrolling enabled")
@@ -1975,7 +1981,7 @@ app ComponentParity {
                         listEndReachedCount = 0
                         callbackListRef.scrollToTop()
                     }
-                    Row(spacing: 8) {
+                    Row(gap: 8) {
                         Button("Scroll to top") {
                             callbackListRef.scrollToTop()
                         }
@@ -1986,9 +1992,9 @@ app ComponentParity {
                             callbackListRef.scrollToOffset(offset: 160)
                         }
                     }
-                    FastList(count: 24, rowHeight: 48, spacing: 8, scrollPosition: listPosition, scrollEnabled: listScrollEnabled, ref: callbackListRef, showDividers: true, accessibilityLabel: "FastList callback rows") {
+                    FastList(count: 24, rowHeight: 48, gap: 8, scrollPosition: listPosition, scrollEnabled: listScrollEnabled, ref: callbackListRef, showDividers: true, accessibilityLabel: "FastList callback rows") {
                         index in
-                        Row(spacing: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
+                        Row(gap: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
                             Text("Scroll row \(index)")
                             Spacer()
                         }
@@ -2004,10 +2010,10 @@ app ComponentParity {
                 }
             }
             Tab(index: 8) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · sections and headers", fontSize: 24, fontWeight: Bold)
                     Text("Section source · sectionHeader · dividers")
-                    FastList(sections: listSectionItems, rowHeight: 48, spacing: 4, showDividers: true, accessibilityLabel: "FastList section rows") {
+                    FastList(sections: listSectionItems, rowHeight: 48, gap: 4, showDividers: true, accessibilityLabel: "FastList section rows") {
                         item, index, section in
                         Row(padding: 8, background: "#FFFFFF") {
                             Text("Section \(section) · row \(index): \(item)")
@@ -2020,7 +2026,7 @@ app ComponentParity {
                 }
             }
             Tab(index: 9) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · keyed collection and actions", fontSize: 24, fontWeight: Bold)
                     Text("Move events: \(listMoveCount) · delete actions: \(listDeleteCount)")
                     Switch(value: listMoveEnabled, label: "Allow row reordering")
@@ -2033,7 +2039,7 @@ app ComponentParity {
                     Text("Turn reordering off to use swipe actions on either platform.")
                     FastList(listMovableItems, key:.id, showDividers: true, accessibilityLabel: "FastList keyed movable tasks") {
                         item, index in
-                        Row(spacing: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
+                        Row(gap: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
                             Text("\(index + 1). \(item.title)")
                             Spacer()
                         }
@@ -2050,12 +2056,12 @@ app ComponentParity {
                 }
             }
             Tab(index: 10) {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("FastList · masonry", fontSize: 24, fontWeight: Bold)
                     Text("Two columns · variable-height cards · 12 dp gap")
-                    FastList(count: 12, axis: Masonry(2), spacing: 12, accessibilityLabel: "Masonry cards") {
+                    FastList(count: 12, axis: Masonry(2), gap: 12, accessibilityLabel: "Masonry cards") {
                         index in
-                        Column(spacing: 8, padding: 12, background: "#E8F0FF", cornerRadius: 12) {
+                        Column(gap: 8, padding: 12, background: "#E8F0FF", cornerRadius: 12) {
                             Text("Masonry card \(index)", fontWeight: Semibold)
                             if index % 3 == 0 {
                                 Text("Additional details make this card taller than its neighbors.")
@@ -2070,11 +2076,11 @@ app ComponentParity {
     screen RefreshCases {
         state refreshing: Bool = false
         state refreshCount: Int32 = 0
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("RefreshControl", fontSize: 28, fontWeight: Bold)
             Text("Refreshes: $refreshCount")
             Text("Refresh state: $refreshing")
-            Column(spacing: 8) {
+            Column(gap: 8) {
                 Button("Start", accessibilityLabel: "Set refreshing") {
                     refreshing = true
                 }
@@ -2083,7 +2089,7 @@ app ComponentParity {
                 }
             }
             RefreshControl(isRefreshing: refreshing) {
-                Column(spacing: 16, padding: 20, minHeight: 320, background: "#FFFFFF", cornerRadius: 16) {
+                Column(gap: 16, padding: 20, minHeight: 320, background: "#FFFFFF", cornerRadius: 16) {
                     Text("Pull down to refresh")
                     Text("Keep scrolling content stable while refreshing.")
                 }
@@ -2096,10 +2102,10 @@ app ComponentParity {
 
     screen KeyboardCases {
         state text: String = ""
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("KeyboardAware", fontSize: 28, fontWeight: Bold)
             KeyboardAware(dismiss: Never, behavior: Avoid) {
-                Column(spacing: 12, padding: 16, background: "#FFFFFF", cornerRadius: 16) {
+                Column(gap: 12, padding: 16, background: "#FFFFFF", cornerRadius: 16) {
                     TextInput(value: text, placeholder: "Enter a task")
                     Button("Save draft") {
                         text = text
@@ -2111,10 +2117,10 @@ app ComponentParity {
     }
 
     screen IconCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Icon", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Size and tint") {
-                Row(spacing: 24, alignment: Center) {
+                Row(gap: 24, alignment: Center) {
                     Icon(system: "search", size: 20, tint: "#8E8E93", description: "Small search")
                     Icon(system: "search", size: 32, tint: "#007AFF", description: "Medium search")
                     Icon(system: "search", size: 48, tint: "#E11D48", description: "Large search")
@@ -2127,7 +2133,7 @@ app ComponentParity {
     }
 
     screen ImageCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Image", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Asset, fit, and crop") {
                 Image(asset: "parity_sample", description: "Parity sample", scale: Fit, maxHeight: 120)
@@ -2142,7 +2148,7 @@ app ComponentParity {
     }
 
     screen GradientCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("LinearGradient", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Direction and fixed height") {
                 LinearGradient(startColor: "#E11D48", endColor: "#2563EB", direction: LeadingToTrailing, height: 64)
@@ -2154,7 +2160,7 @@ app ComponentParity {
     }
 
     screen LinkCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Link", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Inline link sizing and accessibility") {
                 Link(url: "https://example.com", accessibilityLabel: "Open example website") {
@@ -2166,7 +2172,7 @@ app ComponentParity {
 
     screen NavigationBackCases {
         state canOpenDirection: Bool = true
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("NavigationBack", fontSize: 28, fontWeight: Bold)
             Text("Compare the explicit back control with each platform's navigation header.")
             NavigationBack(label: "Return to component index", comment: "Explicit back label parity sample")
@@ -2182,7 +2188,7 @@ app ComponentParity {
 
     screen ToolbarCases {
         state actions: Int32 = 0
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Toolbar(placement: Leading) {
                 Button("Leading action", accessibilityLabel: "Leading toolbar action") {
                     actions = actions + 1
@@ -2200,11 +2206,11 @@ app ComponentParity {
 
     screen PagerCases {
         state page: Int32 = 0
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("PagePager", fontSize: 28, fontWeight: Bold)
             PagePager(selected: page, accessibilityLabel: "Parity pages") {
                 Tab(index: 0) {
-                    Column(spacing: 12, padding: 24, alignment: Center) {
+                    Column(gap: 12, padding: 24, alignment: Center) {
                         Text("First page")
                         Button("Next") {
                             page = 1
@@ -2212,7 +2218,7 @@ app ComponentParity {
                     }
                 }
                 Tab(index: 1) {
-                    Column(spacing: 12, padding: 24, alignment: Center) {
+                    Column(gap: 12, padding: 24, alignment: Center) {
                         Text("Second page")
                         Button("Previous") {
                             page = 0
@@ -2227,17 +2233,17 @@ app ComponentParity {
         state selectedTab: Int32 = 0
         AppBottomBar(selected: selectedTab, tint: "#E11D48") {
             Tab(index: 0, label: "Inbox", icon: "inbox", title: "Inbox") {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("Inbox tab content")
                 }
             }
             Tab(index: 1, label: "Today", icon: "sun", title: "Today") {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("Today tab content")
                 }
             }
             Tab(index: 2, label: "Search", icon: "search", title: "Search") {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("Search tab content")
                 }
             }
@@ -2248,7 +2254,7 @@ app ComponentParity {
         state detailVisible: Bool = false
         NavigationSplitView(detailVisible: detailVisible) {
             Sidebar {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("Sidebar")
                     Button("Show detail") {
                         detailVisible = true
@@ -2256,7 +2262,7 @@ app ComponentParity {
                 }
             }
             Detail {
-                Column(spacing: 12, padding: 16) {
+                Column(gap: 12, padding: 16) {
                     Text("Detail")
                     Button("Show sidebar") {
                         detailVisible = false
@@ -2298,7 +2304,7 @@ app ComponentParity {
         state sheetListDeleteCount: Int32 = 0
         state sheetRefreshing: Bool = false
         state sheetRefreshCount: Int32 = 0
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("BottomSheet", fontSize: 28, fontWeight: Bold)
             Button("Open medium and expanded sheet") {
                 sheetRef.present()
@@ -2339,7 +2345,7 @@ app ComponentParity {
             shouldDismissOnBackPress: true,
             backgroundColor: sheetSurface
             ) {
-                Column(spacing: 12) {
+                Column(gap: 12) {
                     Text("Task details", fontSize: 20, fontWeight: Semibold)
                     Text("Medium and expanded native resting sizes")
                     TextInput(value: sheetNote, placeholder: "Add an optional note", accessibilityLabel: "Task note")
@@ -2351,7 +2357,7 @@ app ComponentParity {
                     detents: [0.5, 1.0],
                     initialDetent: 0.5
                     ) {
-                        Column(spacing: 12) {
+                        Column(gap: 12) {
                             Text("Nested quick actions", fontSize: 20, fontWeight: Semibold)
                             Text("The task details sheet stays open underneath.")
                             Button("Return to task details") {
@@ -2369,8 +2375,8 @@ app ComponentParity {
             detents: [0.5, 1.0],
             initialDetent: 0.5
             ) {
-                Column(spacing: 16, alignment: Start) {
-                    Row(spacing: 12) {
+                Column(gap: 16, alignment: Start) {
+                    Row(gap: 12) {
                         Text("Edit task", fontSize: 20, fontWeight: Semibold)
                         Spacer()
                         Button("Save", icon: "save", style: Borderless) {
@@ -2392,7 +2398,7 @@ app ComponentParity {
             showDragIndicator: false,
             allowsDismissal: false
             ) {
-                Column(spacing: 12) {
+                Column(gap: 12) {
                     Text("Expanded and locked", fontSize: 20, fontWeight: Semibold)
                     Text("The drag handle, Back, and outside dismissal are disabled.")
                     Button("Close from content") {
@@ -2406,9 +2412,9 @@ app ComponentParity {
             cornerRadius: 29.25,
             scrimColor: "#00000033"
             ) {
-                Column(spacing: 12) {
+                Column(gap: 12) {
                     Text("Content-sized sheet · compact default inset", fontSize: 20, fontWeight: Semibold)
-                    Row(spacing: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                    Row(gap: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
                         Text("Default: 8 pt/dp")
                         Spacer()
                     }
@@ -2422,9 +2428,9 @@ app ComponentParity {
             contentPadding: 24,
             detents: [0.5, 1.0]
             ) {
-                Column(spacing: 12) {
+                Column(gap: 12) {
                     Text("More content padding", fontSize: 20, fontWeight: Semibold)
-                    Row(spacing: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                    Row(gap: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
                         Text("Override: 24 pt/dp")
                         Spacer()
                     }
@@ -2442,31 +2448,31 @@ app ComponentParity {
             ) {
                 PagePager(selected: sheetLayoutPage, accessibilityLabel: "Sheet layout parity pages") {
                     Tab(index: 0) {
-                        Column(spacing: 10, padding: 16) {
+                        Column(gap: 10, padding: 16) {
                             Text("Column · start / center / end", fontSize: 20, fontWeight: Semibold)
                             Text("Column default: centered, top-first")
-                            Column(width: 280, spacing: 8, padding: 8, background: "#F2F2F7", cornerRadius: 12) {
-                                Row(spacing: 8, alignment: Center) {
-                                    Column(width: 74, height: 76, spacing: 6, padding: 6, alignment: Start, background: "#DDEBFF", cornerRadius: 8) {
+                            Column(width: 280, gap: 8, padding: 8, background: "#F2F2F7", cornerRadius: 12) {
+                                Row(gap: 8, alignment: Center) {
+                                    Column(width: 74, height: 76, gap: 6, padding: 6, alignment: Start, background: "#DDEBFF", cornerRadius: 8) {
                                         Text("Start", fontSize: 12, fontWeight: Semibold)
                                         Text("left", alignment: Leading)
                                     }
-                                    Column(width: 74, height: 76, spacing: 6, padding: 6, alignment: Center, background: "#E8F0FF", cornerRadius: 8) {
+                                    Column(width: 74, height: 76, gap: 6, padding: 6, alignment: Center, background: "#E8F0FF", cornerRadius: 8) {
                                         Text("Center", fontSize: 12, fontWeight: Semibold)
                                         Text("middle", alignment: Center)
                                     }
-                                    Column(width: 74, height: 76, spacing: 6, padding: 6, alignment: End, background: "#DDEBFF", cornerRadius: 8) {
+                                    Column(width: 74, height: 76, gap: 6, padding: 6, alignment: End, background: "#DDEBFF", cornerRadius: 8) {
                                         Text("End", fontSize: 12, fontWeight: Semibold)
                                         Text("right", alignment: Trailing)
                                     }
                                 }
                             }
-                            Column(width: 280, spacing: 0, padding: 0, alignment: Start, background: "#FFF1E8", cornerRadius: 8) {
-                                Text("spacing 0 · padding 0", padding: 0)
+                            Column(width: 280, gap: 0, padding: 0, alignment: Start, background: "#FFF1E8", cornerRadius: 8) {
+                                Text("gap 0 · padding 0", padding: 0)
                                 Text("second child starts below first", padding: 0)
                             }
-                            Column(width: 280, spacing: 12, padding: 16, alignment: Start, background: "#E8F0FF", cornerRadius: 8) {
-                                Text("spacing 12 · padding 16", padding: 8)
+                            Column(width: 280, gap: 12, padding: 16, alignment: Start, background: "#E8F0FF", cornerRadius: 8) {
+                                Text("gap 12 · padding 16", padding: 8)
                                 Text("nested padding 8", padding: 8)
                             }
                             Text("Text padding 16", padding: 16)
@@ -2477,10 +2483,10 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 1) {
-                        Column(spacing: 10, padding: 16, alignment: Start) {
+                        Column(gap: 10, padding: 16, alignment: Start) {
                             Text("Row · cross and main axis", fontSize: 20, fontWeight: Semibold)
                             Text("Horizontal: Start / Center / End")
-                            Row(width: 280, height: 54, spacing: 8, padding: 6, alignment: Center, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                            Row(width: 280, height: 54, gap: 8, padding: 6, alignment: Center, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
                                 Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
                                     Text("A", alignment: Center)
                                 }
@@ -2491,7 +2497,7 @@ app ComponentParity {
                                     Text("C", alignment: Center)
                                 }
                             }
-                            Row(width: 280, height: 54, spacing: 8, padding: 6, alignment: Center, horizontalArrangement: Center, background: "#F2F2F7", cornerRadius: 8) {
+                            Row(width: 280, height: 54, gap: 8, padding: 6, alignment: Center, horizontalArrangement: Center, background: "#F2F2F7", cornerRadius: 8) {
                                 Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
                                     Text("A", alignment: Center)
                                 }
@@ -2502,7 +2508,7 @@ app ComponentParity {
                                     Text("C", alignment: Center)
                                 }
                             }
-                            Row(width: 280, height: 54, spacing: 8, padding: 6, alignment: Center, horizontalArrangement: End, background: "#F2F2F7", cornerRadius: 8) {
+                            Row(width: 280, height: 54, gap: 8, padding: 6, alignment: Center, horizontalArrangement: End, background: "#F2F2F7", cornerRadius: 8) {
                                 Column(width: 48, height: 28, background: "#DDEBFF", cornerRadius: 4) {
                                     Text("A", alignment: Center)
                                 }
@@ -2514,7 +2520,7 @@ app ComponentParity {
                                 }
                             }
                             Text("Vertical alignment: Start / Center / End")
-                            Row(width: 280, height: 60, spacing: 8, padding: 6, alignment: Start, background: "#F2F2F7", cornerRadius: 8) {
+                            Row(width: 280, height: 60, gap: 8, padding: 6, alignment: Start, background: "#F2F2F7", cornerRadius: 8) {
                                 Column(width: 48, height: 20, background: "#DDEBFF", cornerRadius: 4) {
                                     Text("Top", fontSize: 11, alignment: Center)
                                 }
@@ -2522,7 +2528,7 @@ app ComponentParity {
                                     Text("Tall", fontSize: 11, alignment: Center)
                                 }
                             }
-                            Row(width: 280, height: 60, spacing: 8, padding: 6, alignment: Center, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                            Row(width: 280, height: 60, gap: 8, padding: 6, alignment: Center, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
                                 Column(width: 48, height: 20, background: "#DDEBFF", cornerRadius: 4) {
                                     Text("Top", fontSize: 11, alignment: Center)
                                 }
@@ -2530,7 +2536,7 @@ app ComponentParity {
                                     Text("Tall", fontSize: 11, alignment: Center)
                                 }
                             }
-                            Row(width: 280, height: 60, spacing: 8, padding: 6, alignment: End, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                            Row(width: 280, height: 60, gap: 8, padding: 6, alignment: End, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
                                 Column(width: 48, height: 20, background: "#DDEBFF", cornerRadius: 4) {
                                     Text("Top", fontSize: 11, alignment: Center)
                                 }
@@ -2543,9 +2549,9 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 2) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("Stack · overlay and Spacer", fontSize: 20, fontWeight: Semibold)
-                            Row(width: 280, height: 92, spacing: 8, padding: 4, alignment: Center, background: "#F2F2F7", cornerRadius: 8) {
+                            Row(width: 280, height: 92, gap: 8, padding: 4, alignment: Center, background: "#F2F2F7", cornerRadius: 8) {
                                 Stack(width: 78, height: 76, padding: 4, alignment: Start, background: "#DDEBFF", cornerRadius: 8) {
                                     Text("Top start", fontSize: 11)
                                 }
@@ -2556,12 +2562,12 @@ app ComponentParity {
                                     Text("Bottom end", fontSize: 11)
                                 }
                             }
-                            Row(width: 280, height: 56, spacing: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
+                            Row(width: 280, height: 56, gap: 8, padding: 8, horizontalArrangement: Start, background: "#F2F2F7", cornerRadius: 8) {
                                 Text("Leading", padding: 4)
                                 Spacer()
                                 Text("Trailing", padding: 4)
                             }
-                            Column(width: 280, minHeight: 56, maxHeight: 96, spacing: 8, padding: 8, alignment: Start, background: "#F2F2F7", cornerRadius: 8) {
+                            Column(width: 280, minHeight: 56, maxHeight: 96, gap: 8, padding: 8, alignment: Start, background: "#F2F2F7", cornerRadius: 8) {
                                 Text("Width + min/max height constraints", fontSize: 12)
                                 ProgressBar(progress: sheetLayoutSlider, thickness: 8, cornerRadius: 4)
                                 ProgressRing(progress: sheetLayoutSlider, size: 32, thickness: 4)
@@ -2579,12 +2585,12 @@ app ComponentParity {
             ) {
                 PagePager(selected: sheetListPage, accessibilityLabel: "FastList parity pages inside sheet") {
                     Tab(index: 0) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · vertical", fontSize: 24, fontWeight: Bold)
-                            Text("Fixed row height 56 dp · spacing 8 dp · 12 rows")
-                            FastList(count: 12, rowHeight: 56, spacing: 8, showDividers: false, accessibilityLabel: "Component parity rows") {
+                            Text("Fixed row height 56 dp · gap 8 dp · 12 rows")
+                            FastList(count: 12, rowHeight: 56, gap: 8, showDividers: false, accessibilityLabel: "Component parity rows") {
                                 index in
-                                Row(spacing: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
+                                Row(gap: 12, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
                                     Icon(system: "check_circle", size: 20, tint: "#E11D48", description: "Task")
                                     Text("Parity row \(index)")
                                 }
@@ -2592,17 +2598,17 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 1) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · reverse and position", fontSize: 24, fontWeight: Bold)
                             Text("Scroll position: \(sheetListPosition)")
-                            FastList(count: 24, scrollPosition: sheetListPosition, reverseLayout: true, rowHeight: 48, spacing: 4, accessibilityLabel: "Reversed rows") {
+                            FastList(count: 24, scrollPosition: sheetListPosition, reverseLayout: true, rowHeight: 48, gap: 4, accessibilityLabel: "Reversed rows") {
                                 index in
                                 Text("Reverse row \(index)")
                             }
                         }
                     }
                     Tab(index: 2) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · vertical", fontSize: 24, fontWeight: Bold)
                             Text("Virtualized rows · consistent full-width container")
                             FastList(count: 12, showDividers: false, accessibilityLabel: "Vertical rows") {
@@ -2612,11 +2618,11 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 3) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · horizontal", fontSize: 24, fontWeight: Bold)
                             Text("140 dp content · 96 dp row · 12 dp gap")
                             Column(height: 128) {
-                                FastList(count: 4, axis: Horizontal, rowHeight: 96, spacing: 12, accessibilityLabel: "Horizontal rows") {
+                                FastList(count: 4, axis: Horizontal, rowHeight: 96, gap: 12, accessibilityLabel: "Horizontal rows") {
                                     index in
                                     Column(width: 140, height: 80, padding: 8, background: "#FFFFFF", cornerRadius: 12) {
                                         Text("Horizontal row \(index)")
@@ -2626,10 +2632,10 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 4) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · fixed grid", fontSize: 24, fontWeight: Bold)
-                            Text("Two columns · 92 dp cells · 4 dp spacing")
-                            FastList(count: 12, axis: Grid(2), rowHeight: 92, spacing: 4, accessibilityLabel: "Fixed two-column grid") {
+                            Text("Two columns · 92 dp cells · 4 dp gap")
+                            FastList(count: 12, axis: Grid(2), rowHeight: 92, gap: 4, accessibilityLabel: "Fixed two-column grid") {
                                 index in
                                 Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
                                     Text("Fixed grid \(index)")
@@ -2638,11 +2644,11 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 5) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · responsive grid", fontSize: 24, fontWeight: Bold)
                             Text("24 cells · minimum width 160 dp · 92 dp high")
                             Switch(value: sheetAllowGridScroll, label: "Allow adaptive grid scrolling")
-                            FastList(count: 24, axis: AutoGrid(160), rowHeight: 92, spacing: 4, scrollEnabled: sheetAllowGridScroll, accessibilityLabel: "Adaptive grid") {
+                            FastList(count: 24, axis: AutoGrid(160), rowHeight: 92, gap: 4, scrollEnabled: sheetAllowGridScroll, accessibilityLabel: "Adaptive grid") {
                                 index in
                                 Column(padding: 8, background: "#FFFFFF", cornerRadius: 8) {
                                     Text("Adaptive grid \(index)")
@@ -2651,7 +2657,7 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 6) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · page snap", fontSize: 24, fontWeight: Bold)
                             Text("Swipe vertically to move one full viewport per page")
                             FastList(count: 3, pageSnap: true, accessibilityLabel: "Paged vertical rows") {
@@ -2663,10 +2669,10 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 7) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · sections and headers", fontSize: 24, fontWeight: Bold)
                             Text("Section source · sectionHeader · dividers")
-                            FastList(sections: sheetSectionItems, rowHeight: 48, spacing: 4, showDividers: true, accessibilityLabel: "Sheet sectioned rows") {
+                            FastList(sections: sheetSectionItems, rowHeight: 48, gap: 4, showDividers: true, accessibilityLabel: "Sheet sectioned rows") {
                                 item, index, section in
                                 Row(padding: 8, background: "#FFFFFF") {
                                     Text("Section \(section) · row \(index): \(item)")
@@ -2679,7 +2685,7 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 8) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · keyed collection and actions", fontSize: 24, fontWeight: Bold)
                             Text("Move enabled: \(sheetMoveEnabled)")
                             Text("Move events: \(sheetMoveCount)")
@@ -2688,7 +2694,7 @@ app ComponentParity {
                             Text("Long-press and drag a row to reorder it on either platform.")
                             FastList(sheetMovableItems, key:.id, showDividers: true, accessibilityLabel: "Keyed movable tasks") {
                                 item, index in
-                                Row(spacing: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
+                                Row(gap: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
                                     Text("\(index + 1). \(item.title)")
                                     Spacer()
                                 }
@@ -2704,7 +2710,7 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 9) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · scroll callbacks", fontSize: 24, fontWeight: Bold)
                             Text("Scroll callbacks: \(sheetListScrollCount) · end reached: \(sheetListEndCount) · position: \(sheetListPosition)")
                             Button("Reset scroll callbacks") {
@@ -2713,9 +2719,9 @@ app ComponentParity {
                                 sheetListPosition = 0
                             }
                             Switch(value: sheetListScrollEnabled, label: "Scrolling enabled")
-                            FastList(count: 24, scrollPosition: sheetListPosition, rowHeight: 48, spacing: 8, scrollEnabled: sheetListScrollEnabled, showDividers: true, accessibilityLabel: "Sheet scroll callback rows") {
+                            FastList(count: 24, scrollPosition: sheetListPosition, rowHeight: 48, gap: 8, scrollEnabled: sheetListScrollEnabled, showDividers: true, accessibilityLabel: "Sheet scroll callback rows") {
                                 index in
-                                Row(spacing: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
+                                Row(gap: 8, padding: 8, alignment: Center, background: "#FFFFFF") {
                                     Text("Scroll row \(index)")
                                     Spacer()
                                 }
@@ -2731,12 +2737,12 @@ app ComponentParity {
                         }
                     }
                     Tab(index: 10) {
-                        Column(spacing: 12, padding: 16) {
+                        Column(gap: 12, padding: 16) {
                             Text("FastList · pull to refresh", fontSize: 24, fontWeight: Bold)
                             Text("Refreshes: \(sheetRefreshCount)")
                             Text("Pull down inside the list to exercise refresh")
                             RefreshControl(isRefreshing: sheetRefreshing) {
-                                FastList(count: 8, rowHeight: 56, spacing: 8, accessibilityLabel: "Pull to refresh sheet rows") {
+                                FastList(count: 8, rowHeight: 56, gap: 8, accessibilityLabel: "Pull to refresh sheet rows") {
                                     index in
                                     Text("Refresh row \(index)")
                                 }
@@ -2757,8 +2763,8 @@ app ComponentParity {
             allowsBackgroundInteraction: true,
             shouldDismissOnBackPress: false
             ) {
-                Column(spacing: 4) {
-                    Row(spacing: 8) {
+                Column(gap: 4) {
+                    Row(gap: 8) {
                         Text("Map sheet", fontSize: 20, fontWeight: Semibold)
                         Spacer()
                         Button("Close") {
@@ -2776,7 +2782,7 @@ app ComponentParity {
 
     screen DialogCases {
         state dialogPresented: Bool = false
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Dialog", fontSize: 28, fontWeight: Bold)
             Button("Open dialog") {
                 dialogPresented = true
@@ -2794,7 +2800,7 @@ app ComponentParity {
 
     screen ConfirmationCases {
         state confirmationPresented: Bool = false
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("ConfirmationDialog", fontSize: 28, fontWeight: Bold)
             Button("Open actions") {
                 confirmationPresented = true
@@ -2811,20 +2817,20 @@ app ComponentParity {
     }
 
     screen AppearanceCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Appearance", fontSize: 28, fontWeight: Bold)
             Appearance(mode: "system") {
-                Column(spacing: 8, padding: 12, cornerRadius: 16, background: "#E8E8ED") {
+                Column(gap: 8, padding: 12, cornerRadius: 16, background: "#E8E8ED") {
                     Text("System appearance surface")
                 }
             }
             Appearance(mode: "light") {
-                Column(spacing: 8, padding: 12, cornerRadius: 16, background: "#F2F2F7") {
+                Column(gap: 8, padding: 12, cornerRadius: 16, background: "#F2F2F7") {
                     Text("Light appearance surface")
                 }
             }
             Appearance(mode: "dark") {
-                Column(spacing: 8, padding: 12, cornerRadius: 16, background: "#1C1C1E") {
+                Column(gap: 8, padding: 12, cornerRadius: 16, background: "#1C1C1E") {
                     Text("Dark appearance surface")
                 }
             }
@@ -2833,7 +2839,7 @@ app ComponentParity {
 
     screen StatusBarCases {
         StatusBar(style: Default, hidden: false, background: "#F2F2F7", navigationBarBackground: "#000000")
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("StatusBar", fontSize: 28, fontWeight: Bold)
             Text("Compare status-bar foreground, background, and safe-area handling.")
         }
@@ -2841,7 +2847,7 @@ app ComponentParity {
 
     screen AccessibilityCases {
         state selected: Bool = false
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Accessibility", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Role, label, value, and action") {
                 Text("Section title", accessibilityLabel: "Parity section heading", accessibilityHint: "Introduces the controls below", accessibilityRole: Header)
@@ -2862,7 +2868,7 @@ app ComponentParity {
         OnDisappear {
             departures = departures + 1
         }
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Screen lifecycle", fontSize: 28, fontWeight: Bold)
             Text("Appearances: $appearances")
             Text("Departures: $departures")
@@ -2874,11 +2880,11 @@ app ComponentParity {
     }
 
     screen DirectionCases {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Direction", fontSize: 28, fontWeight: Bold)
             ParityCard(title: "Layout follows the app direction") {
                 Text("Leading and trailing adapt to the app's layout direction.")
-                Row(spacing: 12, padding: 12, background: "#F2F2F7", cornerRadius: 12) {
+                Row(gap: 12, padding: 12, background: "#F2F2F7", cornerRadius: 12) {
                     Text("Leading")
                     Spacer()
                     Text("Trailing")

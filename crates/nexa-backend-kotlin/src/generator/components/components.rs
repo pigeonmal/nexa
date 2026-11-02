@@ -1,6 +1,8 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::adaptive_layout::{LayoutEdge, ScrollOwnerResolution};
-use nexa_ir::{LayoutKind, Module, Node, SystemIcon, ToolbarPlacement, ViewStyle};
+use nexa_ir::{
+    Dimension, EdgeInsets, Expr, LayoutKind, Module, Node, SystemIcon, ToolbarPlacement, ViewStyle,
+};
 
 use crate::generator::{
     accessibility, bottom_bar, bottom_sheet, controls, dialogs, features::Features, images, input,
@@ -21,27 +23,50 @@ pub(crate) fn render_node(
 ) {
     let scope = RenderScope { module, features };
     match node {
-        Node::SafeAreaPadding { plan, children } => {
-            let edges = plan
-                .edges
-                .iter()
-                .map(|edge| match edge {
-                    LayoutEdge::Top => "NexaSafeAreaEdge.Top",
-                    LayoutEdge::Bottom => "NexaSafeAreaEdge.Bottom",
-                    LayoutEdge::Leading => "NexaSafeAreaEdge.Leading",
-                    LayoutEdge::Trailing => "NexaSafeAreaEdge.Trailing",
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            out.line_at(
-                depth,
-                format_args!(
-                    "NexaSafeAreaPaddingPrimitive(edges = setOf({edges}), spacing = {}.dp) {{",
-                    crate::generator::utils::number(plan.spacing)
-                ),
-            );
-            render_children(children, module, features, depth + 1, out);
-            out.line_at(depth, format_args!("}}"));
+        Node::ViewInsets {
+            padding,
+            margin,
+            child,
+        } => {
+            if let Node::Form {
+                show_dividers,
+                background,
+                children,
+            } = child.as_ref()
+            {
+                let content_padding = padding.as_ref().map(kotlin_padding_values);
+                let margin = margin
+                    .as_ref()
+                    .map(kotlin_padding_values)
+                    .map(|values| format!("Modifier.padding({values})"));
+                layout::render_form(
+                    *show_dividers,
+                    *background,
+                    children,
+                    Some(layout::FormInsets {
+                        content_padding,
+                        margin,
+                    }),
+                    &scope,
+                    depth,
+                    out,
+                );
+            } else {
+                let padding = kotlin_insets("padding", padding.as_ref());
+                let margin = kotlin_insets("margin", margin.as_ref());
+                let scroll_content = matches!(
+                    child.as_ref(),
+                    Node::FastList { .. }
+                        | Node::KeyboardAware { .. }
+                        | Node::RefreshControl { .. }
+                );
+                out.line_at(
+                    depth,
+                    format_args!("NexaViewInsetsPrimitive({padding}, {margin}, scrollContent = {scroll_content}) {{"),
+                );
+                render_node(child, module, features, depth + 1, out);
+                out.line_at(depth, format_args!("}}"));
+            }
         }
         Node::SafeAreaInset {
             plan,
@@ -61,8 +86,7 @@ pub(crate) fn render_node(
             out.line_at(
                 depth,
                 format_args!(
-                    "NexaSafeAreaInsetPrimitive(edge = {edge}, spacing = {}.dp, accommodatesEndpoint = {accommodates_endpoint}, content = {{",
-                    crate::generator::utils::number(plan.spacing)
+                    "NexaSafeAreaInsetPrimitive(edge = {edge}, accommodatesEndpoint = {accommodates_endpoint}, content = {{"
                 ),
             );
             render_children(children, module, features, depth + 1, out);
@@ -91,15 +115,23 @@ pub(crate) fn render_node(
         | Node::OnBackground { .. } => {}
         Node::Layout {
             kind,
-            spacing,
+            gap,
             style,
             children,
-        } => layout::render_layout(*kind, *spacing, style, children, &scope, depth, out),
+        } => layout::render_layout(*kind, *gap, style, children, &scope, depth, out),
         Node::Form {
             show_dividers,
             background,
             children,
-        } => layout::render_form(*show_dividers, *background, children, &scope, depth, out),
+        } => layout::render_form(
+            *show_dividers,
+            *background,
+            children,
+            None,
+            &scope,
+            depth,
+            out,
+        ),
         Node::FormSection {
             title,
             footer,
@@ -111,7 +143,6 @@ pub(crate) fn render_node(
                 title: title.as_ref(),
                 footer: footer.as_ref(),
                 show_dividers: show_dividers.unwrap_or(true),
-                first_section: false,
                 background: *background,
             },
             children,
@@ -174,21 +205,47 @@ pub(crate) fn render_node(
             );
         }
         Node::Spacer { width, height } => {
-            let modifier = match (width, height) {
-                (Some(width), Some(height)) => format!(
-                    "Modifier.width({}.dp).height({}.dp)",
-                    crate::generator::utils::number(*width),
-                    crate::generator::utils::number(*height)
-                ),
-                (Some(width), None) => format!(
-                    "Modifier.width({}.dp)",
-                    crate::generator::utils::number(*width)
-                ),
-                (None, Some(height)) => format!(
-                    "Modifier.height({}.dp)",
-                    crate::generator::utils::number(*height)
-                ),
-                (None, None) => "Modifier.weight(1f)".to_owned(),
+            let mut modifiers = Vec::new();
+            let mut relative = Vec::new();
+            for (axis, dimension) in [("width", *width), ("height", *height)] {
+                let Some(dimension) = dimension else { continue };
+                match dimension {
+                    Dimension::Fixed(value) => modifiers.push(format!(
+                        ".{axis}({}.dp)",
+                        crate::generator::utils::number(value)
+                    )),
+                    Dimension::ScreenWidthFraction(fraction) if axis == "width" => {
+                        modifiers.push(format!(
+                            ".width((LocalNexaWindowMetrics.current.viewportWidthDp * {}f).dp)",
+                            crate::generator::utils::number(fraction)
+                        ))
+                    }
+                    Dimension::ScreenHeightFraction(fraction) if axis == "height" => modifiers
+                        .push(format!(
+                            ".height((LocalNexaWindowMetrics.current.viewportHeightDp * {}f).dp)",
+                            crate::generator::utils::number(fraction)
+                        )),
+                    Dimension::Fill => modifiers.push(format!(
+                        ".fillMax{}()",
+                        if axis == "width" { "Width" } else { "Height" }
+                    )),
+                    Dimension::ParentFraction(fraction) => relative.push(format!(
+                        "{axis} = {}f",
+                        crate::generator::utils::number(fraction)
+                    )),
+                    _ => {}
+                }
+            }
+            if !relative.is_empty() {
+                modifiers.push(format!(
+                    ".nexaParentRelativeDimension({})",
+                    relative.join(", ")
+                ));
+            }
+            let modifier = if width.is_none() && height.is_none() {
+                "Modifier.weight(1f)".to_owned()
+            } else {
+                format!("Modifier{}", modifiers.join(""))
             };
             out.line_at(depth, format_args!("Spacer(modifier = {modifier})"));
         }
@@ -768,6 +825,50 @@ pub(crate) fn render_node(
     }
 }
 
+fn kotlin_insets(prefix: &str, insets: Option<&EdgeInsets>) -> String {
+    let insets = insets.cloned().unwrap_or_default();
+    let value = |expression: Option<&Box<Expr>>| {
+        expression
+            .map(|expression| {
+                format!(
+                    "({}).toFloat().dp",
+                    crate::generator::engine::expressions::expression(expression)
+                )
+            })
+            .unwrap_or_else(|| "0.dp".to_owned())
+    };
+    [
+        ("Top", insets.top.as_ref()),
+        ("Leading", insets.leading.as_ref()),
+        ("Bottom", insets.bottom.as_ref()),
+        ("Trailing", insets.trailing.as_ref()),
+    ]
+    .into_iter()
+    .map(|(edge, expression)| format!("{prefix}{edge} = {}", value(expression)))
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
+fn kotlin_padding_values(insets: &EdgeInsets) -> String {
+    let value = |expression: Option<&Box<Expr>>| {
+        expression
+            .map(|expression| {
+                format!(
+                    "androidx.compose.ui.unit.Dp(({}).toFloat())",
+                    crate::generator::engine::expressions::expression(expression)
+                )
+            })
+            .unwrap_or_else(|| "androidx.compose.ui.unit.Dp(0f)".to_owned())
+    };
+    format!(
+        "androidx.compose.foundation.layout.PaddingValues(start = {}, top = {}, end = {}, bottom = {})",
+        value(insets.leading.as_ref()),
+        value(insets.top.as_ref()),
+        value(insets.trailing.as_ref()),
+        value(insets.bottom.as_ref()),
+    )
+}
+
 pub(crate) fn render_node_in_row(
     node: &Node,
     module: &Module,
@@ -779,18 +880,20 @@ pub(crate) fn render_node_in_row(
         Node::TextInput { .. } => render_text_input_node(node, true, depth, out),
         Node::Layout {
             kind,
-            spacing,
+            gap,
             style,
             children,
-        } if style.fill_max_width => layout::render_row_child_layout(
-            *kind,
-            *spacing,
-            style,
-            children,
-            &RenderScope { module, features },
-            depth,
-            out,
-        ),
+        } if matches!(style.width, Some(nexa_ir::Dimension::Fill)) => {
+            layout::render_row_child_layout(
+                *kind,
+                *gap,
+                style,
+                children,
+                &RenderScope { module, features },
+                depth,
+                out,
+            )
+        }
         _ => render_node(node, module, features, depth, out),
     }
 }

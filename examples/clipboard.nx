@@ -4,7 +4,7 @@ app ClipboardDemo {
     state clipboardStatus: String = "Clipboard is empty"
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("Clipboard")
             TextInput(value: source, placeholder: "Text to copy")
 

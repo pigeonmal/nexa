@@ -2,7 +2,7 @@ use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
     ArithmeticOp, BinaryOp, CollectionTransform, CollectionUtilityKind, Expr, InterpolatedPart,
     LogMethod, MemberKind, NetworkRequest, NumericType, PermissionOpKind, PluginCodec, TimeMethod,
-    TuplePosition, Type,
+    TuplePosition, Type, adaptive_layout::LayoutEdge,
 };
 
 use super::utils::{kotlin_string, kotlin_string_content};
@@ -67,11 +67,19 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::IsCompactWidth => "(LocalConfiguration.current.screenWidthDp < 600)".to_owned(),
         Expr::IsRegularHeight => "(LocalConfiguration.current.screenHeightDp >= 600)".to_owned(),
         Expr::IsCompactHeight => "(LocalConfiguration.current.screenHeightDp < 600)".to_owned(),
-        Expr::ScreenWidth => "(androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDouble() / androidx.compose.ui.platform.LocalDensity.current.density.toDouble())".to_owned(),
-        Expr::ScreenHeight => "(androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toDouble() / androidx.compose.ui.platform.LocalDensity.current.density.toDouble())".to_owned(),
-        Expr::SafeAreaTop => {
-            "nexaSafeAreaDynamicInsets().top.value.toDouble()".to_owned()
+        Expr::ScreenWidth => "LocalNexaWindowMetrics.current.viewportWidthDp.toDouble()".to_owned(),
+        Expr::ScreenHeight => {
+            "LocalNexaWindowMetrics.current.viewportHeightDp.toDouble()".to_owned()
         }
+        Expr::SystemInset(edge) => format!(
+            "LocalNexaWindowMetrics.current.systemInset(NexaSafeAreaEdge.{}, androidx.compose.ui.platform.LocalLayoutDirection.current).value.toDouble()",
+            match edge {
+                LayoutEdge::Top => "Top",
+                LayoutEdge::Bottom => "Bottom",
+                LayoutEdge::Leading => "Leading",
+                LayoutEdge::Trailing => "Trailing",
+            }
+        ),
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
         Expr::State(name, _) if locals.iter().any(|local| local == name) => name.clone(),
         Expr::State(name, _) => match name.split_once("::") {

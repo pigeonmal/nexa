@@ -4,6 +4,7 @@ use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     ArithmeticOp as IrArithmeticOp, BinaryOp, CollectionTransform, CollectionUtilityKind, Expr,
     InterpolatedPart, MemberKind, NumericType, PluginCodec, TuplePosition, Type,
+    adaptive_layout::LayoutEdge,
 };
 use nexa_plugin_idl::TypeRef;
 use nexa_syntax::ast;
@@ -1723,7 +1724,10 @@ fn lower_expr_inner(
                 let geometry = match (namespace.as_str(), name.as_str()) {
                     ("Layout", "screenWidth") => Some(Expr::ScreenWidth),
                     ("Layout", "screenHeight") => Some(Expr::ScreenHeight),
-                    ("SafeArea", "top") => Some(Expr::SafeAreaTop),
+                    ("SystemInsets", "top") => Some(Expr::SystemInset(LayoutEdge::Top)),
+                    ("SystemInsets", "bottom") => Some(Expr::SystemInset(LayoutEdge::Bottom)),
+                    ("SystemInsets", "leading") => Some(Expr::SystemInset(LayoutEdge::Leading)),
+                    ("SystemInsets", "trailing") => Some(Expr::SystemInset(LayoutEdge::Trailing)),
                     _ => None,
                 };
                 if let Some(geometry) = geometry {
@@ -2921,8 +2925,9 @@ fn lower_component_ref_method_call(
         let error = Type::ComponentRefError(Box::new(Type::Void));
         let return_type = Type::Result(Box::new(Type::Void), Box::new(error));
         require_expected(expected, &return_type, span)?;
+        let receiver = lower_expr(base, None, ctx)?;
         return Ok(Expr::NativeCall {
-            receiver: Some(Box::new(lower_expr(base, None, ctx)?)),
+            receiver: Some(Box::new(receiver)),
             namespace: "NexaBottomSheetRef".to_owned(),
             name: name.to_owned(),
             arguments: Vec::new(),
@@ -4285,7 +4290,7 @@ fn lower_plugin_call(
         TypeRegistries {
             structs: ctx.structs,
             enums: ctx.enums,
-            allow_nullable_generic_plugin_reads: ctx.allow_nullable_generic_plugin_reads,
+            nullable_generic_plugin_reads: ctx.nullable_generic_plugin_reads,
             screen_ids: ctx.screen_ids,
             allow_navigation_actions: ctx.allow_navigation_actions,
             source_file: ctx.source_file,
@@ -4483,7 +4488,7 @@ fn lower_plugin_method_call(
         TypeRegistries {
             structs: ctx.structs,
             enums: ctx.enums,
-            allow_nullable_generic_plugin_reads: ctx.allow_nullable_generic_plugin_reads,
+            nullable_generic_plugin_reads: ctx.nullable_generic_plugin_reads,
             screen_ids: ctx.screen_ids,
             allow_navigation_actions: ctx.allow_navigation_actions,
             source_file: ctx.source_file,
@@ -4994,7 +4999,8 @@ pub(super) fn infer_expr_type(
                 && let ast::Expr::Name(namespace, _) = base.as_ref()
                 && matches!(
                     (namespace.as_str(), name.as_str()),
-                    ("Layout", "screenWidth" | "screenHeight") | ("SafeArea", "top")
+                    ("Layout", "screenWidth" | "screenHeight")
+                        | ("SystemInsets", "top" | "bottom" | "leading" | "trailing")
                 )
             {
                 return Some(Type::Numeric(NumericType::Float64));
@@ -5963,7 +5969,7 @@ pub(super) fn lowered_type(expr: &Expr) -> Option<Type> {
         | Expr::PluginEnumOptionalConstructor { return_type, .. } => Some(return_type.clone()),
         Expr::Await(value) | Expr::TryAwait(value) => lowered_type(value),
         Expr::State(_, ty) => Some(ty.clone()),
-        Expr::ScreenWidth | Expr::ScreenHeight | Expr::SafeAreaTop => {
+        Expr::ScreenWidth | Expr::ScreenHeight | Expr::SystemInset(_) => {
             Some(Type::Numeric(NumericType::Float64))
         }
         Expr::Null(ty) => Some(ty.clone()),

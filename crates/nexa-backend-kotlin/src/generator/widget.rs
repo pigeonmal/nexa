@@ -4,7 +4,7 @@
 //! this renderer deliberately supports only the widget-safe IR subset.
 
 use nexa_codegen::{GeneratedSources, SourceUnit, SourceWriter};
-use nexa_ir::{Expr, LayoutKind, ListPlan, Module, Node, Widget, WidgetFamily};
+use nexa_ir::{Dimension, Expr, LayoutKind, ListPlan, Module, Node, Widget, WidgetFamily};
 
 use super::engine::{expressions, features::Features};
 use crate::generator::utils::number;
@@ -85,6 +85,7 @@ pub(super) fn generate(
         "import androidx.glance.layout.height".to_owned(),
         "import androidx.glance.layout.width".to_owned(),
         "import androidx.glance.layout.fillMaxWidth".to_owned(),
+        "import androidx.glance.layout.fillMaxHeight".to_owned(),
         "import androidx.glance.layout.padding".to_owned(),
         "import androidx.glance.background".to_owned(),
         "import androidx.glance.appwidget.cornerRadius".to_owned(),
@@ -175,6 +176,9 @@ fn collect_drawables(
             Node::Layout { children, .. }
             | Node::Link { children, .. }
             | Node::Accessibility { children, .. } => collect_drawables(widget, children, output)?,
+            Node::ViewInsets { child, .. } => {
+                collect_drawables(widget, std::slice::from_ref(child.as_ref()), output)?
+            }
             Node::If {
                 then_body,
                 else_body,
@@ -241,8 +245,7 @@ fn validate_widget(widget: &Widget) -> Result<(), crate::WidgetGenerationError> 
         for node in nodes {
             match node {
                 Node::Text { style, .. } => {
-                    if style.padding.is_some()
-                        || style.opacity.is_some()
+                    if style.opacity.is_some()
                         || style.effects.has_modifiers()
                         || style.line_height.is_some()
                         || style.letter_spacing.is_some()
@@ -254,7 +257,14 @@ fn validate_widget(widget: &Widget) -> Result<(), crate::WidgetGenerationError> 
                         ));
                     }
                 }
-                Node::Spacer { .. } | Node::Divider { .. } | Node::Shape { .. } => {}
+                Node::Spacer { width, height } => {
+                    if matches!(width, Some(Dimension::ParentFraction(_)))
+                        || matches!(height, Some(Dimension::ParentFraction(_)))
+                    {
+                        return Err(fail(widget, "parent-relative percentage Spacer dimensions"));
+                    }
+                }
+                Node::Divider { .. } | Node::Shape { .. } => {}
                 Node::SystemIcon { icon, .. } => {
                     if icon.android_widget_drawable().is_none() {
                         return Err(fail(
@@ -282,6 +292,35 @@ fn validate_widget(widget: &Widget) -> Result<(), crate::WidgetGenerationError> 
                         ));
                     }
                     validate_nodes(widget, children)?;
+                }
+                Node::ViewInsets {
+                    padding,
+                    margin,
+                    child,
+                } => {
+                    let has_system_inset = [padding.as_ref(), margin.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .flat_map(|insets| {
+                            [
+                                &insets.top,
+                                &insets.bottom,
+                                &insets.leading,
+                                &insets.trailing,
+                            ]
+                        })
+                        .flatten()
+                        .any(|expression| {
+                            let mut found = false;
+                            nexa_ir::walk::walk_expression(expression, &mut |value| {
+                                found |= matches!(value, Expr::SystemInset(_));
+                            });
+                            found
+                        });
+                    if has_system_inset {
+                        return Err(fail(widget, "SystemInsets in a Glance widget"));
+                    }
+                    validate_nodes(widget, std::slice::from_ref(child.as_ref()))?;
                 }
                 Node::Accessibility {
                     hint,
@@ -907,9 +946,9 @@ fn render_node(
         }
         Node::Spacer { width, height } => {
             let modifier = match (width, height) {
-                (Some(width), Some(height)) => format!("GlanceModifier.width({}.dp).height({}.dp)", number(*width), number(*height)),
-                (Some(width), None) => format!("GlanceModifier.width({}.dp)", number(*width)),
-                (None, Some(height)) => format!("GlanceModifier.height({}.dp)", number(*height)),
+                (Some(width), Some(height)) => format!("GlanceModifier{}{}", glance_spacer_dimension(*width, true), glance_spacer_dimension(*height, false)),
+                (Some(width), None) => format!("GlanceModifier{}", glance_spacer_dimension(*width, true)),
+                (None, Some(height)) => format!("GlanceModifier{}", glance_spacer_dimension(*height, false)),
                 (None, None) => "GlanceModifier.defaultWeight()".to_owned(),
             };
             out.line_at(depth, format_args!("GlanceSpacer(modifier = {modifier})"));
@@ -932,7 +971,23 @@ fn render_node(
                 ),
             );
         }
-        Node::Layout { kind, children, spacing, style } => render_layout(*kind, children, *spacing, style, depth, out, widget)?,
+        Node::Layout { kind, children, gap, style } => render_layout(*kind, children, *gap, style, depth, out, widget)?,
+        Node::ViewInsets { padding, margin, child } => {
+            let values = [padding.as_ref(), margin.as_ref()]
+                .into_iter()
+                .flatten()
+                .fold([String::from("0f"), String::from("0f"), String::from("0f"), String::from("0f")], |mut total, insets| {
+                    for (index, expression) in [&insets.top, &insets.leading, &insets.bottom, &insets.trailing].into_iter().enumerate() {
+                        if let Some(expression) = expression {
+                            total[index] = format!("({} + ({}).toFloat())", total[index], expressions::expression(expression));
+                        }
+                    }
+                    total
+                });
+            out.line_at(depth, format_args!("GlanceBox(modifier = GlanceModifier.padding(top = {}.dp, start = {}.dp, bottom = {}.dp, end = {}.dp)) {{", values[0], values[1], values[2], values[3]));
+            render_node(child, depth + 1, out, widget)?;
+            out.line_at(depth, format_args!("}}"));
+        }
         Node::If { condition, then_body, else_body, .. } => {
             out.line_at(depth, format_args!("if ({}) {{", expressions::expression(condition)));
             render_nodes(then_body, depth + 1, out, widget)?;
@@ -1043,22 +1098,27 @@ fn render_layout(
     widget: &Widget,
 ) -> Result<(), crate::WidgetGenerationError> {
     let mut modifiers = Vec::new();
-    if let Some(padding) = style.padding {
-        modifiers.push(format!("padding({padding}.dp)"));
-    }
     if let Some(width) = style.width {
-        modifiers.push(format!("width({width}.dp)"));
-    } else if let Some(fraction) = style.screen_width_fraction {
-        modifiers.push(format!(
-            "width((nexa_screen_width_dp.toFloat() * {fraction}f).dp)"
-        ));
+        match width {
+            Dimension::Fixed(value) => modifiers.push(format!("width({}.dp)", number(value))),
+            Dimension::ScreenWidthFraction(fraction) => modifiers.push(format!(
+                "width((nexa_screen_width_dp.toFloat() * {}f).dp)",
+                number(fraction)
+            )),
+            Dimension::Fill => modifiers.push("fillMaxWidth()".to_owned()),
+            Dimension::ParentFraction(_) | Dimension::ScreenHeightFraction(_) => {}
+        }
     }
     if let Some(height) = style.height {
-        modifiers.push(format!("height({height}.dp)"));
-    } else if let Some(fraction) = style.screen_height_fraction {
-        modifiers.push(format!(
-            "height((nexa_screen_height_dp.toFloat() * {fraction}f).dp)"
-        ));
+        match height {
+            Dimension::Fixed(value) => modifiers.push(format!("height({}.dp)", number(value))),
+            Dimension::ScreenHeightFraction(fraction) => modifiers.push(format!(
+                "height((nexa_screen_height_dp.toFloat() * {}f).dp)",
+                number(fraction)
+            )),
+            Dimension::Fill => modifiers.push("fillMaxHeight()".to_owned()),
+            Dimension::ParentFraction(_) | Dimension::ScreenWidthFraction(_) => {}
+        }
     }
     if let Some(background) = style.background {
         modifiers.push(format!("background({})", glance_color(background)));
@@ -1066,11 +1126,7 @@ fn render_layout(
     if let Some(radius) = style.corner_radius {
         modifiers.push(format!("cornerRadius({radius}.dp)"));
     }
-    if kind == LayoutKind::Row
-        && style.horizontal_arrangement.is_some()
-        && style.width.is_none()
-        && style.screen_width_fraction.is_none()
-    {
+    if kind == LayoutKind::Row && style.horizontal_arrangement.is_some() && style.width.is_none() {
         modifiers.insert(0, "fillMaxWidth()".to_owned());
     }
     let mut arguments = Vec::new();
@@ -1146,6 +1202,28 @@ fn render_layout(
     }
     out.line_at(depth, format_args!("}}"));
     Ok(())
+}
+
+fn glance_spacer_dimension(dimension: Dimension, width_axis: bool) -> String {
+    match dimension {
+        Dimension::Fixed(value) => format!(
+            ".{}({}.dp)",
+            if width_axis { "width" } else { "height" },
+            number(value)
+        ),
+        Dimension::ScreenWidthFraction(fraction) if width_axis => format!(
+            ".width((nexa_screen_width_dp.toFloat() * {}f).dp)",
+            number(fraction)
+        ),
+        Dimension::ScreenHeightFraction(fraction) if !width_axis => format!(
+            ".height((nexa_screen_height_dp.toFloat() * {}f).dp)",
+            number(fraction)
+        ),
+        Dimension::Fill => format!(".fillMax{}()", if width_axis { "Width" } else { "Height" }),
+        Dimension::ParentFraction(_)
+        | Dimension::ScreenWidthFraction(_)
+        | Dimension::ScreenHeightFraction(_) => String::new(),
+    }
 }
 
 fn glance_color(color: nexa_ir::ColorValue) -> String {
@@ -1270,7 +1348,7 @@ mod tests {
             &children,
             0.0,
             &ViewStyle {
-                width: Some(280.0),
+                width: Some(nexa_ir::Dimension::Fixed(280.0)),
                 horizontal_arrangement: Some(HorizontalArrangement::Center),
                 ..ViewStyle::default()
             },

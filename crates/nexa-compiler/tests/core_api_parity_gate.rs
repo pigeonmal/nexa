@@ -37,10 +37,14 @@ fn every_core_api_has_full_dual_platform_and_dev_runtime_parity() {
         .expect("read NexaDevState.kt");
     let android_dev = format!("{android_native_apis}\n{android_state}");
 
-    let swift_exprs = fs::read_to_string(root.join("crates/nexa-backend-swift/src/generator/engine/expressions.rs"))
-        .expect("read swift expressions.rs");
-    let kotlin_exprs = fs::read_to_string(root.join("crates/nexa-backend-kotlin/src/generator/engine/expressions.rs"))
-        .expect("read kotlin expressions.rs");
+    let swift_exprs = fs::read_to_string(
+        root.join("crates/nexa-backend-swift/src/generator/engine/expressions.rs"),
+    )
+    .expect("read swift expressions.rs");
+    let kotlin_exprs = fs::read_to_string(
+        root.join("crates/nexa-backend-kotlin/src/generator/engine/expressions.rs"),
+    )
+    .expect("read kotlin expressions.rs");
 
     let mut missing_ios_dev = Vec::new();
     let mut missing_android_dev = Vec::new();
@@ -60,7 +64,8 @@ fn every_core_api_has_full_dual_platform_and_dev_runtime_parity() {
             if !android_dev.contains(&format!("name == \"{method_name}\""))
                 && !android_dev.contains(&format!("\"{method_name}\" ->"))
             {
-                missing_android_dev.push(format!("{qname} (NetworkResponse method in Android Dev)"));
+                missing_android_dev
+                    .push(format!("{qname} (NetworkResponse method in Android Dev)"));
             }
             continue;
         }

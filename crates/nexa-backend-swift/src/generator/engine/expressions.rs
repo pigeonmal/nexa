@@ -2,7 +2,7 @@ use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
     ArithmeticOp, BinaryOp, CollectionTransform, CollectionUtilityKind, Expr, InterpolatedPart,
     LogMethod, MemberKind, NetworkRequest, NumericType, PermissionOpKind, PluginCodec, TimeMethod,
-    TuplePosition, Type,
+    TuplePosition, Type, adaptive_layout::LayoutEdge,
 };
 
 use super::utils::{swift_string, swift_string_content};
@@ -55,9 +55,17 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::IsCompactWidth => "(nexaHorizontalSizeClass == .compact)".to_owned(),
         Expr::IsRegularHeight => "(nexaVerticalSizeClass == .regular)".to_owned(),
         Expr::IsCompactHeight => "(nexaVerticalSizeClass == .compact)".to_owned(),
-        Expr::ScreenWidth => "Double(nexaViewportSize.width)".to_owned(),
-        Expr::ScreenHeight => "Double(nexaViewportSize.height)".to_owned(),
-        Expr::SafeAreaTop => "Double(nexaVisualSafeAreaInsets.top)".to_owned(),
+        Expr::ScreenWidth => "Double(nexaWindowMetrics.viewportSize.width)".to_owned(),
+        Expr::ScreenHeight => "Double(nexaWindowMetrics.viewportSize.height)".to_owned(),
+        Expr::SystemInset(edge) => format!(
+            "Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).{})",
+            match edge {
+                LayoutEdge::Top => "top",
+                LayoutEdge::Bottom => "bottom",
+                LayoutEdge::Leading => "leading",
+                LayoutEdge::Trailing => "trailing",
+            }
+        ),
         Expr::Number { raw, ty } => match ty {
             NumericType::Float32 => format!("Float({raw})"),
             NumericType::Float64 => format!("Double({raw})"),

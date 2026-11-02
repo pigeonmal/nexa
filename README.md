@@ -107,9 +107,9 @@ app TaskManager {
     state draftTitle: String = ""
 
     body {
-        Column(spacing: 16, padding: 16) {
+        Column(gap: 16, padding: 16) {
             Text("Team tasks", fontSize: 26, fontWeight: Bold)
-            Row(spacing: 8) {
+            Row(gap: 8) {
                 TextInput(value: draftTitle, placeholder: "Add a task")
                 Button("Add task", icon: "add", disabled: draftTitle == "") {
                     if draftTitle != "" {
@@ -123,7 +123,7 @@ app TaskManager {
                 ContentUnavailable(title: "No tasks yet", icon: "checklist", description: "Add a task to start your list.")
             } else {
                 FastList(tasks.filter { task -> showCompleted || !task.isCompleted }, key: .id) { task, index in
-                    Row(spacing: 12, padding: 12, background: "#F1F5F9", cornerRadius: 10) {
+                    Row(gap: 12, padding: 12, background: "#F1F5F9", cornerRadius: 10) {
                         Button(task.isCompleted ? "Reopen" : "Complete", style: Plain) {
                             tasks = tasks.map { current ->
                                 if current.id == task.id {
@@ -133,7 +133,7 @@ app TaskManager {
                                 }
                             }
                         }
-                        Column(spacing: 4) {
+                        Column(gap: 4) {
                             Text("\(index + 1). \(task.title)", fontWeight: Semibold)
                             Text(task.dueLabel, fontSize: 13, color: "#64748B")
                         }

@@ -110,6 +110,10 @@ jobs:
         run: cargo check --workspace --locked
       - name: Test workspace
         run: NEXA_REQUIRE_HOT_RELOAD_COVERAGE=1 cargo test --workspace --locked
+      - name: Run Python parity and benchmark unit tests
+        run: |
+          python3 -m pip install -r tests/requirements-render-parity.txt
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
 
   ios-compile:
     name: iOS device SDK compile
@@ -179,9 +183,21 @@ jobs:
           echo "$parity_venv/bin" >> "$GITHUB_PATH"
       - name: Compare iOS AOT and DevRuntime rendering
         shell: bash
+        env:
+          NEXA_DEV_FRAME_FENCE: 1
         run: |
           bash tests/hot-reload-aot-parity.sh \
             "$GITHUB_WORKSPACE/target/debug/nexa" ios "$RUNNER_TEMP/nexa-ios-render-parity"
+      - name: Upload iOS parity failure triage bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-parity-triage
+          path: |
+            ${{ runner.temp }}/nexa-ios-render-parity
+            ${{ runner.temp }}/**/*.png
+            ${{ runner.temp }}/**/*.json
+          if-no-files-found: warn
 
   android-compile:
     name: Android APK compile
@@ -260,6 +276,11 @@ jobs:
           cat "$RUNNER_TEMP/nexa-emulator.log" >&2
           echo "Android emulator did not finish booting" >&2
           exit 1
+      - name: Run Android DevRuntime JVM patch tests
+        shell: bash
+        run: |
+          "$GITHUB_WORKSPACE/target/debug/nexa" create "$RUNNER_TEMP/nexa-patch-test" --name PatchTest
+          cd "$RUNNER_TEMP/nexa-patch-test/android" && ./gradlew testDebugUnitTest
       - name: Run the Android hot-reload latency gate
         shell: bash
         run: |
@@ -285,6 +306,19 @@ jobs:
           echo "$parity_venv/bin" >> "$GITHUB_PATH"
       - name: Compare Android AOT and DevRuntime rendering
         shell: bash
+        env:
+          NEXA_DEV_FRAME_FENCE: 1
         run: |
           bash tests/hot-reload-aot-parity.sh \
             "$GITHUB_WORKSPACE/target/debug/nexa" android "$RUNNER_TEMP/nexa-android-render-parity"
+      - name: Upload Android parity failure triage bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-parity-triage
+          path: |
+            ${{ runner.temp }}/nexa-android-render-parity
+            ${{ runner.temp }}/**/*.png
+            ${{ runner.temp }}/**/*.json
+            ${{ runner.temp }}/nexa-emulator.log
+          if-no-files-found: warn

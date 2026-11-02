@@ -1254,7 +1254,7 @@ fn node_name(node: &Node) -> &'static str {
         Node::OnInactive { .. } => "OnInactive",
         Node::OnBackground { .. } => "OnBackground",
         Node::Layout { .. }
-        | Node::SafeAreaPadding { .. }
+        | Node::ViewInsets { .. }
         | Node::SafeAreaInset { .. }
         | Node::ScrollHeader { .. }
         | Node::Text { .. }
@@ -1327,7 +1327,9 @@ fn run_action_sequence(
             Action::Expression(expression) => {
                 let _ = eval_expr(expression, environment, functions, depth + 1)?;
             }
-            Action::NavigationPush { .. } | Action::NavigationBack => {
+            Action::NavigationPush { .. }
+            | Action::NavigationBack
+            | Action::NavigationCommand(_) => {
                 return Err("headless tests cannot execute navigation actions".to_owned());
             }
             Action::WithAnimation { actions, .. } => {

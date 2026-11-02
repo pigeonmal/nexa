@@ -422,7 +422,7 @@ pub(crate) fn render_virtualized_list(
                     uses_platform_list: common.swipe_actions.is_some(),
                     show_dividers: common.show_dividers,
                     item_extent: common.item_extent,
-                    spacing: common.spacing,
+                    spacing: common.gap,
                     scroll_enabled: common.scroll_enabled.as_ref(),
                     section,
                     index: &common.index,
@@ -448,7 +448,7 @@ pub(crate) fn render_virtualized_list(
             index: &common.index,
             item: None,
             item_extent: common.item_extent,
-            spacing: common.spacing,
+            spacing: common.gap,
             scroll_enabled: common.scroll_enabled.as_ref(),
             key: common.key.as_ref(),
             children: &common.children,
@@ -487,7 +487,7 @@ pub(crate) fn render_virtualized_list(
                 index: &common.index,
                 item: Some(item),
                 item_extent: common.item_extent,
-                spacing: common.spacing,
+                spacing: common.gap,
                 scroll_enabled: common.scroll_enabled.as_ref(),
                 key: common.key.as_ref(),
                 children: &common.children,
@@ -579,13 +579,6 @@ pub(crate) fn render_virtualized_list(
         FlatCount::Items { collection, .. } => format!("{collection}.size"),
     };
     let spacing = format_float(pieces.spacing);
-    let endpoint_padding = features.uses_safe_area_endpoint.then(|| {
-        format!(
-            "contentPadding = nexaSafeAreaContentPadding(\"{}\", includeVisualSafeInsets = {})",
-            safe_area_axis(pieces.axis),
-            !pieces.reverse_layout,
-        )
-    });
     let scroll_viewport_modifier = format!(
         "nexaSafeAreaScrollViewportModifier(\"{}\")",
         safe_area_axis(pieces.axis),
@@ -595,6 +588,7 @@ pub(crate) fn render_virtualized_list(
         let mut arguments = vec![format!(
             "modifier = {scroll_viewport_modifier}.then(Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary))"
         )];
+        arguments.push("contentPadding = LocalNexaScrollContentPadding.current".to_owned());
         if pieces.spacing > 0.0 {
             arguments.push(format!(
                 "horizontalArrangement = Arrangement.spacedBy({spacing}.dp)"
@@ -609,9 +603,6 @@ pub(crate) fn render_virtualized_list(
                 pieces.refresh.is_some(),
             )
         ));
-        if let Some(padding) = &endpoint_padding {
-            arguments.push(padding.clone());
-        }
         format!("LazyRow({})", arguments.join(", "))
     } else {
         let modifier = if pieces.uses_platform_list {
@@ -622,6 +613,7 @@ pub(crate) fn render_virtualized_list(
         let mut arguments = vec![format!(
             "modifier = {scroll_viewport_modifier}.then({modifier})"
         )];
+        arguments.push("contentPadding = LocalNexaScrollContentPadding.current".to_owned());
         if pieces.spacing > 0.0 {
             arguments.push(format!(
                 "verticalArrangement = Arrangement.spacedBy({spacing}.dp)"
@@ -637,9 +629,6 @@ pub(crate) fn render_virtualized_list(
                 pieces.refresh.is_some(),
             )
         ));
-        if let Some(padding) = &endpoint_padding {
-            arguments.push(padding.clone());
-        }
         if pieces.reverse_layout {
             arguments.push("reverseLayout = true".to_owned());
         }
@@ -650,8 +639,13 @@ pub(crate) fn render_virtualized_list(
     if let Some(sticky_header) = pieces.sticky_header {
         debug_assert!(matches!(pieces.axis, ListAxis::Vertical));
         out.push_str("stickyHeader {\n");
-        render_children(sticky_header, module, features, list_depth + 2, out);
+        out.line_at(
+            list_depth + 2,
+            format_args!("NexaScrollContentResetPrimitive {{"),
+        );
+        render_children(sticky_header, module, features, list_depth + 3, out);
         out.push('\n');
+        out.line_at(list_depth + 2, format_args!("}}"));
         indent(out, list_depth + 1);
         out.push_str("}\n");
         indent(out, list_depth + 1);
@@ -845,6 +839,10 @@ fn render_page_snap_list(
     out.line_at(list_depth + 1, format_args!("state = {list_state},"));
     out.line_at(
         list_depth + 1,
+        format_args!("contentPadding = LocalNexaScrollContentPadding.current,"),
+    );
+    out.line_at(
+        list_depth + 1,
         format_args!(
             "modifier = nexaSafeAreaScrollViewportModifier(\"{}\").fillMaxSize(),",
             safe_area_axis(pieces.axis),
@@ -867,15 +865,6 @@ fn render_page_snap_list(
         out.line_at(
             list_depth + 1,
             format_args!("key = {{ pagePosition -> {key} }},"),
-        );
-    }
-    if features.uses_safe_area_endpoint {
-        out.line_at(
-            list_depth + 1,
-            format_args!(
-                "contentPadding = nexaSafeAreaContentPadding(\"{}\", includeVisualSafeInsets = false),",
-                safe_area_axis(pieces.axis),
-            ),
         );
     }
     indent(out, list_depth);
@@ -976,7 +965,7 @@ fn render_sectioned_list(
     indent(out, list_depth);
     out.push_str(&format!("LazyColumn(state = {list_state}, "));
     out.push_str(&format!(
-        "modifier = nexaSafeAreaScrollViewportModifier(\"Vertical\").then({}), ",
+        "modifier = nexaSafeAreaScrollViewportModifier(\"Vertical\").then({}), contentPadding = LocalNexaScrollContentPadding.current, ",
         sectioned_list_modifier(uses_platform_list),
     ));
     if spacing > 0.0 {
@@ -989,9 +978,6 @@ fn render_sectioned_list(
         "userScrollEnabled = {}",
         scroll_enabled_expression(&list_state, scroll_enabled, refresh.is_some())
     ));
-    if scope.features.uses_safe_area_endpoint {
-        out.push_str(", contentPadding = nexaSafeAreaContentPadding(\"Vertical\", includeVisualSafeInsets = true)");
-    }
     out.push_str(") {\n");
     out.line_at(
         list_depth + 1,
@@ -1002,25 +988,30 @@ fn render_sectioned_list(
         out.push_str("stickyHeader {\n");
         out.line_at(
             list_depth + 3,
+            format_args!("NexaScrollContentResetPrimitive {{"),
+        );
+        out.line_at(
+            list_depth + 4,
             format_args!("val {}: Int = sectionPosition", state_name(section)),
         );
         out.line_at(
-            list_depth + 3,
+            list_depth + 4,
             format_args!("val {} = sectionItems", state_name("sectionItems")),
         );
         if uses_platform_list {
             out.line_at(
-                list_depth + 3,
+                list_depth + 4,
                 format_args!("NexaNativeListSectionHeaderPrimitive {{"),
             );
-            render_children(header, scope.module, scope.features, list_depth + 4, out);
+            render_children(header, scope.module, scope.features, list_depth + 5, out);
             out.push('\n');
-            indent(out, list_depth + 3);
+            indent(out, list_depth + 4);
             out.push_str("}\n");
         } else {
-            render_children(header, scope.module, scope.features, list_depth + 3, out);
+            render_children(header, scope.module, scope.features, list_depth + 4, out);
         }
         out.push('\n');
+        out.line_at(list_depth + 3, format_args!("}}"));
         indent(out, list_depth + 2);
         out.push_str("}\n");
     }
@@ -1174,14 +1165,6 @@ fn render_grid_list(
     let state_parameter = format!("state = {list_state}, ");
     let scroll_state = list_state.as_str();
     let spacing = format_float(pieces.spacing);
-    let endpoint_padding = if features.uses_safe_area_endpoint {
-        format!(
-            "contentPadding = nexaSafeAreaContentPadding(\"{}\", includeVisualSafeInsets = true), ",
-            safe_area_axis(axis),
-        )
-    } else {
-        String::new()
-    };
     let list_depth = render_refresh_open(pieces.refresh, depth, out);
     let grid_cells = match axis {
         ListAxis::Grid { columns } => format!("GridCells.Fixed({columns})"),
@@ -1213,7 +1196,7 @@ fn render_grid_list(
     out.line_at(
         list_depth,
         format_args!(
-            "{list_name}({state_parameter}modifier = nexaSafeAreaScrollViewportModifier(\"{}\").fillMaxWidth(), {endpoint_padding}userScrollEnabled = {}, columns = {grid_cells}{spacing_arguments}) {{",
+            "{list_name}({state_parameter}modifier = nexaSafeAreaScrollViewportModifier(\"{}\").fillMaxWidth(), contentPadding = LocalNexaScrollContentPadding.current, userScrollEnabled = {}, columns = {grid_cells}{spacing_arguments}) {{",
             safe_area_axis(axis),
             scroll_enabled_expression(
                 scroll_state,

@@ -164,6 +164,37 @@ struct NexaDevStatusBarVisibility: ViewModifier {
     }
 }
 
+struct NexaDevStatusBarConfigurationModifier: ViewModifier {
+    let config: [String: Any]?
+    let safeInsets: NexaDevVisualSafeAreaSnapshot
+    let isDark: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let config {
+            let colorScheme: ColorScheme? = switch config["style"] as? String {
+            case "Light": .dark
+            case "Dark": .light
+            default: nil
+            }
+            content
+                .modifier(NexaDevStatusBarVisibility(hidden: config["hidden"] as? Bool ?? false))
+                .modifier(NexaStatusBarStylePrimitive(colorScheme: colorScheme))
+                .overlay(alignment: .top) {
+                    if let color = devStatusBarColor(config["background"], isDark: isDark) {
+                        color
+                            .frame(maxWidth: .infinity)
+                            .frame(height: max(0, safeInsets.top))
+                            .ignoresSafeArea(edges: .top)
+                            .allowsHitTesting(false)
+                    }
+                }
+        } else {
+            content
+        }
+    }
+}
+
 func devStatusBarColor(_ value: Any?, isDark: Bool) -> Color? {
     guard let tagged = value as? [String: Any] else { return nil }
     if let wrapped = tagged["Static"] as? [String: Any],

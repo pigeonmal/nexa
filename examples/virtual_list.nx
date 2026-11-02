@@ -3,10 +3,10 @@ app VirtualListApp {
     let listRef = ComponentRef<FastList>()
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("Nexa FastList Virtualization (50,000 Rows)")
 
-            Row(spacing: 8) {
+            Row(gap: 8) {
                 Button("Jump to 100") {
                     listRef.scrollToIndex(index: 100)
                 }
@@ -19,7 +19,7 @@ app VirtualListApp {
             }
 
             FastList(count: totalRows, rowHeight: 52, ref: listRef) { index in
-                Row(spacing: 12, padding: 8) {
+                Row(gap: 12, padding: 8) {
                     Text(index)
                     Text("Virtualized Row Item")
                 }

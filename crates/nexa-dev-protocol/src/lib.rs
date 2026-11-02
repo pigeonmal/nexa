@@ -4,7 +4,7 @@
 use nexa_dev_ir::DevModulePatch;
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u16 = 13;
+pub const PROTOCOL_VERSION: u16 = 14;
 
 /// Template token for native DevRuntime protocol schemas.
 pub const PROTOCOL_VERSION_TOKEN: &str = "__NEXA_PROTOCOL_VERSION__";
@@ -28,6 +28,21 @@ pub enum TargetPlatform {
     Android,
 }
 
+/// Native host capabilities fingerprint exchanged during handshake and rebuild detection.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeHostCapabilities {
+    pub protocol_version: u16,
+    pub target: TargetPlatform,
+    #[serde(default)]
+    pub plugins: Vec<String>,
+    #[serde(default)]
+    pub background_tasks: Vec<String>,
+    #[serde(default)]
+    pub assets_hash: String,
+    #[serde(default)]
+    pub rebuild_required: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ClientMessage {
@@ -35,6 +50,8 @@ pub enum ClientMessage {
         protocol_version: u16,
         session_token: String,
         target: TargetPlatform,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capabilities: Option<NativeHostCapabilities>,
     },
     Acknowledge {
         revision: String,
@@ -47,6 +64,14 @@ pub enum ClientMessage {
     },
     Disconnect {
         reason: Option<String>,
+    },
+    /// Test-only render fence: the native host produced a frame for `revision`.
+    ///
+    /// This is distinct from `Acknowledge`, which only proves that the module
+    /// was committed. Harnesses wait for this frame before capturing pixels.
+    FramePresented {
+        revision: String,
+        frame_id: u64,
     },
 }
 
@@ -73,10 +98,17 @@ pub enum ServerMessage {
     Restart {
         reason: String,
     },
+    RebuildRequired {
+        reason: String,
+    },
     PerformanceOverlay {
         enabled: bool,
     },
     RuntimeTrace {
+        enabled: bool,
+    },
+    /// Opt-in render-fence reporting for UI and screenshot harnesses.
+    FrameFence {
         enabled: bool,
     },
 }

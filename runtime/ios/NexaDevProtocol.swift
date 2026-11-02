@@ -1,5 +1,78 @@
+import Combine
 import Foundation
+import QuartzCore
 import SwiftUI
+
+/// Test-only render fence.
+///
+/// An acknowledgement proves that Dev IR was committed, not that SwiftUI has
+/// presented a frame that reads it. The store arms this fence with the installed
+/// module generation; a probe view reports the next body evaluation at that
+/// generation; the first display-link tick after that evaluation is treated as
+/// the presented frame. Harnesses wait for this signal before capturing pixels.
+@MainActor
+final class NexaDevFrameFence {
+    private var isEnabled = false
+    private var pendingRevision: String?
+    private var pendingGeneration = 0
+    private var composedGeneration = -1
+    private var frameCounter: UInt64 = 0
+    private var displayLink: CADisplayLink?
+    var onPresented: ((String, UInt64) -> Void)?
+
+    func configure(enabled: Bool) {
+        isEnabled = enabled
+        if !enabled { reset() }
+    }
+
+    func arm(revision: String, generation: Int) {
+        guard isEnabled else { return }
+        pendingRevision = revision
+        pendingGeneration = generation
+        composedGeneration = -1
+    }
+
+    /// Called by the render probe after SwiftUI evaluated the tree at `generation`.
+    func noteComposed(generation: Int) {
+        guard isEnabled,
+              pendingRevision != nil,
+              generation == pendingGeneration
+        else { return }
+        composedGeneration = generation
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        guard isEnabled,
+              let revision = pendingRevision,
+              composedGeneration == pendingGeneration
+        else {
+            stop()
+            return
+        }
+        let frameId = frameCounter + 1
+        frameCounter = frameId
+        pendingRevision = nil
+        composedGeneration = -1
+        stop()
+        onPresented?(revision, frameId)
+    }
+
+    private func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    func reset() {
+        stop()
+        pendingRevision = nil
+        pendingGeneration = 0
+        composedGeneration = -1
+    }
+}
 
 private final class NexaDevPatchTrie {
     var change: (kind: String, value: Any?)?
@@ -36,6 +109,7 @@ final class NexaDevRuntime: ObservableObject {
     @Published var diagnostics: [NexaDevDiagnostic] = []
     @Published var performanceOverlayEnabled = false
     let store = NexaDevStateStore()
+    let frameFence = NexaDevFrameFence()
 
     private let serverURL: String
     private let sessionToken: String
@@ -43,12 +117,19 @@ final class NexaDevRuntime: ObservableObject {
     private var connectionTask: Task<Void, Never>?
     private var isConnecting = false
     private var currentRevision: String?
+    private var storeSubscription: AnyCancellable?
 
     init(serverURL: String, sessionToken: String) {
         self.serverURL = serverURL
         self.sessionToken = sessionToken
         store.onRuntimeFailure = { [weak self] error, stackTrace in
             self?.reportRuntimeFailure(error, stackTrace: stackTrace)
+        }
+        frameFence.onPresented = { [weak self] revision, frameId in
+            self?.sendFramePresented(revision: revision, frameId: frameId)
+        }
+        storeSubscription = store.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
         }
     }
 
@@ -144,8 +225,11 @@ final class NexaDevRuntime: ObservableObject {
             currentRevision = devModule[NexaDevKeys.revision] as? String
             diagnostics = []
             module = nextModule
+            if let revision = currentRevision {
+                frameFence.arm(revision: revision, generation: store.moduleGeneration)
+                acknowledge(revision)
+            }
             print("Nexa iOS DevRuntime applied module \(currentRevision ?? "unknown")")
-            if let currentRevision { acknowledge(currentRevision) }
         case NexaDevKeys.msgPatch:
             let patchStarted = DispatchTime.now().uptimeNanoseconds
             guard let patch = payload[NexaDevKeys.msgPatch] as? [String: Any],
@@ -177,6 +261,7 @@ final class NexaDevRuntime: ObservableObject {
             }
             let patchNanos = DispatchTime.now().uptimeNanoseconds - patchStarted
             let patchWorkMs = Double(patchNanos) / 1_000_000.0
+            frameFence.arm(revision: revision, generation: store.moduleGeneration)
             acknowledge(revision)
             NSLog("Nexa iOS DevRuntime applied patch %@ (patch work %.2fms / %lluµs)", revision, patchWorkMs, patchNanos / 1000)
             print("Nexa iOS DevRuntime applied patch \(revision) (patch work \(String(format: "%.2f", patchWorkMs))ms / \(patchNanos / 1000)µs)")
@@ -197,6 +282,8 @@ final class NexaDevRuntime: ObservableObject {
             performanceOverlayEnabled = payload[NexaDevKeys.enabled] as? Bool ?? false
         case NexaDevKeys.msgRuntimeTrace:
             store.runtimeTraceEnabled = payload[NexaDevKeys.enabled] as? Bool ?? false
+        case NexaDevKeys.msgFrameFence:
+            frameFence.configure(enabled: payload[NexaDevKeys.enabled] as? Bool ?? false)
         default:
             break
         }
@@ -212,6 +299,19 @@ final class NexaDevRuntime: ObservableObject {
         guard let socket else { return }
         let payload = "{\"\(NexaDevKeys.type)\":\"\(NexaDevKeys.msgAcknowledge)\",\"\(NexaDevKeys.payload)\":{\"\(NexaDevKeys.revision)\":\"\(revision)\"}}"
         socket.send(.string(payload)) { _ in }
+    }
+
+    private func sendFramePresented(revision: String, frameId: UInt64) {
+        guard let socket,
+              let encoded = try? Self.encode([
+                  NexaDevKeys.type: NexaDevKeys.msgFramePresented,
+                  NexaDevKeys.payload: [
+                      NexaDevKeys.revision: revision,
+                      NexaDevKeys.frameId: frameId,
+                  ],
+              ])
+        else { return }
+        socket.send(.string(encoded)) { _ in }
     }
 
     func openInEditor(_ diagnostic: NexaDevDiagnostic) {

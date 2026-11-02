@@ -96,7 +96,7 @@ mod tests {
         };
         let module = empty_module(vec![Node::Layout {
             kind: LayoutKind::Column,
-            spacing: 0.0,
+            gap: 0.0,
             style: ViewStyle::default(),
             children: vec![Node::Button {
                 label: Expr::String("Load".to_owned()),

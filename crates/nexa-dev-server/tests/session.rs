@@ -57,6 +57,7 @@ fn connect(server: &DevServer, token: &str, target: TargetPlatform) -> WebSocket
         protocol_version: PROTOCOL_VERSION,
         session_token: token.to_owned(),
         target,
+        capabilities: None,
     };
     websocket
         .send(Message::Text(

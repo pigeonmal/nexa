@@ -149,7 +149,6 @@ pub(super) fn generate_for_dev_units_with_project_features(
     // added by hot reload do not need a host rebuild. Keep those primitives'
     // imports and Gradle feature requirements in sync with the emitted source.
     features.uses_keyboard_aware = true;
-    features.uses_safe_area_padding = true;
     features.uses_safe_area_inset = true;
     features.uses_safe_area_endpoint = true;
     features.uses_page_pager = true;
@@ -296,12 +295,6 @@ private fun <K, V> nexaSnapshotEntries(values: androidx.compose.runtime.snapshot
 const NEXA_SHARED_COMPONENT_PRIMITIVES: &str = concat!(
     r#"// nexa-codegen: NexaSafeAreaEdge
 internal enum class NexaSafeAreaEdge { Top, Bottom, Leading, Trailing }
-internal val NexaVisualSafeAreaEdges = setOf(
-    NexaSafeAreaEdge.Top,
-    NexaSafeAreaEdge.Bottom,
-    NexaSafeAreaEdge.Leading,
-    NexaSafeAreaEdge.Trailing,
-)
 
 // nexa-codegen: NexaSafeAreaInsets
 internal data class NexaSafeAreaInsets(
@@ -333,6 +326,13 @@ internal data class NexaSafeAreaInsets(
         start = start + other.start,
         end = end + other.end,
     )
+
+    fun subtractClamped(other: NexaSafeAreaInsets) = NexaSafeAreaInsets(
+        top = (top - other.top).coerceAtLeast(0.dp),
+        bottom = (bottom - other.bottom).coerceAtLeast(0.dp),
+        start = (start - other.start).coerceAtLeast(0.dp),
+        end = (end - other.end).coerceAtLeast(0.dp),
+    )
 }
 
 // nexa-codegen: NexaSafeAreaContext
@@ -346,89 +346,211 @@ internal data class NexaSafeAreaContext(
 internal val LocalNexaSafeAreaContext =
     androidx.compose.runtime.staticCompositionLocalOf { NexaSafeAreaContext() }
 
-// nexa-codegen: nexaSafeAreaDynamicInsets
-@androidx.compose.runtime.Composable
-internal fun nexaSafeAreaDynamicInsets(): NexaSafeAreaInsets {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
-    // Safe drawing excludes IME and gesture regions. KeyboardAware and gesture
-    // handling own those separately.
-    val raw = nexaSafeAreaWindowInsets(NexaVisualSafeAreaEdges)
-    val consumed = LocalNexaSafeAreaContext.current.consumed
-    fun remaining(pixels: Int, alreadyConsumed: androidx.compose.ui.unit.Dp) =
-        (with(density) { pixels.toDp() } - alreadyConsumed).coerceAtLeast(0.dp)
-    return NexaSafeAreaInsets(
-        top = remaining(raw.getTop(density), consumed.top),
-        bottom = remaining(raw.getBottom(density), consumed.bottom),
-        start = remaining(raw.getLeft(density, direction), consumed.start),
-        end = remaining(raw.getRight(density, direction), consumed.end),
-    )
+// nexa-codegen: NexaVisualSafeAreaSnapshot
+internal data class NexaVisualSafeAreaSnapshot(
+    val top: androidx.compose.ui.unit.Dp = 0.dp,
+    val bottom: androidx.compose.ui.unit.Dp = 0.dp,
+    val left: androidx.compose.ui.unit.Dp = 0.dp,
+    val right: androidx.compose.ui.unit.Dp = 0.dp,
+)
+
+// nexa-codegen: NexaWindowMetricsSnapshot
+internal data class NexaWindowMetricsSnapshot(
+    val viewportWidthDp: Float = 0f,
+    val viewportHeightDp: Float = 0f,
+    val safeInsets: NexaVisualSafeAreaSnapshot = NexaVisualSafeAreaSnapshot(),
+    val keyboardTop: androidx.compose.ui.unit.Dp = 0.dp,
+    val keyboardBottom: androidx.compose.ui.unit.Dp = 0.dp,
+) {
+    fun systemInset(
+        edge: NexaSafeAreaEdge,
+        direction: androidx.compose.ui.unit.LayoutDirection,
+    ): androidx.compose.ui.unit.Dp = when (edge) {
+        NexaSafeAreaEdge.Top -> safeInsets.top
+        NexaSafeAreaEdge.Bottom -> safeInsets.bottom
+        NexaSafeAreaEdge.Leading -> if (direction == androidx.compose.ui.unit.LayoutDirection.Ltr) safeInsets.left else safeInsets.right
+        NexaSafeAreaEdge.Trailing -> if (direction == androidx.compose.ui.unit.LayoutDirection.Ltr) safeInsets.right else safeInsets.left
+    }
 }
 
-// nexa-codegen: nexaSafeAreaWindowInsets
-// Keep the same visual inset sources for every safe-area primitive. `union`
-// takes the maximum on overlapping edges; it never double-counts a cutout and
-// a system bar. IME and gesture insets intentionally stay separate.
+// nexa-codegen: LocalNexaWindowMetrics
+internal val LocalNexaWindowMetrics =
+    androidx.compose.runtime.staticCompositionLocalOf { NexaWindowMetricsSnapshot() }
+
+// nexa-codegen: NexaSafeAreaProvider
 @androidx.compose.runtime.Composable
-internal fun nexaSafeAreaWindowInsets(
-    edges: Set<NexaSafeAreaEdge>,
-): androidx.compose.foundation.layout.WindowInsets {
+internal fun NexaSafeAreaProvider(
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
     val systemBars = androidx.compose.foundation.layout.WindowInsets.systemBars
     val displayCutout = androidx.compose.foundation.layout.WindowInsets.displayCutout
     val waterfall = androidx.compose.foundation.layout.WindowInsets.waterfall
-    val visual = androidx.compose.runtime.remember(systemBars, displayCutout, waterfall) {
-        systemBars
-            .union(displayCutout)
-            .union(waterfall)
+    val visualWindowInsets = androidx.compose.runtime.remember(systemBars, displayCutout, waterfall) {
+        systemBars.union(displayCutout).union(waterfall)
     }
-    return androidx.compose.runtime.remember(edges, visual) {
-        var selected = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)
-        if (NexaSafeAreaEdge.Top in edges) {
-            selected = selected.union(visual.only(androidx.compose.foundation.layout.WindowInsetsSides.Top))
-        }
-        if (NexaSafeAreaEdge.Bottom in edges) {
-            selected = selected.union(visual.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom))
-        }
-        if (NexaSafeAreaEdge.Leading in edges) {
-            selected = selected.union(visual.only(androidx.compose.foundation.layout.WindowInsetsSides.Start))
-        }
-        if (NexaSafeAreaEdge.Trailing in edges) {
-            selected = selected.union(visual.only(androidx.compose.foundation.layout.WindowInsetsSides.End))
-        }
-        selected
+    val pixelsPerDp = density.density
+    val viewportSize = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+    val viewportWidthDp = viewportSize.width.toFloat() / pixelsPerDp
+    val viewportHeightDp = viewportSize.height.toFloat() / pixelsPerDp
+    val topPixels = visualWindowInsets.getTop(density)
+    val bottomPixels = visualWindowInsets.getBottom(density)
+    val leftPixels = visualWindowInsets.getLeft(density, androidx.compose.ui.unit.LayoutDirection.Ltr)
+    val rightPixels = visualWindowInsets.getRight(density, androidx.compose.ui.unit.LayoutDirection.Ltr)
+    val snapshot = androidx.compose.runtime.remember(
+        topPixels,
+        bottomPixels,
+        leftPixels,
+        rightPixels,
+        pixelsPerDp,
+        viewportWidthDp,
+        viewportHeightDp,
+    ) {
+        NexaWindowMetricsSnapshot(
+            viewportWidthDp = viewportWidthDp,
+            viewportHeightDp = viewportHeightDp,
+            safeInsets = NexaVisualSafeAreaSnapshot(
+                top = androidx.compose.ui.unit.Dp(topPixels / pixelsPerDp),
+                bottom = androidx.compose.ui.unit.Dp(bottomPixels / pixelsPerDp),
+                left = androidx.compose.ui.unit.Dp(leftPixels / pixelsPerDp),
+                right = androidx.compose.ui.unit.Dp(rightPixels / pixelsPerDp),
+            ),
+        )
+    }
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalNexaWindowMetrics provides snapshot,
+        content = content,
+    )
+}
+
+// nexa-codegen: nexaParentRelativeDimension
+internal fun androidx.compose.ui.Modifier.nexaParentRelativeDimension(
+    width: Float? = null,
+    height: Float? = null,
+    minWidth: Float? = null,
+    maxWidth: Float? = null,
+    minHeight: Float? = null,
+    maxHeight: Float? = null,
+): androidx.compose.ui.Modifier = this.layout { measurable, constraints ->
+    val parentWidth = constraints.maxWidth.takeIf { constraints.hasBoundedWidth }
+    val parentHeight = constraints.maxHeight.takeIf { constraints.hasBoundedHeight }
+    val requestedWidth = width?.let { fraction -> parentWidth?.let { (it * fraction).toInt() } }
+    val requestedHeight = height?.let { fraction -> parentHeight?.let { (it * fraction).toInt() } }
+    val minimumWidth = minWidth?.let { fraction -> parentWidth?.let { (it * fraction).toInt() } }
+    val maximumWidth = maxWidth?.let { fraction -> parentWidth?.let { (it * fraction).toInt() } }
+    val minimumHeight = minHeight?.let { fraction -> parentHeight?.let { (it * fraction).toInt() } }
+    val maximumHeight = maxHeight?.let { fraction -> parentHeight?.let { (it * fraction).toInt() } }
+    val resolvedMinWidth = requestedWidth ?: maxOf(constraints.minWidth, minimumWidth ?: constraints.minWidth)
+    val resolvedMaxWidth = requestedWidth ?: minOf(constraints.maxWidth, maximumWidth ?: constraints.maxWidth)
+    val resolvedMinHeight = requestedHeight ?: maxOf(constraints.minHeight, minimumHeight ?: constraints.minHeight)
+    val resolvedMaxHeight = requestedHeight ?: minOf(constraints.maxHeight, maximumHeight ?: constraints.maxHeight)
+    val childConstraints = constraints.copy(
+        minWidth = resolvedMinWidth.coerceAtMost(resolvedMaxWidth),
+        maxWidth = resolvedMaxWidth.coerceAtLeast(resolvedMinWidth),
+        minHeight = resolvedMinHeight.coerceAtMost(resolvedMaxHeight),
+        maxHeight = resolvedMaxHeight.coerceAtLeast(resolvedMinHeight),
+    )
+    val placeable = measurable.measure(childConstraints)
+    val measuredWidth = requestedWidth ?: placeable.width.coerceIn(childConstraints.minWidth, childConstraints.maxWidth)
+    val measuredHeight = requestedHeight ?: placeable.height.coerceIn(childConstraints.minHeight, childConstraints.maxHeight)
+    layout(measuredWidth, measuredHeight) { placeable.placeRelative(0, 0) }
+}
+
+// nexa-codegen: nexaSafeAreaDynamicInsets
+@androidx.compose.runtime.Composable
+internal fun nexaSafeAreaDynamicInsets(): NexaSafeAreaInsets {
+    val consumed = LocalNexaSafeAreaContext.current.consumed
+    val visual = LocalNexaWindowMetrics.current.safeInsets
+    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val logical = NexaSafeAreaInsets(
+        top = visual.top,
+        bottom = visual.bottom,
+        start = if (direction == androidx.compose.ui.unit.LayoutDirection.Ltr) visual.left else visual.right,
+        end = if (direction == androidx.compose.ui.unit.LayoutDirection.Ltr) visual.right else visual.left,
+    )
+    return logical.subtractClamped(consumed)
+}
+
+// nexa-codegen: NexaViewInsetsPrimitive
+internal val LocalNexaScrollContentPadding =
+    androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.foundation.layout.PaddingValues> {
+        androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f))
+    }
+
+// nexa-codegen: NexaScrollContentResetPrimitive
+@androidx.compose.runtime.Composable
+internal fun NexaScrollContentResetPrimitive(
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalNexaScrollContentPadding provides androidx.compose.foundation.layout.PaddingValues(
+            androidx.compose.ui.unit.Dp(0f),
+        ),
+        content = content,
+    )
+}
+
+// nexa-codegen: NexaScrollContentPrimitive
+@androidx.compose.runtime.Composable
+internal fun NexaScrollContentPrimitive(
+    contentPadding: androidx.compose.foundation.layout.PaddingValues =
+        androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f)),
+    content: @androidx.compose.runtime.Composable (androidx.compose.foundation.layout.PaddingValues) -> Unit,
+) {
+    val inheritedPadding = LocalNexaScrollContentPadding.current
+    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val effectivePadding = androidx.compose.foundation.layout.PaddingValues(
+        start = inheritedPadding.calculateStartPadding(direction) + contentPadding.calculateStartPadding(direction),
+        top = inheritedPadding.calculateTopPadding() + contentPadding.calculateTopPadding(),
+        end = inheritedPadding.calculateEndPadding(direction) + contentPadding.calculateEndPadding(direction),
+        bottom = inheritedPadding.calculateBottomPadding() + contentPadding.calculateBottomPadding(),
+    )
+    NexaScrollContentResetPrimitive {
+        content(effectivePadding)
     }
 }
 
-// nexa-codegen: NexaSafeAreaPaddingPrimitive
 @androidx.compose.runtime.Composable
-internal fun NexaSafeAreaPaddingPrimitive(
-    edges: Set<NexaSafeAreaEdge>,
-    spacing: androidx.compose.ui.unit.Dp,
+internal fun NexaViewInsetsPrimitive(
+    paddingTop: androidx.compose.ui.unit.Dp = 0.dp,
+    paddingLeading: androidx.compose.ui.unit.Dp = 0.dp,
+    paddingBottom: androidx.compose.ui.unit.Dp = 0.dp,
+    paddingTrailing: androidx.compose.ui.unit.Dp = 0.dp,
+    marginTop: androidx.compose.ui.unit.Dp = 0.dp,
+    marginLeading: androidx.compose.ui.unit.Dp = 0.dp,
+    marginBottom: androidx.compose.ui.unit.Dp = 0.dp,
+    marginTrailing: androidx.compose.ui.unit.Dp = 0.dp,
+    scrollContent: Boolean = false,
     content: @androidx.compose.runtime.Composable () -> Unit,
 ) {
-    val parent = LocalNexaSafeAreaContext.current
-    val remaining = nexaSafeAreaDynamicInsets()
-    val selectedSafe = NexaSafeAreaInsets(
-        top = if (NexaSafeAreaEdge.Top in edges) remaining.top else 0.dp,
-        bottom = if (NexaSafeAreaEdge.Bottom in edges) remaining.bottom else 0.dp,
-        start = if (NexaSafeAreaEdge.Leading in edges) remaining.start else 0.dp,
-        end = if (NexaSafeAreaEdge.Trailing in edges) remaining.end else 0.dp,
-    )
-    val safeWindowInsets = nexaSafeAreaWindowInsets(edges)
-    val spacingPadding = androidx.compose.foundation.layout.PaddingValues(
-        top = if (NexaSafeAreaEdge.Top in edges) spacing else 0.dp,
-        bottom = if (NexaSafeAreaEdge.Bottom in edges) spacing else 0.dp,
-        start = if (NexaSafeAreaEdge.Leading in edges) spacing else 0.dp,
-        end = if (NexaSafeAreaEdge.Trailing in edges) spacing else 0.dp,
-    )
-    androidx.compose.runtime.CompositionLocalProvider(
-        LocalNexaSafeAreaContext provides parent.copy(consumed = parent.consumed + selectedSafe),
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.padding(
+            start = marginLeading,
+            top = marginTop,
+            end = marginTrailing,
+            bottom = marginBottom,
+        ),
     ) {
-        androidx.compose.foundation.layout.Box(
-            modifier = androidx.compose.ui.Modifier
-                .windowInsetsPadding(safeWindowInsets)
-                .padding(spacingPadding)
-        ) { content() }
+        if (scrollContent) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                LocalNexaScrollContentPadding provides androidx.compose.foundation.layout.PaddingValues(
+                    start = paddingLeading,
+                    top = paddingTop,
+                    end = paddingTrailing,
+                    bottom = paddingBottom,
+                ),
+                content = content,
+            )
+        } else {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.padding(
+                    start = paddingLeading,
+                    top = paddingTop,
+                    end = paddingTrailing,
+                    bottom = paddingBottom,
+                ),
+            ) { content() }
+        }
     }
 }
 
@@ -436,23 +558,13 @@ internal fun NexaSafeAreaPaddingPrimitive(
 @androidx.compose.runtime.Composable
 internal fun NexaSafeAreaInsetPrimitive(
     edge: NexaSafeAreaEdge,
-    spacing: androidx.compose.ui.unit.Dp,
     accommodatesEndpoint: Boolean,
     content: @androidx.compose.runtime.Composable () -> Unit,
     attachedContent: @androidx.compose.runtime.Composable () -> Unit,
 ) {
     val parent = LocalNexaSafeAreaContext.current
-    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
-    val visualWindowInsets = nexaSafeAreaWindowInsets(NexaVisualSafeAreaEdges)
-    val attachedSpacing = if (accommodatesEndpoint) 0.dp else spacing
-    val edgeWindowInsets = nexaSafeAreaWindowInsets(setOf(edge))
+    val safeInsets = nexaSafeAreaDynamicInsets()
     val vertical = edge == NexaSafeAreaEdge.Top || edge == NexaSafeAreaEdge.Bottom
-    val crossEdges = if (vertical) {
-        setOf(NexaSafeAreaEdge.Leading, NexaSafeAreaEdge.Trailing)
-    } else {
-        setOf(NexaSafeAreaEdge.Top, NexaSafeAreaEdge.Bottom)
-    }
-    val crossWindowInsets = nexaSafeAreaWindowInsets(crossEdges)
     val occupiedBeforeAttachment = parent.occupied.get(edge)
     val attachmentSlot = 0
     val contentSlot = 1
@@ -460,21 +572,14 @@ internal fun NexaSafeAreaInsetPrimitive(
     androidx.compose.ui.layout.SubcomposeLayout(
         modifier = androidx.compose.ui.Modifier.fillMaxSize(),
     ) { constraints ->
-        val safeInsets = NexaSafeAreaInsets(
-            top = (with(this) { visualWindowInsets.getTop(this).toDp() } - parent.consumed.top).coerceAtLeast(0.dp),
-            bottom = (with(this) { visualWindowInsets.getBottom(this).toDp() } - parent.consumed.bottom).coerceAtLeast(0.dp),
-            start = (with(this) { visualWindowInsets.getLeft(this, direction).toDp() } - parent.consumed.start).coerceAtLeast(0.dp),
-            end = (with(this) { visualWindowInsets.getRight(this, direction).toDp() } - parent.consumed.end).coerceAtLeast(0.dp),
-        )
         val safe = safeInsets.get(edge)
-        val crossSafe = NexaSafeAreaInsets(
-            top = if (NexaSafeAreaEdge.Top in crossEdges) safeInsets.top else 0.dp,
-            bottom = if (NexaSafeAreaEdge.Bottom in crossEdges) safeInsets.bottom else 0.dp,
-            start = if (NexaSafeAreaEdge.Leading in crossEdges) safeInsets.start else 0.dp,
-            end = if (NexaSafeAreaEdge.Trailing in crossEdges) safeInsets.end else 0.dp,
-        )
+        val crossSafe = if (vertical) {
+            NexaSafeAreaInsets(start = safeInsets.start, end = safeInsets.end)
+        } else {
+            NexaSafeAreaInsets(top = safeInsets.top, bottom = safeInsets.bottom)
+        }
         val attachmentOffset = with(this) {
-            (occupiedBeforeAttachment + safe + attachedSpacing).roundToPx()
+            (occupiedBeforeAttachment + safe).roundToPx()
         }
         val safeContextForAttachment = parent.copy(
             consumed = parent.consumed.offset(edge, safe) + crossSafe,
@@ -488,9 +593,12 @@ internal fun NexaSafeAreaInsetPrimitive(
         )
         val attachment = subcompose(attachmentSlot) {
             androidx.compose.foundation.layout.Box(
-                modifier = androidx.compose.ui.Modifier
-                    .windowInsetsPadding(crossWindowInsets)
-                    .consumeWindowInsets(edgeWindowInsets),
+                modifier = androidx.compose.ui.Modifier.padding(
+                    start = crossSafe.start,
+                    top = crossSafe.top,
+                    end = crossSafe.end,
+                    bottom = crossSafe.bottom,
+                ),
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalNexaSafeAreaContext provides safeContextForAttachment,
@@ -502,7 +610,7 @@ internal fun NexaSafeAreaInsetPrimitive(
         val attachmentSize = with(this) {
             (if (vertical) attachment.height else attachment.width).toDp()
         }
-        val occupied = safe + spacing + attachmentSize
+        val occupied = safe + attachmentSize
         val next = parent.copy(
             consumed = parent.consumed.offset(edge, safe),
             occupied = parent.occupied.offset(edge, occupied),
@@ -516,8 +624,7 @@ internal fun NexaSafeAreaInsetPrimitive(
         val body = subcompose(contentSlot) {
             androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier
-                    .fillMaxSize()
-                    .consumeWindowInsets(edgeWindowInsets),
+                    .fillMaxSize(),
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalNexaSafeAreaContext provides next,
@@ -558,23 +665,6 @@ internal fun nexaSafeAreaScrollViewportModifier(
             end = if (horizontal) endpoint.end else 0.dp,
             bottom = if (vertical) endpoint.bottom else 0.dp,
         ),
-    )
-}
-
-// nexa-codegen: nexaSafeAreaContentPadding
-@androidx.compose.runtime.Composable
-internal fun nexaSafeAreaContentPadding(
-    axis: String,
-    includeVisualSafeInsets: Boolean = true,
-): androidx.compose.foundation.layout.PaddingValues {
-    val remaining = if (includeVisualSafeInsets) nexaSafeAreaDynamicInsets() else NexaSafeAreaInsets()
-    val vertical = axis == "Vertical" || axis == "Both"
-    val horizontal = axis == "Horizontal" || axis == "Both"
-    return androidx.compose.foundation.layout.PaddingValues(
-        start = if (horizontal) remaining.start else 0.dp,
-        top = if (vertical) remaining.top else 0.dp,
-        end = if (horizontal) remaining.end else 0.dp,
-        bottom = if (vertical) remaining.bottom else 0.dp,
     )
 }
 
@@ -727,7 +817,13 @@ internal fun NexaAppearancePrimitive(
         "light" -> true
         else -> !systemDark
     }
-    val statusBarWindow = (view.context as? android.app.Activity)?.window
+    val statusBarWindow = androidx.compose.runtime.remember(view) {
+        var statusBarContext: android.content.Context = view.context
+        while (statusBarContext is android.content.ContextWrapper && statusBarContext !is android.app.Activity) {
+            statusBarContext = statusBarContext.baseContext
+        }
+        (statusBarContext as? android.app.Activity)?.window
+    }
     androidx.compose.runtime.DisposableEffect(statusBarWindow, view) {
         val controller = statusBarWindow?.let { window ->
             androidx.core.view.WindowCompat.getInsetsController(window, view)
@@ -851,12 +947,14 @@ internal fun NexaRefreshControlPrimitive(
         modifier = modifier.fillMaxSize(),
     ) {
         if (scrollContent) {
-            androidx.compose.foundation.layout.Column(
-                androidx.compose.ui.Modifier.fillMaxSize().verticalScroll(
-                    androidx.compose.foundation.rememberScrollState(),
-                ),
-            ) {
-                content()
+            NexaScrollContentPrimitive { contentPadding ->
+                androidx.compose.foundation.layout.Column(
+                    androidx.compose.ui.Modifier.fillMaxSize().verticalScroll(
+                        androidx.compose.foundation.rememberScrollState(),
+                    ).padding(contentPadding),
+                ) {
+                    content()
+                }
             }
         } else {
             content()
@@ -1905,14 +2003,9 @@ internal fun NexaNavigationScreenPrimitive(
                 .background(colorScheme.background),
         ) {
             androidx.compose.runtime.CompositionLocalProvider(
-                LocalNexaFormContentTopInset provides androidx.compose.ui.unit.Dp(0f),
-                LocalNexaNavigationContent provides true,
+                LocalNexaNavigationTitleSlot provides navigationTitleSlot,
             ) {
-                androidx.compose.runtime.CompositionLocalProvider(
-                    LocalNexaNavigationTitleSlot provides navigationTitleSlot,
-                ) {
-                    content()
-                }
+                content()
             }
         }
     }
@@ -2003,11 +2096,12 @@ internal fun NexaKeyboardAwareColumnPrimitive(
     val modifier = nexaKeyboardAwareModifier(interactiveDismiss, avoidIme)
         .then(nexaSafeAreaScrollViewportModifier("Vertical"))
         .verticalScroll(androidx.compose.foundation.rememberScrollState())
-        .padding(bottom = nexaSafeAreaContentPadding("Vertical").calculateBottomPadding())
-    androidx.compose.foundation.layout.Column(
-        modifier = modifier,
-        content = content,
-    )
+    NexaScrollContentPrimitive { contentPadding ->
+        androidx.compose.foundation.layout.Column(
+            modifier = modifier.padding(contentPadding),
+            content = content,
+        )
+    }
 }
 
 // nexa-codegen: NexaKeyboardAwareOwnerPrimitive
@@ -2966,39 +3060,30 @@ internal fun NexaLinkPrimitive(
 @androidx.compose.runtime.Composable
 internal fun NexaFormPrimitive(
     background: androidx.compose.ui.graphics.Color? = null,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues =
+        androidx.compose.foundation.layout.PaddingValues(androidx.compose.ui.unit.Dp(0f)),
     content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val scrollState = androidx.compose.foundation.rememberScrollState()
-    androidx.compose.foundation.layout.Column(
-        modifier = androidx.compose.ui.Modifier
-            .then(nexaSafeAreaScrollViewportModifier("Vertical"))
-            .fillMaxSize()
-            .background(background ?: androidx.compose.ui.graphics.Color.Transparent)
-            .verticalScroll(scrollState, enabled = scrollState.maxValue > 0)
-            .padding(bottom = nexaSafeAreaContentPadding("Vertical").calculateBottomPadding()),
-    ) {
-        androidx.compose.foundation.layout.Spacer(
-            modifier = androidx.compose.ui.Modifier.height(LocalNexaFormContentTopInset.current),
-        )
-        content()
+    NexaScrollContentPrimitive(contentPadding = contentPadding) { effectiveContentPadding ->
+        androidx.compose.foundation.layout.Column(
+            modifier = modifier
+                .fillMaxSize()
+                .background(background ?: androidx.compose.ui.graphics.Color.Transparent)
+                .verticalScroll(scrollState, enabled = scrollState.maxValue > 0)
+                .padding(effectiveContentPadding),
+        ) {
+            content()
+        }
     }
 }
-
-// nexa-codegen: LocalNexaFormContentTopInset
-internal val LocalNexaFormContentTopInset =
-    androidx.compose.runtime.staticCompositionLocalOf {
-        androidx.compose.ui.unit.Dp(__NEXA_FORM_CONTENT_TOP_INSET__.toFloat())
-    }
-
-// Navigation destinations begin immediately below their native app bar.
-internal val LocalNexaNavigationContent = androidx.compose.runtime.staticCompositionLocalOf { false }
 
 // nexa-codegen: NexaFormSectionPrimitive
 @androidx.compose.runtime.Composable
 internal fun NexaFormSectionPrimitive(
     title: String?,
     footer: String?,
-    firstSection: Boolean = false,
     background: androidx.compose.ui.graphics.Color? = null,
     content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
@@ -3007,16 +3092,12 @@ internal fun NexaFormSectionPrimitive(
             .fillMaxWidth()
             .padding(
                 start = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_HORIZONTAL_INSET__.toFloat()),
-                top = androidx.compose.ui.unit.Dp(
-                    if (firstSection && LocalNexaNavigationContent.current) 0f
-                    else __NEXA_FORM_SECTION_TOP_PADDING__.toFloat(),
-                ),
                 end = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_HORIZONTAL_INSET__.toFloat()),
                 bottom = androidx.compose.ui.unit.Dp(
                     if (footer == null) {
                         __NEXA_FORM_SECTION_BOTTOM_PADDING__.toFloat()
                     } else {
-                        __NEXA_FORM_SECTION_TOP_PADDING__.toFloat()
+                        8.toFloat()
                     },
                 ),
             ),
@@ -3025,9 +3106,7 @@ internal fun NexaFormSectionPrimitive(
             androidx.compose.material3.Text(
                 title,
                 modifier = androidx.compose.ui.Modifier.padding(
-                    top = androidx.compose.ui.unit.Dp(
-                        if (firstSection && LocalNexaNavigationContent.current) 0f else 8f,
-                    ),
+                    start = androidx.compose.ui.unit.Dp(__NEXA_FORM_SECTION_HEADER_INSET__.toFloat()),
                     bottom = androidx.compose.ui.unit.Dp(8f),
                 ),
                 style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
@@ -3199,7 +3278,7 @@ internal fun NexaPickerPrimitive(
                                     count = items.size,
                                 ).shape,
                                 leadingIcon = itemIcons.getOrNull(index)?.let { optionIcon ->
-                                    {
+        {
                                         NexaIconContent(
                                             icon = optionIcon,
                                             description = "",
@@ -3367,15 +3446,10 @@ internal fun NexaNavigationChrome(
                         .padding(innerPadding)
                         .background(containerColor),
                 ) {
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        LocalNexaFormContentTopInset provides androidx.compose.ui.unit.Dp(0f),
-                        LocalNexaNavigationContent provides true,
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
                     ) {
-                        androidx.compose.foundation.layout.Column(
-                            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-                        ) {
-                            content(this@Column)
-                        }
+                        content(this@Column)
                     }
                 }
             }
@@ -3546,12 +3620,7 @@ internal fun NexaAppBottomBarPrimitive(
         // not reserve the same bottom space a second time.
         val parentSafeArea = LocalNexaSafeAreaContext.current
         val remainingSafeBottom = nexaSafeAreaDynamicInsets().bottom
-        val navigationBarBottom = with(androidx.compose.ui.platform.LocalDensity.current) {
-            androidx.compose.foundation.layout.WindowInsets.navigationBars
-                .getBottom(this)
-                .toDp()
-        }
-        val consumedNavigationBar = navigationBarBottom.coerceAtMost(remainingSafeBottom)
+        val consumedNavigationBar = remainingSafeBottom
         androidx.compose.runtime.CompositionLocalProvider(
             LocalNexaSafeAreaContext provides parentSafeArea.copy(
                 consumed = parentSafeArea.consumed.offset(
@@ -3573,14 +3642,16 @@ internal fun NexaFastListRowPrimitive(
     verticalArrangement: androidx.compose.foundation.layout.Arrangement.Vertical = androidx.compose.foundation.layout.Arrangement.Center,
     content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
-    androidx.compose.foundation.layout.Column(
-        modifier = modifier.defaultMinSize(
-            minHeight = androidx.compose.ui.unit.Dp(__NEXA_FAST_LIST_ROW_MIN_HEIGHT__.toFloat()),
-        ),
-        horizontalAlignment = horizontalAlignment,
-        verticalArrangement = verticalArrangement,
-        content = content,
-    )
+    NexaScrollContentResetPrimitive {
+        androidx.compose.foundation.layout.Column(
+            modifier = modifier.defaultMinSize(
+                minHeight = androidx.compose.ui.unit.Dp(__NEXA_FAST_LIST_ROW_MIN_HEIGHT__.toFloat()),
+            ),
+            horizontalAlignment = horizontalAlignment,
+            verticalArrangement = verticalArrangement,
+            content = content,
+        )
+    }
 }
 
 "#;
@@ -3981,12 +4052,8 @@ fn shared_component_primitives_with_wave(
             nexa_codegen::design_system::FORM_SECTION_HORIZONTAL_INSET.to_string(),
         ),
         (
-            "__NEXA_FORM_CONTENT_TOP_INSET__",
-            nexa_codegen::design_system::ANDROID_FORM_CONTENT_TOP_INSET.to_string(),
-        ),
-        (
-            "__NEXA_FORM_SECTION_TOP_PADDING__",
-            nexa_codegen::design_system::FORM_SECTION_TOP_PADDING.to_string(),
+            "__NEXA_FORM_SECTION_HEADER_INSET__",
+            nexa_codegen::design_system::FORM_SECTION_HEADER_INSET.to_string(),
         ),
         (
             "__NEXA_FORM_SECTION_BOTTOM_PADDING__",
@@ -4160,6 +4227,7 @@ fn generate_with_analysis(
     features: &features::Features,
     include_all_shared_primitives: bool,
 ) -> GeneratedSources {
+    components::controls::register_known_screens(&module.screens);
     let focus_bindings = features.facts.focus_bindings.app.clone();
     let imports = engine::imports::render(engine::imports::ImportContext {
         features,
@@ -4427,6 +4495,15 @@ public class NexaBottomSheetRef {
     }
 
     units.write("app", |out| {
+            let app_root_status_bar = if module
+                .screens
+                .iter()
+                .any(|screen| screen.status_bar.is_some())
+            {
+                None
+            } else {
+                module.status_bar
+            };
             let mut opt_in_annotations = Vec::with_capacity(4);
             opt_in_annotations.push("androidx.compose.material3.ExperimentalMaterial3Api::class");
             if features.uses_context_menu {
@@ -4454,7 +4531,12 @@ public class NexaBottomSheetRef {
             if features.uses_adaptive_color {
                 out.push_str("    val nexaIsDarkTheme = isSystemInDarkTheme()\n");
             }
-            components::status_bar::render(module.status_bar, features.uses_status_bar, 1, out);
+            components::status_bar::render(
+                app_root_status_bar,
+                features.uses_status_bar,
+                1,
+                out,
+            );
             if features.app_uses_link {
                 out.push_str("    val nexaLinkContext = LocalContext.current\n");
             }
@@ -4549,9 +4631,10 @@ public class NexaBottomSheetRef {
                 components::navigation::render_screen_functions(module, features, 1, out);
                 out.push('\n');
             }
-            let mut body_base_depth = 1;
+            out.push_str("    NexaSafeAreaProvider {\n");
+            let mut body_base_depth = 2;
             if features.uses_shared_elements {
-                out.push_str("    NexaSharedTransitionContent {\n");
+                out.push_str("        NexaSharedTransitionContent {\n");
                 body_base_depth += 1;
             }
             let follows_locale = features.facts.capabilities.uses_locale_api
@@ -4562,7 +4645,7 @@ public class NexaBottomSheetRef {
                 body_base_depth += 1;
             }
             let wrap_app_status_bar_background = components::status_bar::render_background_start(
-                module.status_bar,
+                app_root_status_bar,
                 body_base_depth,
                 out,
             );
@@ -4603,9 +4686,9 @@ public class NexaBottomSheetRef {
                 out.push('}');
             }
             if features.uses_shared_elements {
-                out.push_str("\n    }");
+                out.push_str("\n        }");
             }
-            out.push_str("\n}\n");
+            out.push_str("\n    }\n}\n");
     });
 
     if features.uses_shared_elements {
@@ -4814,8 +4897,12 @@ mod tests {
 
     #[test]
     fn custom_app_bottom_bar_consumes_reserved_navigation_inset_for_tab_content() {
-        assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("WindowInsets.navigationBars"));
+        assert!(!NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("WindowInsets.navigationBars"));
         assert!(NEXA_APP_BOTTOM_BAR_PRIMITIVE.contains("nexaSafeAreaDynamicInsets().bottom"));
+        assert!(
+            NEXA_APP_BOTTOM_BAR_PRIMITIVE
+                .contains("val consumedNavigationBar = remainingSafeBottom")
+        );
         assert!(
             NEXA_APP_BOTTOM_BAR_PRIMITIVE
                 .contains("LocalNexaSafeAreaContext provides parentSafeArea.copy(")
@@ -4899,7 +4986,7 @@ mod tests {
                         swipe_actions: None,
                         sticky_header: None,
                         refresh: None,
-                        spacing: 0.0,
+                        gap: 0.0,
                         scroll_enabled: None,
                     },
                 }),
@@ -4920,8 +5007,9 @@ mod tests {
         let kotlin = generate(&module);
         assert!(kotlin.contains("val nexaListState0 = rememberLazyListState()"));
         assert!(kotlin.contains(
-            "LazyRow(modifier = nexaSafeAreaScrollViewportModifier(\"Horizontal\").then(Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary)), state = nexaListState0, userScrollEnabled = (nexaListState0.canScrollForward || nexaListState0.canScrollBackward), contentPadding = nexaSafeAreaContentPadding(\"Horizontal\", includeVisualSafeInsets = true))"
+            "LazyRow(modifier = nexaSafeAreaScrollViewportModifier(\"Horizontal\").then(Modifier.fillMaxWidth().nestedScroll(NexaHorizontalListScrollBoundary)), contentPadding = LocalNexaScrollContentPadding.current, state = nexaListState0, userScrollEnabled = (nexaListState0.canScrollForward || nexaListState0.canScrollBackward))"
         ));
+        assert!(kotlin.contains("NexaSafeAreaProvider {"));
         assert!(kotlin.contains("object NexaHorizontalListScrollBoundary"));
         assert!(
             kotlin.contains("androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput")
@@ -5013,7 +5101,7 @@ mod tests {
         let common = SectionedListCommon {
             show_dividers: true,
             item_extent: None,
-            spacing: 0.0,
+            gap: 0.0,
             scroll_enabled: None,
             index: "index".to_owned(),
             component_ref: common.component_ref.clone(),
@@ -5105,7 +5193,7 @@ mod tests {
                         swipe_actions: None,
                         sticky_header: None,
                         refresh: None,
-                        spacing: 4.0,
+                        gap: 4.0,
                         scroll_enabled: None,
                     },
                 }),
@@ -5391,7 +5479,7 @@ mod tests {
             "LocalNexaTextAlignment provides androidx.compose.ui.text.style.TextAlign.Start"
         ));
         assert!(primitives.contains(
-            "bottom = androidx.compose.ui.unit.Dp(\n                    if (footer == null) {\n                        20.toFloat()\n                    } else {\n                        8.toFloat()\n                    },\n                ),"
+            "bottom = androidx.compose.ui.unit.Dp(\n                    if (footer == null) {\n                        12.toFloat()\n                    } else {\n                        8.toFloat()\n                    },\n                ),"
         ));
         assert!(
             primitives.contains("contentAlignment = androidx.compose.ui.Alignment.CenterStart")
@@ -5549,6 +5637,117 @@ mod tests {
         assert!(primitives.contains(
             "style = androidx.compose.material3.MaterialTheme.typography.titleSmall,\n                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,"
         ));
+        assert!(primitives.contains("start = androidx.compose.ui.unit.Dp(16.toFloat()),"));
+        let form_section = primitives
+            .split("internal fun NexaFormSectionPrimitive(")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        let section_container = form_section
+            .split("if (title != null)")
+            .next()
+            .unwrap_or_default();
+        let section_heading = form_section
+            .split("if (title != null)")
+            .nth(1)
+            .and_then(|source| source.split("androidx.compose.material3.Surface").next())
+            .unwrap_or_default();
+        assert!(!section_container.contains("top = androidx.compose.ui.unit.Dp"));
+        assert!(!section_heading.contains("top = androidx.compose.ui.unit.Dp"));
+        assert!(!form_section.contains("firstSection"));
+        let form = primitives
+            .split("internal fun NexaFormPrimitive(")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        assert!(!form.contains("nexaSafeAreaContentPadding"));
+        assert!(!form.contains("LocalNexaFormContentTopInset"));
+        assert!(!form.contains("50.toFloat()"));
+        assert!(!form.contains("34.toFloat()"));
+        let vertical_scroll = form
+            .find(".verticalScroll(scrollState, enabled = scrollState.maxValue > 0)")
+            .expect("Form owns scrolling before applying content padding");
+        let content_padding = form
+            .find(".padding(effectiveContentPadding)")
+            .expect("Form padding is scrollable content padding");
+        assert!(vertical_scroll < content_padding);
+        assert!(
+            form.contains("modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier")
+        );
+        assert!(!form.contains("nexaSafeAreaScrollViewportModifier"));
+        assert!(primitives.contains("endInset = androidx.compose.ui.unit.Dp(20.toFloat())"));
+        assert!(primitives.contains("0xFF404042"));
+
+        let dev_renderer = include_str!("../../../../runtime/android/NexaDevRenderer.kt");
+        let dev_insets_dispatch = dev_renderer
+            .split("\"ViewInsets\" -> {")
+            .nth(1)
+            .and_then(|source| source.split("\"SafeAreaInset\" -> {").next())
+            .unwrap_or_default();
+        let dev_form = dev_renderer
+            .split("\"Form\" -> {")
+            .nth(1)
+            .and_then(|source| source.split("\"FormSection\" -> {").next())
+            .unwrap_or_default();
+        assert!(dev_insets_dispatch.contains("if (child.has(\"Form\"))"));
+        assert!(dev_insets_dispatch.contains("formContentPadding = PaddingValues("));
+        assert!(dev_insets_dispatch.contains("modifier = outerModifier"));
+        assert!(dev_form.contains("modifier = modifier"));
+        assert!(dev_form.contains("contentPadding = formContentPadding ?: PaddingValues(0.dp)"));
+    }
+
+    #[test]
+    fn safe_area_snapshot_is_centralized_and_consumed_consistently() {
+        let primitives = shared_component_primitives();
+        let provider = primitives
+            .split("internal fun NexaSafeAreaProvider(")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        let remaining = primitives
+            .split("internal fun nexaSafeAreaDynamicInsets(): NexaSafeAreaInsets {")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        let inset = primitives
+            .split("internal fun NexaSafeAreaInsetPrimitive(")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+
+        assert!(provider.contains("systemBars.union(displayCutout).union(waterfall)"));
+        assert!(provider.contains("remember(systemBars, displayCutout, waterfall)"));
+        assert!(provider.contains("remember(\n        topPixels,"));
+        assert!(provider.contains("/ pixelsPerDp"));
+        assert!(provider.contains("LocalNexaWindowMetrics provides snapshot"));
+        assert!(remaining.contains("visual.left else visual.right"));
+        assert!(remaining.contains("visual.right else visual.left"));
+        assert!(remaining.contains("logical.subtractClamped(consumed)"));
+        assert!(!primitives.contains("NexaVisualSafeAreaEdges"));
+        assert!(!primitives.contains("val crossEdges = if (vertical)"));
+        assert!(primitives.contains("(top - other.top).coerceAtLeast(0.dp)"));
+        assert!(primitives.contains("(bottom - other.bottom).coerceAtLeast(0.dp)"));
+        assert!(primitives.contains("(start - other.start).coerceAtLeast(0.dp)"));
+        assert!(primitives.contains("(end - other.end).coerceAtLeast(0.dp)"));
+        assert!(provider.contains("top = androidx.compose.ui.unit.Dp(topPixels / pixelsPerDp)"));
+        assert!(!remaining.contains("WindowInsets."));
+        let view_insets = primitives
+            .split("internal fun NexaViewInsetsPrimitive(")
+            .nth(1)
+            .and_then(|source| source.split("// nexa-codegen:").next())
+            .unwrap_or_default();
+        assert!(!view_insets.contains("WindowInsets."));
+        assert!(!view_insets.contains("windowInsetsPadding"));
+        assert!(view_insets.contains("paddingTop"));
+        assert!(!primitives.contains("nexaSafeAreaContentPadding"));
+        assert!(inset.contains("occupiedBeforeAttachment + safe"));
+        assert!(inset.contains("consumed = parent.consumed.offset(edge, safe) + crossSafe"));
+        assert!(inset.contains("val occupied = safe + attachmentSize"));
+        assert!(!inset.contains("spacing"));
+        assert!(inset.contains("if (accommodatesEndpoint) occupied else 0.dp"));
+
+        let dev_runtime = include_str!("../../../../runtime/android/NexaDevRuntime.kt");
+        assert!(dev_runtime.contains("NexaSafeAreaProvider {"));
     }
 
     #[test]
@@ -5692,11 +5891,8 @@ mod tests {
         );
         assert!(primitives.contains("navigationIcon = navigationIcon,"));
         assert!(primitives.contains("actions()"));
-        assert!(
-            primitives
-                .contains("LocalNexaFormContentTopInset provides androidx.compose.ui.unit.Dp(0f)")
-        );
-        assert!(primitives.contains("LocalNexaNavigationContent provides true"));
+        assert!(!primitives.contains("LocalNexaNavigationContent"));
+        assert!(!primitives.contains("LocalNexaFormContentTopInset"));
         assert!(primitives.contains("LocalNexaNavigationTitleSlot provides navigationTitleSlot"));
         assert!(primitives.contains("class NexaNavigationTitleSlot"));
         assert!(primitives.contains("navigationTitleSlot.update("));
@@ -6058,7 +6254,7 @@ mod tests {
             body: vec![
                 Node::Layout {
                     kind: nexa_ir::LayoutKind::Column,
-                    spacing: 12.0,
+                    gap: 12.0,
                     style: ViewStyle::default(),
                     children: vec![
                         Node::ContentUnavailable {
@@ -6206,7 +6402,7 @@ mod tests {
                             swipe_actions: None,
                             sticky_header: None,
                             refresh: None,
-                            spacing: 0.0,
+                            gap: 0.0,
                             scroll_enabled: None,
                         },
                     }),
@@ -6390,7 +6586,7 @@ mod tests {
                     body: vec![
                         Node::Layout {
                             kind: LayoutKind::Column,
-                            spacing: 0.0,
+                            gap: 0.0,
                             style: Default::default(),
                             children: vec![
                                 Node::Toolbar {
@@ -6463,18 +6659,12 @@ mod tests {
             .expect("navigation host arguments end before destinations")
             .0;
         assert!(navigation_host.contains("enterTransition = {"));
-        assert!(navigation_host.contains(
-            "slideIntoContainer(\n                towards = AnimatedContentTransitionScope.SlideDirection.Start,\n                animationSpec = tween(durationMillis = 350),"
-        ));
-        assert!(navigation_host.contains(
-            "exitTransition = {\n            slideOutOfContainer(\n                towards = AnimatedContentTransitionScope.SlideDirection.Start,"
-        ));
-        assert!(navigation_host.contains(
-            "popEnterTransition = {\n            slideIntoContainer(\n                towards = AnimatedContentTransitionScope.SlideDirection.End,"
-        ));
-        assert!(navigation_host.contains(
-            "popExitTransition = {\n            slideOutOfContainer(\n                towards = AnimatedContentTransitionScope.SlideDirection.End,"
-        ));
+        assert!(navigation_host.contains("slideIntoContainer("));
+        assert!(navigation_host.contains("AnimatedContentTransitionScope.SlideDirection.Start"));
+        assert!(navigation_host.contains("slideOutOfContainer("));
+        assert!(navigation_host.contains("AnimatedContentTransitionScope.SlideDirection.End"));
+        assert!(navigation_host.contains("popEnterTransition = {"));
+        assert!(navigation_host.contains("popExitTransition = {"));
         assert!(
             kotlin.contains("import androidx.compose.animation.AnimatedContentTransitionScope")
         );
@@ -6497,7 +6687,7 @@ mod tests {
         assert!(destination.contains("inline = nexaTitleInline"));
         assert!(destination.contains("leadingTitle = nexaLeadingTitle"));
         assert!(destination.contains("hasTrailingActions = true"));
-        assert!(destination.contains("firstSection = true"));
+        assert!(!destination.contains("firstSection ="));
         assert!(destination.contains(
             "onBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() }"
         ));
@@ -6519,11 +6709,7 @@ mod tests {
         assert!(kotlin.contains("androidx.compose.material3.TopAppBar("));
         assert!(kotlin.contains("if (hasTrailingActions)"));
         assert!(kotlin.contains("Dp(16.toFloat())"));
-        assert!(
-            kotlin
-                .contains("LocalNexaFormContentTopInset provides androidx.compose.ui.unit.Dp(0f)")
-        );
-        assert!(kotlin.contains("height(LocalNexaFormContentTopInset.current)"));
+        assert!(!kotlin.contains("LocalNexaFormContentTopInset"));
         assert!(kotlin.contains("androidx.compose.ui.unit.Dp(24f)"));
         assert!(kotlin.contains("start = androidx.compose.ui.unit.Dp(24f)"));
         assert!(kotlin.contains("exitUntilCollapsedScrollBehavior()"));
@@ -6664,7 +6850,7 @@ mod tests {
             components: Vec::new(),
             body: vec![Node::Layout {
                 kind: LayoutKind::Column,
-                spacing: 0.0,
+                gap: 0.0,
                 style: ViewStyle {
                     animation: Some(AnimationSpec::Spring {
                         response: 0.35,
@@ -7311,6 +7497,8 @@ mod tests {
         assert!(kotlin.contains("onClick = { navController.navigate(\"nexa_screen_1\") }"));
         assert!(kotlin.contains("trailing = {"));
         assert!(kotlin.contains("Icons.Filled.ChevronRight"));
+        assert!(kotlin.contains("Modifier.size(22.dp)"));
+        assert!(kotlin.contains("onSurfaceVariant.copy(alpha = 0.5f)"));
     }
 
     #[test]

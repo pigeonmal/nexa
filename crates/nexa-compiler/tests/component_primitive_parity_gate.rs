@@ -76,7 +76,10 @@ fn every_component_primitive_is_shared_across_aot_and_dev_runtime() {
 
     // Read Kotlin AOT
     let mut kotlin_aot = String::new();
-    collect_rs_files(&root.join("crates/nexa-backend-kotlin/src"), &mut kotlin_aot);
+    collect_rs_files(
+        &root.join("crates/nexa-backend-kotlin/src"),
+        &mut kotlin_aot,
+    );
 
     // Read DevRuntimes
     let ios_renderer = fs::read_to_string(root.join("runtime/ios/NexaDevRenderer.swift"))

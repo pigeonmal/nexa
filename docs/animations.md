@@ -12,7 +12,7 @@ app AnimatedProgress {
     state progress: Float64 = 0.2
 
     body {
-        Column(spacing: 12, animation: Spring(response: 0.35, damping: 0.82)) {
+        Column(gap: 12, animation: Spring(response: 0.35, damping: 0.82)) {
             ProgressBar(progress: progress)
             Button("Advance") {
                 withAnimation(Tween(duration: 0.24, easing: EaseOut)) {

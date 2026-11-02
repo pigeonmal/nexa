@@ -18,7 +18,7 @@ app NetflixArchetype {
             player.dispose()
         }
 
-        Column(spacing: 16, padding: 16) {
+        Column(gap: 16, padding: 16) {
             Text("Nexa Stream")
             Text("Featured: Sintel")
             VideoPlayer.VideoView(player: player, controls: true, softwareDecodingEnabled: false) {
@@ -42,7 +42,7 @@ app NetflixArchetype {
                     }
                 }
             }
-            Row(spacing: 12) {
+            Row(gap: 12) {
                 Button("Pause") { player.pause() }
                 Button("Resume") { player.play() }
                 Button("Restart") { player.seek(0.0) }

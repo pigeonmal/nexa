@@ -397,7 +397,7 @@ fn require_storable(
         context,
         registries,
         span,
-        registries.allow_nullable_generic_plugin_reads,
+        registries.nullable_generic_plugin_reads,
     )
 }
 

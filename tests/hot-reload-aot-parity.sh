@@ -167,6 +167,14 @@ capture_ios() {
     for phase in "${parity_phases[@]}"; do
         cp "$runner_container/tmp/nexa-render-parity-$phase.json" "$artifacts/$variant/$phase.json"
         cp "$runner_container/tmp/nexa-render-parity-$phase.png" "$artifacts/$variant/$phase.png"
+        python3 "$script_dir/parity/manifest.py" write \
+            --out "$artifacts/$variant/$phase.manifest.json" \
+            --fixture "render_parity" \
+            --platform "ios" \
+            --mode "$variant" \
+            --source "$project/App.nx" \
+            --phase "$phase" \
+            --device "$simulator_id"
     done
 }
 
@@ -360,6 +368,14 @@ capture_android_phase() {
     android_dump_hierarchy "$xml"
     adb exec-out screencap -p >"$artifacts/$variant/$phase.png"
     python3 "$script_dir/compare-render-parity.py" --android-xml "$xml" "$artifacts/$variant/$phase.json"
+    python3 "$script_dir/parity/manifest.py" write \
+        --out "$artifacts/$variant/$phase.manifest.json" \
+        --fixture "render_parity" \
+        --platform "android" \
+        --mode "$variant" \
+        --source "$project/App.nx" \
+        --phase "$phase" \
+        --device "$(adb get-serialno 2>/dev/null || echo emulator)"
 }
 
 run_android_interactions() {
@@ -620,6 +636,9 @@ if [[ "$platform" == ios ]]; then
     dev_pid=$!
     wait_for_dev_log "Nexa iOS dev runtime connected."
     wait_for_dev_log "Nexa iOS dev runtime applied module"
+    if [[ "${NEXA_DEV_FRAME_FENCE:-1}" == 1 ]]; then
+        wait_for_dev_log "Nexa iOS dev runtime presented frame"
+    fi
     capture_ios dev
 else
     rm -f "$project/dev-stdin"
@@ -629,6 +648,9 @@ else
     dev_pid=$!
     wait_for_dev_log "Nexa Android dev runtime connected."
     wait_for_dev_log "Nexa Android dev runtime applied module"
+    if [[ "${NEXA_DEV_FRAME_FENCE:-1}" == 1 ]]; then
+        wait_for_dev_log "Nexa Android dev runtime presented frame"
+    fi
     run_android_interactions dev
 fi
 

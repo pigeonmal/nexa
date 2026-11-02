@@ -11,9 +11,7 @@ use nexa_ir::{
     PickerDateStyle, PickerDateType, ReturnKeyType, ScreenId, SectionedListCommon, StatusBarConfig,
     StatusBarStyle, SystemIcon, TaskExecutor as IrTaskExecutor, TextFontDesign, TextFontStyle,
     TextInputFont, TextStyle, ToolbarPlacement, Type, ViewTransition as IrViewTransition, WhenCase,
-    adaptive_layout::{
-        LayoutEdge, SafeAreaInsetPlan, SafeAreaPaddingPlan, ScrollHeaderBehavior, ScrollHeaderPlan,
-    },
+    adaptive_layout::{LayoutEdge, SafeAreaInsetPlan, ScrollHeaderBehavior, ScrollHeaderPlan},
 };
 use nexa_syntax::{ast, catalog};
 
@@ -121,7 +119,7 @@ pub(super) fn lower_nodes(
                 let allow_navigation = cx.allow_navigation_stack
                     && match &node {
                         ast::Node::ComponentInvocation(invocation) => {
-                            invocation.name == "NavigationStack"
+                            invocation.name == "NavigationStack" || invocation.name == "Appearance"
                         }
                         ast::Node::If { .. } | ast::Node::When { .. } => true,
                         _ => false,
@@ -132,6 +130,24 @@ pub(super) fn lower_nodes(
         }
     }
     Ok(lowered)
+}
+
+pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
+    let mut padding = None;
+    let mut margin = None;
+    if let ast::Node::ComponentInvocation(invocation) = &mut node {
+        padding = invocation.arguments.remove("padding");
+        margin = invocation.arguments.remove("margin");
+    }
+    let padding = padding
+        .map(|value| {
+            super::styles::lower_edge_insets(value, "padding", cx.themes, &cx.exprs(false))
+        })
+        .transpose()?;
+    let margin = margin
+        .map(|value| super::styles::lower_edge_insets(value, "margin", cx.themes, &cx.exprs(false)))
+        .transpose()?;
+    lower_node_with_modifiers(node, cx, padding, margin)
 }
 
 fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
@@ -564,7 +580,12 @@ enum ListSourceParts {
     },
 }
 
-pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
+fn lower_node_with_modifiers(
+    mut node: ast::Node,
+    cx: &SemanticContext,
+    padding: Option<nexa_ir::EdgeInsets>,
+    margin: Option<nexa_ir::EdgeInsets>,
+) -> Result<Node, CompileError> {
     let shared_modifiers = match &mut node {
         ast::Node::ComponentInvocation(invocation) => {
             let mut shared = Vec::new();
@@ -595,7 +616,14 @@ pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<No
         } => take_accessibility_options(arguments, *span, cx)?,
         _ => None,
     };
-    let mut lowered = lower_node_inner(node, cx)?;
+    let mut lowered = lower_node_raw(node, cx)?;
+    if padding.is_some() || margin.is_some() {
+        lowered = Node::ViewInsets {
+            padding,
+            margin,
+            child: Box::new(lowered),
+        };
+    }
     lowered = apply_shared_view_modifiers(lowered, shared_modifiers, cx)?;
     match accessibility {
         Some((label, hint, value, role)) => {
@@ -633,31 +661,6 @@ fn apply_shared_view_modifiers(
 ) -> Result<Node, CompileError> {
     for mut modifier in modifiers {
         match modifier.name.as_str() {
-            "safeAreaPadding" => {
-                let edges = modifier
-                    .arguments
-                    .remove("edges")
-                    .map(|value| parse_safe_area_edges(value, "edges"))
-                    .transpose()?
-                    .unwrap_or_else(|| {
-                        vec![
-                            LayoutEdge::Top,
-                            LayoutEdge::Bottom,
-                            LayoutEdge::Leading,
-                            LayoutEdge::Trailing,
-                        ]
-                    });
-                let spacing = modifier
-                    .arguments
-                    .get("spacing")
-                    .map(|value| number_value(value, "spacing"))
-                    .transpose()?
-                    .unwrap_or(0.0);
-                node = Node::SafeAreaPadding {
-                    plan: SafeAreaPaddingPlan { edges, spacing },
-                    children: vec![node],
-                };
-            }
             "safeAreaInset" => {
                 let edge = modifier
                     .arguments
@@ -669,12 +672,6 @@ fn apply_shared_view_modifiers(
                         )
                     })
                     .and_then(|value| parse_safe_area_edge(value, "edge"))?;
-                let spacing = modifier
-                    .arguments
-                    .get("spacing")
-                    .map(|value| number_value(value, "spacing"))
-                    .transpose()?
-                    .unwrap_or(0.0);
                 let ast::ModifierBody::Nodes(content) = modifier.body else {
                     return Err(CompileError::new(
                         modifier.span,
@@ -691,11 +688,7 @@ fn apply_shared_view_modifiers(
                     nexa_ir::walk::resolve_scroll_owner(std::slice::from_ref(&node), edge, None)
                 };
                 node = Node::SafeAreaInset {
-                    plan: SafeAreaInsetPlan {
-                        edge,
-                        spacing,
-                        scroll_owner,
-                    },
+                    plan: SafeAreaInsetPlan { edge, scroll_owner },
                     content,
                     children: vec![node],
                 };
@@ -775,45 +768,13 @@ fn contains_navigation_host(nodes: &[Node]) -> bool {
     }
     match &nodes[0] {
         Node::NavigationStack { .. } => true,
-        Node::SafeAreaPadding { children, .. }
-        | Node::Layout { children, .. }
+        Node::Layout { children, .. }
         | Node::Form { children, .. }
         | Node::Toolbar { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::SafeAreaInset { children, .. } => contains_navigation_host(children),
         _ => false,
     }
-}
-
-fn parse_safe_area_edges(
-    value: ast::Expr,
-    argument: &str,
-) -> Result<Vec<LayoutEdge>, CompileError> {
-    let expression_span = value.span();
-    let ast::Expr::Array(values, _) = value else {
-        return Err(CompileError::new(
-            expression_span,
-            format!("`{argument}` must be an array of Top, Bottom, Leading, or Trailing"),
-        ));
-    };
-    if values.is_empty() {
-        return Err(CompileError::new(
-            expression_span,
-            format!("`{argument}` must include at least one safe-area edge"),
-        ));
-    }
-    let mut edges = Vec::with_capacity(values.len());
-    for value in values {
-        let edge = parse_safe_area_edge(&value, argument)?;
-        if edges.contains(&edge) {
-            return Err(CompileError::new(
-                value.span(),
-                format!("`{argument}` cannot contain the same edge more than once"),
-            ));
-        }
-        edges.push(edge);
-    }
-    Ok(edges)
 }
 
 fn parse_safe_area_edge(value: &ast::Expr, argument: &str) -> Result<LayoutEdge, CompileError> {
@@ -938,7 +899,7 @@ fn take_accessibility_options(
     Ok(Some((lowered_label, lowered_hint, lowered_value, role)))
 }
 
-fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
+fn lower_node_raw(node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
     let symbols = cx.symbols;
     let screen_ids = cx.screen_ids;
     let themes = cx.themes;
@@ -1000,8 +961,10 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     "Appearance mode must be `system`, `light`, or `dark`",
                 ));
             }
+            let appearance_cx =
+                cx.with_navigation(allow_navigation_stack, cx.allow_navigation_back);
             let children = match inv.children {
-                ast::ChildBody::Nodes(nodes) => lower_nodes(nodes, &child_cx)?,
+                ast::ChildBody::Nodes(nodes) => lower_nodes(nodes, &appearance_cx)?,
                 _ => return Err(child_mismatch(span)),
             };
             Ok(Node::Appearance { mode, children })
@@ -1112,46 +1075,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 _ => LayoutKind::Stack,
             };
             let mut args = inv.arguments;
-            let spacing = args.remove("spacing");
-            let fill_max_width = optional_bool(args.remove("fillMaxWidth"), false, "fillMaxWidth")?;
-            let fill_max_height =
-                optional_bool(args.remove("fillMaxHeight"), false, "fillMaxHeight")?;
-            if fill_max_width && args.contains_key("screenWidthFraction") {
-                return Err(CompileError::new(
-                    args.get("screenWidthFraction")
-                        .map(ast::Expr::span)
-                        .unwrap_or(span),
-                    "`fillMaxWidth` cannot be combined with `screenWidthFraction`",
-                ));
-            }
-            if fill_max_height && args.contains_key("screenHeightFraction") {
-                return Err(CompileError::new(
-                    args.get("screenHeightFraction")
-                        .map(ast::Expr::span)
-                        .unwrap_or(span),
-                    "`fillMaxHeight` cannot be combined with `screenHeightFraction`",
-                ));
-            }
-            if fill_max_width && args.contains_key("width") {
-                return Err(CompileError::new(
-                    args.get("width").map(ast::Expr::span).unwrap_or(span),
-                    "`fillMaxWidth` cannot be combined with fixed `width`",
-                ));
-            }
-            if fill_max_height && args.contains_key("height") {
-                return Err(CompileError::new(
-                    args.get("height").map(ast::Expr::span).unwrap_or(span),
-                    "`fillMaxHeight` cannot be combined with fixed `height`",
-                ));
-            }
+            let gap = args.remove("gap");
             let style = ast::LayoutStyle {
                 alignment: args.remove("alignment"),
                 horizontal_arrangement: args.remove("horizontalArrangement"),
-                padding: args.remove("padding"),
                 width: args.remove("width"),
-                screen_width_fraction: args.remove("screenWidthFraction"),
                 height: args.remove("height"),
-                screen_height_fraction: args.remove("screenHeightFraction"),
                 min_width: args.remove("minWidth"),
                 max_width: args.remove("maxWidth"),
                 min_height: args.remove("minHeight"),
@@ -1177,31 +1106,13 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
             };
-            if stacked && spacing.is_some() {
-                return Err(CompileError::new(
-                    spacing.as_ref().map(ast::Expr::span).unwrap_or(span),
-                    "Stack does not accept `spacing`; use alignment or explicit child layout instead",
-                ));
-            }
-            let spacing = optional_dimension(
-                spacing,
-                "spacing",
-                Some(ast::ThemeTokenKind::Spacing),
-                themes,
-            )?
-            .unwrap_or(0.0);
-            let mut style = lower_style(style, themes, &cx.exprs(false))?;
-            style.fill_max_width = fill_max_width;
-            style.fill_max_height = fill_max_height;
+            let gap = optional_dimension(gap, "gap", Some(ast::ThemeTokenKind::Spacing), themes)?
+                .unwrap_or(0.0);
+            let style = lower_style(style, themes, &cx.exprs(false))?;
             let lowered = lower_nodes(children, &child_cx)?;
             if !stacked
                 && lowered.is_empty()
                 && (style.width.is_some() || style.height.is_some())
-                && style.screen_width_fraction.is_none()
-                && !style.fill_max_width
-                && style.screen_height_fraction.is_none()
-                && !style.fill_max_height
-                && style.padding.is_none()
                 && style.min_width.is_none()
                 && style.max_width.is_none()
                 && style.min_height.is_none()
@@ -1217,13 +1128,13 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 && style.animation.is_none()
             {
                 return Ok(Node::Spacer {
-                    width: Some(style.width.unwrap_or(0.0)),
-                    height: Some(style.height.unwrap_or(0.0)),
+                    width: Some(style.width.unwrap_or(nexa_ir::Dimension::Fixed(0.0))),
+                    height: Some(style.height.unwrap_or(nexa_ir::Dimension::Fixed(0.0))),
                 });
             }
             Ok(Node::Layout {
                 kind,
-                spacing,
+                gap,
                 style,
                 children: lowered,
             })
@@ -1354,7 +1265,6 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let font_design = lower_text_font_design(args.remove("fontDesign"))?;
             let font_family = lower_text_font_family(args.remove("fontFamily"), themes)?;
             let font_weight = args.remove("fontWeight");
-            let padding = args.remove("padding");
             let line_limit = args.remove("lineLimit");
             let line_height = args.remove("lineHeight");
             let letter_spacing = args.remove("letterSpacing");
@@ -1373,12 +1283,6 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 themes,
             )?;
             let font_weight = lower_font_weight(font_weight)?;
-            let padding = optional_dimension(
-                padding,
-                "padding",
-                Some(ast::ThemeTokenKind::Spacing),
-                themes,
-            )?;
             let line_limit = lower_line_limit(line_limit)?;
             let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
             let letter_spacing = optional_tracking(letter_spacing)?;
@@ -1410,7 +1314,6 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     font_design,
                     font_family,
                     font_weight,
-                    padding,
                     opacity,
                     effects,
                     line_limit,
@@ -1426,8 +1329,16 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Spacer" => {
             let mut args = inv.arguments;
-            let width = optional_dimension(args.remove("width"), "Spacer width", None, themes)?;
-            let height = optional_dimension(args.remove("height"), "Spacer height", None, themes)?;
+            let width = super::styles::optional_layout_dimension(
+                args.remove("width"),
+                "Spacer width",
+                super::styles::DimensionAxis::Width,
+            )?;
+            let height = super::styles::optional_layout_dimension(
+                args.remove("height"),
+                "Spacer height",
+                super::styles::DimensionAxis::Height,
+            )?;
             Ok(Node::Spacer { width, height })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Divider" => {
@@ -2073,7 +1984,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let icon = icon
                 .map(|value| {
                     let name = require_string_literal(&value, "Button icon")?;
-                    cx.resolve_icon(&name).ok_or_else(|| {
+                    let resolved = cx.resolve_icon(&name);
+                    resolved.ok_or_else(|| {
                         CompileError::new(
                             value.span(),
                             format!("unknown icon `{name}` in Button `icon`; use a Nexa shared icon, an alias from `assets.icons`, or the `Icon` component for platform-specific symbols"),
@@ -3656,7 +3568,13 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             } = rows;
             let axis = args.remove("axis");
             let item_extent = args.remove("rowHeight");
-            let spacing = args.remove("spacing");
+            let gap = optional_dimension(
+                args.remove("gap"),
+                "FastList gap",
+                Some(ast::ThemeTokenKind::Spacing),
+                themes,
+            )?
+            .unwrap_or(0.0);
             let scroll_position = args.remove("scrollPosition");
             let scroll_enabled = args
                 .remove("scrollEnabled")
@@ -3995,23 +3913,16 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     "FastList `rowHeight` must be greater than zero",
                 ));
             }
-            let spacing = optional_dimension(
-                spacing,
-                "FastList spacing",
-                Some(ast::ThemeTokenKind::Spacing),
-                themes,
-            )?
-            .unwrap_or(0.0);
-            if spacing < 0.0 {
+            if gap < 0.0 {
                 return Err(CompileError::new(
                     span,
-                    "FastList `spacing` must be zero or greater",
+                    "FastList `gap` must be zero or greater",
                 ));
             }
-            if page_snap && spacing > 0.0 {
+            if page_snap && gap > 0.0 {
                 return Err(CompileError::new(
                     span,
-                    "FastList `pageSnap` fills the viewport; `spacing` must be zero",
+                    "FastList `pageSnap` fills the viewport; `gap` must be zero",
                 ));
             }
             let row_index_type = Type::Numeric(NumericType::Int32);
@@ -4298,7 +4209,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             reverse_layout,
                             page_snap,
                             item_extent,
-                            spacing,
+                            gap,
                             scroll_enabled,
                             index,
                             key,
@@ -4328,7 +4239,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             reverse_layout,
                             page_snap,
                             item_extent,
-                            spacing,
+                            gap,
                             scroll_enabled,
                             index,
                             key,
@@ -4367,7 +4278,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                             common: SectionedListCommon {
                                 show_dividers,
                                 item_extent,
-                                spacing,
+                                gap,
                                 scroll_enabled,
                                 index,
                                 key,
@@ -6446,7 +6357,8 @@ fn collect_animation_targets(
                 | Action::NativeEventSubscribe { .. }
                 | Action::NetworkStatusSubscribe { .. }
                 | Action::NavigationPush { .. }
-                | Action::NavigationBack => {
+                | Action::NavigationBack
+                | Action::NavigationCommand(_) => {
                     return Err(CompileError::new(
                         span,
                         "`withAnimation` only supports mutable Float32 or Float64 state assignments and control flow around them; use a layout animation or view transition for collection changes",
@@ -6624,7 +6536,8 @@ fn actions_mutate_or_subscribe(actions: &[Action]) -> bool {
         | Action::TaskLaunch { .. }
         | Action::TaskCancel { .. }
         | Action::NavigationPush { .. }
-        | Action::NavigationBack => true,
+        | Action::NavigationBack
+        | Action::NavigationCommand(_) => true,
         Action::WithAnimation { actions, .. } => actions_mutate_or_subscribe(actions),
         Action::If {
             then_branch,
@@ -6679,6 +6592,16 @@ fn visit_action_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
                 }
             }
             Action::NavigationBack => {}
+            Action::NavigationCommand(cmd) => match cmd.as_ref() {
+                nexa_ir::NavigationCommand::Push { arguments, .. }
+                | nexa_ir::NavigationCommand::ReplaceTop { arguments, .. }
+                | nexa_ir::NavigationCommand::Reset { arguments, .. } => {
+                    for argument in arguments {
+                        nexa_ir::walk::walk_expression(argument, visit);
+                    }
+                }
+                _ => {}
+            },
             Action::NativePropertyAssign {
                 receiver, value, ..
             } => {

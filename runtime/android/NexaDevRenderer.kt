@@ -53,7 +53,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
@@ -147,6 +149,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -180,6 +183,25 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.launch
+
+private data class NexaDevDimension(val kind: String, val value: Float = 0f)
+
+private fun nexaDevDimension(raw: Any?): NexaDevDimension? = when (raw) {
+    is Number -> NexaDevDimension("fixed", raw.toFloat())
+    is String -> if (raw == "Fill") NexaDevDimension("fill") else null
+    is JSONObject -> {
+        val key = raw.keys().asSequence().firstOrNull() ?: return null
+        val value = raw.opt(key)
+        when (key) {
+            "Fixed" -> NexaDevDimension("fixed", (value as? Number)?.toFloat() ?: 0f)
+            "ParentFraction" -> NexaDevDimension("parent", (value as? Number)?.toFloat() ?: 0f)
+            "ScreenWidthFraction" -> NexaDevDimension("screen_width", (value as? Number)?.toFloat() ?: 0f)
+            "ScreenHeightFraction" -> NexaDevDimension("screen_height", (value as? Number)?.toFloat() ?: 0f)
+            else -> null
+        }
+    }
+    else -> null
+}
 
 private object NexaDevFontRegistry {
     private val families = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.text.font.FontFamily>()
@@ -510,11 +532,14 @@ internal fun NexaDevNodeList(
     modifier: Modifier = Modifier,
 ) {
     val locals = store.locals(scope, parameters).toMutableMap()
-    val viewport = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
-    val density = androidx.compose.ui.platform.LocalDensity.current.density.toDouble()
-    locals["__nexa_screen_width"] = viewport.width.toDouble() / density
-    locals["__nexa_screen_height"] = viewport.height.toDouble() / density
-    locals["__nexa_safe_area_top"] = nexaSafeAreaDynamicInsets().top.value.toDouble()
+    val metrics = LocalNexaWindowMetrics.current
+    val direction = LocalLayoutDirection.current
+    locals["__nexa_screen_width"] = metrics.viewportWidthDp.toDouble()
+    locals["__nexa_screen_height"] = metrics.viewportHeightDp.toDouble()
+    locals["__nexa_system_inset_top"] = metrics.systemInset(NexaSafeAreaEdge.Top, direction).value.toDouble()
+    locals["__nexa_system_inset_bottom"] = metrics.systemInset(NexaSafeAreaEdge.Bottom, direction).value.toDouble()
+    locals["__nexa_system_inset_leading"] = metrics.systemInset(NexaSafeAreaEdge.Leading, direction).value.toDouble()
+    locals["__nexa_system_inset_trailing"] = metrics.systemInset(NexaSafeAreaEdge.Trailing, direction).value.toDouble()
     LocalNexaDevNavController.current?.let { locals["__nexa_navigation_controller"] = it }
     when (nodes.length()) {
         0 -> Unit
@@ -632,35 +657,79 @@ internal fun NexaDevNode(
     locals: Map<String, Any>,
     scope: String,
     modifier: Modifier = Modifier,
-    firstFormSection: Boolean = false,
     formShowDividers: Boolean = true,
+    formContentPadding: PaddingValues? = null,
 ) {
     val kind = node.keys().asSequence().firstOrNull() ?: return
     val fields = node.optJSONObject(kind) ?: JSONObject()
     when (kind) {
-        "SafeAreaPadding" -> {
-            val plan = fields.optJSONObject("plan") ?: JSONObject()
-            val edges = (plan.optJSONArray("edges") ?: JSONArray()).let { values ->
-                buildSet {
-                    for (index in 0 until values.length()) {
-                        when (values.optString(index)) {
-                            "Top" -> add(NexaSafeAreaEdge.Top)
-                            "Bottom" -> add(NexaSafeAreaEdge.Bottom)
-                            "Leading" -> add(NexaSafeAreaEdge.Leading)
-                            "Trailing" -> add(NexaSafeAreaEdge.Trailing)
-                        }
-                    }
-                }
+        "ViewInsets" -> {
+            val padding = fields.optJSONObject("padding") ?: JSONObject()
+            val margin = fields.optJSONObject("margin") ?: JSONObject()
+            @Composable
+            fun inset(values: JSONObject, name: String): Dp {
+                val raw = values.opt(name)?.takeIf { it != JSONObject.NULL } ?: return 0.dp
+                return ((store.evaluatePresented(raw, locals, scope) as? Number)?.toFloat() ?: 0f).dp
             }
-            NexaSafeAreaPaddingPrimitive(edges = edges, spacing = plan.optDouble("spacing", 0.0).dp) {
-                NexaDevNodeList(
-                    fields.optJSONArray("children") ?: JSONArray(),
+            val child = fields.optJSONObject("child") ?: return
+            val outerModifier = modifier.padding(
+                start = inset(margin, "leading"),
+                top = inset(margin, "top"),
+                end = inset(margin, "trailing"),
+                bottom = inset(margin, "bottom"),
+            )
+            if (child.has("Form")) {
+                NexaDevNode(
+                    child,
                     module,
                     store,
-                    parameters = locals,
-                    scope = scope,
+                    locals,
+                    scope,
+                    modifier = outerModifier,
+                    formContentPadding = PaddingValues(
+                        start = inset(padding, "leading"),
+                        top = inset(padding, "top"),
+                        end = inset(padding, "trailing"),
+                        bottom = inset(padding, "bottom"),
+                    ),
                 )
+                return
             }
+            val scrollContent = child.has("FastList") || child.has("KeyboardAware") || child.has("RefreshControl")
+            if (scrollContent) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalNexaScrollContentPadding provides PaddingValues(
+                        start = inset(padding, "leading"),
+                        top = inset(padding, "top"),
+                        end = inset(padding, "trailing"),
+                        bottom = inset(padding, "bottom"),
+                    ),
+                ) {
+                    NexaDevNode(
+                        child,
+                        module,
+                        store,
+                        locals,
+                        scope,
+                        modifier = outerModifier,
+                    )
+                }
+                return
+            }
+            NexaDevNode(
+                child,
+                module,
+                store,
+                locals,
+                scope,
+                modifier = outerModifier
+                    .padding(
+                        start = inset(padding, "leading"),
+                        top = inset(padding, "top"),
+                        end = inset(padding, "trailing"),
+                        bottom = inset(padding, "bottom"),
+                    ),
+            )
         }
         "SafeAreaInset" -> {
             val plan = fields.optJSONObject("plan") ?: JSONObject()
@@ -675,7 +744,6 @@ internal fun NexaDevNode(
                 (owner is JSONObject && owner.has("Unique")) || owner == "RouteHost"
             NexaSafeAreaInsetPrimitive(
                 edge = edge,
-                spacing = plan.optDouble("spacing", 0.0).dp,
                 accommodatesEndpoint = accommodatesEndpoint,
                 content = {
                     NexaDevNodeList(
@@ -740,11 +808,10 @@ internal fun NexaDevNode(
             val showDividers = fields.optBoolean("show_dividers", true)
             NexaFormPrimitive(
                 background = nexaDevColor(fields.optJSONObject("background"), isSystemInDarkTheme()),
+                modifier = modifier,
+                contentPadding = formContentPadding ?: PaddingValues(0.dp),
             ) {
                 val children = fields.optJSONArray("children") ?: JSONArray()
-                val firstSectionIndex = (0 until children.length()).firstOrNull { index ->
-                    nexaDevNodeObject(children.opt(index)).has("FormSection")
-                }
                 for (index in 0 until children.length()) {
                     androidx.compose.runtime.key(index) {
                         val child = nexaDevNodeObject(children.opt(index))
@@ -755,7 +822,6 @@ internal fun NexaDevNode(
                                 store,
                                 locals,
                                 scope,
-                                firstFormSection = index == firstSectionIndex,
                                 formShowDividers = showDividers,
                             )
                         } else {
@@ -784,7 +850,6 @@ internal fun NexaDevNode(
             NexaFormSectionPrimitive(
                 title = if (fields.isNull("title")) null else store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope)),
                 footer = if (fields.isNull("footer")) null else store.stringify(store.evaluatePresented(fields.opt("footer"), locals, scope)),
-                firstSection = firstFormSection,
                 background = nexaDevColor(fields.optJSONObject("background"), isSystemInDarkTheme()),
             ) {
                 val children = fields.optJSONArray("children") ?: JSONArray()
@@ -836,6 +901,14 @@ internal fun NexaDevNode(
             val navCtrl = LocalNexaDevNavController.current ?: (locals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
             if (navCtrl != null) {
                 parameters["__nexa_navigation_controller"] = navCtrl
+            }
+            val navId = locals["__nexa_navigation_stack_identity"]
+            if (navId != null) {
+                parameters["__nexa_navigation_stack_identity"] = navId
+            }
+            val entryId = locals["__nexa_navigation_entry_id"]
+            if (entryId != null) {
+                parameters["__nexa_navigation_entry_id"] = entryId
             }
             val arguments = fields.optJSONArray("arguments") ?: JSONArray()
             for (index in 0 until arguments.length()) {
@@ -917,24 +990,77 @@ internal fun NexaDevNode(
         }
         "Layout" -> {
             val children = fields.optJSONArray("children") ?: JSONArray()
-            val spacing = fields.optDouble("spacing", 0.0).dp
+            val spacing = fields.optDouble("gap", 0.0).dp
             val style = fields.optJSONObject("style") ?: JSONObject()
             // Keep the parent sizing contract (notably a screen's fillMaxSize)
             // when applying this node's own visual modifiers.
             var modifier: Modifier = modifier
             val effects = style.optJSONObject("effects") ?: JSONObject()
+            // Compose modifier chains are outer-to-inner. Nexa's `clip` effect
+            // masks the completed view in SwiftUI, so wrap this layout before
+            // its size and transform modifiers to also contain overflowing
+            // fixed-size and transformed descendants.
+            if (!effects.isNull("clip_rounded")) {
+                modifier = modifier.clip(RoundedCornerShape(effects.optDouble("clip_rounded").dp))
+            }
+            val metrics = LocalNexaWindowMetrics.current
+            fun dimensionValue(name: String): NexaDevDimension? = nexaDevDimension(style.opt(name))
+            val width = dimensionValue("width")
+            val height = dimensionValue("height")
+            val minWidth = dimensionValue("min_width")
+            val maxWidth = dimensionValue("max_width")
+            val minHeight = dimensionValue("min_height")
+            val maxHeight = dimensionValue("max_height")
             if (!style.isNull("animation")) {
                 modifier = modifier.animateContentSize(
                     animationSpec = store.devAnimationSpec(style.opt("animation")),
                 )
             }
-            if (!style.isNull("width")) {
-                val outerWidth = style.optDouble("width") + style.optDouble("padding", 0.0) * 2.0
-                modifier = modifier.requiredWidth(outerWidth.dp)
-            } else if (!style.isNull("screen_width_fraction")) {
-                val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-                val horizontalPadding = style.optDouble("padding", 0.0) * 2.0
-                modifier = modifier.requiredWidth((screenWidth.value * style.optDouble("screen_width_fraction").toFloat() + horizontalPadding.toFloat()).dp)
+            fun resolve(dimension: NexaDevDimension?): Dp? = when (dimension?.kind) {
+                "fixed" -> dimension.value.dp
+                "screen_width" -> (metrics.viewportWidthDp * dimension.value).dp
+                "screen_height" -> (metrics.viewportHeightDp * dimension.value).dp
+                else -> null
+            }
+            resolve(width)?.let { modifier = modifier.width(it) }
+            resolve(height)?.let {
+                if (height?.kind == "fixed" || height?.kind == "screen_height") {
+                    modifier = modifier
+                        .wrapContentHeight(Alignment.Top, unbounded = true)
+                        .requiredHeight(it)
+                }
+                modifier = modifier.height(it)
+            }
+            if (width?.kind == "fill") modifier = modifier.fillMaxWidth()
+            if (height?.kind == "fill") modifier = modifier.fillMaxHeight()
+            val widthMinimum = resolve(minWidth) ?: if (minWidth?.kind == "fill") 0.dp else Dp.Unspecified
+            val widthMaximum = resolve(maxWidth) ?: if (maxWidth?.kind == "fill") Dp.Infinity else Dp.Unspecified
+            val heightMinimum = resolve(minHeight) ?: if (minHeight?.kind == "fill") 0.dp else Dp.Unspecified
+            val heightMaximum = resolve(maxHeight) ?: if (maxHeight?.kind == "fill") Dp.Infinity else Dp.Unspecified
+            if (widthMinimum != Dp.Unspecified || widthMaximum != Dp.Unspecified) {
+                modifier = modifier.widthIn(min = widthMinimum, max = widthMaximum)
+            }
+            if (heightMinimum != Dp.Unspecified || heightMaximum != Dp.Unspecified) {
+                modifier = modifier.heightIn(min = heightMinimum, max = heightMaximum)
+            }
+            val parentDimensions = listOf(
+                "width" to width,
+                "height" to height,
+                "minWidth" to minWidth,
+                "maxWidth" to maxWidth,
+                "minHeight" to minHeight,
+                "maxHeight" to maxHeight,
+            ).filter { it.second?.kind == "parent" }
+            if (parentDimensions.isNotEmpty()) {
+                val values = parentDimensions.associate { (name, dimension) -> name to requireNotNull(dimension).value }
+                modifier = modifier.nexaParentRelativeDimension(
+                    width = values["width"],
+                    height = values["height"],
+                    minWidth = values["minWidth"],
+                    maxWidth = values["maxWidth"],
+                    minHeight = values["minHeight"],
+                    maxHeight = values["maxHeight"],
+                )
             }
             // Dev IR serializes unset Option fields as JSON null, and JSONObject.has()
             // still returns true for a key mapped to null. Only apply optional styles
@@ -994,11 +1120,6 @@ internal fun NexaDevNode(
             } else {
                 RoundedCornerShape(cornerRadius)
             }
-            val clipShape = if (!effects.isNull("clip_rounded")) {
-                RoundedCornerShape(effects.optDouble("clip_rounded").dp)
-            } else {
-                cornerShape
-            }
             effects.optJSONObject("shadow")?.let { shadow ->
                 val shadowShape = if (!effects.isNull("clip_rounded")) {
                     RoundedCornerShape(effects.optDouble("clip_rounded").dp)
@@ -1015,8 +1136,8 @@ internal fun NexaDevNode(
                     ),
                 )
             }
-            if (!effects.isNull("clip_rounded") || !style.isNull("corner_radius") || !style.isNull("corner_radius_expression") || !style.isNull("corner_radius_bottom")) {
-                modifier = modifier.clip(clipShape)
+            if (!style.isNull("corner_radius") || !style.isNull("corner_radius_expression") || !style.isNull("corner_radius_bottom")) {
+                modifier = modifier.clip(cornerShape)
             }
             nexaDevColor(style.optJSONObject("background"), isSystemInDarkTheme())?.let { modifier = modifier.background(it) }
             if (!style.isNull("border_color") && !style.isNull("border_width")) {
@@ -1040,29 +1161,6 @@ internal fun NexaDevNode(
                     .clip(glassShape)
                     .background(surfaceColor, glassShape)
             }
-            if (!style.isNull("padding")) modifier = modifier.padding(style.optDouble("padding").dp)
-            if (!style.isNull("width")) {
-                modifier = modifier.width(style.optDouble("width").dp)
-            } else if (!style.isNull("screen_width_fraction")) {
-                val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-                modifier = modifier.width(screenWidth * style.optDouble("screen_width_fraction").toFloat())
-            }
-            if (!style.isNull("height")) {
-                modifier = modifier.height(style.optDouble("height").dp)
-            } else if (!style.isNull("screen_height_fraction")) {
-                val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-                modifier = modifier.height(screenHeight * style.optDouble("screen_height_fraction").toFloat())
-            }
-            if (!style.isNull("min_width") || !style.isNull("max_width")) modifier = modifier.widthIn(
-                min = style.optDouble("min_width").takeIf { !style.isNull("min_width") }?.dp ?: Dp.Unspecified,
-                max = style.optDouble("max_width").takeIf { !style.isNull("max_width") }?.dp ?: Dp.Unspecified,
-            )
-            if (!style.isNull("min_height") || !style.isNull("max_height")) modifier = modifier.heightIn(
-                min = style.optDouble("min_height").takeIf { !style.isNull("min_height") }?.dp ?: Dp.Unspecified,
-                max = style.optDouble("max_height").takeIf { !style.isNull("max_height") }?.dp ?: Dp.Unspecified,
-            )
-            if (style.optBoolean("fill_max_width")) modifier = modifier.fillMaxWidth()
-            if (style.optBoolean("fill_max_height")) modifier = modifier.fillMaxHeight()
             if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
             val rawAlignment = fields.opt("alignment")
             val alignment = rawAlignment as? String
@@ -2243,8 +2341,17 @@ private fun NexaDevRenderNavigationNode(
             if (destination == null || staticallyDisabled) {
                 RenderChildren(children, module, store, locals, scope)
             } else {
+                val navId = (locals["__nexa_navigation_stack_identity"] as? String)
+                    ?: resolveNavigatorIdFromScope(scope)
                 val controller = LocalNexaDevNavController.current
-                val route = store.encodeScreenRoute(destination, fields.optJSONArray("arguments") ?: JSONArray(), locals, scope)
+                    ?: store.resolveNavController(stackIdentity = navId, locals = locals, scope = scope)
+                val route = store.encodeScreenRoute(
+                    destination,
+                    fields.optJSONArray("arguments") ?: JSONArray(),
+                    locals,
+                    scope,
+                    navigatorId = navId,
+                )
                 NexaNavigationLinkPrimitive(
                     enabled = enabled,
                     onClick = { controller?.navigate(route) },
@@ -2252,8 +2359,8 @@ private fun NexaDevRenderNavigationNode(
                         Icon(
                             imageVector = Icons.Filled.ChevronRight,
                             contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         )
                     },
                 ) {
@@ -2263,9 +2370,12 @@ private fun NexaDevRenderNavigationNode(
         }
         "NavigationBack" -> {
             val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
-            val controller = LocalNexaDevNavController.current ?: (locals["__nexa_navigation_controller"] as? androidx.navigation.NavHostController)
+            val navId = (locals["__nexa_navigation_stack_identity"] as? String)
+                ?: resolveNavigatorIdFromScope(scope)
+            val controller = LocalNexaDevNavController.current
+                ?: store.resolveNavController(stackIdentity = navId, locals = locals, scope = scope)
             androidx.compose.material3.TextButton(onClick = {
-                store.popNavigation(controller)
+                store.popNavigation(explicitController = controller, navigatorId = navId, scope = scope, locals = locals)
             }) {
                 Text(label)
             }
@@ -2428,7 +2538,7 @@ private fun NexaDevRenderPressableNode(
         } else {
             Modifier
         }
-        val pressableModifier = if (fillMaxSize) dragModifier.fillMaxSize() else dragModifier
+        val pressableModifier = if (fillMaxSize) modifier.then(dragModifier).fillMaxSize() else modifier.then(dragModifier)
         val hasLongPress = longPressActions.length() > 0 || contextMenuActions.length() > 0
         val hasDoubleTap = doubleTapActions.length() > 0
         val pressableCore: @Composable () -> Unit = {
@@ -2885,7 +2995,7 @@ private fun NexaDevRenderFastListNode(
                     .coerceIn(0, maxOf(0, count + stickyHeaderOffset - 1))
             }
             val extent = options.optDouble("item_extent", 0.0).takeIf { it > 0.0 }?.dp
-            val spacing = options.optDouble("spacing", 0.0).coerceAtLeast(0.0).dp
+            val gap = options.optDouble("gap", 0.0).coerceAtLeast(0.0).dp
             val renderListRow: @Composable (JSONArray, Map<String, Any>, Modifier) -> Unit = { rowNodes, rowLocals, rowModifier ->
                 val rowContent: @Composable () -> Unit = {
                     NexaFastListRowPrimitive(
@@ -3173,8 +3283,9 @@ private fun NexaDevRenderFastListNode(
                         }
                         LazyVerticalStaggeredGrid(
                             columns = StaggeredGridCells.Fixed(masonryColumns ?: 1),
-                            horizontalArrangement = Arrangement.spacedBy(spacing),
-                            verticalItemSpacing = spacing,
+                            contentPadding = LocalNexaScrollContentPadding.current,
+                            horizontalArrangement = Arrangement.spacedBy(gap),
+                            verticalItemSpacing = gap,
                             state = listState,
                             userScrollEnabled = scrollEnabled &&
                                 (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
@@ -3235,9 +3346,9 @@ private fun NexaDevRenderFastListNode(
                     LazyVerticalGrid(
                         columns = minGridCellWidth?.let { GridCells.Adaptive(minSize = it.dp) }
                             ?: GridCells.Fixed(gridColumns ?: 1),
-                        contentPadding = nexaSafeAreaContentPadding("Both"),
-                        horizontalArrangement = Arrangement.spacedBy(spacing),
-                        verticalArrangement = Arrangement.spacedBy(spacing),
+                        contentPadding = LocalNexaScrollContentPadding.current,
+                        horizontalArrangement = Arrangement.spacedBy(gap),
+                        verticalArrangement = Arrangement.spacedBy(gap),
                         state = listState,
                         userScrollEnabled = scrollEnabled &&
                             (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
@@ -3394,8 +3505,8 @@ private fun NexaDevRenderFastListNode(
                     if (axis == "Horizontal") {
                         LazyRow(
                             state = listState,
-                            contentPadding = nexaSafeAreaContentPadding("Horizontal"),
-                            horizontalArrangement = Arrangement.spacedBy(spacing),
+                            contentPadding = LocalNexaScrollContentPadding.current,
+                            horizontalArrangement = Arrangement.spacedBy(gap),
                             userScrollEnabled = scrollEnabled &&
                                 (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
                             modifier = modifier.then(scrollViewportModifier).fillMaxWidth(),
@@ -3407,11 +3518,8 @@ private fun NexaDevRenderFastListNode(
                     } else {
                         LazyColumn(
                             state = listState,
-                            contentPadding = nexaSafeAreaContentPadding(
-                                "Vertical",
-                                includeVisualSafeInsets = !reverseLayout && !pageSnap,
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(spacing),
+                            contentPadding = LocalNexaScrollContentPadding.current,
+                            verticalArrangement = Arrangement.spacedBy(gap),
                             userScrollEnabled = scrollEnabled &&
                                 (refreshState != null || listState.canScrollForward || listState.canScrollBackward),
                             reverseLayout = reverseLayout,
@@ -3422,25 +3530,31 @@ private fun NexaDevRenderFastListNode(
                                 )
                             } else androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior(),
                             modifier = if (usesPlatformList && axis == "Vertical") {
-                                scrollViewportModifier.then(NexaNativeListContainerModifier())
+                                modifier.then(scrollViewportModifier).then(NexaNativeListContainerModifier())
                             } else {
                                 modifier.then(scrollViewportModifier).fillMaxWidth()
                             },
                         ) {
                             if (stickyHeaderNodes != null && stickyHeaderNodes != JSONObject.NULL) {
-                                stickyHeader { renderHeader(stickyHeaderNodes, locals) }
+                                stickyHeader {
+                                    NexaScrollContentResetPrimitive {
+                                        renderHeader(stickyHeaderNodes, locals)
+                                    }
+                                }
                             }
                             if (sourceSections != null) {
                                 sourceSections.forEachIndexed { sectionIndex, rawSection ->
                                     val sectionItems = rawSection as? List<*> ?: emptyList<Any?>()
                                     if (sectionHeader != null && sectionHeader != JSONObject.NULL) {
                                         stickyHeader {
-                                            if (usesPlatformList && axis == "Vertical") {
-                                                NexaNativeListSectionHeaderPrimitive {
+                                            NexaScrollContentResetPrimitive {
+                                                if (usesPlatformList && axis == "Vertical") {
+                                                    NexaNativeListSectionHeaderPrimitive {
+                                                        renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
+                                                    }
+                                                } else {
                                                     renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
                                                 }
-                                            } else {
-                                                renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
                                             }
                                         }
                                     }
@@ -3574,6 +3688,27 @@ private fun NexaDevRenderAppBottomBarNode(
         }
         val selected = (store.state(state, scope) as? Number)?.toInt() ?: 0
         val tabStateHolder = rememberSaveableStateHolder()
+        DisposableEffect(store) {
+            val unregister = store.registerTabListener { target ->
+                val t = target.lowercase()
+                for (index in 0 until tabs.length()) {
+                    val tab = tabs.optJSONObject(index) ?: continue
+                    val tabIndex = tab.optInt("index", index)
+                    val label = tab.optString("label").lowercase().replace(" ", "_")
+                    val role = tab.optString("role").lowercase()
+                    val matches = setOf(
+                        "$tabIndex", "tab_$tabIndex", "tab$tabIndex",
+                        "$index", "tab_$index", "tab$index",
+                        label, "tab_$label", role
+                    ).filter { it.isNotEmpty() }
+                    if (t in matches) {
+                        store.setState(state, tabIndex, scope)
+                        break
+                    }
+                }
+            }
+            onDispose { unregister() }
+        }
         NexaAppBottomBarPrimitive(
             tint = tint,
             showNavigationSuite = customBar == null,
@@ -3745,12 +3880,16 @@ internal fun RenderTabToolbarItems(
                 continue
             }
 
+            val navId = (locals["__nexa_navigation_stack_identity"] as? String)
+                ?: resolveNavigatorIdFromScope(scope)
             val controller = LocalNexaDevNavController.current
+                ?: store.resolveNavController(stackIdentity = navId, locals = locals, scope = scope)
             val route = store.encodeScreenRoute(
                 destination,
                 fields.optJSONArray("arguments") ?: JSONArray(),
                 locals,
                 scope,
+                navigatorId = navId,
             )
             IconButton(onClick = { controller?.navigate(route) }, enabled = enabled) {
                 RenderChildren(linkChildren, module, store, locals, scope)
@@ -3910,7 +4049,7 @@ internal fun RowScope.RenderRowChildren(
         val child = nexaDevNodeObject(nodes.opt(index))
         androidx.compose.runtime.key(index) {
             val layoutStyle = child.optJSONObject("Layout")?.optJSONObject("style")
-            val fillsRowWidth = layoutStyle?.optBoolean("fill_max_width", false) == true
+            val fillsRowWidth = nexaDevDimension(layoutStyle?.opt("width"))?.kind == "fill"
             val spacer = child.optJSONObject("Spacer")
             val fixedSpacer = spacer != null && (!spacer.isNull("width") || !spacer.isNull("height"))
             val modifier = if ((child.has("Spacer") && !fixedSpacer) || fillsRowWidth) Modifier.weight(1f) else Modifier

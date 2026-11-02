@@ -11,10 +11,10 @@ app ProfileCard {
     state notificationsEnabled: Bool = true
 
     body {
-        Column(spacing: 12, padding: 16, background: "#F1F5F9", cornerRadius: 12) {
-            Row(spacing: 10, alignment: Center) {
+        Column(gap: 12, padding: 16, background: "#F1F5F9", cornerRadius: 12) {
+            Row(gap: 10, alignment: Center) {
                 Icon(system: "account_circle", description: "Profile", size: 40, tint: "#2563EB")
-                Column(spacing: 3) {
+                Column(gap: 3) {
                     Text("Alex Morgan", fontSize: 20, fontWeight: Semibold)
                     Text("Product designer", fontSize: 14, color: "#475569")
                 }
@@ -65,7 +65,7 @@ app ReleaseSummary {
     body {
         Stack(alignment: Center, width: 320, height: 180, background: "#0F172A", cornerRadius: 16) {
             Image(asset: "release_banner", description: "Abstract blue release banner", scale: Fill, maxHeight: 180)
-            Column(spacing: 8, padding: 16, alignment: Center) {
+            Column(gap: 8, padding: 16, alignment: Center) {
                 Text("Version 2.4 is ready", fontSize: 22, fontWeight: Bold, color: "#FFFFFF")
                 Text("Includes offline search and faster sync.", fontSize: 14, color: "#E2E8F0")
             }
@@ -89,7 +89,7 @@ Use `Shape` for filled geometry such as a page indicator, badge dot, or divider 
 ```nx
 app WelcomeIndicator {
     body {
-        Row(spacing: 4) {
+        Row(gap: 4) {
             Shape(shape: Capsule, width: 28, height: 4, fill: "#FFFFFF")
             Shape(shape: Circle, width: 4, height: 4, fill: "#FFFFFF")
             Shape(shape: Rounded(2), width: 16, height: 4, fill: "#FFFFFF")
@@ -126,11 +126,41 @@ app OnboardingLayout {
 }
 ```
 
-`Column`, `Row`, and `Stack` also accept `screenWidthFraction` and `screenHeightFraction` from `0` to `1` for proportional dimensions. They use native screen metrics on iOS and Android. `screenWidthFraction` cannot be combined with `width` or `fillMaxWidth`; `screenHeightFraction` cannot be combined with `height` or `fillMaxHeight`.
+### Unified dimensions, padding, and margin
+
+`width`, `height`, and their `min`/`max` constraints accept fixed logical units, a percentage of the parent, `Fill`, or the matching app-window fraction function:
+
+```nx
+Column(
+    width: 280,
+    maxWidth: 90%,
+    height: screenHeightFraction(0.5),
+    padding: Insets(top: 16, horizontal: 20),
+    margin: Insets(bottom: 12)
+) {
+    Text("A panel sized to its parent and viewport")
+}
+```
+
+A percentage uses the parent's available content size; `screenWidthFraction(0.5)` and `screenHeightFraction(0.5)` use the current app window. The functions also work with the matching `minWidth`, `maxWidth`, `minHeight`, and `maxHeight`. `Fill` and `100%` both fill a finite parent proposal. If the parent is unbounded on that axis, fill and parent percentages preserve intrinsic sizing. Window measurements are shared and update on resize or rotation.
+
+A number passed to `padding` or `margin` applies to all four edges. `Insets(top:, bottom:, leading:, trailing:)` selects edges, while `horizontal:` and `vertical:` set pairs; omitted edges are zero. `leading` and `trailing` follow right-to-left layout. Padding is inside the component; margin is outside it. A layout's `gap` separates its children, and combines additively with each child's margin. The former component-level `spacing` is now `margin`; `safeAreaInset` accepts only an edge:
+
+```nx
+Column(gap: 12, padding: 16) {
+    Row(gap: 8, margin: Insets(bottom: 4)) {
+        Text("A")
+        Text("B")
+    }
+    Spacer(height: 24)
+}
+```
+
+`Column`, `Row`, and `FastList` use `gap` for child or item separation. `Stack` overlays children and has no child gap. `Spacer()` expands along its parent axis; `Spacer(height: 24)` remains a fixed space.
 
 Set `cornerRadiusBottom` to round both bottom corners while keeping the top corners square. It can be combined with `cornerRadius`; when both are present, `cornerRadiusBottom` overrides the bottom pair. SwiftUI uses an uneven rounded rectangle and Compose uses a four-corner `RoundedCornerShape`.
 
-Use `fillMaxWidth: true` or `fillMaxHeight: true` when a layout should consume the corresponding space its parent offers. They compose with `minWidth`, `maxWidth`, `minHeight`, and `maxHeight`, but cannot be combined with a fixed size on the same axis. Both platforms use their native flexible frame and layout modifiers; omitted flags preserve intrinsic sizing.
+Use `width: Fill` or `height: Fill` when a view should consume the finite space its parent offers. `100%` is an alias for `Fill`; both preserve intrinsic sizing when that parent axis is unbounded. These forms also work with `minWidth`, `maxWidth`, `minHeight`, and `maxHeight`.
 
 `Row(alignment:)` positions children vertically (`Start`, `Center`, or `End`). Use `horizontalArrangement: Start|Center|End` to place the child group across the available width; it defaults to `Start`. Setting `horizontalArrangement` makes the Row use available width, constrained by any explicit width bounds.
 
@@ -147,6 +177,8 @@ Set native system-bar appearance once at the app or screen root. Nexa draws requ
 | `background` | Hex color | None | Fills the status-bar inset on Android and iOS. |
 | `navigationBarBackground` | Hex color | None | Fills the Android navigation-bar inset. iOS ignores this Android-only surface color. |
 
+On iOS 27 and later, `style` is applied to the status bar alone. Earlier iOS versions inherit the system status-bar appearance rather than changing the whole screen's color scheme. Android applies the requested icon appearance without changing the app theme.
+
 ```nx
 app MazicaShell {
     screen Home { Text("Home") }
@@ -158,61 +190,77 @@ app MazicaShell {
 }
 ```
 
-## Safe area and edge-attached content
+## System insets and edge-attached content
 
-Nexa roots draw edge-to-edge by default. A background image or gradient can extend beneath system bars while a foreground subtree opts into visual-safe placement. Use ordinary `Stack`, `Column`, and `Row` composition; no screen-region container is required.
+Nexa reads viewport size and visual safe insets once at the app root and shares an immutable, reactive snapshot with components. The root does not pad app content: backgrounds and content can draw edge-to-edge. `SystemInsets.top`, `.bottom`, `.leading`, and `.trailing` read raw logical insets; they never consume or change them. Apply them where controls need protection:
+
+```nx
+app AccountSettings {
+    body {
+        Form(padding: Insets(
+            top: 16 + SystemInsets.top,
+            bottom: SystemInsets.bottom,
+            horizontal: 20
+        )) {
+            Section(title: "Account") {
+                Text("elias@example.com")
+            }
+        }
+    }
+}
+```
+
+Keep full-bleed artwork outside the padded foreground subtree:
 
 ```nx
 app StoryViewer {
     body {
         Stack {
-            Image(asset: "story_cover", description: "Mountain landscape", scale: Fill, maxHeight: 640)
-            Column(spacing: 12, padding: 20, alignment: Center) {
+            Image(asset: "story_cover", description: "Mountain landscape", scale: Fill)
+            Column(
+                gap: 12,
+                padding: Insets(top: SystemInsets.top + 16, leading: 20, trailing: 20),
+                margin: Insets(bottom: SystemInsets.bottom + 16),
+                alignment: Center
+            ) {
                 Text("A weekend above the clouds", fontSize: 26, fontWeight: Bold, color: "#FFFFFF")
                 Text("Read the field notes", fontSize: 16, color: "#F1F5F9")
             }
-            .safeAreaPadding(edges: [Top, Leading, Trailing], spacing: 16)
         }
-        .safeAreaInset(edge: Bottom, spacing: 12) {
+        .safeAreaInset(edge: Bottom) {
             Button("Save story") { }
         }
     }
 }
 ```
 
-The generated [syntax audit](syntax-audit.md#shared-view-modifiers) is the parameter reference for both modifiers, including accepted edge names, defaults, and required arguments.
+`safeAreaInset` attaches measured content to one safe edge with no additional gap. When one compatible scroll owner is inside its content, Nexa reserves the attachment in that scroll viewport; without an owner it overlays the body, and with ambiguous ownership it does not select an arbitrary list. The attachment does not change `SystemInsets` values.
 
 | Concern | Contract |
 |---|---|
-| Visual safe insets | SwiftUI reads `GeometryProxy.safeAreaInsets` before expanding only the app child to full bleed; it adds those insets once to the safe-region size to recover the window viewport. Toolbar-free navigation roots and destinations use that viewport edge-to-edge, and Nexa safe-area modifiers apply the selected insets. Android uses the per-edge union of system bars, display cutouts, and waterfall insets. Overlapping sources are not added together. Values follow system visibility, orientation, window resizing, and layout direction without polling or inset-reader state. |
-| Gesture regions | System gesture, mandatory gesture, and tappable-element insets are not part of visual safe-area padding and are not consumed by these modifiers. |
-| IME | Keyboard/IME height is separate from visual safe insets and fixed spacing. `KeyboardAware` defaults to `Stay`, keeping its scope anchored to the window while the IME can cover content; `behavior: Avoid` opts into resizing above the IME. |
-| Native scrolling content | `FastList`, `Form`, and `KeyboardAware` keep scroll content within remaining visual safe insets. When a unique owner is accommodated, its scroll viewport reserves the attachment's measured extent, fixed gap, and selected dynamic inset; surrounding backgrounds and other composed layers can still fill the screen. SwiftUI uses native `safeAreaInset`; Compose applies padding to the scroll container. An ancestor `safeAreaPadding` consumes its selected edges first. Reverse-layout and page-snapping lists preserve their specialized native inset behavior. |
-| Fixed spacing | `safeAreaPadding` adds its fixed `spacing` after the remaining selected visual inset. `safeAreaInset` offsets its attached content by the fixed gap; for a unique scroll owner, the gap is included once in that owner's viewport reservation. Neither value is consumed as a system inset. |
-| Attached content size | `safeAreaInset` measures its node block during the platform layout pass. Android uses subcomposition, so the measured extent is available to the body and scroll viewport in that same pass without a size-state write and follow-up composition. The attachment extent stays distinct from the dynamic safe inset and fixed gap. |
-| Cutouts and orientation | Edge attachments also inset their cross-axis content around cutouts and curved display edges. The platform reports logical leading/trailing values after layout direction is applied; rotating or resizing updates the native inset modifiers. |
-| Nested scopes | A selected dynamic edge is consumed once for descendants. Nested safe-area padding receives only the remaining inset, so selecting the same edge again adds no second system inset. |
-| Scroll owner | Placement works without scrolling. When exactly one compatible scroll owner is found, its native viewport reserves the attachment's measured extent, fixed gap, and remaining visual inset so rows do not render behind the attachment. No artificial row or per-item inset is added. If ownership is ambiguous, placement remains and the compiler does not choose an arbitrary owner. |
+| Window metrics | One root snapshot carries viewport size and visual insets. iOS reads the window safe-area values; Android unions system bars, display cutouts, and waterfall insets and converts pixels to `dp`. Resize, rotation, cutouts, and transient bars update the snapshot. |
+| `SystemInsets` | Raw visual insets in logical units. Reading them never pads content and never consumes an edge. Use them in explicit `padding` or `margin` expressions. |
+| Keyboard and gestures | IME and gesture regions remain separate from visual insets. `KeyboardAware` defaults to `Stay`; `behavior: Avoid` opts into moving content above the keyboard. |
+| Scroll content | `FastList` and `Form` remain edge-to-edge by default. `safeAreaInset` reserves the measured attachment and relevant safe edge for a unique scroll owner; no synthetic row or extra gap is inserted. |
+| Insets and direction | Physical left/right values are mapped to logical leading/trailing using the active layout direction. Android overlapping visual inset sources use the maximum value on each edge. |
 
-For a feed, the same edge attachment is automatically coordinated with the unique `FastList` scroll owner:
+For a feed, `safeAreaInset` keeps the action clear of the final row while leaving each row's layout untouched:
 
 ```nx
 app ReadingFeed {
     body {
-        FastList(count: 32) { index in
-            Column(spacing: 4, padding: 12) {
+        FastList(count: 32, gap: 8) { index in
+            Column(padding: 12) {
                 Text("Field note \(index + 1)", fontSize: 18, fontWeight: Semibold)
                 Text("A short update from the expedition.", fontSize: 14, color: "#64748B")
             }
         }
-        .safeAreaInset(edge: Bottom, spacing: 8) {
+        .safeAreaInset(edge: Bottom) {
             Button("Write a note") { }
         }
     }
 }
 ```
-
-SwiftUI keeps native scroll behavior through `safeAreaInset` when a compatible owner is unique. Compose keeps `FastList`/`Form` virtualization and applies the measured reservation to the scroll container, outside list items. AOT and DevRuntime use the same typed edge, spacing, and owner resolution. `safeAreaPadding` and `safeAreaInset` do not alter gesture policy or replace `KeyboardAware`.
 
 ### Adaptive scroll headers
 
@@ -222,7 +270,7 @@ Attach one custom header to a subtree containing exactly one vertical native scr
 |---|---|---|---|
 | `behavior` | `Pinned \| Collapse \| HideOnScroll` | `Pinned` | `Pinned` keeps the measured header height. `Collapse` shrinks it linearly as the owner scrolls through the first 120 logical points/dp. `HideOnScroll` hides after 8 logical points/dp of downward content movement and reveals on upward movement. |
 | `collapsedHeight` | `Float64` (points on iOS, dp on Android) | `56` for `Collapse` | The minimum height used by `Collapse`. It must be positive and is valid only with `behavior: Collapse`. |
-| Header block | Node block | Required | Ordinary Nexa composition for the header. Use `safeAreaPadding` in this block when header controls need protection from a system edge; header behavior does not consume visual safe insets. |
+| Header block | Node block | Required | Ordinary Nexa composition for the header. Use `padding: Insets(top: SystemInsets.top)` in this block when header controls need protection from the status area; reading the inset does not consume it. |
 
 ```nx
 app Preferences {
@@ -235,9 +283,8 @@ app Preferences {
             }
         }
         .scrollHeader(behavior: Collapse, collapsedHeight: 56) {
-            Column(padding: 16, background: "#F8FAFC") {
+            Column(padding: Insets(top: SystemInsets.top, horizontal: 16), background: "#F8FAFC") {
                 Text("Preferences", fontSize: 30, fontWeight: Bold)
-                    .safeAreaPadding(edges: [Top])
             }
         }
     }
@@ -261,7 +308,7 @@ app MessageComposer {
 
     body {
         KeyboardAware(behavior: Avoid, dismiss: Interactive) {
-            Column(spacing: 12, padding: 16) {
+            Column(gap: 12, padding: 16) {
                 Text("Message the expedition team", fontWeight: Semibold)
                 TextInput(value: message, placeholder: "Write a message")
             }
@@ -355,7 +402,7 @@ app SongSearchField {
     state focusEntries: Int32 = 0
 
     body {
-        Column(spacing: 8, padding: 16) {
+        Column(gap: 8, padding: 16) {
             TextInput(
                 value: query,
                 placeholder: "Search songs and artists",
@@ -452,7 +499,7 @@ app EpisodePlayer {
     state lastSeekRequest: Float64 = 0.0
 
     body {
-        Column(spacing: 10, padding: 16, background: "#0F0F0F") {
+        Column(gap: 10, padding: 16, background: "#0F0F0F") {
             Slider(
                 value: position,
                 min: 0.0,
@@ -476,7 +523,7 @@ app EpisodePlayer {
                         lastSeekRequest = position
                     }
                 }
-            Row(fillMaxWidth: true) {
+            Row(width: Fill) {
                 Text(Time.formatDuration(seconds: position), color: "#9F9F9F")
                 Spacer()
                 Text(Time.formatDuration(seconds: duration), color: "#9F9F9F")
@@ -509,7 +556,11 @@ app AccountPreferences {
 }
 ```
 
-Rows rendered by `Form` use a shared 56-point/dp minimum height on iOS and Android. Row content or explicit padding can make a row taller.
+Rows rendered by `Form` use a 56-point minimum on iOS and a 50dp minimum on Android. Row content or explicit padding can make a row taller. Form adds no outer top or bottom content padding by default. Section top margin is zero on iOS 26 and later and Android; earlier iOS versions retain SwiftUI's native section margin because the public section-margin modifier requires iOS 26. Use explicit `Form(padding: Insets(top: ...))` when the first section needs additional top space. Section headings align with row content on both platforms; iOS compensates for the inset-grouped Form's extra four-point heading inset.
+
+Scroll owners keep content padding separate from their viewport. On iOS, Form and the shared scroll adapters use a bounded edge-to-edge viewport; UIKit lists disable automatic system-inset adjustment. Authored padding reaches scroll content once, while margin constrains and clips the viewport. AOT and DevRuntime use the same native adapters.
+
+For `padding: Insets(top: SystemInsets.top)`, initial content starts below the status bar and can scroll behind it. With `margin: Insets(top: SystemInsets.top)`, the initial offset is the same, but the scroll viewport starts below the status bar and clips content at that boundary. `SystemInsets` itself remains the raw window snapshot.
 
 ### Form and Section dividers
 
@@ -579,7 +630,7 @@ app BackupStatus {
     state backupTrack: String = "#DBEAFE"
 
     body {
-        Column(spacing: 8, padding: 16) {
+        Column(gap: 8, padding: 16) {
             Text("Uploading project archive", fontWeight: Semibold)
             ProgressBar()
             ProgressBar(
@@ -624,7 +675,7 @@ app UploadStatus {
     state uploadTint: String = "#2563EB"
 
     body {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Uploading project archive", fontWeight: Semibold)
             ProgressRing(
                 progress: uploadProgress,
@@ -661,7 +712,7 @@ of 52 pt/dp.
 | `key` | Statically known scalar item property | Omitted | Recommended for collection rows whose order or membership can change; without it, identity follows the row position. Use `.self` for unique scalar rows or a stable item property such as `.id`. |
 | `axis` | `Vertical`, `Horizontal`, `Grid(Int32)`, `AutoGrid(Int32)`, or `Masonry(Int32)` | `Vertical` | `Grid(columns)` fixes the column count. `AutoGrid(minCellWidth)` fits columns to available width. `Masonry(columns)` places variable-height items into the currently shortest column. Both numeric arguments must be positive integer literals. Masonry is a flat vertical list and cannot use `rowHeight`, `reverseLayout`, `pageSnap`, sticky headers, reordering, or swipe actions. |
 | `rowHeight` | `Float64` | Content-sized, with a 52 pt/dp minimum | Optional fixed row height; for horizontal lists it sets item height while item width comes from row content, and for grids it is the cell height. Row content is vertically centered within the fixed height. Without it, content can grow rows beyond the shared minimum. Must be greater than zero. |
-| `spacing` | `Float64` | `0` | Gap between adjacent items. Applies along the list axis, or to both rows and columns for `Grid`, `AutoGrid`, and `Masonry`; `pageSnap` requires zero spacing. |
+| `gap` | `Float64` | `0` | Gap between adjacent items. Applies along the list axis, or to both rows and columns for `Grid`, `AutoGrid`, and `Masonry`; `pageSnap` requires zero gap. |
 | `scrollPosition` | Mutable `Int32` state | Omitted | Binds and reports the leading unobscured data-row index for flat lists; rows behind a sticky header do not count as visible. |
 | `scrollEnabled` | `Bool` expression | Platform default | Enables or disables user-driven scrolling for flat, sectioned, and adaptive-grid lists; supports reactive state. |
 | `reverseLayout` | `Bool` | `false` | Reverses a flat vertical list; cannot be combined with sections, sticky headers, or page snapping. |
@@ -691,7 +742,7 @@ FastList(videos, key: .id, axis: AutoGrid(168), rowHeight: 240) { video, index i
 Use `Masonry` when cards have different heights:
 
 ```nx
-FastList(count: 40, axis: Masonry(2), spacing: 12) { index in
+FastList(count: 40, axis: Masonry(2), gap: 12) { index in
     Column(padding: 12, background: "#E8F0FF", cornerRadius: 12) {
         Text("Card \(index)", fontWeight: Semibold)
         if index % 3 == 0 {
@@ -720,7 +771,7 @@ app OrderQueue {
     ]
 
     body {
-        Column(spacing: 8) {
+        Column(gap: 8) {
             Button("Show the last order") {
                 queueRef.scrollToIndex(
                     index: orders.count - 1,
@@ -732,7 +783,7 @@ app OrderQueue {
                 queueRef.scrollToTop()
             }
             FastList(orders, key: .id, ref: queueRef) { order, index in
-                Row(spacing: 8) {
+                Row(gap: 8) {
                     Text("\(index + 1). \(order.itemName)")
                     Spacer()
                     Text(order.status)
@@ -776,7 +827,7 @@ app OrderHistory {
 
     body {
         FastList(orders, key: .id) { order, index in
-            Row(spacing: 12, padding: 12, background: "#F8FAFC", cornerRadius: 8) {
+            Row(gap: 12, padding: 12, background: "#F8FAFC", cornerRadius: 8) {
                 Text("\(index + 1). \(order.itemName)", fontWeight: Semibold)
                 Text("Qty \(order.quantity)", color: "#475569")
                 Spacer()
@@ -930,7 +981,7 @@ file is available after importing that file relative to the importing source.
 ```nx
 app SupportCenter {
     screen HelpHome {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Support", fontSize: 24, fontWeight: Bold)
             NavigationLink(destination: ContactSupport) {
                 Text("Contact support")
@@ -942,7 +993,7 @@ app SupportCenter {
     }
 
     screen ContactSupport {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("We're here to help")
             Link(url: "https://support.example.com") {
                 Text("Open help center")
@@ -955,7 +1006,7 @@ app SupportCenter {
     }
 
     screen OrderDetail(orderID: Int32) {
-        Column(spacing: 8, padding: 16) {
+        Column(gap: 8, padding: 16) {
             Text("Order \(orderID)", fontSize: 22, fontWeight: Bold)
             Button("Back to support") { Navigation.back() }
         }
@@ -1036,11 +1087,11 @@ let taskSheetRef = ComponentRef<BottomSheet>()
 let taskActionsSheetRef = ComponentRef<BottomSheet>()
 
 BottomSheet(ref: taskSheetRef, detents: [0.5, 1.0]) {
-    Column(spacing: 12, padding: 16) {
+    Column(gap: 12, padding: 16) {
         Text("Task details")
         Button("More actions") { taskActionsSheetRef.present() }
         BottomSheet(ref: taskActionsSheetRef, detents: [0.5]) {
-            Column(spacing: 12, padding: 16) {
+            Column(gap: 12, padding: 16) {
                 Text("Task actions")
                 Button("Return to task") { taskActionsSheetRef.dismiss() }
             }
@@ -1059,13 +1110,13 @@ screen DeliveryAddressEditor {
     state addressSaved: Bool = false
 
     body {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Button("Edit delivery address") {
                 editorSheetRef.present()
             }
             BottomSheet(ref: editorSheetRef, detents: [0.5, 1.0]) {
-                Column(spacing: 12, padding: 20, alignment: Start) {
-                    Row(spacing: 12) {
+                Column(gap: 12, padding: 20, alignment: Start) {
+                    Row(gap: 12) {
                         Text("Edit delivery address", fontSize: 20, fontWeight: Semibold)
                         Spacer()
                         Button("Save", icon: "save", style: Borderless) {
@@ -1104,7 +1155,7 @@ screen TaskEditor {
     state didDismissEditor: Bool = false
 
     body {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Button("Edit task") {
                 editorSheetRef.present()
             }
@@ -1116,7 +1167,7 @@ screen TaskEditor {
                 allowsDismissal: true,
                 backgroundColor: editorSurface
             ) {
-                Column(spacing: 12, padding: 20) {
+                Column(gap: 12, padding: 20) {
                     Text("Edit task", fontSize: 20, fontWeight: Semibold)
                     Text("Update the task details and add an optional note.")
                     TextInput(value: note, placeholder: "Note", accessibilityLabel: "Task note")
@@ -1211,7 +1262,7 @@ Use `italic`, `underline`, and `strikethrough` for inline emphasis. They are ind
 ```nx
 app TaskTypographyPreview {
     body {
-        Column(spacing: 3) {
+        Column(gap: 3) {
             Text("Renew team insurance", fontStyle: Subheadline)
             Text("Tomorrow · 09:00", fontStyle: Caption, color: "#8E8E93")
         }
@@ -1528,7 +1579,7 @@ app PriorityControl {
     state pickerTimeZone: String = "America/Los_Angeles"
 
     body {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Picker(items: priorities, selected: priority, icon: "flag_filled", tint: priorityTint)
             Picker(items: priorities, selected: priority, itemIcons: ["calendar", "flag_filled", "edit", "flag"])
             PickerDate(type: Date)

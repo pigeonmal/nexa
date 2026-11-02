@@ -21,112 +21,319 @@ fn compile(
 }
 
 #[test]
-fn safe_area_padding_lowers_selected_edges_and_fixed_spacing_for_both_targets() {
+fn unified_padding_margin_and_layout_gap_lower_to_typed_insets() {
     let source = r#"app Insets {
         body {
-            Stack { Text("Profile") }
-                .safeAreaPadding(edges: [Top, Leading], spacing: 12)
+            Column(gap: 8, padding: 16, margin: Insets(bottom: 12)) {
+                Text("Profile")
+            }
         }
     }"#;
     for target in [Target::Swift, Target::Kotlin] {
         let module = compile(source, target)
-            .expect("safe-area padding should lower")
+            .expect("unified insets should lower")
             .module;
-        let Node::SafeAreaPadding { plan, children } = &module.body[0] else {
-            panic!("expected typed safe-area padding IR");
+        let Node::ViewInsets {
+            padding,
+            margin,
+            child,
+        } = &module.body[0]
+        else {
+            panic!("expected typed view insets IR");
         };
-        assert_eq!(plan.edges, vec![LayoutEdge::Top, LayoutEdge::Leading]);
-        assert_eq!(plan.spacing, 12.0);
-        assert_eq!(children.len(), 1);
+        let padding = padding.as_ref().expect("uniform padding");
+        assert!(padding.top.is_some() && padding.bottom.is_some());
+        assert!(padding.leading.is_some() && padding.trailing.is_some());
+        let margin = margin.as_ref().expect("bottom margin");
+        assert!(margin.bottom.is_some());
+        assert!(margin.top.is_none() && margin.leading.is_none() && margin.trailing.is_none());
+        assert!(matches!(child.as_ref(), Node::Layout { gap: 8.0, .. }));
+
         let swift = SwiftBackend.generate(&module);
         let kotlin = KotlinBackend.generate(&module);
         assert!(
-            swift.contains("NexaSafeAreaPaddingPrimitive(edges: [.top, .leading], spacing: 12)")
+            swift.contains("NexaViewInsetsPrimitive(padding: EdgeInsets("),
+            "{swift}"
         );
-        assert!(swift.contains("safeInsets.removing(edges)"));
         assert!(
-            swift.contains(".padding(.top, edges.contains(.top) ? max(0, safeInsets.top) : 0)")
+            swift.contains(
+                "margin: EdgeInsets(top: 0, leading: 0, bottom: CGFloat(Double(12)), trailing: 0)"
+            ),
+            "{swift}"
         );
-        assert!(swift.contains(".padding(.top, edges.contains(.top) ? spacing : 0)"));
         assert!(
-            kotlin.contains("val spacingPadding = androidx.compose.foundation.layout.PaddingValues(")
+            kotlin.contains("NexaViewInsetsPrimitive(paddingTop = "),
+            "{kotlin}"
         );
-        assert!(kotlin.contains(".padding(spacingPadding)"));
-        assert!(kotlin.contains(".windowInsetsPadding(safeWindowInsets)"));
-        assert!(kotlin.contains(
-            "NexaSafeAreaPaddingPrimitive(edges = setOf(NexaSafeAreaEdge.Top, NexaSafeAreaEdge.Leading), spacing = 12.dp)"
-        ));
-        assert!(kotlin.contains("import androidx.compose.foundation.layout.systemBars"));
-        assert!(kotlin.contains("import androidx.compose.foundation.layout.displayCutout"));
-        assert!(kotlin.contains("import androidx.compose.foundation.layout.waterfall"));
-        assert!(!kotlin.contains("import androidx.compose.foundation.layout.safeDrawing"));
-        assert!(kotlin.contains("raw.getLeft(density, direction)"));
+        assert!(kotlin.contains("marginBottom = "), "{kotlin}");
     }
 }
 
 #[test]
-fn screen_height_fraction_uses_native_logical_metrics_for_both_targets() {
+fn form_padding_and_margin_keep_distinct_inset_contracts_on_both_backends() {
+    let source = r#"app FormInsets {
+        body {
+            Form(padding: Insets(top: SystemInsets.top)) {
+                Section(title: "Padded") { Text("Inside the scroll content") }
+            }
+            Form(margin: Insets(top: SystemInsets.top)) {
+                Section(title: "Margined") { Text("Outside the scroll content") }
+            }
+        }
+    }"#;
+
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = compile(source, target)
+            .expect("Form padding and margin should both lower")
+            .module;
+        let swift = SwiftBackend.generate(&module);
+        let kotlin = KotlinBackend.generate(&module);
+
+        assert_eq!(
+            swift
+                .matches("nexaWindowMetrics.safeInsets.logical(layoutDirection).top")
+                .count(),
+            2
+        );
+        assert_eq!(
+            kotlin.matches("systemInset(NexaSafeAreaEdge.Top").count(),
+            2
+        );
+
+        assert!(
+            swift.contains("contentPadding: EdgeInsets(top: CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top))"),
+            "Form padding must stay in the scroll content: {swift}"
+        );
+        assert!(
+            swift.contains("margin: EdgeInsets(top: CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top))"),
+            "Form margin must stay outside the scroll content: {swift}"
+        );
+        assert!(
+            kotlin.contains("contentPadding = androidx.compose.foundation.layout.PaddingValues(start = androidx.compose.ui.unit.Dp(0f), top = androidx.compose.ui.unit.Dp((LocalNexaWindowMetrics.current.systemInset(NexaSafeAreaEdge.Top"),
+            "Android Form padding must stay in the scroll content: {kotlin}"
+        );
+        assert!(
+            kotlin.contains("modifier = Modifier.padding(androidx.compose.foundation.layout.PaddingValues(start = androidx.compose.ui.unit.Dp(0f), top = androidx.compose.ui.unit.Dp((LocalNexaWindowMetrics.current.systemInset(NexaSafeAreaEdge.Top"),
+            "Android Form margin must stay outside the scroll content: {kotlin}"
+        );
+    }
+}
+
+#[test]
+fn percentages_and_screen_fraction_functions_use_parent_and_window_metrics() {
     let source = r#"app ResponsiveHero {
         body {
-            Stack(screenHeightFraction: 0.5) {
+            Column(width: 80%, minWidth: 20%, maxWidth: 90%, height: screenHeightFraction(0.5), minHeight: screenHeightFraction(0.25)) {
                 Text("Artist artwork")
             }
         }
     }"#;
-    let compilation = compile(source, Target::Swift)
-        .expect("screen height fraction should lower to the shared layout style");
-    let swift = SwiftBackend.generate(&compilation.module);
+    let swift_module = compile(source, Target::Swift)
+        .expect("typed responsive dimensions should lower")
+        .module;
+    let swift = SwiftBackend.generate(&swift_module);
     assert!(
-        swift.contains("UIScreen.main.bounds.height * 0.5"),
+        swift.contains(
+            "NexaParentRelativeDimensionModifier(width: 0.8, minWidth: 0.2, maxWidth: 0.9)"
+        ),
+        "{swift}"
+    );
+    assert!(
+        swift.contains("nexaWindowMetrics.viewportSize.height * 0.5"),
+        "{swift}"
+    );
+    assert!(
+        swift.contains("nexaWindowMetrics.viewportSize.height * 0.25"),
+        "{swift}"
+    );
+    assert!(
+        swift.contains("proposal.width.flatMap { $0.isFinite ? $0 : nil }"),
+        "{swift}"
+    );
+    assert!(
+        swift.contains("proposal.height.flatMap { $0.isFinite ? $0 : nil }"),
         "{swift}"
     );
 
-    let compilation = compile(source, Target::Kotlin)
-        .expect("screen height fraction should lower to the shared layout style");
-    let kotlin = KotlinBackend.generate(&compilation.module);
-    assert!(kotlin.contains("LocalConfiguration.current.screenHeightDp.toFloat() * 0.5f"));
-    assert!(kotlin.contains("import androidx.compose.ui.platform.LocalConfiguration"));
+    let kotlin_module = compile(source, Target::Kotlin)
+        .expect("typed responsive dimensions should lower")
+        .module;
+    let kotlin = KotlinBackend.generate(&kotlin_module);
+    assert!(
+        kotlin.contains(
+            "nexaParentRelativeDimension(width = 0.8f, minWidth = 0.2f, maxWidth = 0.9f)"
+        ),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("LocalNexaWindowMetrics.current.viewportHeightDp * 0.5f"),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("LocalNexaWindowMetrics.current.viewportHeightDp * 0.25f"),
+        "{kotlin}"
+    );
+    assert!(kotlin.contains("constraints.hasBoundedWidth"), "{kotlin}");
+    assert!(kotlin.contains("constraints.hasBoundedHeight"), "{kotlin}");
 }
 
 #[test]
-fn screen_width_fraction_uses_native_logical_metrics_for_both_targets() {
-    let source = r#"app ResponsiveDialog {
+fn dimension_aliases_and_inset_shorthands_lower_to_shared_typed_values() {
+    let source = r#"app UnifiedGeometry {
         body {
-            Column(screenWidthFraction: 0.9) {
-                Text("Update announcement")
+            Column(width: Fill, maxWidth: 100%, height: 50%, minHeight: 25%, maxHeight: Fill) {
+                Text("Geometry", padding: Insets(horizontal: 20), margin: 4)
+                Spacer(height: 24)
             }
         }
     }"#;
-    let compilation = compile(source, Target::Swift)
-        .expect("screen width fraction should lower to the shared layout style");
-    let swift = SwiftBackend.generate(&compilation.module);
-    assert!(
-        swift.contains("UIScreen.main.bounds.width * 0.9"),
-        "{swift}"
-    );
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = compile(source, target)
+            .expect("Fill aliases, parent percentages, and inset shorthands should lower")
+            .module;
+        let Node::Layout {
+            style, children, ..
+        } = &module.body[0]
+        else {
+            panic!("expected typed layout node");
+        };
+        assert_eq!(style.width, Some(nexa_ir::Dimension::Fill));
+        assert_eq!(
+            style.max_width,
+            Some(nexa_ir::Dimension::ParentFraction(1.0))
+        );
+        assert_eq!(style.height, Some(nexa_ir::Dimension::ParentFraction(0.5)));
+        assert_eq!(
+            style.min_height,
+            Some(nexa_ir::Dimension::ParentFraction(0.25))
+        );
+        assert_eq!(
+            style.max_height,
+            Some(nexa_ir::Dimension::ParentFraction(1.0))
+        );
 
-    let compilation = compile(source, Target::Kotlin)
-        .expect("screen width fraction should lower to the shared layout style");
-    let kotlin = KotlinBackend.generate(&compilation.module);
-    assert!(kotlin.contains("LocalConfiguration.current.screenWidthDp.toFloat() * 0.9f"));
-    assert!(kotlin.contains("import androidx.compose.ui.platform.LocalConfiguration"));
+        let Node::ViewInsets {
+            padding, margin, ..
+        } = &children[0]
+        else {
+            panic!("expected edge padding and outer margin");
+        };
+        let padding = padding
+            .as_ref()
+            .expect("horizontal shorthand should add padding");
+        assert!(padding.top.is_none() && padding.bottom.is_none());
+        assert!(padding.leading.is_some() && padding.trailing.is_some());
+        let margin = margin
+            .as_ref()
+            .expect("uniform margin should add all edges");
+        assert!(margin.top.is_some() && margin.bottom.is_some());
+        assert!(margin.leading.is_some() && margin.trailing.is_some());
+
+        assert!(matches!(
+            &children[1],
+            Node::Spacer {
+                width: None,
+                height: Some(nexa_ir::Dimension::Fixed(24.0))
+            }
+        ));
+    }
 }
 
 #[test]
-fn screen_width_fraction_rejects_conflicting_width_options() {
+fn system_insets_are_reactive_values_in_explicit_padding_on_both_targets() {
+    let source = r#"app ProtectedSettings {
+        body {
+            Form(
+                padding: Insets(top: 16 + SystemInsets.top, horizontal: 20),
+                margin: Insets(bottom: 8)
+            ) {
+                Section(title: "Account") { Text("elias@example.com") }
+            }
+        }
+    }"#;
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = compile(source, target)
+            .expect("SystemInsets should lower as a typed expression")
+            .module;
+        let Node::ViewInsets {
+            padding: Some(padding),
+            margin: Some(margin),
+            ..
+        } = &module.body[0]
+        else {
+            panic!("expected explicit padding wrapper around Form");
+        };
+        assert!(matches!(
+            padding.top.as_deref(),
+            Some(nexa_ir::Expr::Add(..))
+        ));
+        assert!(margin.bottom.is_some());
+        let swift = SwiftBackend.generate(&module);
+        let kotlin = KotlinBackend.generate(&module);
+        assert!(
+            swift.contains("nexaWindowMetrics.safeInsets.logical(layoutDirection).top"),
+            "{swift}"
+        );
+        assert!(
+            kotlin.contains("LocalNexaWindowMetrics.current.systemInset(NexaSafeAreaEdge.Top"),
+            "{kotlin}"
+        );
+        assert!(
+            swift.contains("NexaFormPrimitive(background: nil, contentPadding: EdgeInsets(top:"),
+            "{swift}"
+        );
+        assert!(swift.contains("isFirstSection: true"), "{swift}");
+        assert!(
+            kotlin.contains("NexaFormPrimitive(background = null, contentPadding = androidx.compose.foundation.layout.PaddingValues("),
+            "{kotlin}"
+        );
+        assert!(swift.contains(
+            "margin: EdgeInsets(top: 0, leading: 0, bottom: CGFloat(Double(8)), trailing: 0)"
+        ));
+        assert!(kotlin.contains(
+            "modifier = Modifier.padding(androidx.compose.foundation.layout.PaddingValues("
+        ));
+        assert_eq!(swift.matches("NexaViewInsetsPrimitive(padding:").count(), 0);
+        assert_eq!(
+            kotlin.matches("NexaViewInsetsPrimitive(paddingTop").count(),
+            0
+        );
+    }
+}
+
+#[test]
+fn invalid_dimension_functions_and_duplicate_widths_are_rejected() {
     for source in [
-        r#"app InvalidWidth { body { Column(width: 200, screenWidthFraction: 0.9) { Text("Invalid") } } }"#,
-        r#"app InvalidWidth { body { Column(fillMaxWidth: true, screenWidthFraction: 0.9) { Text("Invalid") } } }"#,
-        r#"app InvalidWidth { body { Column(screenWidthFraction: 1.1) { Text("Invalid") } } }"#,
+        r#"app InvalidWidth { body { Column(width: 200, width: screenWidthFraction(0.9)) { Text("Invalid") } } }"#,
+        r#"app InvalidWidth { body { Column(width: screenHeightFraction(0.9)) { Text("Invalid") } } }"#,
+        r#"app InvalidWidth { body { Column(width: screenWidthFraction(1.1)) { Text("Invalid") } } }"#,
+        r#"app InvalidWidth { body { Column(width: 120%) { Text("Invalid") } } }"#,
     ] {
         let error = match compile(source, Target::Swift) {
-            Ok(_) => panic!("invalid screen-width fraction combinations should fail"),
+            Ok(_) => panic!("invalid dimension values should fail"),
             Err(error) => error,
         };
         assert!(
-            error.message.contains("screenWidthFraction") || error.message.contains("width"),
+            error.message.contains("width") || error.message.contains("screenWidthFraction"),
             "{error}"
         );
+    }
+}
+
+#[test]
+fn removed_legacy_layout_parameters_are_rejected() {
+    for source in [
+        r#"app RemovedFillWidth { body { Column(fillMaxWidth: true) { Text("X") } } }"#,
+        r#"app RemovedFillHeight { body { Column(fillMaxHeight: true) { Text("X") } } }"#,
+        r#"app RemovedWidthFraction { body { Column(screenWidthFraction: 0.5) { Text("X") } } }"#,
+        r#"app RemovedHeightFraction { body { Column(screenHeightFraction: 0.5) { Text("X") } } }"#,
+        r#"app RemovedOuterSpacing { body { Column(spacing: 8) { Text("X") } } }"#,
+    ] {
+        let error = match compile(source, Target::Swift) {
+            Ok(_) => panic!("removed legacy layout parameters should be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.message.contains("unknown option"), "{error}");
     }
 }
 
@@ -151,47 +358,73 @@ fn bottom_corner_radius_uses_matching_native_shapes_for_both_targets() {
 }
 
 #[test]
-fn nested_safe_area_padding_passes_the_remaining_dynamic_edge_once() {
-    let source = r#"app NestedInsets {
+fn component_margin_stays_outside_while_parent_gap_separates_children() {
+    let source = r#"app NestedSpacing {
         body {
-            Stack {
-                Text("Details").safeAreaPadding(edges: [Bottom], spacing: 3)
+            Column(gap: 6, margin: Insets(bottom: 5)) {
+                Row(gap: 3, margin: Insets(top: 2)) { Text("Details") }
             }
-            .safeAreaPadding(edges: [Bottom], spacing: 5)
         }
     }"#;
     for target in [Target::Swift, Target::Kotlin] {
         let module = compile(source, target)
-            .expect("nested safe-area modifiers should lower")
+            .expect("nested component margin should lower")
             .module;
-        let Node::SafeAreaPadding { plan, children } = &module.body[0] else {
-            panic!("expected outer safe-area padding IR");
+        let Node::ViewInsets { child, .. } = &module.body[0] else {
+            panic!("outer margin wrapper expected")
         };
-        assert_eq!(plan.edges, vec![LayoutEdge::Bottom]);
-        assert_eq!(plan.spacing, 5.0);
-        assert!(matches!(
-            children.first(),
-            Some(Node::SafeAreaPadding { plan, .. })
-                if plan.edges == vec![LayoutEdge::Bottom] && plan.spacing == 3.0
+        assert!(matches!(child.as_ref(), Node::Layout { gap: 6.0, .. }));
+        let swift = SwiftBackend.generate(&module);
+        let kotlin = KotlinBackend.generate(&module);
+        assert_eq!(swift.matches("NexaViewInsetsPrimitive(padding:").count(), 2);
+        assert_eq!(
+            kotlin.matches("NexaViewInsetsPrimitive(paddingTop").count(),
+            2
+        );
+        assert!(swift.contains(
+            "margin: EdgeInsets(top: 0, leading: 0, bottom: CGFloat(Double(5)), trailing: 0)"
         ));
+        assert!(kotlin.contains("marginTop = "));
+    }
+}
+
+#[test]
+fn safe_area_inset_composes_with_explicit_form_padding_without_consuming_system_insets() {
+    let source = r#"app ProtectedSettings {
+        body {
+            Form(padding: Insets(top: SystemInsets.top, leading: SystemInsets.leading)) {
+                Section(title: "Account") { Text("elias@example.com") }
+            }
+            .safeAreaInset(edge: Bottom) { Button("Save") { } }
+        }
+    }"#;
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = compile(source, target)
+            .expect("safe-area inset should compose with explicit padding")
+            .module;
+        let Node::SafeAreaInset { plan, children, .. } = &module.body[0] else {
+            panic!("expected safe-area inset around Form");
+        };
+        assert!(
+            matches!(plan.scroll_owner, ScrollOwnerResolution::Unique(owner)
+            if owner.kind == nexa_ir::adaptive_layout::ScrollOwnerKind::Form)
+        );
+        assert!(
+            matches!(children.first(), Some(Node::ViewInsets { child, .. }) if matches!(child.as_ref(), Node::Form { .. }))
+        );
 
         let swift = SwiftBackend.generate(&module);
         let kotlin = KotlinBackend.generate(&module);
-        assert_eq!(
-            swift
-                .matches("NexaSafeAreaPaddingPrimitive(edges: [.bottom]")
-                .count(),
-            2
+        assert!(
+            swift.contains("NexaSafeAreaInsetPrimitive(edge: .bottom, accommodatesEndpoint: true)")
         );
-        assert_eq!(
-            kotlin
-                .matches("NexaSafeAreaPaddingPrimitive(edges = setOf(NexaSafeAreaEdge.Bottom)")
-                .count(),
-            2
+        assert!(kotlin.contains(
+            "NexaSafeAreaInsetPrimitive(edge = NexaSafeAreaEdge.Bottom, accommodatesEndpoint = true"
+        ));
+        assert!(swift.contains("nexaWindowMetrics.safeInsets.logical(layoutDirection).top"));
+        assert!(
+            kotlin.contains("LocalNexaWindowMetrics.current.systemInset(NexaSafeAreaEdge.Leading")
         );
-        assert!(swift.contains("safeInsets.removing(edges)"));
-        assert!(kotlin.contains("nexaSafeAreaDynamicInsets()"));
-        assert!(kotlin.contains("parent.copy(consumed = parent.consumed + selectedSafe)"));
     }
 }
 
@@ -204,7 +437,7 @@ fn safe_area_inset_places_content_without_a_scroll_owner_and_records_unique_owne
                 Text("Viewer")
                 Text("Cover artwork")
             }
-                .safeAreaInset(edge: Bottom, spacing: 8) { Button("Close") { } }
+                .safeAreaInset(edge: Bottom) { Button("Close") { } }
         }
     }"#;
     let module = compile(no_owner, Target::Kotlin)
@@ -214,12 +447,11 @@ fn safe_area_inset_places_content_without_a_scroll_owner_and_records_unique_owne
         panic!("expected typed safe-area inset IR");
     };
     assert_eq!(plan.edge, LayoutEdge::Bottom);
-    assert_eq!(plan.spacing, 8.0);
     assert!(matches!(plan.scroll_owner, ScrollOwnerResolution::None));
     assert!(matches!(content.first(), Some(Node::Button { .. })));
     let kotlin = KotlinBackend.generate(&module);
     let swift = SwiftBackend.generate(&module);
-    assert!(swift.contains(".preferredColorScheme(.dark)"));
+    assert!(swift.contains(".modifier(NexaStatusBarStylePrimitive(colorScheme: .dark))"));
     assert!(kotlin.contains("nexaController.isAppearanceLightStatusBars = false"));
     assert!(kotlin.contains("accommodatesEndpoint = false"));
     assert!(swift.contains("accommodatesEndpoint: false"));
@@ -237,8 +469,8 @@ fn safe_area_inset_places_content_without_a_scroll_owner_and_records_unique_owne
     );
     assert!(swift.contains(".ignoresSafeArea(.container, edges: .all)"));
     assert!(kotlin.contains("SubcomposeLayout"));
-    assert!(swift.contains(".modifier(NexaSafeAreaEdgePadding(edge: edge, amount: safeInsets.value(at: edge)))"));
-    assert!(swift.contains(".modifier(NexaSafeAreaEdgePadding(edge: edge, amount: spacing))"));
+    assert!(!swift.contains("NexaSafeAreaEdgePadding"));
+    assert!(swift.contains("content.safeAreaInset(edge: .bottom, spacing: 0)"));
     assert!(kotlin.contains("val safe = safeInsets.get(edge)"));
 
     let with_owner = r#"app Feed {
@@ -261,14 +493,12 @@ fn safe_area_inset_places_content_without_a_scroll_owner_and_records_unique_owne
     ));
     let swift = SwiftBackend.generate(&module);
     let kotlin = KotlinBackend.generate(&module);
-    assert!(swift.contains(
-        "NexaSafeAreaInsetPrimitive(edge: .bottom, spacing: 0, accommodatesEndpoint: true)"
-    ));
+    assert!(
+        swift.contains("NexaSafeAreaInsetPrimitive(edge: .bottom, accommodatesEndpoint: true)")
+    );
     assert!(kotlin.contains("accommodatesEndpoint = true"));
     assert!(kotlin.contains("consumed = parent.consumed.offset(edge, safe)"));
-    assert!(kotlin.contains(
-        "contentPadding = nexaSafeAreaContentPadding(\"Vertical\", includeVisualSafeInsets = true)"
-    ));
+    assert!(!kotlin.contains("contentPadding = nexaSafeAreaContentPadding"));
     assert!(kotlin.contains(
         "modifier = nexaSafeAreaScrollViewportModifier(\"Vertical\").then(Modifier.fillMaxWidth())"
     ));
@@ -276,7 +506,7 @@ fn safe_area_inset_places_content_without_a_scroll_owner_and_records_unique_owne
     assert!(kotlin.contains("internal fun nexaSafeAreaScrollViewportModifier("));
     assert!(kotlin.contains("bottom = if (vertical) endpoint.bottom else 0.dp"));
     assert!(kotlin.contains("val safeContextForAttachment = parent.copy("));
-    assert!(kotlin.contains("val attachedSpacing = if (accommodatesEndpoint) 0.dp else spacing"));
+    assert!(kotlin.contains("val occupied = safe + attachmentSize"));
 }
 
 #[test]
@@ -293,7 +523,7 @@ fn safe_area_inset_around_navigation_stack_reserves_route_local_lists() {
         }
         body {
             NavigationStack(root: Home)
-                .safeAreaInset(edge: Bottom, spacing: 0) { Button("Library") { } }
+                .safeAreaInset(edge: Bottom) { Button("Library") { } }
         }
     }"#;
     let module = compile(source, Target::Kotlin)
@@ -381,14 +611,13 @@ fn page_snapping_fast_list_uses_a_reserved_scroll_viewport() {
         kotlin
             .contains("modifier = nexaSafeAreaScrollViewportModifier(\"Vertical\").fillMaxSize()")
     );
-    assert!(kotlin.contains(
-        "contentPadding = nexaSafeAreaContentPadding(\"Vertical\", includeVisualSafeInsets = false)"
-    ));
+    assert!(!kotlin.contains("contentPadding = nexaSafeAreaContentPadding"));
+    assert!(kotlin.contains("NexaSafeAreaProvider {"));
     assert!(kotlin.contains("NexaSafeAreaInsetPrimitive("));
 }
 
 #[test]
-fn fast_list_content_respects_remaining_visual_safe_insets_by_default() {
+fn fast_list_content_is_edge_to_edge_without_explicit_safe_area_padding() {
     let source = r#"app Feed {
         body {
             FastList(count: 4) { index in Text("Article \(index + 1)") }
@@ -398,31 +627,42 @@ fn fast_list_content_respects_remaining_visual_safe_insets_by_default() {
         .expect("a standard fast list should compile")
         .module;
     let kotlin = KotlinBackend.generate(&module);
-    assert!(kotlin.contains(
-        "contentPadding = nexaSafeAreaContentPadding(\"Vertical\", includeVisualSafeInsets = true)"
-    ));
-    assert!(kotlin.contains(
-        "val remaining = if (includeVisualSafeInsets) nexaSafeAreaDynamicInsets() else NexaSafeAreaInsets()"
-    ));
-    assert!(kotlin.contains("top = if (vertical) remaining.top else 0.dp"));
+    assert!(!kotlin.contains("nexaSafeAreaContentPadding"));
+    assert!(kotlin.contains("NexaSafeAreaProvider {"));
+    assert!(kotlin.contains("bottom = if (vertical) endpoint.bottom else 0.dp"));
 }
 
 #[test]
 fn invalid_safe_area_edges_and_spacing_are_rejected_during_semantic_lowering() {
-    for source in [
+    let error = match compile(
         r#"app BadEdge { body { Text("X").safeAreaInset(edge: Center) { Text("Y") } } }"#,
-        r#"app BadSpacing { body { Text("X").safeAreaPadding(spacing: -4) } }"#,
-    ] {
-        let error = match compile(source, Target::Swift) {
-            Ok(_) => panic!("invalid layout values should fail"),
-            Err(error) => error,
-        };
-        assert!(
-            error.message.contains("safe-area edge") || error.message.contains("spacing"),
-            "unexpected error: {}",
-            error.message
-        );
-    }
+        Target::Swift,
+    ) {
+        Ok(_) => panic!("invalid safe-area edges should be rejected"),
+        Err(error) => error,
+    };
+    assert!(error.message.contains("safe-area edge"), "{error}");
+
+    let spacing_error = match compile(
+        r#"app RemovedInsetSpacing { body { Text("X").safeAreaInset(edge: Bottom, spacing: 8) { Text("Y") } } }"#,
+        Target::Swift,
+    ) {
+        Ok(_) => panic!("safe-area inset spacing should no longer be accepted"),
+        Err(error) => error,
+    };
+    assert!(spacing_error.message.contains("spacing"), "{spacing_error}");
+}
+
+#[test]
+fn removed_safe_area_modifier_is_not_accepted() {
+    let error = match compile(
+        r#"app RemovedSafeAreaApi { body { Text("X").safeAreaPadding(edges: [Top]) } }"#,
+        Target::Swift,
+    ) {
+        Ok(_) => panic!("removed safe-area modifiers should be rejected"),
+        Err(error) => error,
+    };
+    assert!(!error.message.contains("SystemInsets"), "{error}");
 }
 
 #[test]

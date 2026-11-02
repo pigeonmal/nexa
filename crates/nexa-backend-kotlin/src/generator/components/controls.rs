@@ -2,8 +2,41 @@ use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
     Action, AnimationEasing, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle,
-    Module, Node, SystemIcon, TaskExecutor,
+    Module, Node, ScreenId, SystemIcon, TaskExecutor,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    static KNOWN_SCREENS: RefCell<HashMap<String, ScreenId>> = RefCell::new(HashMap::new());
+}
+
+pub(crate) fn register_known_screens(screens: &[nexa_ir::Screen]) {
+    KNOWN_SCREENS.with(|cell| {
+        let mut map = cell.borrow_mut();
+        map.clear();
+        for screen in screens {
+            map.insert(screen.name.clone(), screen.id);
+            map.insert(format!("screen_{}", screen.id.0), screen.id);
+            map.insert(format!("screen{}", screen.id.0), screen.id);
+            map.insert(format!("nexa_screen_{}", screen.id.0), screen.id);
+        }
+    });
+}
+
+pub(crate) fn resolve_screen_id(key: &str) -> Option<ScreenId> {
+    KNOWN_SCREENS.with(|cell| {
+        let map = cell.borrow();
+        if let Some(id) = map.get(key) {
+            return Some(*id);
+        }
+        key.strip_prefix("nexa_screen_")
+            .or_else(|| key.strip_prefix("screen_"))
+            .or_else(|| key.strip_prefix("screen"))
+            .and_then(|idx| idx.parse::<usize>().ok())
+            .map(ScreenId)
+    })
+}
 
 use crate::generator::{
     components::render_children, expressions::expression, features::Features, utils::indent,
@@ -1471,6 +1504,122 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
             Action::NavigationBack => {
                 out.line_at(depth, format_args!("navController.popBackStack()"));
             }
+            Action::NavigationCommand(cmd) => match cmd.as_ref() {
+                nexa_ir::NavigationCommand::Push {
+                    route, arguments, ..
+                } => {
+                    let dest = route.as_str();
+                    let screen_id = resolve_screen_id(dest);
+                    if let Some(screen_id) = screen_id {
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "navController.navigate({})",
+                                super::navigation::action_route_value(screen_id, arguments)
+                            ),
+                        );
+                    } else if arguments.is_empty() {
+                        out.line_at(depth, format_args!("navController.navigate(\"{dest}\")"));
+                    } else {
+                        let mut value = format!("\"{dest}\"");
+                        for arg in arguments {
+                            value.push_str(" + \"/\" + Uri.encode(");
+                            value.push_str(&expression(arg));
+                            value.push_str(".toString())");
+                        }
+                        out.line_at(depth, format_args!("navController.navigate({value})"));
+                    }
+                }
+                nexa_ir::NavigationCommand::Pop { .. } => {
+                    out.line_at(depth, format_args!("navController.popBackStack()"));
+                }
+                nexa_ir::NavigationCommand::PopTo {
+                    entry, inclusive, ..
+                } => {
+                    let entry_str = entry.as_str();
+                    if entry_str.is_empty() {
+                        out.line_at(depth, format_args!("navController.popBackStack()"));
+                    } else if let Some(screen_id) = resolve_screen_id(entry_str) {
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "navController.popBackStack(\"nexa_screen_{}\", {inclusive})",
+                                screen_id.0
+                            ),
+                        );
+                    } else {
+                        out.line_at(
+                            depth,
+                            format_args!("navController.currentBackStack.value.firstOrNull {{ it.id == \"{entry_str}\" || it.destination.route == \"{entry_str}\" }}?.let {{ navController.popBackStack(it.destination.id, {inclusive}) }} ?: run {{ navController.popBackStack(\"{entry_str}\", {inclusive}) }}"),
+                        );
+                    }
+                }
+                nexa_ir::NavigationCommand::ReplaceTop {
+                    route, arguments, ..
+                } => {
+                    let dest = route.as_str();
+                    let screen_id = resolve_screen_id(dest);
+                    out.line_at(depth, format_args!("navController.popBackStack()"));
+                    if let Some(screen_id) = screen_id {
+                        out.line_at(
+                            depth,
+                            format_args!(
+                                "navController.navigate({})",
+                                super::navigation::action_route_value(screen_id, arguments)
+                            ),
+                        );
+                    } else if arguments.is_empty() {
+                        out.line_at(depth, format_args!("navController.navigate(\"{dest}\")"));
+                    } else {
+                        let mut value = format!("\"{dest}\"");
+                        for arg in arguments {
+                            value.push_str(" + \"/\" + Uri.encode(");
+                            value.push_str(&expression(arg));
+                            value.push_str(".toString())");
+                        }
+                        out.line_at(depth, format_args!("navController.navigate({value})"));
+                    }
+                }
+                nexa_ir::NavigationCommand::Reset {
+                    route, arguments, ..
+                } => {
+                    let dest = route.as_str();
+                    let screen_id = resolve_screen_id(dest);
+                    if let Some(screen_id) = screen_id {
+                        let nav_call = super::navigation::action_route_value(screen_id, arguments);
+                        out.line_at(
+                            depth,
+                            format_args!("navController.navigate({nav_call}) {{ popUpTo(0) }}"),
+                        );
+                    } else if arguments.is_empty() {
+                        out.line_at(
+                            depth,
+                            format_args!("navController.navigate(\"{dest}\") {{ popUpTo(0) }}"),
+                        );
+                    } else {
+                        let mut value = format!("\"{dest}\"");
+                        for arg in arguments {
+                            value.push_str(" + \"/\" + Uri.encode(");
+                            value.push_str(&expression(arg));
+                            value.push_str(".toString())");
+                        }
+                        out.line_at(
+                            depth,
+                            format_args!("navController.navigate({value}) {{ popUpTo(0) }}"),
+                        );
+                    }
+                }
+                nexa_ir::NavigationCommand::SelectTab { navigator } => {
+                    let nav = navigator.as_str();
+                    out.line_at(depth, format_args!("NexaRuntime.selectTab(\"{nav}\")"));
+                }
+                nexa_ir::NavigationCommand::OpenExternalRoute { uri } => {
+                    out.line_at(
+                        depth,
+                        format_args!("try {{ navController.context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(\"{uri}\")).apply {{ addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }}) }} catch (_: Exception) {{}}"),
+                    );
+                }
+            },
             Action::Let { name, ty, value } => {
                 out.line_at(
                     depth,

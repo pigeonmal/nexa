@@ -406,7 +406,7 @@ app OrderReferenceSearch {
     state summary: String = "Search has not run"
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text(summary)
             Button("Find order references") {
                 let receipt = "Packed orders: AB-1042 and CD-7715"
@@ -617,33 +617,14 @@ error variants come from the plugin's `.nxid` contract. See
 
 Nexa maps these typed APIs to platform services. Calls that can fail are marked as throwing in the compiler and must be handled with `try`/`catch` or propagated from an async function.
 
-### Responsive layout sizing
+### Unified layout values
 
-`Column`, `Row`, and `Stack` accept `screenWidthFraction: Float64` and `screenHeightFraction: Float64` from `0` through `1`. The native view uses those fractions of the current screen dimensions (points on iOS, `dp` on Android). Do not combine `screenWidthFraction` with `width` or `fillMaxWidth`, or `screenHeightFraction` with `height` or `fillMaxHeight`. `Layout.screenWidth` and `Layout.screenHeight` read the current app viewport in logical points or `dp`; `SafeArea.top` reads the remaining visual top inset in the same units. These values can drive animated style expressions. `Layout.isRegularWidth`, `Layout.isCompactWidth`, `Layout.isRegularHeight`, and `Layout.isCompactHeight` return `Bool` size-class checks.
+`width`, `height`, and their matching `minWidth`, `maxWidth`, `minHeight`, and `maxHeight` use one dimension syntax. A number is a fixed logical size, a percentage uses the parent's available size, `Fill` or `100%` fills a finite parent, and the matching screen-fraction function uses the app window:
 
-This search overlay uses the viewport height and top inset to keep its collapsed shape aligned below the status area while it animates:
-
-```nexa
-app SearchOverlay {
-    state progress: Float64 = 1.0
-    body {
-        Column(
-            fillMaxWidth: true,
-            fillMaxHeight: true,
-            cornerRadius: (1.0 - progress) * 35.1,
-            scaleY: (70.2 + progress * (Layout.screenHeight - 70.2)) / Layout.screenHeight,
-            offsetY: (1.0 - progress) * (SafeArea.top - (Layout.screenHeight - 70.2) / 2.0)
-        ) {
-            Text("Search results")
-        }
-    }
-}
-```
-
-```nexa
+```nx
 app ArtistHero {
     body {
-        Stack(screenHeightFraction: 0.5, background: "#171717") {
+        Stack(width: 100%, height: screenHeightFraction(0.5), background: "#171717") {
             Image(
                 url: "https://cdn.example.com/artists/artist-842/header.jpg",
                 description: "Artist header artwork",
@@ -654,6 +635,32 @@ app ArtistHero {
     }
 }
 ```
+
+Use `width: screenWidthFraction(0.5)` or `height: screenHeightFraction(0.5)` for a fraction of the current window. The same axis functions are accepted by its min/max constraints. Percentages and `Fill` use intrinsic sizing when the parent has no finite size on that axis. Window size and safe insets come from one root snapshot, shared by components and updated on resize or rotation.
+
+`padding` applies inside a component; `margin` applies outside it. A number applies to every edge. Use `Insets(top:, bottom:, leading:, trailing:)`, or the `horizontal:` and `vertical:` pair shorthands for selected edges. Omitted edges are zero, and `leading`/`trailing` follow right-to-left direction. Layout containers and `FastList` use `gap` for child-to-child or item-to-item separation. A child's margin and its parent's gap add together. `Spacer()` expands; `Spacer(height: 24)` is a fixed space.
+
+```nx
+app SearchOverlay {
+    state progress: Float64 = 1.0
+
+    body {
+        Column(
+            width: Fill,
+            height: Fill,
+            padding: Insets(top: SystemInsets.top + 16, horizontal: 20),
+            gap: 12,
+            cornerRadius: (1.0 - progress) * 35.1,
+            scaleY: (70.2 + progress * (Layout.screenHeight - 70.2)) / Layout.screenHeight,
+            offsetY: (1.0 - progress) * (SystemInsets.top - (Layout.screenHeight - 70.2) / 2.0)
+        ) {
+            Text("Search results")
+        }
+    }
+}
+```
+
+`SystemInsets.top`, `.bottom`, `.leading`, and `.trailing` read raw reactive visual safe insets in logical points or `dp`. They do not pad content or consume an edge. Use them explicitly in `padding` or `margin`; backgrounds remain free to draw edge-to-edge. `Layout.screenWidth` and `Layout.screenHeight` read the app viewport. `Layout.isRegularWidth`, `Layout.isCompactWidth`, `Layout.isRegularHeight`, and `Layout.isCompactHeight` return `Bool` size-class checks. Keyboard and gesture insets remain separate.
 
 ### 6.1 `Storage` (Lightweight Key-Value)
 
@@ -784,7 +791,7 @@ app ReadingNotes {
     state saveTask: TaskHandle? = null
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text(status)
             Text(notes)
             Button("Save today's reading note") {
@@ -814,7 +821,7 @@ app CameraPermissionPrompt {
     state permissionTask: TaskHandle? = null
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Button("Enable order-label scanning") {
                 Task.launch(handle: permissionTask, executor: TaskExecutor.Main) {
                     permissionStatus = await Permissions.request(permission: Camera)
@@ -858,7 +865,7 @@ app SettingsBackup {
     state status: String = "Ready to validate settings"
 
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text(status)
             Button("Validate and re-encode") {
                 let parsed: Result<ReaderSettings, JsonError> = Json.parse<ReaderSettings>(raw: raw)

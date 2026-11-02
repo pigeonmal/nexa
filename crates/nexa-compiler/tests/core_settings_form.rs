@@ -81,7 +81,7 @@ fn settings_form_and_labeled_picker_lower_natively_for_both_targets() {
         nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&kotlin_module);
     assert!(kotlin.contains("NexaFormPrimitive(background = Color(0xFFFAFAFA)) {"));
     assert!(kotlin.contains("background = Color(0xFFFFFFFF),"));
-    assert!(kotlin.contains("NexaFormRowPrimitive(minHeight = 56f, horizontalInset = 16f) {"));
+    assert!(kotlin.contains("NexaFormRowPrimitive(minHeight = 50f, horizontalInset = 16f) {"));
     assert_eq!(kotlin.matches("NexaFormDividerPrimitive()").count(), 2);
     let section_title = nexa_codegen::names::localization_resource_name("General");
     assert!(kotlin.contains(&format!(
@@ -157,4 +157,138 @@ fn form_dividers_can_be_disabled_and_section_can_override() {
             assert_eq!(kotlin.matches("NexaFormDividerPrimitive()").count(), 3);
         }
     }
+}
+
+#[test]
+fn form_padding_and_margin_keep_their_authored_values_on_both_targets() {
+    let project = TestProject::new("nexa-form-explicit-insets");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app FormInsets {
+    body {
+        Form(padding: Insets(top: SystemInsets.top), margin: Insets(top: 4)) {
+            Section(title: "Featured") {
+                Text("First setting")
+            }
+        }
+    }
+}
+"#,
+    )
+    .expect("test source should be written");
+
+    let swift_module = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .expect("form insets should compile for iOS")
+        .module;
+    let swift = nexa_backend_swift::SwiftBackend.generate(&swift_module);
+    assert!(
+        swift.contains(
+            "contentPadding: EdgeInsets(top: CGFloat(Double(nexaWindowMetrics.safeInsets.logical(layoutDirection).top))"
+        ),
+        "{swift}"
+    );
+    assert!(
+        swift.contains("margin: EdgeInsets(top: CGFloat(Double(4))"),
+        "{swift}"
+    );
+    assert!(swift.contains("firstChildIsSection: true"), "{swift}");
+    assert!(
+        swift.contains(
+            ".environment(\\.nexaFormTopPadding, firstChildIsSection ? effectivePadding.top : 0)"
+        ),
+        "{swift}"
+    );
+    assert!(
+        swift.contains(".padding(.top, firstHeaderTopPadding)"),
+        "{swift}"
+    );
+    assert!(swift.contains("NexaFormPrimitive("), "{swift}");
+    assert!(!swift.contains("NexaFormScrollInsetsProbe"));
+    assert!(
+        swift.contains(".frame(height: effectivePadding.bottom)"),
+        "{swift}"
+    );
+    assert!(!swift.contains("contentPadding.top - max(0"), "{swift}");
+    assert!(!swift.contains("listSectionMargins(.top"), "{swift}");
+    assert!(!swift.contains("formSectionTopPadding"), "{swift}");
+
+    let kotlin_module = compile_file_with_warnings_for_target(&entry, Target::Kotlin)
+        .expect("form insets should compile for Android")
+        .module;
+    let (kotlin, _) =
+        nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&kotlin_module);
+    assert!(
+        kotlin.contains("contentPadding = androidx.compose.foundation.layout.PaddingValues("),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("LocalNexaWindowMetrics.current.systemInset(NexaSafeAreaEdge.Top"),
+        "{kotlin}"
+    );
+    assert!(kotlin.contains("modifier = Modifier.padding("), "{kotlin}");
+    assert!(
+        kotlin.contains(".verticalScroll(scrollState, enabled = scrollState.maxValue > 0)\n                .padding(effectiveContentPadding)"),
+        "{kotlin}"
+    );
+}
+
+#[test]
+fn scroll_insets_reach_native_content_instead_of_outer_padding() {
+    let project = TestProject::new("nexa-scroll-content-insets");
+    let entry = project.join("App.nx");
+    fs::write(&entry, r#"app ScrollInsets {
+    body {
+        FastList(count: 20, rowHeight: 56, padding: Insets(top: SystemInsets.top, bottom: 12), margin: Insets(top: 4)) {
+            index in
+            Text("Library song \(index)")
+        }
+        Column(padding: 16) { Text("Library controls") }
+    }
+}"#).expect("write scroll inset fixture");
+    let module = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .expect("compile scroll inset fixture")
+        .module;
+    assert!(
+        matches!(&module.body[0], Node::ViewInsets { child, .. } if matches!(child.as_ref(), Node::FastList { .. }))
+    );
+    let swift = nexa_backend_swift::SwiftBackend.generate(&module);
+    assert!(swift.contains("scrollContent: true) {"));
+    assert!(swift.contains("scrollContent: false) {"));
+    assert!(swift.contains("scrollView.contentInset = insets"));
+    assert!(swift.contains("environment: context.environment, reverseLayout: reverseLayout"));
+    assert!(swift.contains("content().environment(\\.nexaScrollContentPadding, padding)"));
+
+    let kotlin_module = compile_file_with_warnings_for_target(&entry, Target::Kotlin)
+        .expect("compile scroll inset fixture for Android")
+        .module;
+    assert!(
+        matches!(&kotlin_module.body[0], Node::ViewInsets { child, .. } if matches!(child.as_ref(), Node::FastList { .. }))
+    );
+    let (kotlin, _) =
+        nexa_backend_kotlin::KotlinBackend.generate_with_project_features(&kotlin_module);
+    assert!(kotlin.contains("scrollContent = true"), "{kotlin}");
+    assert!(
+        kotlin.contains("contentPadding = LocalNexaScrollContentPadding.current"),
+        "{kotlin}"
+    );
+    assert!(
+        kotlin.contains("NexaScrollContentResetPrimitive {"),
+        "{kotlin}"
+    );
+}
+
+#[test]
+fn android_dev_runtime_native_fast_list_preserves_outer_modifier() {
+    let renderer = include_str!("../../../runtime/android/NexaDevRenderer.kt");
+
+    // ViewInsets passes component margin through this modifier. The platform
+    // list branch must keep it outside the scroll viewport just like the
+    // ordinary LazyColumn branch does.
+    assert!(
+        renderer.contains(
+            "modifier.then(scrollViewportModifier).then(NexaNativeListContainerModifier())"
+        )
+    );
+    assert!(!renderer.contains("scrollViewportModifier.then(NexaNativeListContainerModifier())"));
 }

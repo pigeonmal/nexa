@@ -350,7 +350,7 @@ app MasonryScrollExample {
             Button("Show final card") {
                 listRef.scrollToIndex(index: 23)
             }
-            FastList(count: 24, axis: Masonry(2), spacing: 12, ref: listRef) { index in
+            FastList(count: 24, axis: Masonry(2), gap: 12, ref: listRef) { index in
                 Text(index)
             }
         }

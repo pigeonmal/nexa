@@ -171,7 +171,6 @@ fn screen_source_snippets(
         .collect()
 }
 
-
 impl IncrementalProjectCompiler {
     /// Counts source files freshly parsed and reused by the last compilation
     /// attempt. Counts reset for every compile call.
@@ -327,7 +326,10 @@ impl IncrementalProjectCompiler {
         let screen_sources = screen_source_snippets(&app.screens, &self.parsed_sources);
         let app_source = app.source_file.as_deref().and_then(|source_file| {
             let source = self.parsed_sources.get(Path::new(source_file))?;
-            source.source.get(app.span.start..app.span.end).map(|s| s.to_owned())
+            source
+                .source
+                .get(app.span.start..app.span.end)
+                .map(|s| s.to_owned())
         });
         let t_after_snippets = Instant::now();
         let project_load_elapsed = project_load_started.elapsed();
@@ -469,7 +471,9 @@ impl IncrementalProjectCompiler {
             "Nexa project detail timings: load_file {} ms, assemble {} ms, snippets {} ms, plugins {} ms",
             t_after_load.duration_since(t_mode_start).as_millis(),
             t_after_assemble.duration_since(t_after_load).as_millis(),
-            t_after_snippets.duration_since(t_after_assemble).as_millis(),
+            t_after_snippets
+                .duration_since(t_after_assemble)
+                .as_millis(),
             t_after_plugins.duration_since(t_after_snippets).as_millis(),
         );
 
@@ -478,7 +482,10 @@ impl IncrementalProjectCompiler {
         }
         if let [target] = targets {
             let res = lower_target(*target, app).map(|compilation| vec![compilation]);
-            eprintln!("Nexa compile mode total: {} ms", t_mode_start.elapsed().as_millis());
+            eprintln!(
+                "Nexa compile mode total: {} ms",
+                t_mode_start.elapsed().as_millis()
+            );
             return res;
         }
 
@@ -1199,11 +1206,9 @@ fn load_file(
     }
 
     let mut program = match context.source_overrides.get(&canonical_path) {
-        Some(source) => {
-            context
-                .compiler
-                .parse_source(&canonical_path, source.clone(), None, 0)?
-        }
+        Some(source) => context
+            .compiler
+            .parse_source(&canonical_path, source.clone(), None, 0)?,
         None => {
             if let Some(cached) = context.compiler.parsed_sources.get(&canonical_path)
                 && let Ok(metadata) = fs::metadata(&canonical_path)

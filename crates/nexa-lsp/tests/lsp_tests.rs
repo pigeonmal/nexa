@@ -67,7 +67,7 @@ fn lsp_reports_clean_diagnostics_for_valid_app() {
 app CounterApp {
     state count: Int32 = 0
     body {
-        Column(spacing: 12) {
+        Column(gap: 12) {
             Text("Count")
             Button("Increment") {
                 count = count + 1

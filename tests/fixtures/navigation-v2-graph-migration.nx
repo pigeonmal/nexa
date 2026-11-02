@@ -1,0 +1,36 @@
+app NavigationGraphMigration {
+    state appCounter: Int32 = 100
+
+    screen PrimaryScreen {
+        state input: String = "active"
+        Column(gap: 8, padding: 16) {
+            Text("Primary Screen")
+            Text("Input: $input")
+            NavigationLink(destination: SecondaryScreen(42)) {
+                Text("Open Secondary")
+            }
+        }
+    }
+
+    screen SecondaryScreen(id: Int32) {
+        state count: Int32 = 5
+        Column(gap: 8, padding: 16) {
+            Text("Secondary ID: $id")
+            Text("Count: $count")
+            Button("Increment") {
+                count = count + 1
+            }
+            NavigationBack(label: "Back")
+        }
+    }
+
+    screen UnrelatedScreen {
+        Column {
+            Text("Unrelated New Screen")
+        }
+    }
+
+    body {
+        NavigationStack(root: PrimaryScreen)
+    }
+}

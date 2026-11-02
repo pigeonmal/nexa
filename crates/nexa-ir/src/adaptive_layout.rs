@@ -104,14 +104,6 @@ pub enum KeyboardBehavior {
     Avoid,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SafeAreaPaddingPlan {
-    pub edges: Vec<LayoutEdge>,
-    /// Additional fixed design spacing, added after the remaining visual safe inset.
-    /// It does not consume or change system insets.
-    pub spacing: f32,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScrollOwnerSelection {
     Automatic,
@@ -121,9 +113,6 @@ pub enum ScrollOwnerSelection {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SafeAreaInsetPlan {
     pub edge: LayoutEdge,
-    /// Fixed gap between the modified view's content endpoint and attached content.
-    /// It remains distinct from visual-safe and attached-content extents.
-    pub spacing: f32,
     /// A unique inferred owner or route host receives endpoint accommodation.
     /// `None` and `Ambiguous` leave placement intact without guessing.
     pub scroll_owner: ScrollOwnerResolution,
@@ -138,7 +127,6 @@ pub struct ScrollHeaderPlan {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AdaptiveViewModifierPlan {
-    SafeAreaPadding(SafeAreaPaddingPlan),
     SafeAreaInset(SafeAreaInsetPlan),
     ScrollHeader(ScrollHeaderPlan),
 }

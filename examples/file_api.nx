@@ -4,7 +4,7 @@ app FileApiExample {
     state contents: String = "A saved reading note"
 
     body {
-        Column(spacing: 12, padding: 16) {
+        Column(gap: 12, padding: 16) {
             Text("Local file API", fontSize: 24, fontWeight: Bold)
             Text(status)
             Text(contents)

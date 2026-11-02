@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use nexa_codegen::SourceWriter;
 use nexa_ir::Expr;
-use nexa_ir::{Alignment, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{Alignment, Dimension, LayoutKind, Module, Node, ViewStyle};
 use nexa_ir::{AnimationEasing, AnimationSpec};
 
 use crate::generator::{
@@ -255,6 +255,7 @@ pub(crate) struct FormSectionRenderOptions<'a> {
     pub(crate) footer: Option<&'a Expr>,
     pub(crate) comment: Option<&'a str>,
     pub(crate) show_dividers: bool,
+    pub(crate) is_first_section: bool,
     pub(crate) background: Option<nexa_ir::ColorValue>,
 }
 
@@ -275,6 +276,10 @@ pub(crate) fn render_form_section(
                 .map(crate::generator::engine::colors::expression)
                 .unwrap_or_else(|| "nil".to_owned())
         ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("isFirstSection: {},", options.is_first_section),
     );
     out.line_at(depth + 1, format_args!("content: {{"));
     for (index, child) in children.iter().enumerate() {
@@ -339,9 +344,6 @@ fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle, frame_a
     // Compose measures layout children within the remaining constrained height.
     if style.max_height.is_some() {
         append_modifier(out, depth, "clipped()");
-    }
-    if let Some(padding) = style.padding {
-        append_modifier(out, depth, &format!("padding({})", number(padding)));
     }
     // Keep the animated measurement inside the fill and border modifiers.
     // This makes the visible surface follow the interpolated size, matching
@@ -455,24 +457,20 @@ pub(crate) fn append_size_modifiers(
     frame_alignment: &str,
 ) {
     let mut bounds = Vec::with_capacity(6);
-    if let Some(min_width) = style.min_width {
-        bounds.push(format!("minWidth: {}", number(min_width)));
-    } else if style.fill_max_width {
+    append_swift_dimension_bound(&mut bounds, "minWidth", style.min_width, true, true);
+    append_swift_dimension_bound(&mut bounds, "maxWidth", style.max_width, true, false);
+    append_swift_dimension_bound(&mut bounds, "minHeight", style.min_height, false, true);
+    append_swift_dimension_bound(&mut bounds, "maxHeight", style.max_height, false, false);
+    if matches!(style.width, Some(Dimension::Fill)) && style.min_width.is_none() {
         bounds.push("minWidth: 0".to_owned());
     }
-    if let Some(max_width) = style.max_width {
-        bounds.push(format!("maxWidth: {}", number(max_width)));
-    } else if style.fill_max_width {
+    if matches!(style.width, Some(Dimension::Fill)) && style.max_width.is_none() {
         bounds.push("maxWidth: .infinity".to_owned());
     }
-    if let Some(min_height) = style.min_height {
-        bounds.push(format!("minHeight: {}", number(min_height)));
-    } else if style.fill_max_height {
+    if matches!(style.height, Some(Dimension::Fill)) && style.min_height.is_none() {
         bounds.push("minHeight: 0".to_owned());
     }
-    if let Some(max_height) = style.max_height {
-        bounds.push(format!("maxHeight: {}", number(max_height)));
-    } else if style.fill_max_height {
+    if matches!(style.height, Some(Dimension::Fill)) && style.max_height.is_none() {
         bounds.push("maxHeight: .infinity".to_owned());
     }
     if !bounds.is_empty() {
@@ -482,14 +480,12 @@ pub(crate) fn append_size_modifiers(
             &format!("frame({}, alignment: {frame_alignment})", bounds.join(", ")),
         );
     }
-    let responsive_width = style
-        .screen_width_fraction
-        .map(|fraction| format!("UIScreen.main.bounds.width * {}", number(fraction)));
-    let responsive_height = style
-        .screen_height_fraction
-        .map(|fraction| format!("UIScreen.main.bounds.height * {}", number(fraction)));
-    let frame_width = style.width.map(number).or(responsive_width);
-    let frame_height = style.height.map(number).or(responsive_height);
+    let frame_width = style
+        .width
+        .and_then(|value| swift_dimension_value(value, true));
+    let frame_height = style
+        .height
+        .and_then(|value| swift_dimension_value(value, false));
     if let (Some(width), Some(height)) = (frame_width.as_deref(), frame_height.as_deref()) {
         append_modifier(
             out,
@@ -508,6 +504,79 @@ pub(crate) fn append_size_modifiers(
             depth,
             &format!("frame(height: {height}, alignment: {frame_alignment})"),
         );
+    }
+    let relative_args = [
+        ("width", style.width),
+        ("height", style.height),
+        ("minWidth", style.min_width),
+        ("maxWidth", style.max_width),
+        ("minHeight", style.min_height),
+        ("maxHeight", style.max_height),
+    ]
+    .into_iter()
+    .filter_map(|(name, dimension)| match dimension {
+        Some(Dimension::ParentFraction(fraction)) => Some(format!("{name}: {}", number(fraction))),
+        _ => None,
+    })
+    .collect::<Vec<_>>();
+    if !relative_args.is_empty() {
+        append_modifier(
+            out,
+            depth,
+            &format!(
+                "modifier(NexaParentRelativeDimensionModifier({}))",
+                relative_args.join(", ")
+            ),
+        );
+    }
+}
+
+fn append_swift_dimension_bound(
+    bounds: &mut Vec<String>,
+    name: &str,
+    dimension: Option<Dimension>,
+    width_axis: bool,
+    minimum: bool,
+) {
+    let Some(dimension) = dimension else { return };
+    if matches!(dimension, Dimension::ParentFraction(_)) {
+        return;
+    }
+    let value = match dimension {
+        Dimension::Fixed(value) => number(value),
+        Dimension::Fill => {
+            if minimum {
+                "0".to_owned()
+            } else {
+                ".infinity".to_owned()
+            }
+        }
+        Dimension::ScreenWidthFraction(fraction) if width_axis => format!(
+            "nexaWindowMetrics.viewportSize.width * {}",
+            number(fraction)
+        ),
+        Dimension::ScreenHeightFraction(fraction) if !width_axis => format!(
+            "nexaWindowMetrics.viewportSize.height * {}",
+            number(fraction)
+        ),
+        _ => return,
+    };
+    bounds.push(format!("{name}: {value}"));
+}
+
+fn swift_dimension_value(dimension: Dimension, width_axis: bool) -> Option<String> {
+    match dimension {
+        Dimension::Fixed(value) => Some(number(value)),
+        Dimension::ScreenWidthFraction(fraction) if width_axis => Some(format!(
+            "nexaWindowMetrics.viewportSize.width * {}",
+            number(fraction)
+        )),
+        Dimension::ScreenHeightFraction(fraction) if !width_axis => Some(format!(
+            "nexaWindowMetrics.viewportSize.height * {}",
+            number(fraction)
+        )),
+        Dimension::Fill | Dimension::ParentFraction(_) => None,
+        _ => None,
     }
 }
 
@@ -655,18 +724,42 @@ mod tests {
     use crate::generator::{components::RenderScope, features::Features};
     use nexa_codegen::SourceWriter;
     use nexa_ir::{
-        AnimationSpec, Expr, LayoutKind, Module, Node, TextStyle, ToolbarPlacement, ViewStyle,
+        AnimationSpec, Dimension, Expr, LayoutKind, Module, Node, TextStyle, ToolbarPlacement,
+        ViewStyle,
     };
+
+    #[test]
+    fn screen_fraction_dimensions_use_the_edge_to_edge_viewport() {
+        let style = ViewStyle {
+            width: Some(Dimension::ScreenWidthFraction(0.9)),
+            height: Some(Dimension::ScreenHeightFraction(0.12)),
+            ..ViewStyle::default()
+        };
+        let mut output = SourceWriter::new();
+
+        append_size_modifiers(&mut output, 0, &style, ".center");
+
+        let generated = output.finish();
+        assert!(
+            generated.contains("nexaWindowMetrics.viewportSize.width * 0.9"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("nexaWindowMetrics.viewportSize.height * 0.12"),
+            "{generated}"
+        );
+        assert!(!generated.contains("UIScreen.main.bounds"), "{generated}");
+    }
 
     #[test]
     fn fixed_dimensions_are_not_expanded_by_flexible_bounds() {
         let style = ViewStyle {
-            width: Some(240.0),
-            height: Some(72.0),
-            min_width: Some(220.0),
-            max_width: Some(260.0),
-            min_height: Some(64.0),
-            max_height: Some(80.0),
+            width: Some(Dimension::Fixed(240.0)),
+            height: Some(Dimension::Fixed(72.0)),
+            min_width: Some(Dimension::Fixed(220.0)),
+            max_width: Some(Dimension::Fixed(260.0)),
+            min_height: Some(Dimension::Fixed(64.0)),
+            max_height: Some(Dimension::Fixed(80.0)),
             ..ViewStyle::default()
         };
         let mut output = SourceWriter::new();
@@ -688,8 +781,8 @@ mod tests {
     #[test]
     fn size_frames_preserve_layout_alignment_and_column_top_origin() {
         let style = ViewStyle {
-            width: Some(220.0),
-            max_height: Some(68.0),
+            width: Some(Dimension::Fixed(220.0)),
+            max_height: Some(Dimension::Fixed(68.0)),
             ..ViewStyle::default()
         };
         let mut output = SourceWriter::new();
@@ -703,10 +796,9 @@ mod tests {
     }
 
     #[test]
-    fn bounded_layout_clips_children_before_padding() {
+    fn bounded_layout_clips_children_after_sizing() {
         let style = ViewStyle {
-            max_height: Some(68.0),
-            padding: Some(6.0),
+            max_height: Some(Dimension::Fixed(68.0)),
             ..ViewStyle::default()
         };
         let mut output = SourceWriter::new();
@@ -720,17 +812,13 @@ mod tests {
         let clip = generated
             .find(".clipped()")
             .expect("clip overflowing children");
-        let padding = generated
-            .find(".padding(6)")
-            .expect("preserve outer padding");
-        assert!(frame < clip && clip < padding);
+        assert!(frame < clip);
     }
 
     #[test]
-    fn content_size_animation_wraps_padding_before_background() {
+    fn content_size_animation_wraps_size_before_background() {
         let style = ViewStyle {
-            min_height: Some(36.0),
-            padding: Some(4.0),
+            min_height: Some(Dimension::Fixed(36.0)),
             background: Some(nexa_ir::ColorValue::Static(nexa_ir::Color {
                 red: 242,
                 green: 242,
@@ -746,12 +834,11 @@ mod tests {
 
         let generated = output.finish();
         let minimum = generated.find(".frame(minHeight: 36").unwrap();
-        let padding = generated.find(".padding(4)").unwrap();
         let animation = generated
             .find(".modifier(NexaAnimateContentSizeModifier(animation: .timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.3)))")
             .unwrap();
         let background = generated.find(".background(").unwrap();
-        assert!(minimum < padding && padding < animation && animation < background);
+        assert!(minimum < animation && animation < background);
     }
 
     #[test]
@@ -1075,6 +1162,7 @@ mod tests {
                 footer: None,
                 comment: None,
                 show_dividers: true,
+                is_first_section: false,
                 background: None,
             },
             &children,
